@@ -18,8 +18,16 @@ class AgentComplianceController extends Controller
 
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
 
-        // Get all active agents
+        // Get all active agents — SECURITY FIX 2026-09-28 (Johan): this query
+        // previously had NO agency_id filter at all. agencyMembers() only
+        // excludes owner-flagged roles, it does not scope by agency, so
+        // $agencyId (computed above) was silently dead code and every owner/
+        // super_admin viewer saw every agency's users on this one screen —
+        // confirmed on QA1: 97 users across 62 agencies instead of the
+        // viewing admin's own ~30. Fixed the same way PractitionerFfcRosterService
+        // and AgentFfcRosterService already scope their equivalent rosters.
         $agents = User::agencyMembers()
+            ->where('agency_id', $agencyId)
             ->where('is_active', true)
             ->where('is_assistant', false) // AT-267: assistants are not agents in the compliance roster
             ->whereNull('deleted_at')

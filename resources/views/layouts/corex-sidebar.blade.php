@@ -1123,6 +1123,38 @@
                 <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
                 @endpermission
 
+                {{-- .ai/specs/leases.md — the spine of rentals: property + tenant(s) +
+                     terms, with in-inspection/out-inspection/work-orders all hanging
+                     off it. Same-day nav entry per non-negotiable #2. --}}
+                @permission('leases.view')
+                <a href="{{ route('corex.leases.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
+                @endpermission
+
+                {{-- .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
+                     every inspection; recording actually happens on the property's
+                     Rental Images tab. Same-day nav entry per non-negotiable #2. --}}
+                @permission('rental_inspections.view')
+                <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
+                @endpermission
+
+                {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "theres no
+                     seperate inventory left pane menu item. it lives on a property."
+                     Removed intentionally — reached only from a property's own
+                     Inventory link (properties/show.blade.php), never the sidebar. --}}
+
+                {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
+                     record (settled 2026-09-24/25), not a tab within work orders. Same-day
+                     nav entry per non-negotiable #2. --}}
+                @permission('rental_fault_reports.view')
+                <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}">Rental Fault Reports</a>
+                @endpermission
+
+                {{-- .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work
+                     orders themselves. Same-day nav entry per non-negotiable #2. --}}
+                @permission('rental_work_orders.view')
+                <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
+                @endpermission
+
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif
@@ -2285,6 +2317,17 @@
         </a>
         @endpermission
         @endfeature
+
+        {{-- PPRA Inspection Pack — pure Admin feature (Johan's ruling 2026-09-28),
+             admin/super_admin only, never nested under Compliance. --}}
+        @permission('ppra_inspection_pack.view')
+        <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ppra-inspection-pack.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <span>PPRA Inspection Pack</span>
+        </a>
+        @endpermission
 
         {{-- Ellie Reference Sources (ellie-reference-sources spec) — super_admin only --}}
         @permission('manage_reference_sources')

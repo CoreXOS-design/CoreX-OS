@@ -334,6 +334,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\SeedDefaultRentalApplicationDeclineReasonTemplates::class,
         );
+        // AT-430, 2026-09-24 — same signal, same established mechanism, one
+        // more independent reaction: seeds Sherry's default checklist
+        // template (sections + items) for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalApplicationChecklistTemplate::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,
@@ -1078,6 +1085,37 @@ class AppServiceProvider extends ServiceProvider
             return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
                 ->by('rental-application-show:' . $token)
                 ->response(fn () => response()->view('rental-applications.public.unavailable', [
+                    'reason' => 'rate_limited',
+                ], 429));
+        });
+
+        // Johan, 2026-09-23 — the rental-inspection public report link,
+        // same token-keyed reasoning as rental-application-show above (a
+        // tenant reloading on bad mobile data must never collide with
+        // another tenant sharing the same carrier IP). Not agency-
+        // configurable — a much smaller, lower-stakes surface than the
+        // whole application flow (read-only, one page, nothing to submit)
+        // — a fixed, generous budget rather than a new setting for it.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inspection-public-show', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)
+                ->by('rental-inspection-public-show:' . $token)
+                ->response(fn () => response()->view('rental-inspections.public.unavailable', [
+                    'reason' => 'rate_limited',
+                ], 429));
+        });
+
+        // §41-follow-up (Job 3, 2026-09-28) — the rental-inventory public
+        // report link, same reasoning and budget as the inspection one
+        // directly above — mirrored, not shared, since each token is
+        // scoped to its own route parameter.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inventory-public-show', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)
+                ->by('rental-inventory-public-show:' . $token)
+                ->response(fn () => response()->view('rental-inspections.public.unavailable', [
                     'reason' => 'rate_limited',
                 ], 429));
         });

@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
+use App\Models\RentalApplicationDeclineReasonTemplate;
 use App\Models\RentalApplicationDocumentHighlight;
 use App\Models\RentalApplicationDocumentMark;
 use App\Models\RentalApplicationDocumentRequirement;
@@ -454,11 +455,89 @@ class RentalApplicationReviewController extends Controller
             ])
             ->values();
 
+        // .ai/specs/rental-application-field-config.md, staff-facing
+        // follow-up 2026-09-20 — RentalApplication::displayFieldConfig()
+        // is the ONE resolver this screen's "Submitted Application"
+        // summary goes through: the frozen snapshot for an already-
+        // submitted application, live settings otherwise. Never re-derived
+        // here — see that method's own docblock for the three-way rule.
+        $fieldConfig = $rentalApplication->displayFieldConfig();
+
+        // AT-430 Part A, 2026-09-24 — one-step approval. Johan, via Sherry
+        // (single-person Cape Town agency): "the same person handles and
+        // approves applications." $canApproveDirectly replaces "Submit for
+        // approval" with "Approve application"/"Decline application" IN THE
+        // SAME POSITION — it removes a STEP, never a CHECK: an agent without
+        // RO/CO tier sees "Submit for approval" here regardless of the
+        // agency's setting, exactly as today (mirrors guardNotSelfApproving()
+        // and guardCanDecide()'s own gates on the real decision endpoints —
+        // this is read-only, purely so the button matches what the server
+        // will actually accept; the server checks are what actually decide).
+        $user = $request->user();
+        $selfCreatedBlocked = (int) $rentalApplication->created_by_user_id === (int) $user->id
+            && ! $user->isRentalApplicationOverrideTier($agencyId);
+        $showSubmitOrApprove = ! in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true)
+            && ! $rentalApplication->isPendingAuthorisation();
+        $canApproveDirectly = $showSubmitOrApprove
+            && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
+            && $user->isRentalApplicationAuthoriser($agencyId)
+            && ! $selfCreatedBlocked;
+        // Only needed to populate the Decline modal's reason picker when the
+        // one-step buttons can actually render — same source the authoriser
+        // screen's own Decline modal already reads from.
+        $declineReasonTemplates = $canApproveDirectly
+            ? RentalApplicationDeclineReasonTemplate::activeFor($agencyId)
+            : collect();
+
+        // AT-430 §3.2 amendment, 2026-09-25 — an application that existed
+        // before this feature shipped has no checklist snapshot yet;
+        // create it now, from the agency's current template, before
+        // reading checklistSections below. No-op if one already exists.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::ensureSnapshotFor($rentalApplication);
+
+        // AT-430 §3 — the checklist half of the right-hand panel. Derived
+        // items (Part D) are recomputed against the current lease on every
+        // load, never cached stale between visits.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
+        $checklistSections = \App\Models\RentalApplicationChecklistSection::where('rental_application_id', $rentalApplication->id)
+            ->with(['items.documents' => function ($q) {
+                $q->withTrashed()->orderBy('created_at');
+            }])
+            ->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->map(fn ($section) => [
+                'id' => $section->id,
+                'name' => $section->name,
+                'description' => $section->description,
+                'items' => $section->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'help_text' => $item->help_text,
+                    'note_required' => (bool) $item->note_required,
+                    'document_required' => (bool) $item->document_required,
+                    'is_derived' => (bool) $item->is_derived,
+                    'state' => $item->state,
+                    'note' => $item->note,
+                    'attachments' => $item->documents->whereNull('deleted_at')->map(fn (Document $d) => [
+                        'id' => $d->id,
+                        'name' => $d->original_name,
+                        'view_url' => route('corex.rental-applications.documents.view', [$rentalApplication, $d]),
+                        'remove_url' => route('corex.rental-applications.checklist.items.documents.destroy', [$rentalApplication, $item, $d]),
+                    ])->values(),
+                    'removed_attachments' => $item->documents->whereNotNull('deleted_at')->map(fn (Document $d) => [
+                        'id' => $d->id,
+                        'name' => $d->original_name,
+                        'restore_url' => route('corex.rental-applications.checklist.items.documents.restore', [$rentalApplication, $item, $d]),
+                    ])->values(),
+                ])->values(),
+            ])->values();
+        $panelPreferences = \App\Models\RentalReviewPanelPreference::stateFor($request->user()->id);
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions'
+            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -1275,6 +1354,279 @@ class RentalApplicationReviewController extends Controller
             'statement_months' => $assessment->statement_months,
             'saved_at' => $assessment->updated_at?->toIso8601String(),
         ]);
+    }
+
+    /**
+     * AT-430 §3.2 — Johan's one free-text box PER SECTION ("each section
+     * has a desc where agents can type in what they find"). Same
+     * generation-conflict/locked-screen guards as saveAssessment() above —
+     * this is a review-screen autosave field, not a settings edit.
+     */
+    public function updateChecklistSectionDescription(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistSection $checklistSection)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        abort_unless((int) $checklistSection->rental_application_id === (int) $rentalApplication->id, 404);
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        $validated = $request->validate([
+            'description' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $checklistSection->update([
+            'description' => ($validated['description'] ?? '') === '' ? null : $validated['description'],
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * AT-430 §3.2 — a single checklist item's state/note. Refuses a derived
+     * item outright (Part D, Johan's ruling: "do NOT let an agent set them
+     * by hand" — those three tick themselves off the lease via
+     * RentalApplicationChecklistService::syncDerivedStates(), called from
+     * show() on every page load). §3.3's note_required flag is enforced
+     * here, server-side, not just as a UI hint.
+     */
+    public function updateChecklistItem(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        abort_unless(
+            (int) $checklistItem->section?->rental_application_id === (int) $rentalApplication->id,
+            404,
+        );
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        if ($checklistItem->is_derived) {
+            return response()->json([
+                'error' => 'This item is derived from the lease and cannot be set by hand.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'state' => ['required', 'string', Rule::in(\App\Models\RentalApplicationChecklistItem::STATES)],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $note = ($validated['note'] ?? '') === '' ? null : $validated['note'];
+
+        if ($validated['state'] === \App\Models\RentalApplicationChecklistItem::STATE_DONE) {
+            $error = $this->checklistDoneGate($checklistItem, $note);
+            if ($error !== null) {
+                return response()->json(['error' => $error], 422);
+            }
+        }
+
+        $checklistItem->update([
+            'state' => $validated['state'],
+            'note' => $note,
+            'set_by_user_id' => $request->user()->id,
+            'set_at' => now(),
+        ]);
+
+        return response()->json(['ok' => true, 'state' => $checklistItem->state]);
+    }
+
+    /**
+     * AT-430 Part E, §5 — the two "cannot be marked Done without X" gates
+     * (note_required, document_required), in ONE place so a Done set by
+     * hand (updateChecklistItem() above) and a Done set automatically by
+     * attaching evidence (uploadChecklistItemDocument() below) can never
+     * disagree about what "done" requires. $freshDocumentCount lets the
+     * upload path pass the count it just confirmed exists (the attachment
+     * that triggered this call may not be visible yet to a fresh query
+     * inside the same request depending on transaction state) rather than
+     * re-querying.
+     */
+    private function checklistDoneGate(\App\Models\RentalApplicationChecklistItem $checklistItem, ?string $note, ?int $freshDocumentCount = null): ?string
+    {
+        if ($checklistItem->note_required && $note === null) {
+            return 'Add a note before marking this item done.';
+        }
+
+        $documentCount = $freshDocumentCount ?? $checklistItem->documents()->count();
+        if ($checklistItem->document_required && $documentCount === 0) {
+            return 'Attach a document before marking this item done.';
+        }
+
+        return null;
+    }
+
+    /** Shared ownership guard for the three checklist-item-document endpoints below. */
+    private function guardChecklistItemBelongsToApplication(RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem): void
+    {
+        abort_unless(
+            (int) $checklistItem->section?->rental_application_id === (int) $rentalApplication->id,
+            404,
+        );
+    }
+
+    /**
+     * AT-430 Part E — Johan's own words: "I log into tpn do the
+     * verifications and download the results. then I can attach whilst on
+     * the tpn verification." One document store, two views (design point
+     * 1): this writes into the SAME `documents` table every other
+     * Supporting Document on this application lives in
+     * (source_type/source_id unchanged from uploadDocument() above), only
+     * additionally tagging `checklist_item_id` so it also renders on the
+     * item. Same allowlist, same per-file size cap, same contact/property
+     * pivot sync as uploadDocument() — "follow the existing Supporting
+     * Documents rules exactly" (design constraint), not a second upload
+     * pipeline.
+     *
+     * Design point 3 — "attaching ticks the item": after the file(s) land,
+     * this attempts the SAME done-gate uploadChecklistItem() enforces
+     * (checklistDoneGate() above) — if the item also requires a note that
+     * hasn't been typed yet, the attachment still saves but the item stays
+     * wherever it was, exactly like a manual Done click would refuse
+     * today. Never applies to a derived item — those tick off the lease,
+     * never by hand or by attachment (Part D).
+     */
+    public function uploadChecklistItemDocument(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        $this->guardChecklistItemBelongsToApplication($rentalApplication, $checklistItem);
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        if ($checklistItem->is_derived) {
+            return response()->json([
+                'error' => 'This item is derived from the lease and cannot take an attachment by hand.',
+            ], 422);
+        }
+
+        $request->validate([
+            'files' => ['required', 'array', 'min:1', 'max:10'],
+            'files.*' => ['file', 'mimes:pdf,jpg,jpeg,png,doc,docx', 'max:15360'],
+        ]);
+
+        $filedDocuments = [];
+        foreach ($request->file('files') as $file) {
+            $path = $file->store("rental-applications/{$rentalApplication->id}/documents", 'local');
+
+            $document = Document::create([
+                'original_name' => $file->getClientOriginalName(),
+                'storage_path' => $path,
+                'disk' => 'local',
+                'mime_type' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'source_type' => 'rental_application',
+                'source_id' => $rentalApplication->id,
+                'branch_id' => $rentalApplication->branch_id,
+                'uploaded_by' => $request->user()->id,
+                'checklist_item_id' => $checklistItem->id,
+            ]);
+
+            $document->contacts()->syncWithoutDetaching([$rentalApplication->contact_id]);
+            if ($rentalApplication->property_id) {
+                $document->properties()->syncWithoutDetaching([$rentalApplication->property_id]);
+            }
+
+            $filedDocuments[] = $document;
+        }
+
+        $newState = $checklistItem->state;
+        if ($checklistItem->state !== \App\Models\RentalApplicationChecklistItem::STATE_DONE) {
+            $documentCount = $checklistItem->documents()->count();
+            if ($this->checklistDoneGate($checklistItem, $checklistItem->note, $documentCount) === null) {
+                $checklistItem->update([
+                    'state' => \App\Models\RentalApplicationChecklistItem::STATE_DONE,
+                    'set_by_user_id' => $request->user()->id,
+                    'set_at' => now(),
+                ]);
+                $newState = $checklistItem->state;
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'state' => $newState,
+            'documents' => collect($filedDocuments)->map(fn (Document $d) => [
+                'id' => $d->id,
+                'name' => $d->original_name,
+                'view_url' => route('corex.rental-applications.documents.view', [$rentalApplication, $d]),
+            ]),
+        ]);
+    }
+
+    /**
+     * Remove archives, never hard-deletes (standing rule) — a plain
+     * SoftDeletes ->delete(), same as every other archive action in this
+     * codebase. The item's own state is left exactly as it was: "He can
+     * still untick if it was the wrong file" (design point 3) is a
+     * separate, manual action from removing the file — the two are not
+     * coupled.
+     */
+    public function removeChecklistItemDocument(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem, Document $document)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        $this->guardChecklistItemBelongsToApplication($rentalApplication, $checklistItem);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+        abort_unless((int) $document->checklist_item_id === (int) $checklistItem->id, 404);
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        $document->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** Full CRUD floor (BUILD_STANDARD §1a) — the restore half of remove above. */
+    public function restoreChecklistItemDocument(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem, int $document)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        $this->guardChecklistItemBelongsToApplication($rentalApplication, $checklistItem);
+
+        $row = Document::withTrashed()->findOrFail($document);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $row);
+        abort_unless((int) $row->checklist_item_id === (int) $checklistItem->id, 404);
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        $row->restore();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * AT-430 §3.1 — "Open/collapsed state is remembered per user per
+     * section." panel_key is either 'finances'/'checklist' (the two
+     * top-level sections) or 'checklist_section_{id}' (a checklist
+     * sub-section) — validated as a bare word/underscore/digit string,
+     * never trusted as a literal key without that shape check, since it
+     * writes into a JSON map with no further validation of its content.
+     */
+    public function updatePanelPreference(Request $request)
+    {
+        $validated = $request->validate([
+            'panel_key' => ['required', 'string', 'max:60', 'regex:/^[a-z0-9_]+$/'],
+            'open' => ['required', 'boolean'],
+        ]);
+
+        \App\Models\RentalReviewPanelPreference::setFor($request->user()->id, $validated['panel_key'], $request->boolean('open'));
+
+        return response()->json(['ok' => true]);
     }
 
     /**

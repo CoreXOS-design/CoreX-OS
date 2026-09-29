@@ -644,10 +644,25 @@ class RentalApplicationSigningController extends Controller
         // agency's own marital status option list (Ruling 1 — converts
         // marital_status from free text to a real select so the spouse
         // condition can actually fire).
-        $requiredFieldKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($application->agency_id);
+        //
+        // .ai/specs/rental-application-field-config.md — reconciled against
+        // hidden_field_keys (effectiveRequiredFieldKeysFor()), not the raw
+        // requiredFieldKeysFor(): a field ticked BOTH compulsory and hidden
+        // must never render as required, since the applicant has no way to
+        // see or fill it in.
+        $requiredFieldKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
         $maritalStatusOptions = \App\Models\RentalApplicationQualifyingSetting::maritalStatusOptionsFor($application->agency_id);
 
-        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds', 'requiredFieldKeys', 'maritalStatusOptions'));
+        // .ai/specs/rental-application-field-config.md — the ONE resolver
+        // every consumer goes through (§6). This IS the editable form, even
+        // on a reopen/resubmit — always the LIVE config, never the stored
+        // snapshot (the snapshot is for read-only historical rendering of
+        // an already-submitted record; a form still being filled in, first
+        // time or again, reflects the agency's config as it stands right
+        // now, and gets a fresh snapshot at the moment it's (re)submitted).
+        $fieldConfig = RentalApplication::resolvedFieldConfigFor($application->agency_id);
+
+        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds', 'requiredFieldKeys', 'maritalStatusOptions', 'fieldConfig'));
     }
 
     /**
@@ -747,10 +762,45 @@ class RentalApplicationSigningController extends Controller
         $input = $request->only(array_keys($rules));
         $input = array_merge($input, RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // custom fields autosave through this SAME endpoint, never a
+        // second save path — merged in alongside the shipped-field rules
+        // so a genuinely invalid entry (wrong type for a number/date
+        // field, an option no longer on the list) is dropped the same
+        // best-effort way an invalid shipped field already is, rather
+        // than failing the whole autosave.
+        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($application->agency_id, $application->id);
+        if (! empty($customFieldRules)) {
+            $customNumberKeys = RentalApplication::customNumberFieldKeysFor($application->agency_id);
+            $input['custom_field_values'] = RentalApplication::sanitizeNumericInput(
+                $request->input('custom_field_values', []),
+                $customNumberKeys
+            );
+            $rules = array_merge($rules, $customFieldRules);
+        }
+
         $validator = \Illuminate\Support\Facades\Validator::make($input, $rules);
         $fields = collect($input)->except($validator->errors()->keys())->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
         $fields = RentalApplication::normalizeStillLiving($fields);
+
+        // Collection::except() only matches exact top-level keys, so a
+        // dotted error key like 'custom_field_values.pet_deposit' above
+        // never actually drops the individual bad entry — it would leave
+        // the whole custom_field_values array (including the invalid
+        // entry) passing through untouched. Pruned explicitly here, then
+        // merged the same never-replace way submit() does.
+        if (array_key_exists('custom_field_values', $fields)) {
+            $failedCustomKeys = collect($validator->errors()->keys())
+                ->filter(fn ($k) => str_starts_with($k, 'custom_field_values.'))
+                ->map(fn ($k) => substr($k, strlen('custom_field_values.')))
+                ->all();
+            $newValues = collect($fields['custom_field_values'] ?? [])
+                ->except($failedCustomKeys)
+                ->map(fn ($v) => $v === '' ? null : $v)
+                ->all();
+            $fields['custom_field_values'] = array_merge($application->custom_field_values ?? [], $newValues);
+        }
 
         $application->fill($fields);
         if ($application->status === 'sent') {
@@ -805,6 +855,19 @@ class RentalApplicationSigningController extends Controller
         // numeric field before validation, same as the agent-side fix.
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
+        // Same RA-02 fix, custom number-type fields — sanitizeNumericInput()
+        // works on a flat array, so this runs against custom_field_values'
+        // own nested array, not the top-level request.
+        $customNumberKeys = RentalApplication::customNumberFieldKeysFor($application->agency_id);
+        if (! empty($customNumberKeys)) {
+            $request->merge([
+                'custom_field_values' => RentalApplication::sanitizeNumericInput(
+                    $request->input('custom_field_values', []),
+                    $customNumberKeys
+                ),
+            ]);
+        }
+
         // BUILD_STANDARD §2 — every field is optional at the STORAGE layer
         // (nullable passes on empty/absent) — that governs what the model
         // will store, not what the business accepts as a complete
@@ -815,8 +878,15 @@ class RentalApplicationSigningController extends Controller
         // landlord/spouse) is only enforced when that group's trigger
         // condition is true for THIS submission — see
         // RentalApplication::submissionValidationRules().
-        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($application->agency_id);
-        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id);
+        //
+        // .ai/specs/rental-application-field-config.md — reconciled against
+        // hidden_field_keys (effectiveRequiredFieldKeysFor()), not the raw
+        // requiredFieldKeysFor(): a field ticked BOTH compulsory and hidden
+        // would otherwise be an unsatisfiable validation rule — required by
+        // the server, invisible on the form, no way for the applicant to
+        // ever pass it.
+        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
+        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id, $application->id);
         $validated = $request->validate($rules, [], $attributes);
 
         $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature'])->all();
@@ -824,6 +894,24 @@ class RentalApplicationSigningController extends Controller
         // string is stored as NULL, never coerced into breaking a date/decimal cast.
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
         $fields = RentalApplication::normalizeStillLiving($fields);
+
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // MERGE into the existing custom_field_values, never replace it.
+        // $validated['custom_field_values'] only ever contains keys for
+        // custom fields that are currently ACTIVE (shown, not retired) —
+        // submissionValidationRules() only adds a rule for those, and
+        // Laravel's validate() drops any input key with no matching rule.
+        // A blind fill() would silently WIPE a retired field's already-
+        // captured answer on the next resubmit; merging keeps every OTHER
+        // key exactly as it was. A key that IS present (an active field,
+        // asked this round) still overwrites, blank included — an
+        // applicant clearing an answer they'd previously given must
+        // actually clear it, not have array_merge silently keep the old
+        // value alive underneath.
+        if (array_key_exists('custom_field_values', $fields)) {
+            $newValues = array_map(fn ($v) => $v === '' ? null : $v, $fields['custom_field_values'] ?? []);
+            $fields['custom_field_values'] = array_merge($application->custom_field_values ?? [], $newValues);
+        }
 
         // Standing rule — transactions roll back clean: the record save,
         // both signature captures, AND (reopen/resubmit, 2026-09-08) the
@@ -855,6 +943,13 @@ class RentalApplicationSigningController extends Controller
             if ($isResubmit) {
                 $application->current_generation = $application->current_generation + 1;
             }
+            // .ai/specs/rental-application-field-config.md §3 — historical
+            // integrity. Frozen here, inside the same save/transaction, on
+            // every submit including a resubmit (a resubmit re-freezes
+            // against whatever the agency's config is NOW, matching how a
+            // reopened application already shows the applicant the LIVE
+            // form, not the stale one from their first attempt).
+            $application->snapshotFieldConfig();
             $application->save();
 
             $this->storeSignature($application, 'declaration', $validated['declaration_signature'] ?? null, $request);
@@ -1421,6 +1516,270 @@ class RentalApplicationSigningController extends Controller
 
         return redirect()->route('rental-applications.public.show', $token)
             ->with('success', 'Document replaced.');
+    }
+
+    // ── Custom field file upload — §7, piece (c)(4) ─────────────────────
+    //
+    // Reuses the SAME Document model, storage convention, allowlist, and
+    // soft-delete rule as the generic supporting-documents methods above —
+    // deliberately NOT a second upload path. What's genuinely different,
+    // and the only reason these three methods exist rather than adding a
+    // branch to the generic ones: a custom field has exactly ONE document
+    // slot (keyed by the field's own key), not an open-ended list, so
+    // "upload" must refuse when the slot is already filled (use replace),
+    // and "replace"/"remove" must also update custom_field_values, which
+    // the generic list has no reason to touch. The GATES — expiry, upload-
+    // window, the return/identity mutation gate, the post-submission lock
+    // — are the exact same private methods the generic ones already call;
+    // looked once at merging the endpoint bodies themselves and concluded
+    // it would tangle two genuinely different concerns (an open list vs a
+    // single named slot) into one method's conditionals, so those stay
+    // separate.
+
+    private function resolveActiveFileCustomField(RentalApplication $application, string $key): \App\Models\RentalApplicationCustomField
+    {
+        $field = \App\Models\RentalApplicationCustomField::activeFor($application->agency_id)
+            ->firstWhere('key', $key);
+
+        abort_unless($field && $field->field_type === \App\Models\RentalApplicationCustomField::TYPE_FILE, 404);
+
+        return $field;
+    }
+
+    /**
+     * The current document for a custom field's slot, or null if empty —
+     * scoped by source AND custom_field_key together (never trusts the
+     * raw custom_field_values[key] id alone), same reasoning as the
+     * validation closure in RentalApplication::customFieldValidationRule().
+     */
+    private function resolveCustomFieldDocument(RentalApplication $application, string $key): ?\App\Models\Document
+    {
+        $documentId = $application->custom_field_values[$key] ?? null;
+        if ($documentId === null) {
+            return null;
+        }
+
+        return \App\Models\Document::where('id', $documentId)
+            ->where('source_type', 'rental_application')
+            ->where('source_id', $application->id)
+            ->where('custom_field_key', $key)
+            ->first();
+    }
+
+    public function uploadCustomFieldDocument(Request $request, string $token, string $customFieldKey)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'This link has expired.'], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
+        if ($application->status === 'draft') {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => "This application hasn't been sent to you yet."], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
+        $field = $this->resolveActiveFileCustomField($application, $customFieldKey);
+
+        // One slot — uploading again over an already-filled slot is a
+        // replace, not an upload. Refused rather than silently creating a
+        // second, orphaned Document nothing ever points back to.
+        if ($this->resolveCustomFieldDocument($application, $customFieldKey)) {
+            $message = "'{$field->label}' already has a file — use Replace instead.";
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message], 422);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:' . self::UPLOAD_MIMES, 'max:' . self::MAX_UPLOAD_SIZE_KB],
+        ], $this->humanUploadValidationMessages());
+
+        $file = $request->file('file');
+        $path = $file->store("rental-applications/{$application->id}/documents", 'local');
+
+        $document = \App\Models\Document::withoutAgencyStamping(fn () => \App\Models\Document::create([
+            'original_name' => $file->getClientOriginalName(),
+            'storage_path' => $path,
+            'disk' => 'local',
+            'mime_type' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'source_type' => 'rental_application',
+            'source_id' => $application->id,
+            'agency_id' => $application->agency_id,
+            'branch_id' => $application->branch_id,
+            'custom_field_key' => $customFieldKey,
+        ]));
+
+        $document->contacts()->syncWithoutDetaching([$application->contact_id]);
+        if ($application->property_id) {
+            $document->properties()->syncWithoutDetaching([$application->property_id]);
+        }
+
+        $application->custom_field_values = array_merge($application->custom_field_values ?? [], [$customFieldKey => $document->id]);
+        if ($application->status === 'sent') {
+            $application->status = 'in_progress';
+        }
+        $application->save();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'document' => [
+                    'id' => $document->id,
+                    'name' => $document->original_name,
+                    'view_url' => route('rental-applications.public.documents.view', [$token, $document->id]),
+                ],
+            ]);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('success', 'File uploaded.');
+    }
+
+    public function replaceCustomFieldDocument(Request $request, string $token, string $customFieldKey)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'This link has expired.'], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
+        $field = $this->resolveActiveFileCustomField($application, $customFieldKey);
+
+        if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => "The documents you submitted with your application are locked and can't be changed."], 423);
+            }
+
+            return $locked;
+        }
+
+        $oldDoc = $this->resolveCustomFieldDocument($application, $customFieldKey);
+        if (! $oldDoc) {
+            $message = "'{$field->label}' has no file yet — use Upload instead.";
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message], 422);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:' . self::UPLOAD_MIMES, 'max:' . self::MAX_UPLOAD_SIZE_KB],
+        ], $this->humanUploadValidationMessages());
+
+        $newDoc = DB::transaction(function () use ($request, $application, $oldDoc, $customFieldKey) {
+            $file = $request->file('file');
+            $path = $file->store("rental-applications/{$application->id}/documents", 'local');
+
+            $newDoc = \App\Models\Document::withoutAgencyStamping(fn () => \App\Models\Document::create([
+                'original_name' => $file->getClientOriginalName(),
+                'storage_path' => $path,
+                'disk' => 'local',
+                'mime_type' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'source_type' => 'rental_application',
+                'source_id' => $application->id,
+                'agency_id' => $application->agency_id,
+                'branch_id' => $application->branch_id,
+                'custom_field_key' => $customFieldKey,
+            ]));
+
+            $newDoc->contacts()->syncWithoutDetaching([$application->contact_id]);
+            if ($application->property_id) {
+                $newDoc->properties()->syncWithoutDetaching([$application->property_id]);
+            }
+
+            $oldDoc->delete();
+
+            $application->custom_field_values = array_merge($application->custom_field_values ?? [], [$customFieldKey => $newDoc->id]);
+            $application->save();
+
+            return $newDoc;
+        });
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'document' => [
+                    'id' => $newDoc->id,
+                    'name' => $newDoc->original_name,
+                    'view_url' => route('rental-applications.public.documents.view', [$token, $newDoc->id]),
+                ],
+                'replaced_id' => $oldDoc->id,
+            ]);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('success', 'File replaced.');
+    }
+
+    public function removeCustomFieldDocument(Request $request, string $token, string $customFieldKey)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'This link has expired.'], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
+        if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => "The documents you submitted with your application are locked and can't be changed."], 423);
+            }
+
+            return $locked;
+        }
+
+        $doc = $this->resolveCustomFieldDocument($application, $customFieldKey);
+        if ($doc) {
+            $doc->delete();
+            $application->custom_field_values = array_merge($application->custom_field_values ?? [], [$customFieldKey => null]);
+            $application->save();
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['message' => 'File removed.']);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('success', 'File removed.');
     }
 
     /**

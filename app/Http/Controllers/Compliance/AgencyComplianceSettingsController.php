@@ -100,7 +100,14 @@ class AgencyComplianceSettingsController extends Controller
             'created_by'              => auth()->id(),
         ]);
 
-        return redirect()->route('compliance.agency-settings.index')->with('success', $label);
+        // redirect()->back() rather than a hardcoded route — 2026-09-28,
+        // PPRA Inspection Pack: this action is now also embedded inline on
+        // /admin/ppra-inspection-pack (an "Upload"/"Replace" form directly
+        // on a red checklist row), which must stay on that page rather than
+        // bouncing to the general vault settings screen. Harmless for the
+        // existing agency-settings page too — it posts to itself, so back()
+        // lands in exactly the same place the hardcoded route did.
+        return redirect()->back()->with('success', $label);
     }
 
     public function edit(AgencyComplianceProvision $provision)

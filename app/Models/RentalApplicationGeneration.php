@@ -47,6 +47,7 @@ class RentalApplicationGeneration extends Model
         'generation',
         'agency_id',
         'snapshot_json',
+        'field_config_snapshot',
         'submitted_at',
         'ip_address',
         'user_agent',
@@ -57,6 +58,7 @@ class RentalApplicationGeneration extends Model
     protected $casts = [
         'generation' => 'integer',
         'snapshot_json' => 'array',
+        'field_config_snapshot' => 'array',
         'submitted_at' => 'datetime',
         'created_at' => 'datetime',
     ];
@@ -122,6 +124,17 @@ class RentalApplicationGeneration extends Model
             ->mapWithKeys(fn ($field) => [$field => $application->getAttribute($field)])
             ->all();
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(3) —
+        // custom field VALUES are applicant-supplied content, the same
+        // legal-record category as every shipped field's own answer —
+        // merged into the SAME $snapshot (never a separate, un-hashed
+        // column the way field_config_snapshot below deliberately is),
+        // so they get the SAME hash-chain tamper-evidence. Collision-safe:
+        // every custom field key is namespaced `custom_...`
+        // (RentalApplicationCustomField::generateKey()), never a real
+        // shipped column name.
+        $snapshot = array_merge($snapshot, $application->custom_field_values ?? []);
+
         $prev = self::latestFor($application->id);
         $prevHash = $prev?->content_hash;
 
@@ -136,11 +149,24 @@ class RentalApplicationGeneration extends Model
         // stamp the switched-to agency onto a sealed, hash-chained record
         // for someone else's application). Verbatim explicit value in, every
         // time, regardless of who/what is calling.
+        // .ai/specs/rental-application-field-config.md, generation-level
+        // follow-up 2026-09-20 — this round's OWN resolved field config
+        // (label/shown/order), frozen alongside the answer values so
+        // generation-show.blade.php never has to guess what the agency's
+        // settings looked like at THIS specific round. Deliberately NOT
+        // folded into content_hash/computeHash() above — the hash makes
+        // the APPLICANT's answers tamper-evident; this is agency-side
+        // display metadata captured for convenience, and hashing it would
+        // mean a routine settings change breaks chain verification on
+        // every past generation.
+        $fieldConfigSnapshot = RentalApplication::resolvedFieldConfigFor($application->agency_id);
+
         return static::withoutAgencyStamping(fn () => self::create([
             'rental_application_id' => $application->id,
             'generation' => $application->current_generation,
             'agency_id' => $application->agency_id,
             'snapshot_json' => $snapshot,
+            'field_config_snapshot' => $fieldConfigSnapshot,
             'submitted_at' => $application->submitted_at ?? now(),
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent(),

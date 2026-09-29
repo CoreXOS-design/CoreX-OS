@@ -23,7 +23,15 @@ class FeedbackReportMail extends Mailable implements ShouldQueue
     public function __construct(
         public object $report,
         public ?User $submitter,
-        public Collection $attachments,
+        // Named feedbackAttachments, not attachments — Illuminate\Mail\Mailable
+        // (the parent class) already declares its own public $attachments
+        // property (array-typed, used internally by attach()); redeclaring it
+        // here with an incompatible type (Collection) is a PHP compile-time
+        // fatal ("Type of ...::$attachments must not be defined"), not
+        // catchable, confirmed via a real subprocess class load. Same bug
+        // class as tonight's five other $queue/Queueable collisions, this
+        // time a parent-class property collision rather than a trait one.
+        public Collection $feedbackAttachments,
     ) {}
 
     public function envelope(): Envelope
@@ -47,7 +55,7 @@ class FeedbackReportMail extends Mailable implements ShouldQueue
             with: [
                 'report' => $this->report,
                 'submitter' => $this->submitter,
-                'feedbackAttachments' => $this->attachments,
+                'feedbackAttachments' => $this->feedbackAttachments,
             ],
         );
     }

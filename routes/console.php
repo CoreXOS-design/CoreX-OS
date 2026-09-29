@@ -344,6 +344,9 @@ Schedule::job(new \App\Jobs\OversightDigestJob())->hourly()->withoutOverlapping(
 // ── Pillar Notifications (notification-preferences spec) ──
 Schedule::command('notifications:scan-properties')->everyThirtyMinutes()->withoutOverlapping();
 Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOverlapping();
+// .ai/specs/rental-work-orders.md §4/§6 — "a tracking way to keep track of
+// work orders," Johan's own words, the overdue half.
+Schedule::command('notifications:scan-rental-work-orders')->everyThirtyMinutes()->withoutOverlapping();
 // Contact birthdays are no longer scanned per-contact — they are delivered as a
 // single "Birthdays today" section in the 06:30 daily digest below (one email
 // per user, never one email per birthday). See SendCalendarDigests.

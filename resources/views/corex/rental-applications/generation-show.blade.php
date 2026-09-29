@@ -56,13 +56,80 @@
                 // RentalApplication::fieldValidationRules() — formatted
                 // explicitly here rather than guessing by regex.
                 $dateFields = ['current_rental_from', 'current_rental_to', 'occupation_date'];
+
+                // .ai/specs/rental-application-field-config.md, generation-
+                // level follow-up 2026-09-20 — THIS generation's own frozen
+                // field config (RentalApplicationGeneration::seal()),
+                // never today's live settings and never
+                // rental_applications.field_config_snapshot (which only
+                // ever holds the LATEST round's config). A generation sealed
+                // before this column existed has field_config_snapshot ===
+                // null — falls back to the exact pre-existing behaviour
+                // (title-cased column name, JSON key order) below.
+                //
+                // Deliberately never gates on 'shown': a field hidden as of
+                // THIS generation may still carry a genuine answer from an
+                // earlier round (seal() freezes every known field's current
+                // value regardless of whether that round's form actually
+                // asked for it) — hidden governs decluttering an EMPTY
+                // field, never suppressing a real one already on file. The
+                // @continue below already drops every empty field, hidden
+                // or not, so this only affects label/order for fields that
+                // DO have a value.
+                // §7, piece (c)(4) — a file-type field's snapshot value is a
+                // Document id, resolved WITH trashed rows: replacing a file
+                // on a LATER round soft-deletes the OLD document, but THIS
+                // generation's own screen must still show what it actually
+                // had at the time — the same "hidden governs decluttering
+                // an empty field, never suppressing a real one already on
+                // file" principle this whole loop already applies, extended
+                // to "replaced governs the LIVE state, never a past one."
+                $genFieldConfig = $sealed->field_config_snapshot;
+                $snapshotRows = collect($sealed->snapshot_json)
+                    ->reject(fn ($value) => is_null($value) || $value === '')
+                    ->map(function ($value, $field) use ($genFieldConfig, $rentalApplication) {
+                        $cfg = $genFieldConfig[$field] ?? null;
+                        $fieldType = $cfg['field_type'] ?? null;
+                        $doc = $fieldType === 'file'
+                            ? \App\Models\Document::withTrashed()
+                                ->where('id', $value)
+                                ->where('source_type', 'rental_application')
+                                ->where('source_id', $rentalApplication->id)
+                                ->where('custom_field_key', $field)
+                                ->first()
+                            : null;
+
+                        return [
+                            'field' => $field,
+                            'value' => $fieldType === 'file' ? $doc : $value,
+                            'label' => $cfg['label'] ?? \Illuminate\Support\Str::headline($field),
+                            'order' => $cfg['order'] ?? 999,
+                            // §7, piece (c)(3) — a custom yes_no field's
+                            // answer is stored as the string "1"/"0", same
+                            // as every checkbox-shaped value elsewhere in
+                            // this module; only a custom field carries its
+                            // own field_type in the frozen config, so a
+                            // shipped field's $cfg simply has none.
+                            'field_type' => $fieldType,
+                        ];
+                    })
+                    // A file whose document was hard-purged some other way
+                    // (never by this module) resolves to null — drop the
+                    // row rather than render a dead reference with nothing
+                    // to link to.
+                    ->reject(fn ($row) => $row['field_type'] === 'file' && $row['value'] === null)
+                    ->values()
+                    ->sortBy('order');
             @endphp
-            @foreach($sealed->snapshot_json as $field => $value)
-                @continue(is_null($value) || $value === '')
+            @foreach($snapshotRows as $row)
+                @php [$field, $value] = [$row['field'], $row['value']]; @endphp
                 <div class="text-xs py-1" style="border-bottom: 1px solid var(--border);">
-                    <span style="color: var(--text-muted);">{{ \Illuminate\Support\Str::headline($field) }}:</span>
+                    <span style="color: var(--text-muted);">{{ $row['label'] }}:</span>
                     <span style="color: var(--text-primary);" class="font-medium">
-                        @if(is_bool($value)) {{ $value ? 'Yes' : 'No' }}
+                        @if($row['field_type'] === 'file')
+                            <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $value]) }}" target="_blank" rel="noopener" style="color: var(--ds-blue, #2563eb);">✓ {{ $value->original_name }}</a>
+                        @elseif(is_bool($value)) {{ $value ? 'Yes' : 'No' }}
+                        @elseif($row['field_type'] === 'yes_no') {{ $value == '1' ? 'Yes' : 'No' }}
                         @elseif(in_array($field, $dateFields, true)) {{ \Illuminate\Support\Carbon::parse($value)->format('d M Y') }}
                         @else {{ $value }}
                         @endif

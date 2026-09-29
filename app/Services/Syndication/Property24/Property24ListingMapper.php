@@ -131,6 +131,14 @@ class Property24ListingMapper
             if ($property->gross_price) $commercial['grossPrice'] = (float) $property->gross_price;
             if ($property->net_price) $commercial['netPrice'] = (float) $property->net_price;
             if ($property->lease_start_date) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
+            // .ai/specs/rental-property-tab.md §5, Part 4 — closes P24-G4
+            // (.ai/audits/syndication-mapping-audit-2026-07-05.md:45): lease_type
+            // is now an agency-editable list (PropertySettingItem::GROUP_LEASE_TYPE)
+            // instead of two divergent hardcoded dropdowns, and this is its first
+            // real syndication consumer. Only sent when it maps cleanly onto P24's
+            // own LeaseType enum — "Gross"/"Modified Gross" have no P24 equivalent
+            // and are silently omitted rather than guessed at.
+            if ($leaseType = $this->mapLeaseType($property->lease_type ?? null)) $commercial['leaseType'] = $leaseType;
 
             // AT-P24 remediation (#9) — previously-UNROUTED commercial amenities
             // with a VERBATIM PropertyFeatures/CommercialInfo home in the v53
@@ -196,6 +204,29 @@ class Property24ListingMapper
             'per sqm', 'per_sqm', 'persqm', 'per m2', 'per_m2',
             'persquaremetre', 'per square metre', 'per square meter'     => 'SquareMetre',
             default                                                      => null,
+        };
+    }
+
+    /**
+     * .ai/specs/rental-property-tab.md §5, Part 4. P24's real LeaseType enum
+     * (storage/p24_swagger.json:4116-4126): Percentage/Net/DoubleNet/TripleNet/
+     * FullyServicedLeaseGross. CoreX's agency-editable list (PropertySettingItem::
+     * GROUP_LEASE_TYPE default rows) includes "Gross" and "Modified Gross" too —
+     * carried forward unchanged from the pre-existing lease-screen wording — but
+     * neither has a real P24 counterpart, so they resolve to null and are simply
+     * not sent, same discipline as mapRentalRate()'s own unmatched default.
+     */
+    private function mapLeaseType(?string $leaseType): ?string
+    {
+        return match (strtolower(trim((string) $leaseType))) {
+            'percentage'                     => 'Percentage',
+            'net'                            => 'Net',
+            'double net', 'double_net'       => 'DoubleNet',
+            'triple net', 'triple_net'       => 'TripleNet',
+            'fully serviced gross',
+            'fully_serviced_gross',
+            'fully serviced lease gross'     => 'FullyServicedLeaseGross',
+            default                          => null,
         };
     }
 

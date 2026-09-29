@@ -221,6 +221,7 @@ class UserManagementController extends Controller
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
             'show_in_performance_reports' => ['nullable', 'in:0,1'],
+            'is_principal_practitioner'   => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'test_agent'      => ['nullable', 'in:0,1'],
@@ -337,6 +338,7 @@ class UserManagementController extends Controller
             'can_capture_rentals'         => isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0,
             'counts_for_branch_split'     => isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0,
             'show_in_performance_reports' => isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0,
+            'is_principal_practitioner'   => isset($data['is_principal_practitioner']) && $data['is_principal_practitioner'] == '1' ? 1 : 0,
             'phone'                       => $data['phone'] ?? null,
             'cell'                        => $data['cell'] ?? null,
             'whatsapp_number'             => $data['whatsapp_number'] ?? null,
@@ -538,6 +540,7 @@ class UserManagementController extends Controller
             'can_capture_rentals'         => ['nullable', 'in:0,1'],
             'counts_for_branch_split'     => ['nullable', 'in:0,1'],
             'show_in_performance_reports' => ['nullable', 'in:0,1'],
+            'is_principal_practitioner'   => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
             'password'        => array_merge(['nullable', 'string', 'min:8'], $subUserPasswordRules),
@@ -563,6 +566,7 @@ class UserManagementController extends Controller
         // Capture originals BEFORE mutation for change-detection (domain events).
         $originalPpraStatus      = $user->getOriginal('ppra_status');
         $originalBranchId        = $user->getOriginal('branch_id');
+        $originalIsPrincipalPractitioner = (bool) $user->getOriginal('is_principal_practitioner');
         $originalCommissionPlan  = [
             'agent_cut_percent'         => $user->getOriginal('agent_cut_percent'),
             'paye_method'               => $user->getOriginal('paye_method'),
@@ -603,6 +607,7 @@ class UserManagementController extends Controller
         $user->can_capture_rentals       = isset($data['can_capture_rentals']) && $data['can_capture_rentals'] == '1' ? 1 : 0;
         $user->counts_for_branch_split   = isset($data['counts_for_branch_split']) && $data['counts_for_branch_split'] == '1' ? 1 : 0;
         $user->show_in_performance_reports = isset($data['show_in_performance_reports']) && $data['show_in_performance_reports'] == '1' ? 1 : 0;
+        $user->is_principal_practitioner = isset($data['is_principal_practitioner']) && $data['is_principal_practitioner'] == '1' ? 1 : 0;
 
         $user->phone      = $data['phone'] ?? null;
         $user->cell        = $data['cell'] ?? null;
@@ -663,6 +668,13 @@ class UserManagementController extends Controller
                     actorUserId: auth()->id(),
                 ));
             }
+        }
+        if ($originalIsPrincipalPractitioner !== (bool) $fresh->is_principal_practitioner) {
+            event(new \App\Events\Agent\AgentPrincipalPractitionerFlagChanged(
+                user: $fresh,
+                toFlag: (bool) $fresh->is_principal_practitioner,
+                actorUserId: auth()->id(),
+            ));
         }
         $currentCommissionPlan = [
             'agent_cut_percent'         => $fresh->agent_cut_percent,

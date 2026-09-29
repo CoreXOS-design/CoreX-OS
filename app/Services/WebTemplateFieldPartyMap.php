@@ -114,6 +114,8 @@ class WebTemplateFieldPartyMap
             'price',
             'lease_start',
             'lease_end',
+            // .ai/specs/rental-property-tab.md §5, Part 4
+            'lease_type',
             'property_address',
             'property_suburb',
             'erf_no',

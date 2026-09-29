@@ -6,6 +6,10 @@ use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
+use App\Http\Controllers\CoreX\LeaseSettingsController;
+use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
+use App\Http\Controllers\CoreX\RentalInventorySettingsController;
+use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -338,6 +342,213 @@ return [
         ],
     ],
 
+    // .ai/specs/agency-onboarding-rentals-step.md — Johan's ruling 2026-09-19:
+    // "we will have to set up a rental in the take on wizard with all things
+    // rental related." One home for every rental setting, not settings
+    // scattered across the wizard. This step's KEY stays 'leases' deliberately
+    // (§3.2 of that spec) — AgencyOnboardingSetup::completed_steps persists
+    // step keys as literal strings per agency, so renaming the key would
+    // silently regress an existing agency's progress for a step they already
+    // completed under the old name. Only the TITLE/content changed to match
+    // the new scope. Each saver below is deliberately narrow — validates and
+    // writes ONLY its own columns — so this step can carry multiple domains'
+    // settings without risking the saver-precondition incident named in that
+    // spec's §4 (agency-onboarding-setup.md §6.1: a shared multi-field saver
+    // silently wiping fields a step didn't render). Regression coverage:
+    // tests/Feature/Onboarding/RentalsStepSaverIndependenceTest.php.
+    'leases' => [
+        'title' => 'Rentals',
+        'intro' => 'How CoreX handles lease expiry and inspection windows for your rental portfolio.',
+        'what' => [
+            'title' => 'What this covers',
+            'body'  => 'Everything here is a timing rule CoreX uses across your rental properties: how '
+                . 'far ahead agents get warned of a lease expiring, how long a tenant has to report a '
+                . 'fault after moving in, and how long they have to sign an out-inspection.',
+        ],
+        // .ai/specs/rental-application-field-config.md — conductor's ruling,
+        // 2026-09-20: the shipped-field tick grid (shown/required) belongs
+        // here because it is Johan's own tick/untick model, not a scalar
+        // key/type/default control this generic form can render on its own.
+        // It renders via the partial, BEFORE the generic controls below,
+        // through the SAME form/save cycle (wizard.blade.php).
+        'partial' => 'agency-setup.steps.rentals-field-config',
+        'savers' => [
+            // Johan, 2026-09-22 (property 4283) — update() now also carries
+            // default_deposit_months (§6.1: nullable + has()-guarded, NOT
+            // required, so a request that omits it — an older wizard
+            // render, a pre-existing test fixture — still saves the rest
+            // of this step; the dedicated settings page always sends it).
+            ['controller' => LeaseSettingsController::class, 'method' => 'update'],
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
+            // §24.5/§24.7 (AT-433 Part B) — its own narrow saver, same
+            // one-concern-per-endpoint discipline as every other toggle on
+            // this step; has()-guarded, never folded into update() above.
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoPairPhotosEnabled'],
+            // §41, 2026-09-28 — same _submitted-marker-guarded discipline
+            // (a checkbox, never has()-guarded on its own field — see that
+            // saver's own docblock).
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
+            // §41-follow-up (Job 3, 2026-09-28) — the same toggle, mirrored
+            // onto Inventory's own signed-report distribution. Its own
+            // narrow saver, same discipline as the Inspections one directly
+            // above — never folded into RentalInventorySettingsController::
+            // update() (see that saver's own docblock for why).
+            ['controller' => RentalInventorySettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
+            // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
+            // threshold. completion_requires_photo/overdue_reminder_days are
+            // still Stage 4 (work orders themselves aren't built), so this
+            // saver validates and writes ONLY no_approval_spend_threshold —
+            // never merged into either saver above.
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
+            // Shipped-field tick grid (rentals-field-config.blade.php partial) —
+            // narrow, has()/submitted-marker-guarded savers, same independence
+            // pattern as every other saver on this step.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateFieldDisplayConfig'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequiredFields'],
+            // The 5 scalar rental-application controls below.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updatePropertyLock'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantTagging'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireFicaBeforeAuthorisation'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateDocumentUploadsOpenAfterApproval'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateReturnGate'],
+            // AT-430 — one-step approval + the checklist-before-approval gate.
+            // approval_mode is a required radio, always rendered/posted as
+            // part of THIS step's own controls (never a subset-post risk);
+            // require_checklist_complete is has()-guarded like every other
+            // toggle above.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateApprovalMode'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireChecklistComplete'],
+        ],
+        'controls' => [
+            ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
+             'label' => 'Warn me this many days before a lease expires',
+             'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
+             'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
+            ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
+             'label' => 'Days a tenant has to report a fault after moving in',
+             'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
+             'affects' => 'How long the "report a fault" window stays open on a new tenancy. 7 days suits most agencies — a report after this window still reaches the agent, it is just their call whether to accept it.'],
+            ['key' => 'out_inspection_signing_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 60,
+             'label' => 'Days a tenant has to sign the out-inspection',
+             'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
+             'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
+            // 2026-09-23 — same saver as the two window fields above
+            // (RentalInspectionSettingsController::update() — registered
+            // once, above); nullable + has()-guarded there, so this control
+            // is safe alongside a step render that omits it.
+            ['key' => 'public_link_expiry_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 3650,
+             'label' => 'Days the public inspection-report link stays live',
+             'explain' => 'A completed inspection\'s PDF carries a link a tenant or landlord can open with no CoreX login. This many days after it is issued, the link stops working.',
+             'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
+            // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
+            // defaults ON.
+            ['key' => 'auto_pair_photos_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Automatically pair before/after inspection photos',
+             'explain' => 'When a move-in photo and a later inspection\'s photo are tagged to the exact same room and item, CoreX links them as a pair automatically, only when the match is unambiguous.',
+             'affects' => 'Whether obvious photo pairs are already linked when an agent opens the compare screen, or every pair — even the obvious ones — waits for the agent to make it by hand. On by default; an agent can always re-run pairing manually and can unpair anything the system got wrong.'],
+            // §41, 2026-09-28, Johan's ruling — defaults ON.
+            ['key' => 'auto_send_report_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the signed inspection report automatically on completion',
+             'explain' => 'The moment an inspection completes (every required party has signed or been dispositioned), CoreX emails the signed report to the tenant(s) and landlord from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
+             'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inspection and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
+            // §41-follow-up (Job 3, 2026-09-28) — same ruling, mirrored onto
+            // Inventory's own signed report. Key deliberately distinct from
+            // 'auto_send_report_enabled' above — see
+            // RentalInventorySettingsController::updateAutoSendReportEnabled()'s
+            // own docblock for why sharing a key would collide on this step.
+            ['key' => 'inventory_auto_send_report_enabled', 'source' => 'rental_inventories', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the signed inventory report automatically on completion',
+             'explain' => 'The moment an inventory completes (every required party has signed or been dispositioned), CoreX emails the signed report to the seller/landlord (and tenant(s), when the inventory has a lease) from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
+             'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inventory and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
+            ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
+             'label' => 'No-approval spend threshold (R)',
+             'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
+             'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+            // Johan, 2026-09-22 (property 4283) — "when a property has no
+            // deposit amount, default it to a configurable multiple of the
+            // monthly rent." Saved by LeaseSettingsController::update()
+            // (registered above) — nullable + has()-guarded there (§6.1),
+            // not required, after making it required first broke
+            // pre-existing wizard tests that POST this step without it.
+            ['key' => 'default_deposit_months', 'source' => 'leases', 'type' => 'number', 'default' => 1, 'min' => 0.1, 'max' => 12, 'step' => 0.1,
+             'label' => 'Default deposit, as a multiple of monthly rent',
+             'explain' => 'When an agent ticks "Has deposit" on a property but leaves the deposit amount blank, CoreX fills in a starting figure — this many months of that property\'s own rent.',
+             'affects' => 'The deposit amount a property starts with when one is required but not yet typed in. 1 month suits most South African tenancies — the figure is always shown as a starting point an agent can change, never locked in.'],
+            // Reserved for rental-work-orders.md's two remaining settings
+            // (completion_requires_photo, overdue_reminder_days) — added here
+            // once work orders themselves are built (Stage 4), not before.
+            // .ai/specs/rental-application-field-config.md — the 5 scalar rental-
+            // application settings the conductor ruled IN the wizard, 2026-09-20.
+            // identity_gate_enabled deliberately stays OUT — its own docblock
+            // calls it a universal security decision, not a customisation.
+            // Rate-limit knobs stay OUT — expert carve-out.
+            ['key' => 'lock_property_after_submission', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'heading' => 'Rental applications',
+             'label' => 'Lock the property link once an application is submitted',
+             'explain' => 'Once an applicant submits, CoreX can stop the same application link from being used to apply for a different property.',
+             'affects' => 'Whether an applicant\'s link stays tied to the one property they applied for, or can be reused for another listing.'],
+            ['key' => 'tag_contact_as_tenant_on_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tag the contact as Tenant when an application is approved',
+             'explain' => 'When an agent approves a rental application, CoreX can automatically add "Tenant" to that person\'s contact record.',
+             'affects' => 'Whether an approved applicant\'s contact record picks up the Tenant tag automatically, or an agent has to add it by hand.'],
+            ['key' => 'require_fica_before_authorisation', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require FICA verification before an application can be authorised',
+             'explain' => 'CoreX can block an agent from authorising (final-approving) a rental application until the applicant\'s FICA/identity verification is complete.',
+             'affects' => 'Whether the Authorise step on an application is blocked until FICA is done, or can happen before FICA is complete.'],
+            ['key' => 'document_uploads_open_after_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Keep document uploads open after an application is approved',
+             'explain' => 'CoreX can keep letting an approved applicant upload outstanding documents (e.g. payslips, ID) after approval, instead of closing the upload window immediately.',
+             'affects' => 'Whether an approved applicant can still add documents afterwards, or the upload window closes the moment they are approved.'],
+            ['key' => 'return_gate_method', 'source' => 'rental_application', 'type' => 'select', 'default' => 'id_number',
+             'options' => ['id_number' => 'ID number', 'email_otp' => 'Email OTP (one-time code by email)'],
+             'label' => 'How a returning applicant proves who they are',
+             'explain' => 'When someone reopens an application link they already started, CoreX asks for one of these before showing their saved answers.',
+             'affects' => 'What a returning applicant is asked for before CoreX lets them back into their own in-progress application.'],
+            // AT-430 Part A, 2026-09-24 — Johan, via Sherry (single-person
+            // Cape Town agency): today's flow always hands an application to
+            // a SECOND person for authorisation, which is a screen a
+            // one-person agency sends to itself.
+            ['key' => 'approval_mode', 'source' => 'rental_application', 'type' => 'select', 'default' => 'two_step',
+             'options' => ['two_step' => 'Two step — agent submits, authoriser approves', 'one_step' => 'One step — the agent approves directly'],
+             'label' => 'Application approval',
+             'explain' => 'Two step keeps the existing hand-off to a second authoriser. One step lets an agent who is already configured as a Reviewer or Override user approve or decline an application directly, without a separate hand-off — for agencies where the same person handles and decides applications.',
+             'affects' => 'Whether the review screen shows "Submit for approval" (two step) or "Approve application"/"Decline application" directly (one step) to an agent who is also a configured Reviewer or Override user. Someone who is neither still always sees "Submit for approval".'],
+            // AT-430 §3.6 — Johan: "the checklist does not block approval by
+            // default." Off (default): the checklist (link below) stays a
+            // working aid.
+            ['key' => 'require_checklist_complete', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require the application checklist to be complete before approving',
+             'explain' => 'CoreX can block approving a rental application until every item on its checklist is ticked done or marked not applicable.',
+             'affects' => 'Whether approving an application is blocked while checklist items are still outstanding, or the checklist stays an optional working aid.'],
+        ],
+        // Fine-tuning an agency does once they are live and know what they want —
+        // custom labels, help text, field order, and the full custom-field editor
+        // — deliberately stays out of the wizard (conductor's ruling, 2026-09-20)
+        // and lives at /corex/settings/rental-applications instead. An agency
+        // must never have to discover that screen by accident.
+        'links' => [
+            ['route' => 'corex.settings.rental-applications.edit',
+             'label' => 'Rental application settings',
+             'explain' => 'Custom field labels, help text, field ordering, and adding your own extra questions are set here, any time after setup.'],
+            // Johan, 2026-09-20 — which property features count as inspection
+            // items, and each room type's default items, are both array-
+            // shaped (not the wizard's scalar key/type/default control shape)
+            // — same carve-out as the link above, same reasoning: link out,
+            // never silently absent.
+            ['route' => 'corex.settings.rental-inspections.edit',
+             'label' => 'Rental inspection settings',
+             'explain' => 'Which property features count as inspection items, and each room type\'s default checklist items, are set here, any time after setup.'],
+            // AT-430 §3.3 — the checklist TEMPLATE (sections + items) is
+            // array-shaped CRUD, same carve-out as the two links above: link
+            // out, never silently absent. Every agency gets the default
+            // template (from Sherry's own paper checklist) automatically;
+            // this is only where they customise it.
+            ['route' => 'corex.settings.rental-applications.checklist.index',
+             'label' => 'Application checklist',
+             'explain' => 'The sections and items your team ticks off while vetting a rental application (documents, TPN, FICA, lease progress) start from a sensible default and can be renamed, reordered, or archived here, any time after setup.'],
+        ],
+    ],
+
     'properties' => [
         'title' => 'Properties & listings',
         // Marketing and portal syndication are switched on in the Capabilities
@@ -546,6 +757,43 @@ return [
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
             // hidden marker (§6.1) — the partial always renders it.
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
+            // PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md
+            // §6.7/§10a. A required <select> always posts a value, so no §6.1
+            // has()-guard is needed here (that rule protects optional checkboxes only).
+            ['controller' => SettingsController::class, 'method' => 'savePpraInspectionPackSettings'],
+        ],
+        'controls' => [
+            ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
+             'options' => ['1' => 'January', '2' => 'February', '3' => 'March', '4' => 'April', '5' => 'May', '6' => 'June',
+                           '7' => 'July', '8' => 'August', '9' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'],
+             'label' => 'Financial year starts in',
+             'explain' => 'The month your agency\'s financial year begins — used by the PPRA Inspection Pack to bound its "current financial year" sales and rentals list.',
+             'affects' => 'Which sales and rentals count as "this financial year" on the PPRA Inspection Pack (Admin → PPRA Inspection Pack). Does not affect any other report.'],
+            // PPRA Inspection Pack Phase F — .ai/specs/ppra-inspection-pack.md
+            // §4.6a/§6.8a. Plain number inputs always post a value, so no §6.1
+            // has()-guard is needed here either.
+            ['key' => 'ppra_pack_sales_sample_size', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 50,
+             'label' => 'Sales file sample size',
+             'explain' => 'How many sale deals an admin can pick for the PPRA Inspection Pack\'s sales file sample (item k).',
+             'affects' => 'The maximum number of sale deals selectable in the PPRA Inspection Pack\'s sample picker for item k.'],
+            ['key' => 'ppra_pack_rental_sample_size', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 50,
+             'label' => 'Rental file sample size',
+             'explain' => 'How many rentals an admin can pick for the PPRA Inspection Pack\'s rental file sample (item l).',
+             'affects' => 'The maximum number of rentals selectable in the PPRA Inspection Pack\'s sample picker for item l.'],
+            ['key' => 'ppra_pack_mandate_sample_size', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 50,
+             'label' => 'Mandate/MDF sample size',
+             'explain' => 'How many active listings an admin can pick for the PPRA Inspection Pack\'s mandate/MDF sample (item m).',
+             'affects' => 'The maximum number of active listings selectable in the PPRA Inspection Pack\'s sample picker for item m.'],
+            // PPRA Inspection Pack Phase I — .ai/specs/ppra-inspection-pack.md
+            // §6.8e/§11. Plain number inputs, no §6.1 has()-guard needed.
+            ['key' => 'ppra_mandate_register_red_threshold_pct', 'source' => 'agency', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 100,
+             'label' => 'Mandate register red threshold (%)',
+             'explain' => 'The percentage of active listings with a mandate/MDF/FICA gap that turns the PPRA Inspection Pack\'s item (m) red instead of amber.',
+             'affects' => 'The red/amber threshold shown on the PPRA Inspection Pack checklist\'s item (m) row and the mandate/MDF/FICA register.'],
+            ['key' => 'ppra_zip_max_files', 'source' => 'agency', 'type' => 'number', 'default' => 200, 'min' => 1, 'max' => 2000,
+             'label' => 'PPRA ZIP max files',
+             'explain' => 'The most files the PPRA Inspection Pack\'s mandate register "Download ZIP" (and other per-list ZIP exports) will ever bundle in one download.',
+             'affects' => 'How many files the mandate register\'s bulk ZIP export includes before it stops and reports the rest as available-but-not-included.'],
         ],
     ],
 

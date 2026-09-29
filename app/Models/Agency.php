@@ -179,6 +179,7 @@ class Agency extends Model
     protected $fillable = [
         'name',
         'slug',
+        'financial_year_start_month', // PPRA Inspection Pack item (j) — .ai/specs/ppra-inspection-pack.md §6.7
         'fica_referral_enabled', // AT-236 — is "Refer to CO" available (default ON)
         'fica_referral_recipient_user_id', // AT-236 — CO who receives referrals (null = primary CO)
         'payroll_default_cut_day', // AT-237 — default run cut day-of-month (null => full month)

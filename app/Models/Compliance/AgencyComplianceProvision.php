@@ -106,10 +106,32 @@ class AgencyComplianceProvision extends Model
     /**
      * Resolve the effective provision for a user: branch override first, company fallback.
      */
+    /**
+     * 2026-09-28 (PPRA Inspection Pack Phase A) — deliberately does NOT use
+     * the active() scope here: that scope's date-window filters out a row
+     * once effective_until has passed, which silently made an EXPIRED
+     * document invisible to every caller of this method rather than
+     * findable-but-expired. That broke two things at once: the
+     * expired/expiring status display in AgencyDocumentsViewerController
+     * (an expired document rendered as "not available" instead of
+     * "Expired"), and — more seriously — its download() anti-tamper check
+     * (`$resolved->id === $provision->id`), which could never match once
+     * the current document expired, so an admin could not even download
+     * their own expired compliance document to renew it. "Current version"
+     * and "not yet expired" are different questions; this method answers
+     * the first only status='active' (i.e. not revoked/superseded) still
+     * correctly excludes those. Callers that want "is this actually valid
+     * right now" (amber/red/green) compute that themselves from
+     * effective_until, as AgencyDocumentsViewerController::statusFor() and
+     * PpraInspectionPackChecklistService already do. active() itself is
+     * left unchanged — it has no other caller in the codebase (confirmed by
+     * grep before this change), but renaming or repurposing it here would
+     * be a wider change than this fix needs.
+     */
     public static function resolveForUser(int $typeConfigId, ?int $branchId): ?self
     {
         if ($branchId) {
-            $branchVersion = static::active()
+            $branchVersion = static::where('status', 'active')
                 ->where('document_type_config_id', $typeConfigId)
                 ->where('branch_id', $branchId)
                 ->latest('effective_from')
@@ -119,7 +141,7 @@ class AgencyComplianceProvision extends Model
             }
         }
 
-        return static::active()
+        return static::where('status', 'active')
             ->where('document_type_config_id', $typeConfigId)
             ->whereNull('branch_id')
             ->latest('effective_from')

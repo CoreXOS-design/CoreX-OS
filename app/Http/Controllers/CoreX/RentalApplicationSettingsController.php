@@ -88,6 +88,14 @@ class RentalApplicationSettingsController extends Controller
         // the authoriser (RentalApplicationReviewController::submitForApproval()).
         $requireFicaBeforeAuthorisation = RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($agencyId);
 
+        // AT-430 Part A, 2026-09-24 — one-step approval for single-person
+        // agencies. See RentalApplicationQualifyingSetting::DEFAULT_APPROVAL_MODE's
+        // own docblock for the full reasoning.
+        $approvalMode = RentalApplicationQualifyingSetting::approvalModeFor($agencyId);
+
+        // AT-430 §3.6 — whether an incomplete checklist blocks approval.
+        $requireChecklistComplete = RentalApplicationQualifyingSetting::requireChecklistCompleteFor($agencyId);
+
         // Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
         // ruled: every field on the applicant form gets its own compulsory
         // tick, no locked set — "we provide the system, they set it up the
@@ -95,9 +103,47 @@ class RentalApplicationSettingsController extends Controller
         // checklist below AND submit()'s own validation (RentalApplication::
         // submissionFieldRegistry() — one array, so this screen can never
         // show a field submit() doesn't actually enforce, or vice versa.
-        $fieldRegistry = RentalApplication::submissionFieldRegistry();
+        // Johan, 2026-09-20 — the credit bureau is agency-configurable now
+        // (RentalApplicationQualifyingSetting::creditBureauNameFor()), so
+        // the registry's own default label for tpn_consent_signature is
+        // already bureau-aware once $agencyId is threaded through here —
+        // no special-casing needed in this controller for that part.
+        $creditBureauName = RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId);
+        // Johan, 2026-09-21 — the further-state label. The FORM needs the
+        // raw stored value (null when unset, so the input shows genuinely
+        // blank with the default as a placeholder — same UX as credit
+        // bureau above); tenantedLabelFor() itself always resolves to a
+        // ready-to-display string, which every OTHER consumer needs but
+        // this one form specifically must not show as if it were saved.
+        $tenantedLabel = trim((string) (RentalApplicationQualifyingSetting::where('agency_id', $agencyId)->value('tenanted_label') ?? ''));
+        $tenantedLabel = $tenantedLabel !== '' ? $tenantedLabel : null;
+        $fieldRegistry = RentalApplication::submissionFieldRegistry($agencyId);
         $requiredFieldKeys = RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
         $maritalStatusOptions = RentalApplicationQualifyingSetting::maritalStatusOptionsFor($agencyId);
+
+        // .ai/specs/rental-application-field-config.md — SHOWN/HIDDEN,
+        // label/help-text overrides, and within-section ordering. Same
+        // one-registry-drives-everything reasoning as $fieldRegistry above:
+        // this screen, the public form (RentalApplication::
+        // resolvedFieldConfigFor()), and the submitted-application snapshot
+        // all resolve from the identical four settings.
+        $hiddenFieldKeys = RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agencyId);
+        $fieldLabelOverrides = RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agencyId);
+        $fieldHelpTextOverrides = RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agencyId);
+        $fieldOrder = RentalApplicationQualifyingSetting::fieldOrderFor($agencyId);
+
+        // The SUBMISSION_FIELD_SECTIONS constant's own key ("Tenant Profile
+        // Network Consent") is a stable internal grouping name, not
+        // user-facing text — renamed here, for THIS screen's rendering
+        // only, to the same bureau-aware heading the field label above
+        // already uses. The constant itself stays untouched (it's also
+        // used as a lookup key elsewhere via submissionFieldSectionOf()).
+        $fieldSections = collect(RentalApplication::SUBMISSION_FIELD_SECTIONS)
+            ->mapWithKeys(fn ($keys, $section) => [
+                $section === 'Tenant Profile Network Consent'
+                    ? RentalApplication::creditBureauConsentLabel($creditBureauName)
+                    : $section => $keys,
+            ])->all();
 
         // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
         // submission we can gate on ID." Which method, and the attempt
@@ -195,6 +241,22 @@ class RentalApplicationSettingsController extends Controller
         );
         $archivedHighlighters = $archivedHighlightersQuery->paginate(10, ['*'], 'highlighter_archived_page')->withQueryString();
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(1) —
+        // custom fields, the definition side. Small, settings-embedded
+        // list (same class of screen as "Field Display"/"Compulsory
+        // Fields" above, not a dedicated index page) — no search/
+        // pagination needed at this scale, same call CLAUDE.md's own
+        // floor leaves room for on a config list this size.
+        $activeCustomFields = \App\Models\RentalApplicationCustomField::where('agency_id', $agencyId)
+            ->with('creator')
+            ->orderBy('sort_order')
+            ->get();
+        $retiredCustomFields = \App\Models\RentalApplicationCustomField::onlyTrashed()
+            ->where('agency_id', $agencyId)
+            ->with('creator')
+            ->orderByDesc('deleted_at')
+            ->get();
+
         // AT-392 — Johan: "validity windows are per document type PER
         // PURPOSE, agency-configurable — 2 months for the rental
         // application, 3 months for FICA including the ID copy." The
@@ -212,7 +274,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
         ));
     }
 
@@ -385,6 +447,60 @@ class RentalApplicationSettingsController extends Controller
     }
 
     /**
+     * Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." Every
+     * place that named "TPN" now reads from this setting instead — the
+     * public form's heading, its signature caption, this screen's own
+     * field-display label and section heading, and the PDF. Blank clears
+     * it back to no-specific-bureau (also the correct state for an agency
+     * that genuinely runs no bureau check), same reasoning as
+     * updateDeclineEmail()'s own '' => null normalisation above.
+     */
+    public function updateCreditBureau(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'credit_bureau_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $value = trim((string) ($validated['credit_bureau_name'] ?? ''));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['credit_bureau_name' => $value !== '' ? $value : null],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Credit bureau saved.');
+    }
+
+    /**
+     * Johan, from his own live walk, 2026-09-21 — an approved application
+     * linked to an active lease is a further state, worded per-agency,
+     * same convention as updateCreditBureau() immediately above. Blank
+     * clears it back to the shipped default (RentalApplicationQualifying
+     * Setting::DEFAULT_TENANTED_LABEL), never an empty label anywhere it's shown.
+     */
+    public function updateTenantedLabel(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'tenanted_label' => ['nullable', 'string', 'max:60'],
+        ]);
+
+        $value = trim((string) ($validated['tenanted_label'] ?? ''));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['tenanted_label' => $value !== '' ? $value : null],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Label saved.');
+    }
+
+    /**
      * Reopen/resubmit, 2026-09-08 — separate route/method, same reasoning
      * as updateQualifyingFormula() above (this save can never interfere
      * with either of the other two forms on this screen).
@@ -534,6 +650,56 @@ class RentalApplicationSettingsController extends Controller
     }
 
     /**
+     * AT-430 Part A, 2026-09-24 — one-step approval. A radio choice, always
+     * posts one of the two values (no has()-absence ambiguity the way a
+     * checkbox has), same required-select pattern as updateReturnGate()
+     * above.
+     */
+    public function updateApprovalMode(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'approval_mode' => ['required', 'string', Rule::in(RentalApplicationQualifyingSetting::APPROVAL_MODES)],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            $validated,
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Application approval setting saved.');
+    }
+
+    /**
+     * AT-430 §3.6 — Johan: "the checklist does not block approval by
+     * default." Off (default) means the checklist stays a working aid;
+     * on means an incomplete checklist blocks the approve action (see
+     * RentalApplicationAuthorisationController::approve()). Same
+     * has()-guarded checkbox pattern as updateRequireFicaBeforeAuthorisation()
+     * above — this form only ever renders the one field, so has() on it is
+     * exactly "was this form submitted."
+     */
+    public function updateRequireChecklistComplete(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('require_checklist_complete')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['require_checklist_complete' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['require_checklist_complete' => $request->boolean('require_checklist_complete')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Checklist-before-approval setting saved.');
+    }
+
+    /**
      * Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
      * ruled: every field is agency tick/untick, no locked set, no
      * exceptions. An empty saved list is a genuine, deliberate agency
@@ -565,6 +731,82 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Compulsory fields saved.');
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md — SHOWN/HIDDEN, label
+     * and help-text overrides, and within-section ordering. Extends the
+     * existing required_field_keys mechanism above; does not duplicate it.
+     *
+     * shown_field_keys[] follows updateRequiredFields()'s own pattern
+     * exactly — checkboxes default CHECKED (shown), only the checked ones
+     * are posted, and hidden_field_keys is derived as "every known key NOT
+     * posted as shown" rather than trusting a separate hidden list from
+     * the client. Posted keys are filtered against the registry's own
+     * known keys, same defensive pattern as updateRequiredFields().
+     *
+     * field_order is stored as a flat ordered array of KEYS (the shape
+     * RentalApplication::resolvedFieldConfigFor() already expects), built
+     * here from the per-field numeric "position" inputs the form actually
+     * submits — sorted ascending, blanks excluded (a field left blank
+     * keeps its registry-default position, per the resolver's own
+     * fallback). Ordering is agency-wide in storage but the resolver
+     * re-scopes it to each field's own section, so a cross-section
+     * ordering value here is harmless, not a validation case to guard.
+     */
+    public function updateFieldDisplayConfig(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('field_display_submitted')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['field_display' => 'That did not save — please try again.']);
+        }
+
+        $knownKeys = collect(RentalApplication::submissionFieldRegistry())->pluck('key')->all();
+
+        $shownSubmitted = $request->input('shown_field_keys', []);
+        $shownKeys = array_values(array_intersect($knownKeys, is_array($shownSubmitted) ? $shownSubmitted : []));
+        $hiddenKeys = array_values(array_diff($knownKeys, $shownKeys));
+
+        $labelOverrides = [];
+        foreach ((array) $request->input('field_labels', []) as $key => $label) {
+            $label = trim((string) $label);
+            if (in_array($key, $knownKeys, true) && $label !== '') {
+                $labelOverrides[$key] = $label;
+            }
+        }
+
+        $helpTextOverrides = [];
+        foreach ((array) $request->input('field_help_text', []) as $key => $text) {
+            $text = trim((string) $text);
+            if (in_array($key, $knownKeys, true) && $text !== '') {
+                $helpTextOverrides[$key] = $text;
+            }
+        }
+
+        $positions = [];
+        foreach ((array) $request->input('field_order', []) as $key => $position) {
+            if (! in_array($key, $knownKeys, true) || $position === '' || $position === null) {
+                continue;
+            }
+            $positions[$key] = (int) $position;
+        }
+        asort($positions);
+        $fieldOrder = array_keys($positions);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            [
+                'hidden_field_keys' => $hiddenKeys,
+                'field_label_overrides' => $labelOverrides,
+                'field_help_text_overrides' => $helpTextOverrides,
+                'field_order' => $fieldOrder,
+            ],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Field display settings saved.');
     }
 
     /**

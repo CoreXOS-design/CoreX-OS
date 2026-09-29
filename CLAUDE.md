@@ -24,7 +24,30 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 
 8. FULL CRUD, LIST-SCREEN COMPLETENESS, AND OWN/BRANCH/AGENCY SCOPING ARE THE FLOOR — DESIGNED IN, NOT REQUESTED. Johan's words: "we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard. not me asking for it once we get to that stage." Every entity ships with Create, Read, Update, Archive (soft delete only — never hard delete) and Restore from the first build, not as a later ask. Every list screen ships with search (named fields), sort (every sensible column + a stated default), filter (status + date range minimum), pagination, and a real empty state. Every list, detail view, export, download, and API endpoint enforces OWN / BRANCH / AGENCY visibility scoping at the query layer (BelongsToAgency / AgencyScope, never a hidden UI link) — direct-URL access by ID is blocked, not just unlinked. The spec for any new feature states search fields, sort/default, filters, and per-screen scoping BEFORE code is written; a spec missing these is not ready to build. Full detail: BUILD_STANDARD.md §1a.
 
+9. MULTI-AGENCY ALWAYS, NEVER SINGLE. Johan, 2026-09-19, verbatim: "the important part is that whatever we do is multi agency. not single. never." A second real agency — Cape Town, mainly rentals, signed to start October 2026 — is about to run on the same rentals code that has so far only ever been built and tested against agency 1 (HFC). Every place something is HFC's by assumption instead of genuinely per-agency is a place that new agency will find, in front of a paying customer.
+   • No feature, screen, template, document, email, default, or setting may assume one agency.
+   • No hardcoded agency IDs, no agency-1 defaults, no HFC-specific wording, branding, addresses, or signatures anywhere in shipped code.
+   • Every default must be neutral and sensible for an agency that is not HFC.
+   • Anything an agency would reasonably want different about its own operation is a configurable setting, not a code constant — this extends the existing no-hardcoding rule beyond thresholds and time windows to cover wording, documents, and branding too.
+   • The test, every time you build or review anything: what does this look like for the SECOND agency? If the answer is "wrong" or "HFC's," it is not done.
+
 This applies to the conductor too.
+
+# ⛔ USAGE AND SESSION DISCIPLINE — READ FIRST, EVERY SESSION
+
+1. MODEL. Build lanes run Sonnet. Do not switch a lane to Opus. Architecture decisions are made in the conductor chat, not in a lane.
+
+2. DAILY RESET. Run /clear at the start of each day, and again after each completed task before the next one starts. Never carry one task's history into the next. A lane carrying several hundred thousand tokens of history costs roughly ten times a cleared lane to do identical work, because every message re-bills the whole history.
+
+3. CONTINUITY LIVES IN WRITING. Continuity lives in these standing docs and in .ai/specs/, not in a lane's memory. That is why every fix must update its spec in the same commit — a cleared lane is only as good as what is written down.
+
+4. LANE COUNT. Two working lanes at a time, plus one kept clear for emergencies. Not six.
+
+5. NO EXPLORING. Work the exact files and scope given. A lane left to go hunting reads half the codebase into context and the account pays for all of it. Anti-drift is a cost control as well as a quality rule.
+
+6. NO POLLING. Do not run automated check-in loops.
+
+7. STOP LINE. Development stops at 90% of the weekly cap and resumes when the cycle rolls on Saturday. Hold roughly 20% in reserve so a critical production fault can always be fixed. Running out mid-week costs days of development.
 
 # CoreX OS — Claude Instructions
 > **Root entry point. Read this first. Every session. No exceptions.**
@@ -195,6 +218,44 @@ whether a checkout is really tracking `origin/Staging`, run `git rev-parse HEAD`
 compare it to `git rev-parse origin/Staging` before touching anything — a match means
 you are current; a mismatch means STOP and reconcile before merging, exactly as this
 incident required.
+
+#### 8b. `/corex-qa1` is the live QA1 deploy target, not scratch space. No lane ever checks out a branch in it.
+
+_Added 2026-09-27 after a reflog trace found the SAME pattern repeated at least four times on
+26-27 Sep: a lane would `git checkout` its own feature/investigation branch directly inside
+`/corex-qa1` — the exact directory `scripts/qa-deploy.sh` builds and serves to live QA1
+traffic — do its work, and (usually, not always) check back out to `QA1` when done. Most
+cycles self-corrected. One did not: a lane finished a backend-only commit on
+`fix-inspection-photo-upload-immediate-2026-09-26`, correctly checked back out to `QA1` — and
+then a second, unrelated investigation lane immediately checked `QA1` back OUT to its own
+branch (`inventory-investigation-2026-09-27`), committed a spec file, and never returned. QA1
+was left silently stranded on that branch. The very next `scripts/qa-deploy.sh` run built and
+served whatever was checked out — first cc4's unreviewed backend commit, then, after that
+window closed, a spec-only commit that happened to be harmless by luck, not by design. Caught
+only because a conductor-directed diagnosis compared deployed `HEAD` against `origin/QA1`'s
+real tip by hand and found them different — nothing in the deploy path itself would ever have
+caught this on its own.
+
+**Why, so nobody rediscovers this the hard way:** checking a branch out in the deploy
+directory serves that branch to live QA1 traffic immediately — `opcache.validate_timestamps`
+and Blade's own view-cache both re-read whatever is on disk within seconds, deploy script or
+not. And once that's happened, nobody can trust what they tested: a passing verification
+against `/corex-qa1` proves nothing about `origin/QA1` if the two have quietly diverged.
+
+**The rule:**
+- `/corex-qa1` is the **live QA1 deploy target**. It is not scratch space, not an
+  investigation directory, not a place to check out a branch "just to look." Ever.
+- All lane work — features, fixes, investigations, spec-only commits, everything — happens in
+  a worktree under `/mnt/HC_Volume_103099143/corex-worktrees/<branch-name>`. Create one, work
+  there, push from there. Never `git checkout`/`git switch` inside `/corex-qa1` to get there.
+- `/corex-qa1` stays on branch `QA1`, permanently, checked out, never anything else. The
+  **only** git operation ever permitted to run inside it is the fast-forward pull
+  `scripts/qa-deploy.sh` itself performs (`git pull --ff-only origin QA1`) — nothing manual,
+  nothing "just this once."
+- Before trusting anything about what QA1 is serving, confirm `git rev-parse --abbrev-ref
+  HEAD` inside `/corex-qa1` really is `QA1`, and `git rev-parse HEAD` really matches
+  `git rev-parse origin/QA1` — the same discipline non-negotiable #8a already requires for
+  `Staging`/`main`, extended here to the one directory that actually serves live QA1 traffic.
 
 ### 9. Cross-pillar reactivity uses domain events.
 For any feature that involves cross-pillar reactivity — where a state change in one part of CoreX should trigger updates, notifications, recomputations, or side effects in another part — the relevant build prompt MUST read `.ai/specs/corex-domain-events-spec.md` and use the event/listener pattern from the catalogue. Do NOT invent ad-hoc observer hooks, ad-hoc service calls, or ad-hoc query paths between pillars. Emit a named event when state changes; subscribe to existing events when reacting to state changes. The events catalogue is the API contract between pillars.

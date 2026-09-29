@@ -21,10 +21,6 @@ use Illuminate\Queue\SerializesModels;
  */
 class RentalApplicationReturnedMail extends Mailable implements ShouldQueue
 {
-    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
-    // sent inside the page request; the live mail worker group drains this queue.
-    public $queue = 'mail';
-
     use Queueable, SerializesModels;
 
     public string $agentName;
@@ -40,6 +36,13 @@ class RentalApplicationReturnedMail extends Mailable implements ShouldQueue
         $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
         $this->reviewUrl = route('corex.rental-applications.show', $application);
         $this->submittedAt = $application->submitted_at?->format('d M Y \a\t H:i') ?? '';
+
+        // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
+        // sent inside the page request; the live mail worker group drains this queue.
+        // Queueable already declares $queue — set it via onQueue() rather than
+        // redeclaring the property, which fatals PHP (incompatible property in
+        // trait composition).
+        $this->onQueue('mail');
     }
 
     public function envelope(): Envelope

@@ -108,6 +108,21 @@
                     $can('rental_applications.manage_settings')
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
+                    $can('leases.manage_settings')
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry notice window warn days']
+                        : null,
+                    $can('rental_inspections.manage_settings')
+                        ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection']
+                        : null,
+                    $can('rental_inventories.manage_settings')
+                        ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale']
+                        : null,
+                    $can('rental_work_orders.manage_settings')
+                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
+                        : null,
+                    $can('rental_details.manage_settings')
+                        ? ['key'=>'rental-details-settings', 'label'=>'Rental Details', 'type'=>'link', 'href'=>route('corex.settings.rental-details.edit'), 'keywords'=>'rental tab custom fields lets assist price type lease type advert block description']
+                        : null,
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],
@@ -144,6 +159,7 @@
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
+                    $can('ppra_inspection_pack.configure') ? ['key'=>'ppra-inspection-pack-settings', 'label'=>'PPRA Inspection Pack', 'type'=>'section', 'keywords'=>'ppra inspection pack financial year s25'] : null,
                     ($u && $u->hasFeature('proforma-invoices') && $can('proforma.manage'))
                         ? ['key'=>'proforma-settings', 'label'=>'Proforma Invoices', 'type'=>'link', 'href'=>route('admin.proforma-settings'), 'keywords'=>'accounting invoice numbering vat bank details terms']
                         : null,
@@ -2364,6 +2380,13 @@
                     ['key' => 'condition_level', 'label' => 'Condition Levels',  'items' => $propConditionLevels ?? collect(), 'placeholder' => 'e.g. To Renovate, Excellent'],
                     // AT-402 — Rental tab's Furnished Status list.
                     ['key' => 'furnished_status', 'label' => 'Furnished Status', 'items' => $propFurnishedStatuses ?? collect(), 'placeholder' => 'e.g. Unfurnished, Furnished, Part-Furnished'],
+                    // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type
+                    // select. Gap fixed in Part 4: this section was missing entirely, so an
+                    // agency had no way to actually edit the list the dropdown reads from.
+                    ['key' => 'rental_price_type', 'label' => 'Rental Price Type', 'items' => $propRentalPriceTypes ?? collect(), 'placeholder' => 'e.g. Per Month, Per Week'],
+                    // .ai/specs/rental-property-tab.md §5, Part 4 — one list feeding both
+                    // the property screen's and the lease screens' Lease Type select.
+                    ['key' => 'lease_type', 'label' => 'Lease Type', 'items' => $propLeaseTypes ?? collect(), 'placeholder' => 'e.g. Net, Gross, Percentage'],
                 ];
                 $conditionBaselineName = \App\Models\PropertySettingItem::CONDITION_BASELINE_NAME;
                 $reorderUrl  = route('corex.settings.property-items.reorder');
@@ -4126,6 +4149,82 @@
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download Lawyer Review Pack
                 </a>
+            </div>
+        </div>
+        @endif
+
+        {{-- ============================================================
+             PPRA INSPECTION PACK SETTINGS — Phase E, item (j).
+             .ai/specs/ppra-inspection-pack.md §6.7/§11.
+             ============================================================ --}}
+        @if(auth()->user()?->hasPermission('ppra_inspection_pack.configure'))
+        <div x-show="activeSection === 'ppra-inspection-pack-settings'" x-cloak class="p-6 space-y-6">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">PPRA Inspection Pack</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Configure the financial year used by the current-FY sales/rentals list (item j) and the sample sizes used by the deal/rental/mandate file-sample picker (items k/l/m).</p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.ppra-inspection-pack.save') }}" class="space-y-6">
+                @csrf
+
+                <div>
+                    <label class="text-sm font-semibold" style="color:var(--text-primary);">Financial year starts in</label>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">Used to bound the "current financial year" sales/rentals list on the PPRA Inspection Pack. Default: March.</p>
+                    <select name="financial_year_start_month" class="w-full max-w-xs rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        @foreach(['January','February','March','April','May','June','July','August','September','October','November','December'] as $i => $monthName)
+                        <option value="{{ $i + 1 }}" {{ (int) ($agency->financial_year_start_month ?? 3) === $i + 1 ? 'selected' : '' }}>{{ $monthName }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Sales sample size (item k)</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many sale deals the picker allows selecting for the inspection pack.</p>
+                        <input type="number" min="1" max="50" name="ppra_pack_sales_sample_size" value="{{ $agency->ppra_pack_sales_sample_size ?? 5 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Rental sample size (item l)</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many rentals the picker allows selecting for the inspection pack.</p>
+                        <input type="number" min="1" max="50" name="ppra_pack_rental_sample_size" value="{{ $agency->ppra_pack_rental_sample_size ?? 5 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Mandate sample size (item m)</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many active listings the picker allows selecting for the inspection pack.</p>
+                        <input type="number" min="1" max="50" name="ppra_pack_mandate_sample_size" value="{{ $agency->ppra_pack_mandate_sample_size ?? 5 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                </div>
+
+                {{-- Phase I — .ai/specs/ppra-inspection-pack.md §6.8e/§11. --}}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Mandate register red threshold</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">The percentage of active listings with a mandate/MDF/FICA gap that turns item (m) red on the checklist. Below this, it's amber.</p>
+                        <div class="flex items-center gap-2">
+                            <input type="number" min="1" max="100" name="ppra_mandate_register_red_threshold_pct" value="{{ $agency->ppra_mandate_register_red_threshold_pct ?? 10 }}"
+                                class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <span class="text-sm" style="color:var(--text-muted);">%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">ZIP max files</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">The most files the mandate register's "Download ZIP" (and other per-list ZIP exports) will ever bundle at once.</p>
+                        <input type="number" min="1" max="2000" name="ppra_zip_max_files" value="{{ $agency->ppra_zip_max_files ?? 200 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                </div>
+
+                <button type="submit" class="corex-btn-primary">Save Settings</button>
+            </form>
+
+            <div class="rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
+                <p class="text-xs" style="color:var(--text-secondary);">
+                    The full PPRA Inspection Pack checklist, its Inspection Report, and the current-FY sales/rentals list
+                    live under <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Inspection Pack</a>.
+                </p>
             </div>
         </div>
         @endif

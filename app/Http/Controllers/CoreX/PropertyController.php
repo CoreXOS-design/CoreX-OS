@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\ContactMatch;
 use App\Models\ContactNote;
+use App\Models\LeaseSetting;
 use App\Models\Property;
 use App\Models\PropertyNote;
 use App\Models\PropertyAdTemplate;
 use App\Models\DocumentType;
+use App\Models\PropertyRentalDetailsCustomField;
 use App\Models\PropertySettingItem;
 use App\Models\PerformanceSetting;
 use App\Models\User;
@@ -710,7 +712,14 @@ class PropertyController extends Controller
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
             // AT-402 — Rental tab's Furnished Status select.
             'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
+            'rentalPriceTypes' => PropertySettingItem::group('rental_price_type')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
+        // Johan, 2026-09-22 — "hide it, dont remove it." Agency-configurable,
+        // default hidden. See LeaseSetting::showLeaseTypeFieldFor().
+        $showLeaseType = LeaseSetting::showLeaseTypeFieldFor((int) ($property->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0));
 
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList();
@@ -908,10 +917,23 @@ class PropertyController extends Controller
             }
         }
 
+        // .ai/specs/rental-property-tab.md §2/§8, Part 2 — agency-defined
+        // rental-details fields, in the agency's configured sort order.
+        // Resolved from the PROPERTY's own agency, not the viewing user's —
+        // a property always belongs to exactly one agency, and this is the
+        // tamper-proof source for which field list applies (never the
+        // creating/current-agency field list of the viewing agent, in the
+        // rare case those ever differ). Only the settled-property Rental
+        // tab renders these (Part 2 scope) — the new/draft-property path
+        // (this controller's create-redirect response, a separate return
+        // further down) deliberately does not yet, flagged in the spec as
+        // a follow-up, not an oversight.
+        $rentalDetailsCustomFields = PropertyRentalDetailsCustomField::activeFor((int) $property->agency_id);
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields', 'showLeaseType'
         ));
     }
 
@@ -988,7 +1010,14 @@ class PropertyController extends Controller
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
             // AT-402 — Rental tab's Furnished Status select.
             'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
+            'rentalPriceTypes' => PropertySettingItem::group('rental_price_type')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
+        // Johan, 2026-09-22 — "hide it, dont remove it." Agency-configurable,
+        // default hidden. See LeaseSetting::showLeaseTypeFieldFor().
+        $showLeaseType = LeaseSetting::showLeaseTypeFieldFor((int) ($property->agency_id ?? 0));
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
         $activeTab = 'info';
@@ -999,7 +1028,7 @@ class PropertyController extends Controller
         // Declared rather than omitted so the shared view never hits an undefined var.
         $thirdPartySale = null;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale', 'showLeaseType'));
     }
 
     /**
@@ -1022,6 +1051,53 @@ class PropertyController extends Controller
         }
     }
 
+    /**
+     * Johan, 2026-09-22 (property 4283 / rental application 290) —
+     * has_deposit=1 with a blank deposit_amount is what produced an empty
+     * Deposit field downstream on the tenant-linking screen. Rather than
+     * rejecting the save outright (which would make every property
+     * ALREADY saved in that state un-editable the next time an agent
+     * touches an unrelated field), a blank deposit_amount is auto-filled
+     * from the agency's configured deposit multiple
+     * (LeaseSetting::defaultDepositMonthsFor(), default 1 month — "one
+     * month" is what .ai/specs/rental-property-tab.md's own scraped
+     * listing example already assumes: "Deposit R4710 One Month's
+     * rental R1500 Once off" reads as deposit = 1x rent in a typical SA
+     * listing) x the submitted/existing rental_amount, and flagged
+     * deposit_amount_is_default=true so it is never mistaken for a
+     * human-entered figure downstream. A real amount the agent actually
+     * typed always wins and clears the flag; unchecking "Has deposit"
+     * clears the flag too (no default applies when a deposit isn't
+     * being taken at all). Shared by store()/update()/
+     * updateRentalDetails() — one rule, not three copies of it.
+     *
+     * $data['has_deposit'] must already be a real, normalized boolean
+     * (via $request->boolean('has_deposit')) before calling this — the
+     * raw validate() output is a "1" string when checked and simply
+     * ABSENT from $data when unchecked, neither of which this can test
+     * reliably on its own.
+     */
+    private function applyDepositDefault(array &$data, ?int $agencyId, ?float $existingRentalAmount = null): void
+    {
+        $hasDeposit = (bool) ($data['has_deposit'] ?? false);
+
+        if (!$hasDeposit) {
+            $data['deposit_amount_is_default'] = false;
+            return;
+        }
+
+        $depositAmount = $data['deposit_amount'] ?? null;
+        if ($depositAmount !== null && $depositAmount !== '') {
+            $data['deposit_amount_is_default'] = false;
+            return;
+        }
+
+        $rentalAmount = $data['rental_amount'] ?? $existingRentalAmount;
+        $multiple = LeaseSetting::defaultDepositMonthsFor($agencyId);
+        $data['deposit_amount'] = round((float) ($rentalAmount ?? 0) * $multiple, 2);
+        $data['deposit_amount_is_default'] = true;
+    }
+
     public function store(Request $request)
     {
         /** @var User $user */
@@ -1042,9 +1118,6 @@ class PropertyController extends Controller
             'electricity_included' => 'nullable|boolean',
             'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
-            'price_per_day'    => 'nullable|numeric|min:0',
-            'price_per_week'   => 'nullable|numeric|min:0',
-            'price_per_year'   => 'nullable|numeric|min:0',
             'lease_type'       => 'nullable|string|max:100',
             'gross_price'      => 'nullable|numeric|min:0',
             'net_price'        => 'nullable|numeric|min:0',
@@ -1173,6 +1246,13 @@ class PropertyController extends Controller
             $data['agent_id'] = $user->id;
         }
         $data['agency_id'] = $user->effectiveAgencyId();
+
+        // FIX, 2026-09-22 (Johan) — normalize has_deposit to a real boolean
+        // (raw validate() output is a "1" string when checked, absent when
+        // not) so applyDepositDefault() below can test it reliably. See
+        // that method's own docblock for the full reasoning.
+        $data['has_deposit'] = $request->boolean('has_deposit');
+        $this->applyDepositDefault($data, $data['agency_id']);
 
         // Branch follows the primary agent — every property is owned by its agent's branch.
         // If the agent has no branch, leave whatever the form/default supplied so we don't null it out.
@@ -1455,9 +1535,6 @@ class PropertyController extends Controller
             'electricity_included' => 'nullable|boolean',
             'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
-            'price_per_day'    => 'nullable|numeric|min:0',
-            'price_per_week'   => 'nullable|numeric|min:0',
-            'price_per_year'   => 'nullable|numeric|min:0',
             'lease_type'       => 'nullable|string|max:100',
             'gross_price'      => 'nullable|numeric|min:0',
             'net_price'        => 'nullable|numeric|min:0',
@@ -1691,6 +1768,18 @@ class PropertyController extends Controller
                 unset($data[$notNullField]);
             }
         }
+
+        // FIX, 2026-09-22 (Johan) — has_deposit was left as raw validate()
+        // output (a "1" string when checked, simply ABSENT from $data when
+        // unchecked, per Laravel's nullable-checkbox behaviour) rather than
+        // a real boolean, so unticking "Has deposit" silently left the OLD
+        // value in place instead of clearing it — the same checkbox-
+        // omission shape updateRentalDetails() below already guards
+        // against. Normalized here so applyDepositDefault() can rely on a
+        // real boolean, and so unticking the box actually persists as
+        // false like every other checkbox on this form.
+        $data['has_deposit'] = $request->boolean('has_deposit');
+        $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
 
         // AT-422 — a user changing the status, expiry date or listed date of Imported Stock
         // takes the listing over: Listed Date and Loaded become today, the Imported tag goes,
@@ -1930,7 +2019,14 @@ class PropertyController extends Controller
         $clone->listing_type_pending = true;
         // `price` is bigint unsigned NOT NULL DEFAULT 0; 0 is this schema's "unset"
         // (empty(0) is true, so the publish-readiness gate still demands a real price).
-        $clone->price = 0;
+        // A rental's `price` is a deliberate future-sale-price capture (see
+        // .ai/specs/listings.md, "Sale price stays live on a rental listing"),
+        // so duplicating a rental AS A SALE carries it forward instead of
+        // discarding it. Every other direction still starts at 0 — a rental
+        // starting fresh has no sale-price history to inherit.
+        $clone->price = ($targetType === 'sale' && $property->isRental())
+            ? $property->price
+            : 0;
         $clone->unit_number = null;
         $clone->published_at = null;
         $clone->p24_syndication_enabled = false;
@@ -2639,9 +2735,6 @@ class PropertyController extends Controller
             // showed these to every property, sale included.
             'lease_period'      => 'nullable|string|max:100',
             'lease_type'        => 'nullable|string|max:100',
-            'price_per_day'     => 'nullable|numeric|min:0',
-            'price_per_week'    => 'nullable|numeric|min:0',
-            'price_per_year'    => 'nullable|numeric|min:0',
             // AT-402 Part 3 — first-ever desktop inputs for these three; the
             // mobile app has always been able to set them. Same bound on
             // commission_percent (0-100) as the mobile app and the general
@@ -2654,6 +2747,12 @@ class PropertyController extends Controller
             'commission_percent' => 'nullable|numeric|min:0|max:100',
             'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
             'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
+            // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29
+            // — "per property, populated to the leases screen." The single
+            // editable place a landlord's no-approval spend limit lives; the
+            // lease screen only ever reads through to this column. Null
+            // (cleared) means "use the agency default."
+            'rental_no_approval_spend_threshold' => 'nullable|numeric|min:0',
             // AT-402 Part 4 — Furnished Status / Availability / Utilities.
             // furnished_status: free-text-shaped but UI-constrained to the
             // agency's own PropertySettingItem list (group 'furnished_status')
@@ -2663,6 +2762,60 @@ class PropertyController extends Controller
             // existing column, not a new one (see the migration's docblock).
             'occupation_date'   => 'nullable|date',
         ]);
+
+        // .ai/specs/rental-property-tab.md §2/§8, Part 2 — agency-defined
+        // rental-details fields. Built dynamically per-agency (there is no
+        // static rule set — every agency's field list differs), merged into
+        // the SAME $request->validate() call as everything above so a
+        // failure throws the SAME ValidationException Laravel already
+        // handles correctly (redirect back, $errors->any() renders on this
+        // page — see the top-of-page banner) — never a second, hand-rolled
+        // failure path that could silently report "Saved." the way the
+        // onboarding wizard's per-saver loop did (fixed 2026-09-20). No
+        // property update happens until validation for BOTH the shipped
+        // fields above and every custom field below has passed.
+        $customFields = PropertyRentalDetailsCustomField::activeFor((int) $property->agency_id);
+        $customFieldRules = [];
+        foreach ($customFields as $customField) {
+            $inputName = "custom_fields.{$customField->key}";
+            // Array-format rules take ONE rule per element — a pipe-delimited
+            // string mixed in as a single element ('numeric|min:0') is NOT
+            // re-split by Laravel and throws "Method ...validateNumeric|min
+            // does not exist" the moment it's evaluated (caught live: this
+            // exact mistake 500'd every save touching a number/currency
+            // field during Part 2's own real-HTTP verification). Each rule
+            // is its own array element via array_merge, never concatenated.
+            $rules = [$customField->required ? 'required' : 'nullable'];
+            $rules = array_merge($rules, match ($customField->field_type) {
+                PropertyRentalDetailsCustomField::TYPE_NUMBER,
+                PropertyRentalDetailsCustomField::TYPE_CURRENCY => ['numeric', 'min:0'],
+                PropertyRentalDetailsCustomField::TYPE_YES_NO => ['boolean'],
+                default => ['string', 'max:1000'],
+            });
+            $customFieldRules[$inputName] = $rules;
+        }
+        $customData = $request->validate($customFieldRules);
+
+        if ($customFields->isNotEmpty()) {
+            // Merge into whatever's already stored, never replace wholesale
+            // — this form only ever renders ACTIVE (shown, not-retired)
+            // fields, so a wholesale overwrite would silently wipe the
+            // already-captured value of any field an agency has since
+            // hidden or retired. yes_no fields need $request->boolean() the
+            // same reason has_deposit/water_included etc. do above: an
+            // unticked checkbox submits nothing at all, and validate()
+            // above would leave it out of $customData entirely.
+            $incomingCustomValues = $customData['custom_fields'] ?? [];
+            foreach ($customFields as $customField) {
+                if ($customField->field_type === PropertyRentalDetailsCustomField::TYPE_YES_NO) {
+                    $incomingCustomValues[$customField->key] = $request->boolean("custom_fields.{$customField->key}");
+                }
+            }
+            $data['rental_details_custom_field_values'] = array_merge(
+                $property->rental_details_custom_field_values ?? [],
+                $incomingCustomValues,
+            );
+        }
 
         // has_deposit / water_included / electricity_included / levies_included
         // are all checkboxes: an unchecked box submits nothing at all, not
@@ -2675,6 +2828,9 @@ class PropertyController extends Controller
         $data['water_included']      = $request->boolean('water_included');
         $data['electricity_included'] = $request->boolean('electricity_included');
         $data['levies_included']     = $request->boolean('levies_included');
+
+        // FIX, 2026-09-22 (Johan) — see applyDepositDefault()'s own docblock.
+        $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);

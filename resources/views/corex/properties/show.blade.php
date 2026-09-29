@@ -19,6 +19,14 @@
            contacts page, AT-393). */
         .corex-props-v2 .prop-identity-strip .prop-action-btn { width: auto; white-space: nowrap; }
         .corex-props-v2 .prop-tab-panel { overflow-y: auto; overflow-x: clip; }
+        /* FIX, 2026-09-22 — x-bind:style overwrites the whole style attribute
+           rather than merging, so a static style="..." on the same element as
+           a :style="..." binding gets wiped the moment the bound expression
+           is falsy. The six visibility-toggle knobs below share this exact
+           static declaration, so it moves into one class instead of being
+           re-fought six times. */
+        .toggle-knob { background:#fff; margin-top:2px; }
+        .gallery-upload-dropzone { border-color:var(--border-hover); color:var(--text-secondary); }
         .corex-props-v2 .prop-cov-dot-btn {
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
             width: 2rem; border-radius: 6px; cursor: pointer;
@@ -29,6 +37,121 @@
             width: 9px; height: 9px; border-radius: 50%;
             box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent);
         }
+        /* §20.17, 2026-09-24 — the photo comparison viewer. Every static
+           declaration lives here, never co-located with the :style binding
+           that carries ONLY the zoom/pan transform on the same element
+           (compareViewerZoomStyle()) — the exact trap noted above.
+
+           FIX, 2026-09-24, Johan ("the site banner bleeds through the
+           modal toolbar"): z-[9999] (a Tailwind utility class on the
+           backdrop element) was not reliably beating whatever stacking
+           context the page's own top banner/identity strip establishes.
+           Two independent fixes, not one guess: the backdrop's z-index is
+           now set here, at the maximum safe CSS value, so no plausible
+           competing z-index on the page can ever exceed it; the toolbar
+           rows ALSO get their own fully opaque background rather than
+           relying solely on the backdrop showing through underneath them
+           — correct regardless of which of the two was the actual cause. */
+        /* Johan-approved mockup palette, 2026-09-24 — dark chrome because
+           this is a photo viewer, not a form. Font families declared here
+           only (IBM Plex Sans/Mono with real fallbacks) — no new font file
+           is loaded by this change; if IBM Plex isn't already present on
+           the page these fall back to the system stack rather than
+           silently doing nothing. */
+        .compare-viewer-backdrop {
+            background: #0B0E12; z-index: 2147483647;
+            font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            color: #E4EBF1;
+        }
+        .cv-mono { font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace; }
+        .cv-text-primary { color: #E4EBF1; }
+        .cv-text-secondary { color: #8C99A6; }
+        .cv-accent { color: #3FC9E6; }
+        /* Every interactive control an agent touches on a tablet gets a
+           44px minimum target, regardless of how small its visible glyph
+           is — padding does the work so the click/tap AREA is 44px even
+           where the mockup's own drawn height is smaller. */
+        .cv-touch { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+        .compare-viewer-toolbar { background: #0B0E12; border-bottom: 1px solid #1E262F; }
+        .cv-topbar { height: 56px; }
+        .compare-viewer-mode-btn { background: #10151B; color: #E4EBF1; border: 1px solid #1E262F; }
+        .compare-viewer-mode-btn-active { background: #3FC9E6; color: #0B0E12; border-color: #3FC9E6; }
+        .compare-viewer-close-btn { background: #10151B; color: #E4EBF1; border: 1px solid #1E262F; }
+        .cv-navrow { height: 52px; border-bottom: 1px solid #1E262F; background: #10151B; }
+        .cv-navrow-label { flex: none; letter-spacing: 0.05em; }
+        .cv-space-tab { background: transparent; color: #8C99A6; border: none; border-bottom: 2px solid transparent; border-radius: 0; }
+        .cv-space-tab-active { color: #E4EBF1; border-bottom-color: #3FC9E6; background: transparent; }
+        .cv-item-chip { background: #10151B; color: #E4EBF1; border: 1px solid #1E262F; border-radius: 999px; }
+        .cv-item-chip-active { background: #3FC9E6; color: #0B0E12; border-color: #3FC9E6; }
+        .cv-chip-count { opacity: 0.7; margin-left: 0.35rem; }
+        /* FIX, 2026-09-24, Johan ("the two panes are not the same size and
+           the right image overflows"): an explicit, identical height on
+           every pane, single mode and compare mode alike — flex-stretch
+           alone left the two boxes free to size from their own image
+           content when the surrounding flex chain's height wasn't fully
+           propagating, which is exactly what let them drift apart and
+           clip. A fixed height can never do that, on either pane. */
+        .compare-viewer-pane { height: 48vh; overflow: hidden; touch-action: none; cursor: grab; background: #000; }
+        .cv-pane-single { height: 62vh; }
+        .compare-viewer-pane:active { cursor: grabbing; }
+        .compare-viewer-empty-pane { color: rgba(255,255,255,0.6); }
+        .cv-pane-grid { background: #1E262F; }
+        .cv-pane-grid > div, .cv-rail-grid > div { background: #10151B; }
+        .cv-rail-grid { background: #1E262F; }
+        .cv-pane-header { height: 52px; padding: 0 0.75rem; background: #10151B; border-bottom: 1px solid #29323C; }
+        .cv-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; padding: 0.1rem 0.4rem; border-radius: 4px; flex: none; }
+        .cv-badge-in { background: #29323C; color: #8C99A6; }
+        .cv-badge-current { background: #3FC9E6; color: #0B0E12; }
+        .cv-pill { font-size: 11px; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; }
+        .cv-pill-good { background: #4FBE82; color: #0B0E12; }
+        .cv-pill-fair { background: #E0A34A; color: #0B0E12; }
+        .cv-pill-damaged { background: #D9534F; color: #0B0E12; }
+        {{-- §36 — the compare viewer overlay is a fixed-dark surface by its
+             own existing design (every colour in this block is a literal
+             hex, unaffected by light/dark theme), so these four match that
+             convention rather than the theme-token CSS variables the rest
+             of the recording screen uses — same literal values as
+             RentalInspectionSetting::SEVERITY_COLORS, the one place this
+             app's severity→colour mapping is defined, so the PDF, the
+             settings picker, and this overlay can never drift out of sync. --}}
+        .cv-pill-sev-blue  { background: #0ea5e9; color: #0B0E12; }
+        .cv-pill-sev-red   { background: #c41e3a; color: #0B0E12; }
+        .cv-pill-sev-amber { background: #f59e0b; color: #0B0E12; }
+        .cv-pill-sev-grey  { background: #6b7280; color: #0B0E12; }
+        .compare-viewer-step { background: rgba(0,0,0,0.6); color: #fff; padding: 0.25rem 0.5rem; border-radius: 999px; }
+        .compare-viewer-zoom-controls { background: rgba(0,0,0,0.65); color: #fff; padding: 0.15rem 0.35rem; border-radius: 999px; }
+        .cv-zoom-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.25); margin: 0 0.15rem; }
+        .cv-tagbar { height: 46px; background: #10151B; border-top: 1px solid #29323C; }
+        .cv-dot { width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; flex: none; }
+        .cv-dot-good { background: #4FBE82; color: #0B0E12; }
+        .cv-dot-fair { background: #E0A34A; }
+        .compare-viewer-match-btn { background: #10151B; color: #8C99A6; border: 1px solid #1E262F; }
+        .compare-viewer-match-btn-active { background: #3FC9E6; color: #0B0E12; }
+        .compare-viewer-carousel { background: #10151B; }
+        .compare-viewer-thumb { border: 2px solid transparent; opacity: 0.75; border-radius: 4px; }
+        .compare-viewer-thumb-active { border-color: #3FC9E6; opacity: 1; }
+        .cv-thumb-img { width: 92px; height: 66px; }
+        .cv-rail-label { height: 22px; }
+        .cv-untagged-dot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: #E0A34A; border: 1px solid #0B0E12; }
+        .cv-dim-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); pointer-events: none; }
+        .compare-viewer-side { display: flex; position: relative; }
+        @media (max-width: 639px) {
+            .compare-viewer-side.compare-viewer-side-hide-mobile { display: none; }
+        }
+        /* Tagging panel — 420px, anchored over the pane that opened it. */
+        .cv-tagpanel { position: absolute; top: 160px; width: 420px; max-width: 92vw; background: #10151B; border: 1px solid #29323C; border-radius: 8px; z-index: 20; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+        .cv-tagpanel-left { left: 2%; }
+        .cv-tagpanel-right { right: 2%; }
+        .cv-tagpanel-head { border-bottom: 1px solid #1E262F; }
+        .cv-tagpanel-body { max-height: 280px; overflow-y: auto; background: #1E262F; }
+        .cv-tagpanel-col { background: #10151B; }
+        .cv-tagpanel-row { background: transparent; color: #E4EBF1; border: none; }
+        .cv-tagpanel-row-active { background: #3FC9E6; color: #0B0E12; }
+        .cv-tagpanel-foot { border-top: 1px solid #1E262F; }
+        .cv-untagged-tray { background: #10151B; border-top: 1px solid #29323C; }
+        .cv-untagged-thumb { border: 2px solid #E0A34A; opacity: 0.85; border-radius: 4px; }
+        .cv-untagged-thumb-selected { opacity: 1; border-color: #3FC9E6; }
+        .cv-untagged-thumb-img { width: 56px; height: 42px; }
     </style>
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false }"
@@ -95,133 +218,18 @@
                 : false;
         }
     @endphp
-    <div class="prop-identity-strip flex-shrink-0 rounded-md px-3 py-2 flex items-center gap-3 flex-wrap"
-         style="background:var(--surface); border:1px solid var(--border);">
-        <a href="{{ route($backRoute) }}"
-           class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0"
-           style="padding-left:0.5rem; padding-right:0.5rem;"
-           title="{{ $backLabel }}" aria-label="{{ $backLabel }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-            <span class="sr-only">{{ $backLabel }}</span>
-        </a>
-
-        <div class="hidden lg:flex items-center gap-3 min-w-0 flex-1">
-            @if($thumb)
-                <img src="{{ $thumb }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">
-            @else
-                <div class="w-10 h-10 rounded flex items-center justify-center flex-shrink-0" style="background:var(--surface-2);">
-                    <svg class="w-5 h-5" style="color:var(--text-muted);opacity:.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
-                </div>
-            @endif
-            <div class="min-w-0 flex-1">
-                <div class="flex items-baseline gap-x-2 min-w-0">
-                    @if($hasRealAddr)
-                        <span class="text-sm font-bold leading-snug truncate" style="color:var(--text-primary);" title="{{ $sbAddr }}">{{ $sbAddr }}</span>
-                        @if($property->title)
-                        <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</span>
-                        @endif
-                    @else
-                        <span class="text-sm font-bold leading-snug truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</span>
-                    @endif
-                </div>
-                <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
-                    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
-                    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
-                    @if(!empty($property->status_label))
-                        <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
-                    @endif
-                    @if($property->isPublished())
-                        <span class="ds-badge ds-badge-success">Published</span>
-                    @endif
-
-                    {{-- AT-238 — WHERE THE PAPER LIVES.
-                         The physical file reference, read straight through from the filing
-                         register. The property stores no copy of it: the register owns the
-                         fact, so a re-numbered file cannot leave a stale reference behind
-                         here. An agent standing on the property record can now see which
-                         file to pull without going and looking it up.
-
-                         Several are normal — an OA and an EA are separate documents — so all
-                         of them are shown. A property with no filing shows NOTHING: an empty
-                         chip is clutter, and absence is already the answer. --}}
-                    @if(!$isNew && $property->filings->isNotEmpty())
-                        @foreach($property->filings as $filing)
-                            <span class="ds-badge ds-badge-info"
-                                  title="Physically filed as {{ $filing->full_reference }} ({{ $filing->document_type }}){{ $filing->expiry_date ? ' — mandate expires ' . $filing->expiry_date->format('d M Y') : '' }}. Read live from the Filing Register.">
-                                {{ $filing->document_type }} · {{ $filing->full_reference }}
-                            </span>
-                        @endforeach
-                    @endif
-                    @if(!$isNew)
-                        <span class="text-sm font-bold ml-1" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</span>
-                    @endif
-                </div>
-            </div>
-        </div>
-        <div class="flex-1 lg:hidden"></div>
-
-        @if(!$isNew)
-        <div class="flex items-center gap-2 flex-shrink-0 ml-auto">
-            <button type="button" @click="complianceModalOpen = true"
-                    class="prop-action-btn prop-action-btn-neutral"
-                    title="View compliance gates and go-live status">
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/></svg>
-                Compliance Status
-                <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
-            </button>
-
-            {{-- Layer 3 — the approval tag and the "Send for approval" button, right
-                 beside Compliance Status because that is the moment they matter:
-                 the button exists ONLY once compliance is done (Johan, spec D5).
-                 Renders nothing at all unless the agency switched the gate on.
-                 .ai/specs/syndication-approval-gate.md §5.2 / §6.4 --}}
-            @if($synApprovalState && ! $synApprovalState->isSilent())
-            <div class="flex items-center gap-2"
-                 x-data="syndicationApproval({
-                    propertyId: {{ (int) $property->id }},
-                    csrfToken: '{{ csrf_token() }}',
-                    badge: '{{ $synApprovalState->badge }}',
-                    urls: {
-                        request: '{{ route('corex.properties.syndication-approval.request', $property->id) }}',
-                        cancel:  '{{ route('corex.properties.syndication-approval.cancel', $property->id) }}',
-                        approve: '{{ route('corex.properties.syndication-approval.approve', $property->id) }}',
-                        reject:  '{{ route('corex.properties.syndication-approval.reject', $property->id) }}',
-                        revoke:  '{{ route('corex.properties.syndication-approval.revoke', $property->id) }}',
-                    },
-                 })">
-                @include('corex.properties.partials._syndication-approval-badge', ['approvalState' => $synApprovalState])
-
-                @unless(auth()->user()?->is_assistant)
-                    @if($synApprovalState->canRequest)
-                    <button type="button" @click="post(urls.request)" :disabled="loading"
-                            class="prop-action-btn prop-action-btn-neutral"
-                            title="Send this listing to your approver — they get an email straight away">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5"/></svg>
-                        <span x-text="loading ? 'Sending…' : 'Send for approval'">Send for approval</span>
-                    </button>
-                    @elseif($synApprovalCanApprove && $synApprovalState->badge === \App\Services\Syndication\SyndicationApprovalState::BADGE_AWAITING)
-                    <button type="button" @click="post(urls.approve)" :disabled="loading"
-                            class="prop-action-btn prop-action-btn-success"
-                            title="Approve this listing for syndication">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                        <span x-text="loading ? 'Approving…' : 'Approve'">Approve</span>
-                    </button>
-                    @endif
-                @endunless
-
-                <span class="text-[11px]" x-show="errorMsg" x-cloak style="color:var(--ds-crimson, #dc2626);" x-text="errorMsg"></span>
-            </div>
-            @endif
-
-            <button type="submit" form="prop-update-form" data-prop-save data-tour="prop-save"
-                    class="prop-action-btn prop-action-btn-success">
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                <span class="prop-save-label">Save Changes</span>
-            </button>
-            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-        </div>
-        @endif
-    </div>
+    {{-- Extracted to partials/_property-shell-header.blade.php (2026-09-27,
+         rental-inventory §13.10) so the standalone inventory capture page
+         can show the identical header without a second copy of this
+         markup. Reads $backRoute/$thumb/$listingTypeLabel/$statusLabel/
+         $brandPillStyle/$sbAddr/$hasRealAddr/$isMarketable/$cmpLabel/
+         $cmpPillBg/$cmpPillFg straight from the top-of-file PHP block just
+         above — deliberately left in place here (unmoved), since $thumb
+         and $isMarketable are each read again further down this same file.
+         The partial itself also carries the `data-tour="prop-save"` anchor
+         and the tour-header-launcher button (merged in from Staging) —
+         see that file, not here, for their markup. --}}
+    @include('corex.properties.partials._property-shell-header')
 
     {{-- Flash + validation messages — only take up space when there is one to show. --}}
     @if(session('success') || session('error') || $errors->any())
@@ -1348,70 +1356,18 @@
     @endif
 
     {{-- Tab bar (shared) — sticky at the top of the scrolling tab panel --}}
-        <div class="flex overflow-x-auto sticky top-0 z-10" style="border-bottom:1px solid var(--border); background:var(--surface);"
-             {{-- AT-402 - the Rental tab follows a live listing_type change on a brand-new property. --}}
-             x-data="{ isRentalListing: document.querySelector('[name=listing_type]')?.value === 'rental' }"
-             x-init="document.querySelector('[name=listing_type]')?.addEventListener('change', e => {
-                 isRentalListing = e.target.value === 'rental';
-                 if (!isRentalListing && activeTab === 'rental') activeTab = 'info';
-             })">
-            @foreach([
-                ['key'=>'overview',  'label'=>'Overview'],
-                ['key'=>'info',      'label'=>'Info'],
-                ['key'=>'gallery',   'label'=>'Gallery'],
-                ['key'=>'rental',    'label'=>'Rental'],
-                ['key'=>'rental-images', 'label'=>'Rental Images'],
-                ['key'=>'contacts',  'label'=>'Contacts'],
-                ['key'=>'notes',     'label'=>'Notes'],
-                ['key'=>'history',   'label'=>'History'],
-                ['key'=>'drive',        'label'=>'Drive'],
-                ['key'=>'intelligence', 'label'=>'Intelligence'],
-                ['key'=>'core-matches', 'label'=>'Core Matches'],
-            ] as $tab)
-            @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
-                @continue
-            @endif
-            @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
-                @continue
-            @endif
-            {{-- AT-402 — a SETTLED (not new, not type-change-pending) sale
-                 property never renders this button at all, not merely hides
-                 it via x-show: with only x-show, the button (and, more to
-                 the point, the tab's whole content panel + its own <form
-                 action="...rental-details...">) was still shipped in every
-                 property's HTML, sale included — just CSS-hidden. Skipped
-                 entirely here, matching the Rental Images tab's own
-                 @continue above. Still rendered (and left reactive via
-                 x-show below) for $isNew/pending, where the type genuinely
-                 isn't settled yet and the button must appear live the
-                 instant Rental is picked, before any save. --}}
-            @if($tab['key'] === 'rental' && !($isNew || $property->listing_type_pending) && strtolower($property->listing_type ?? '') !== 'rental')
-                @continue
-            @endif
-            <button type="button"
-                    data-prop-tab="{{ $tab['key'] }}" data-tour="prop-tab-{{ $tab['key'] }}"
-                    @click="activeTab = '{{ $tab['key'] }}'"
-                    @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
-                    :class="'border-b-2'"
-                    :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
-                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
-                    style="background:transparent;">
-                {{ $tab['label'] }}
-                @if(!$isNew && $tab['key'] === 'contacts' && $property->contacts->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $property->contacts->count() }}</span>
-                @endif
-                @if(!$isNew && $tab['key'] === 'notes' && $property->notes->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $property->notes->count() }}</span>
-                @endif
-                @if(!$isNew && $tab['key'] === 'drive' && $allDriveDocs->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $allDriveDocs->count() }}</span>
-                @endif
-                @if(!$isNew && $tab['key'] === 'core-matches' && $coreMatches->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $coreMatches->count() }}</span>
-                @endif
-            </button>
-            @endforeach
-        </div>
+        {{-- Extracted to partials/_property-shell-tabs.blade.php (2026-09-27,
+             rental-inventory §13.10) so the standalone inventory capture
+             page can show the identical tab bar (with Inventory active,
+             every other tab a real link) without a second copy of this
+             markup. Default mode='spa' reproduces this page's own
+             Alpine-switch behaviour exactly — nothing here changes. The
+             partial also now carries the Rental Images tab (merged in from
+             Staging — it was dropped from the $tabs array during the
+             2026-09-27 extraction even though its content panel and routes
+             stayed in this file, orphaning it) and the `data-tour="prop-tab-*"`
+             anchors (also from Staging) — see that file, not here. --}}
+        @include('corex.properties.partials._property-shell-tabs')
 
         {{-- ── OVERVIEW TAB ──────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'overview'" x-cloak class="p-6 space-y-6">
@@ -2074,9 +2030,12 @@
                     <div x-show="info.pricing" x-collapse class="prop-section-body space-y-4">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" x-data="{ showPriceModal: false }">
                             <div class="relative" data-tour="prop-info-price">
-                                <label class="prop-label">Price (ZAR) <span class="prop-required">*</span></label>
+                                <label class="prop-label">
+                                    {{ $property->isRental() ? 'Sale Price (ZAR)' : 'Price (ZAR)' }}
+                                    @unless($property->isRental())<span class="prop-required">*</span>@endunless
+                                </label>
                                 <div class="flex prop-field-money">
-                                    <input type="number" name="price" value="{{ old('price', $property->price) }}" required min="0"
+                                    <input type="number" name="price" value="{{ old('price', $property->price) }}" @unless($property->isRental()) required @endunless min="0"
                                            class="prop-input"
                                            style="border-top-right-radius:0; border-bottom-right-radius:0; border-right:none;">
                                     <button type="button" @click="showPriceModal = true"
@@ -2086,10 +2045,26 @@
                                         <svg class="w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                                     </button>
                                 </div>
-                                @if($property->price_on_application)
+                                @if($property->isRental())
+                                <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--text-muted);">Not in use while let — see Rental Price</span>
+                                @elseif($property->price_on_application)
                                 <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--brand-icon);">Price on Application</span>
                                 @endif
                             </div>
+                            @if($property->isRental())
+                            <div>
+                                {{-- .ai/specs/rental-property-tab.md §3, Part 3
+                                     — no longer hardcoded "Monthly": the price
+                                     TYPE (Rental Details tab) is what this
+                                     number means, and it isn't always monthly
+                                     any more. Same rental_amount column the
+                                     Rental Details tab edits — one value, a
+                                     second place to edit it, no sync (unchanged
+                                     from cc6's original design). --}}
+                                <label class="prop-label">Rental Price (ZAR)</label>
+                                <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                            </div>
+                            @endif
                             <div>
                                 <label class="prop-label">Rates &amp; Taxes</label>
                                 <input type="number" name="rates_taxes" value="{{ old('rates_taxes', $property->rates_taxes) }}" min="0" placeholder="—" class="prop-input prop-field-money">
@@ -2339,8 +2314,7 @@
                                                 <span draggable="true"
                                                       @dragstart="aiDragStart(i)" @dragend="aiDragEnd()"
                                                       class="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-xs cursor-grab active:cursor-grabbing"
-                                                      :style="aiDragIdx === i ? 'opacity:.45;' : ''"
-                                                      style="background:var(--surface); border:1px dashed color-mix(in srgb, var(--brand-icon) 45%, var(--border)); color:var(--text-primary);">
+                                                      :style="'background:var(--surface); border:1px dashed color-mix(in srgb, var(--brand-icon) 45%, var(--border)); color:var(--text-primary);' + (aiDragIdx === i ? ' opacity:.45;' : '')">
                                                     <svg class="w-3 h-3" style="color:var(--text-muted);" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></svg>
                                                     <span x-text="f.label"></span>
                                                     <span class="text-[0.625rem]" style="color:var(--text-muted);" x-text="Math.round(f.confidence*100) + '%'"></span>
@@ -2368,10 +2342,9 @@
                                                      @dragleave="aiDropTarget === si && (aiDropTarget = null)"
                                                      @drop.prevent="aiDropOnSpace(si)"
                                                      class="flex items-center gap-1.5 px-3 py-2 transition-colors"
-                                                     style="flex:1 0 auto;"
-                                                     :style="aiDropTarget === si
+                                                     :style="'flex:1 0 auto;' + (aiDropTarget === si
                                                         ? 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); box-shadow:inset 0 0 0 1px var(--brand-icon);'
-                                                        : 'background:var(--surface);'">
+                                                        : 'background:var(--surface);')">
                                                     <span class="w-4 h-4 flex items-center justify-center"
                                                           :style="aiDropTarget === si ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
                                                           x-html="getSpaceIconSvg(sp.type)"></span>
@@ -2430,10 +2403,9 @@
                                     <button type="button"
                                             data-tour="prop-space-tile" @click="openSpace(idx)"
                                             class="flex flex-col items-center justify-center gap-2 px-4 py-4 transition-all cursor-pointer"
-                                            style="flex:1 0 110px; border-right:1px solid var(--border);"
-                                            :style="(idx === modalSpaceIdx && modalOpen)
+                                            :style="'flex:1 0 110px; border-right:1px solid var(--border);' + ((idx === modalSpaceIdx && modalOpen)
                                                 ? 'background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border-bottom:2px solid var(--brand-icon);'
-                                                : 'background:var(--surface); border-bottom:2px solid transparent;'">
+                                                : 'background:var(--surface); border-bottom:2px solid transparent;')"
                                         <div class="flex items-center gap-2">
                                             <span class="w-7 h-7 flex items-center justify-center flex-shrink-0"
                                                   :style="(idx === modalSpaceIdx && modalOpen) ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -2499,10 +2471,9 @@
                                     <button type="button"
                                             @click="featureCategoryTab = catKey"
                                             class="relative flex flex-col items-center gap-1 px-4 py-3 transition-all cursor-pointer"
-                                            style="flex:1; border-right:1px solid var(--border);"
-                                            :style="featureCategoryTab === catKey
+                                            :style="'flex:1; border-right:1px solid var(--border);' + (featureCategoryTab === catKey
                                                 ? 'background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border-bottom:2px solid var(--brand-icon);'
-                                                : 'background:var(--surface); border-bottom:2px solid transparent;'">
+                                                : 'background:var(--surface); border-bottom:2px solid transparent;')"
                                         <span class="w-7 h-7 flex items-center justify-center" x-html="getFeatureCatIconSvg(catKey)"></span>
                                         <span class="text-xs font-medium"
                                               :style="featureCategoryTab === catKey ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -3091,8 +3062,7 @@
                                     <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                            :style="masterHideAll ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'">
                                         <input type="checkbox" :checked="masterHideAll" @change="toggleMasterHideAll()" class="sr-only">
-                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                              style="background:#fff; margin-top:2px;"
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                               :style="masterHideAll ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </label>
                                 </div>
@@ -3113,8 +3083,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideStreetNumber ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_street_number" value="1" :checked="hideStreetNumber" @change="hideStreetNumber = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideStreetNumber ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3126,8 +3095,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideStreetName ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_street_name" value="1" :checked="hideStreetName" @change="hideStreetName = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideStreetName ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3139,8 +3107,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideComplexName ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_complex_name" value="1" :checked="hideComplexName" @change="hideComplexName = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideComplexName ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3152,8 +3119,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideUnitNumber ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_unit_number" value="1" :checked="hideUnitNumber" @change="hideUnitNumber = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideUnitNumber ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3177,8 +3143,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!p24HideAddress ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="p24_hide_address" value="1" :checked="p24HideAddress" @change="p24HideAddress = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!p24HideAddress ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3618,9 +3583,8 @@
             <div @unless($canEdit ?? true) data-edit-only @endunless x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Images</h3>
 
-                <label data-tour="prop-gallery-upload" class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
+                <label data-tour="prop-gallery-upload" class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm gallery-upload-dropzone"
                        :style="uploading ? 'opacity:0.6; pointer-events:none;' : ''"
-                       style="border-color:var(--border-hover); color:var(--text-secondary);"
                        onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border-hover)'">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
                     <span x-text="labelText">Select images to upload (multiple allowed)</span>
@@ -4254,7 +4218,11 @@
                 <p class="text-xs" style="color:var(--text-muted);">Saved together with the rest of the property below.</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
-                        <label class="prop-label">Monthly Rental (R)</label>
+                        {{-- .ai/specs/rental-property-tab.md §3, Part 3 (Johan,
+                             2026-09-21) — ONE price type, ONE price. No longer
+                             hardcoded "Monthly" -- the type selector below is
+                             what the number means. --}}
+                        <label class="prop-label">Rental Price (R)</label>
                         <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
                     <div>
@@ -4262,11 +4230,16 @@
                         <input type="number" name="deposit_amount" form="prop-update-form" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
                     <div>
+                        {{-- Agency-editable list (Settings → Properties &
+                             Listings), not a hardcoded array — matches what
+                             P24/PP actually accept; see the model's own
+                             DEFAULT_ROWS comment for why "Per Year" isn't in
+                             the seeded default. --}}
                         <label class="prop-label">Rental Price Type</label>
                         <select name="rental_price_type" form="prop-update-form" class="prop-select prop-field-enum">
                             <option value="">— Not Set —</option>
-                            @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
-                                <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                            @foreach($settingItems['rentalPriceTypes'] ?? [] as $rpt)
+                                <option value="{{ $rpt->name }}" {{ old('rental_price_type', $property->rental_price_type) === $rpt->name ? 'selected' : '' }}>{{ $rpt->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -4284,27 +4257,22 @@
                         <label class="prop-label">Lease Period</label>
                         <input type="text" name="lease_period" form="prop-update-form" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
                     </div>
+                    {{-- Johan, 2026-09-22 — "hide it, dont remove it." Agency-
+                         configurable, default hidden (Settings → Leases). --}}
+                    @if($showLeaseType ?? false)
                     <div>
                         <label class="prop-label">Lease Type</label>
                         <select name="lease_type" form="prop-update-form" class="prop-select prop-field-enum">
                             <option value="">— Select —</option>
-                            @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                            {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                                 list, was a hardcoded array (including "N Triple Net", never
+                                 matched anywhere else). Same list feeds the lease screens. --}}
+                            @foreach($settingItems['leaseTypes'] ?? [] as $lt)
+                                <option value="{{ $lt->name }}" {{ old('lease_type', $property->lease_type) === $lt->name ? 'selected' : '' }}>{{ $lt->name }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <div>
-                        <label class="prop-label">Price per Day (R)</label>
-                        <input type="number" name="price_per_day" form="prop-update-form" value="{{ old('price_per_day', $property->price_per_day) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                    </div>
-                    <div>
-                        <label class="prop-label">Price per Week (R)</label>
-                        <input type="number" name="price_per_week" form="prop-update-form" value="{{ old('price_per_week', $property->price_per_week) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                    </div>
-                    <div>
-                        <label class="prop-label">Price per Year (R)</label>
-                        <input type="number" name="price_per_year" form="prop-update-form" value="{{ old('price_per_year', $property->price_per_year) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                    </div>
+                    @endif
                     <div class="flex items-center gap-2">
                         <input type="checkbox" id="rental_has_deposit_new" name="has_deposit" form="prop-update-form" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                         <label for="rental_has_deposit_new" class="prop-label !mb-0">Has Deposit</label>
@@ -4322,6 +4290,16 @@
                     <div>
                         <label class="prop-label">Marketing Fee (R)</label>
                         <input type="number" name="marketing_fee" form="prop-update-form" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
+                    {{-- .ai/specs/rental-work-orders.md §3.4b/§3.4c, Johan's
+                         ruling 2026-09-29 — the amount this property's
+                         landlord permits an agent to approve on a repair
+                         quote without going back to them. Blank uses the
+                         agency's own default. The lease screen shows this
+                         value read-only, sourced from here. --}}
+                    <div>
+                        <label class="prop-label">No-Approval Spend Threshold (R)</label>
+                        <input type="number" name="rental_no_approval_spend_threshold" form="prop-update-form" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
                     {{-- AT-402 Part 4 — Furnished Status (agency-managed list,
                          Settings → Properties & Listings), move-in Availability
@@ -4355,6 +4333,99 @@
                     </div>
                 </div>
             @else
+                {{-- .ai/specs/leases.md §7 — the active lease's tenant(s), dates,
+                     and rent, read-only. This is what fills the gap the Rental
+                     tab's own governing spec (rentals-shared-screens.md §11.1)
+                     already named: "Tenant link... Not built." Sourced from the
+                     `leases` table, never from this tab's own pricing fields
+                     below (those are the property's ASKING terms; a lease's
+                     rental_amount is the AGREED terms for a specific tenancy —
+                     leases.md §6 is explicit these are not the same fact). --}}
+                {{-- Block form, never the one-liner @php(...) -- see this file's own
+                     AT-243/AT-252 comment ~280 lines below (Linked Contacts section)
+                     for exactly why: the one-liner has no guard in Blade's raw-PHP
+                     extraction regex and swallows every line up to the next @endphp
+                     in the whole file. --}}
+                @php
+                    $activeLease = \App\Models\Lease::where('property_id', $property->id)->where('status', 'active')->with('tenants.contact')->first();
+                @endphp
+                <div class="rounded-md p-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    @if($activeLease)
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <strong>Active lease:</strong> {{ $activeLease->tenantNames() }}
+                                — R{{ number_format((float) $activeLease->rental_amount, 2) }}/mo
+                                ({{ $activeLease->start_date?->format('Y-m-d') }}
+                                &ndash; {{ $activeLease->end_date?->format('Y-m-d') ?? ($activeLease->is_month_to_month ? 'month-to-month' : 'no end date') }})
+                            </div>
+                            <a href="{{ route('corex.leases.show', $activeLease) }}" class="corex-btn-outline text-xs">View lease</a>
+                        </div>
+                    @else
+                        <div class="flex items-center justify-between">
+                            <span style="color: var(--text-muted);">No active lease on this property.</span>
+                            @permission('leases.create')
+                            <a href="{{ route('corex.leases.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">Create lease</a>
+                            @endpermission
+                        </div>
+                    @endif
+                </div>
+
+                {{-- .ai/specs/rental-work-orders.md §3a/§6a — "Report a Fault"
+                     button, Johan's own wording: an agent raises this standing
+                     in the property. Lease pre-filled when there's an active
+                     one; the report itself works during a vacancy too. --}}
+                @php
+                    $recentFaultReports = \App\Models\RentalFaultReport::where('property_id', $property->id)
+                        ->orderByDesc('reported_at')->limit(5)->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <div class="flex items-center justify-between">
+                        <strong>Fault reports</strong>
+                        @permission('rental_fault_reports.create')
+                        <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
+                        @endpermission
+                    </div>
+                    @if($recentFaultReports->isEmpty())
+                        <span style="color: var(--text-muted);">No fault reports yet on this property.</span>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($recentFaultReports as $fr)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $fr->title }} — {{ ucfirst(str_replace('_', ' ', $fr->status)) }}</span>
+                                    <a href="{{ route('corex.rental-fault-reports.show', $fr) }}" class="text-xs underline">View</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
+                {{-- .ai/specs/rental-work-orders.md §6 — "on rentals on a
+                     property we have a work order button," Johan's own words. --}}
+                @php
+                    $recentWorkOrders = \App\Models\RentalWorkOrder::where('property_id', $property->id)
+                        ->orderByDesc('reported_at')->limit(5)->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <div class="flex items-center justify-between">
+                        <strong>Work orders</strong>
+                        @permission('rental_work_orders.create')
+                        <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+                        @endpermission
+                    </div>
+                    @if($recentWorkOrders->isEmpty())
+                        <span style="color: var(--text-muted);">No work orders yet on this property.</span>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($recentWorkOrders as $wo)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $wo->title }} — {{ ucfirst(str_replace('_', ' ', $wo->status)) }}</span>
+                                    <a href="{{ route('corex.rental-work-orders.show', $wo) }}" class="text-xs underline">View</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
                 {{-- Settled rental property — dedicated save action
                      (PropertyController::updateRentalDetails()): its own
                      validation, its own DB transaction, the same
@@ -4365,7 +4436,11 @@
                     @method('PUT')
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div>
-                            <label class="prop-label">Monthly Rental (R)</label>
+                            {{-- .ai/specs/rental-property-tab.md §3, Part 3
+                                 (Johan, 2026-09-21) — ONE price type, ONE
+                                 price. No longer hardcoded "Monthly" — the
+                                 type selector below is what the number means. --}}
+                            <label class="prop-label">Rental Price (R)</label>
                             <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         <div>
@@ -4373,11 +4448,16 @@
                             <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         <div>
+                            {{-- Agency-editable list (Settings → Properties &
+                                 Listings), not a hardcoded array — matches
+                                 what P24/PP actually accept; see the model's
+                                 own DEFAULT_ROWS comment for why "Per Year"
+                                 isn't in the seeded default. --}}
                             <label class="prop-label">Rental Price Type</label>
                             <select name="rental_price_type" class="prop-select prop-field-enum">
                                 <option value="">— Not Set —</option>
-                                @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
-                                    <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                                @foreach($settingItems['rentalPriceTypes'] ?? [] as $rpt)
+                                    <option value="{{ $rpt->name }}" {{ old('rental_price_type', $property->rental_price_type) === $rpt->name ? 'selected' : '' }}>{{ $rpt->name }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -4395,27 +4475,23 @@
                             <label class="prop-label">Lease Period</label>
                             <input type="text" name="lease_period" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
                         </div>
+                        {{-- Johan, 2026-09-22 — "hide it, dont remove it."
+                             Agency-configurable, default hidden (Settings →
+                             Leases). --}}
+                        @if($showLeaseType ?? false)
                         <div>
                             <label class="prop-label">Lease Type</label>
                             <select name="lease_type" class="prop-select prop-field-enum">
                                 <option value="">— Select —</option>
-                                @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                    <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                                {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                                     list, was a hardcoded array (including "N Triple Net", never
+                                     matched anywhere else). Same list feeds the lease screens. --}}
+                                @foreach($settingItems['leaseTypes'] ?? [] as $lt)
+                                    <option value="{{ $lt->name }}" {{ old('lease_type', $property->lease_type) === $lt->name ? 'selected' : '' }}>{{ $lt->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div>
-                            <label class="prop-label">Price per Day (R)</label>
-                            <input type="number" name="price_per_day" value="{{ old('price_per_day', $property->price_per_day) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
-                        <div>
-                            <label class="prop-label">Price per Week (R)</label>
-                            <input type="number" name="price_per_week" value="{{ old('price_per_week', $property->price_per_week) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
-                        <div>
-                            <label class="prop-label">Price per Year (R)</label>
-                            <input type="number" name="price_per_year" value="{{ old('price_per_year', $property->price_per_year) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
+                        @endif
                         <div class="flex items-center gap-2">
                             <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                             <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>
@@ -4436,6 +4512,16 @@
                         <div>
                             <label class="prop-label">Marketing Fee (R)</label>
                             <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        {{-- .ai/specs/rental-work-orders.md §3.4b/§3.4c, Johan's
+                             ruling 2026-09-29 — the amount this property's
+                             landlord permits an agent to approve on a repair
+                             quote without going back to them. Blank uses the
+                             agency's own default. The lease screen shows this
+                             value read-only, sourced from here. --}}
+                        <div>
+                            <label class="prop-label">No-Approval Spend Threshold (R)</label>
+                            <input type="number" name="rental_no_approval_spend_threshold" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         {{-- AT-402 Part 4 — Furnished Status (agency-managed
                              list), move-in Availability date (the existing
@@ -4465,6 +4551,44 @@
                             <input type="checkbox" id="rental_levies_included_settled" name="levies_included" value="1" {{ old('levies_included', $property->levies_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_levies_included_settled" class="prop-label !mb-0">Levies Included</label>
                         </div>
+                        {{--
+                            .ai/specs/rental-property-tab.md §2/§8, Part 2 —
+                            agency-defined fields, in the agency's configured
+                            order. Renders nothing at all for an agency with
+                            no fields defined — the common case today
+                            (empty collection, @foreach produces no markup).
+                        --}}
+                        @foreach($rentalDetailsCustomFields ?? [] as $customField)
+                            @php
+                                $cfInputName = "custom_fields[{$customField->key}]";
+                                $cfOldKey = "custom_fields.{$customField->key}";
+                                $cfValue = old($cfOldKey, $property->rental_details_custom_field_values[$customField->key] ?? null);
+                            @endphp
+                            @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_YES_NO)
+                                <div class="flex items-center gap-2">
+                                    {{-- Hidden + checkbox, not a bare checkbox — an unticked
+                                         box must still submit "0" so a REQUIRED yes/no field
+                                         is answered (explicitly No), not merely absent. --}}
+                                    <input type="hidden" name="{{ $cfInputName }}" value="0">
+                                    <input type="checkbox" id="cf_{{ $customField->key }}" name="{{ $cfInputName }}" value="1" {{ $cfValue ? 'checked' : '' }} class="rounded">
+                                    <label for="cf_{{ $customField->key }}" class="prop-label !mb-0">{{ $customField->label }}@if($customField->required) *@endif</label>
+                                </div>
+                            @else
+                                <div>
+                                    <label class="prop-label">{{ $customField->label }}{{ $customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_CURRENCY ? ' (R)' : '' }}@if($customField->required) *@endif</label>
+                                    @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_CURRENCY)
+                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money" @if($customField->required) required @endif>
+                                    @elseif($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_NUMBER)
+                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" min="0" step="1" class="prop-input" @if($customField->required) required @endif>
+                                    @else
+                                        <input type="text" name="{{ $cfInputName }}" value="{{ $cfValue }}" maxlength="1000" class="prop-input" @if($customField->required) required @endif>
+                                    @endif
+                                </div>
+                            @endif
+                            @if($customField->help_text)
+                                <p class="text-xs -mt-3" style="color: var(--text-muted); grid-column: 1 / -1;">{{ $customField->help_text }}</p>
+                            @endif
+                        @endforeach
                     </div>
                     <div class="flex justify-end">
                         <button type="submit" class="corex-btn-primary text-sm">Save Rental Details</button>
@@ -4476,7 +4600,24 @@
 
         {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
         @if(!$isNew && strtolower($property->listing_type ?? '') === 'rental')
-        <div x-show="activeTab === 'rental-images'" x-cloak class="p-6 space-y-4"
+        {{-- §20.13, 2026-09-22 — the reusable bulk-upload/tag component;
+             cc6's rental-inventory capture surface includes this same file. --}}
+        <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
+        {{-- Johan's ruling, 2026-09-23 — "Next inspection". nextInspectionBase
+             below is base-only (mirrors photoMatchesBase further down): the
+             predecessor id is not known until the chain's own tail is, so
+             it's appended at call time, not baked in here.
+             FIX, 2026-09-23 — this note used to sit as a // comment inside
+             the x-data="rentalImages({...})" attribute below. A double
+             quote in a JS comment inside a double-quoted HTML attribute
+             terminates the attribute right there — the browser's HTML
+             parser has no concept of JS comments, so everything after that
+             quote silently falls out of x-data, leaving rentalImages()'s
+             object literal unclosed. Every attribute on this page that
+             carries inline JS commentary must never contain a literal "
+             character anywhere in that commentary; when a note needs one,
+             it belongs out here instead, exactly like this. --}}
+        <div x-show="activeTab === 'inspections'" x-cloak class="p-6 space-y-4"
              x-data="rentalImages({
                 csrf: '{{ csrf_token() }}',
                 urls: {
@@ -4485,16 +4626,140 @@
                     delete: '{{ route('corex.properties.rental-images.delete', $property) }}',
                     deleteBulk: '{{ route('corex.properties.rental-images.delete-bulk', $property) }}'
                 },
-                data: {{ Js::from($property->rentalImagesStructure()) }}
-             })">
+                data: {{ Js::from($property->rentalImagesStructure()) }},
+                inspectionUrls: {
+                    // FIX, 2026-09-22, Johan: starting an inspection only ever
+                    // hand-patched a few fields on the response (observations/
+                    // discrepancies/signatures) — everything else the screen
+                    // depends on (chainTail/chainPredecessor/photoMatches most
+                    // visibly, since starting a new inspection is exactly when
+                    // the chain moves on) stayed stale until a manual reload.
+                    // tabData is the SAME canonical payload tabPayloadFor()
+                    // already produces — refetching it after a successful
+                    // start replaces every dependent field at once instead of
+                    // hand-patching a fragile, incomplete subset again.
+                    tabData: '{{ route('corex.properties.rental-inspection-tab.data', $property) }}',
+                    itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
+                    itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
+                    seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
+                    startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
+                    nextInspectionBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspections') }}',
+                    roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
+                    roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
+                    // §20.15 — compare view match/unmatch. Base only for the
+                    // destroy route since it needs a match id appended at
+                    // call time (the id is not known until a match exists).
+                    photoMatchesStore: '{{ route('corex.properties.rental-inspection-photo-matches.store', $property) }}',
+                    photoMatchesBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspection-photo-matches') }}',
+                    // §24.5, AT-433 Part B — the same idempotent auto-pair
+                    // run, called both automatically on first view (once
+                    // chainPredecessor/chainTail are both present) and from
+                    // the explicit Auto-pair button. No literal double-quote
+                    // in this comment — see this attribute's own rule just
+                    // below (2026-09-21): one ends the whole x-data value
+                    // right here, as far as the browser's HTML parser cares.
+                    photoMatchesAutoPair: '{{ route('corex.properties.rental-inspection-photo-matches.auto-pair', $property) }}',
+                    // Base for the inspection-scoped actions below — each one appends
+                    // /{id}/... itself, since which inspection is current changes at
+                    // runtime (a new one can be started without a page reload).
+                    //
+                    // 2026-09-21 — this whole x-data value lives inside an HTML
+                    // attribute delimited by double-quote characters. A LITERAL
+                    // double-quote anywhere in this block, no matter how deeply
+                    // nested in a comment, ends the attribute right there as far
+                    // as the browser's HTML parser is concerned — long before
+                    // Alpine, Blade, or PHP ever get a say. This comment used to
+                    // wrap the word current in a pair of literal double-quotes
+                    // for emphasis; that single character silently truncated the
+                    // entire rentalImages() config, so every binding in this
+                    // component threw ReferenceError in every real browser for as
+                    // long as that comment existed. Every server-side check
+                    // (view:clear, route:list, a raw HTTP fetch, even executing
+                    // the extracted JS through Node) passed regardless, because
+                    // none of them re-parse the response as HTML the way a
+                    // browser does — only an actual browser console caught it.
+                    // Rule going forward: never a literal double-quote character
+                    // anywhere between this attribute's own opening and closing
+                    // quote — use single quotes or plain words instead.
+                    inspectionsBase: '{{ url('/corex/rental-inspections') }}',
+                    // .ai/specs/rental-inspections.md §27.7 — the recording
+                    // screen's own photos-visible/problem-filter preference,
+                    // per user, not per-inspection — no id appended at call
+                    // time, unlike every other inspectionUrls entry above.
+                    screenPreference: '{{ route('corex.rental-inspections.screen-preference') }}'
+                },
+                inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }},
+                {{-- Item 8, 2026-09-22 — "the property already knows it."
+                     Read-only display value, sourced from the live Property
+                     record, never the per-inspection snapshot column. --}}
+                propertyType: {{ Js::from($property->property_type) }},
+                {{-- Item 5, 2026-09-22 — "All Good" bulk-fill's target
+                     state, resolved server-side so the client never
+                     hardcodes which key means "the baseline". --}}
+                baselineConditionKey: {{ Js::from(\App\Models\RentalInspectionSetting::baselineConditionKeyFor($property->agency_id)) }}
+             })"
+             {{-- R3, 2026-09-22, Johan: "in in inspection we can use the full
+                  width of the screen" — collapses the existing property
+                  sidebar toggle (sbCollapsed, defined on the page's OUTER
+                  x-data, §line 34) when the Inspection section is open,
+                  giving the side-by-side predecessor/tail layout (2026-09-23)
+                  room to breathe. One-directional by design: it only ever
+                  collapses, never force-reopens, so a user who manually
+                  expands the sidebar again keeps that choice until they next
+                  toggle the section. Never fires outside this tab (activeTab
+                  check) so it can't touch the sidebar preference on any
+                  other tab. Simplified 2026-09-23 from the old "exactly one
+                  of In/Out is open" XOR — there is only the one unified
+                  section to check now (open['inspection'], not two
+                  independent in_inspection/out_inspection keys). --}}
+             x-effect="if (activeTab === 'inspections' && open['inspection']) sbCollapsed = true">
 
-            <div class="flex items-start justify-between gap-4">
-                <p class="text-xs" style="color:var(--text-muted);max-width:42rem;">
-                    Inspection evidence for this rental. Each section is collapsed until you open it,
-                    carries its own date, and holds its own set of photos. Add as many extra sections
-                    as you need for handovers, snags or damage.
-                </p>
-                <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
+            {{-- §34, 2026-09-28 — forces signature/_placer.blade.php's own
+                 <script> (defining the GLOBAL signaturePlacer() function)
+                 to execute during the page's normal, non-templated parse.
+                 The real agent-signing usage
+                 (rental-inspection-recording.blade.php) lives deep inside
+                 several nested <template x-if> layers (inspection exists →
+                 status === 'awaiting_signature' → not yet dispositioned) —
+                 Alpine clones a <template>'s content into the live DOM at
+                 runtime, and per the HTML spec a <script> tag inside a
+                 <template> is inert and NEVER auto-executes, even the
+                 first time it's cloned in (confirmed live: without this,
+                 "signaturePlacer is not defined"). This div itself sits
+                 directly inside THIS x-data (x-show only, never x-if — a
+                 real, always-present DOM node from first paint), so its
+                 own @include below runs completely normally. Blade's own
+                 @once inside _placer.blade.php then makes this the ONE
+                 place the script ever prints; the real, nested usage
+                 later on this page includes the same partial again for
+                 its own PIN-modal HTML only (unlike a <script> tag,
+                 Alpine DOES correctly bind directives in template-cloned
+                 content, so that part works with no special handling) —
+                 @once silently skips re-printing the script there.
+                 Invisible, inert, never actually used as a signature
+                 placer in its own right. --}}
+            <div x-data="signaturePlacer({ context: '_boot' })" style="display:none" aria-hidden="true">@include('signature._placer')</div>
+
+            <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
+
+            {{-- Item 2, 2026-09-22 — ONE quiet save indicator for the whole
+                 screen, never per row: every autosave (condition, notes,
+                 room note, overall notes, header block) routes through
+                 saveState. A failed save stays visible with a working
+                 Retry — never silently lost. --}}
+            <div x-show="saveState.status !== 'idle'" x-cloak
+                 class="fixed z-[9998] top-20 right-6 flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold shadow-lg"
+                 :style="saveState.status === 'failed'
+                    ? 'background:var(--ds-crimson); color:#fff; border:1px solid var(--ds-crimson);'
+                    : (saveState.status === 'saving'
+                        ? 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'
+                        : 'background:var(--surface); color:#16a34a; border:1px solid #16a34a;')">
+                <span x-show="saveState.status === 'saving'">Saving…</span>
+                <span x-show="saveState.status === 'saved'">&#10003; Saved</span>
+                <span x-show="saveState.status === 'failed'" class="flex items-center gap-2">
+                    <span x-text="saveState.message || 'Save failed'"></span>
+                    <button type="button" @click="retrySave()" class="underline font-bold">Retry</button>
+                </span>
             </div>
 
             {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal.
@@ -4542,46 +4807,897 @@
                 </div>
             </div>
 
-            {{-- In Inspection --}}
+            {{-- Inspection items — §0.6, the agent adds spaces/meters per property;
+                 never the advertised marketing room list above. --}}
+            <div class="prop-section">
+                {{-- §28 — chevron moved left, matching every other header on this tab. --}}
+                <button type="button" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle('items')">
+                    <h3 class="prop-section-heading">
+                        <span class="prop-section-heading-text">Inspection Items</span>
+                        <span class="ml-2 text-xs" style="color:var(--text-muted);" x-text="'(' + activeItems().length + ')'"></span>
+                    </h3>
+                    <svg class="prop-section-chevron" :class="open['items'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open['items']" x-collapse class="prop-section-body space-y-3">
+                    <div x-show="itemError" x-cloak class="text-xs" style="color:#ef4444;" x-text="itemError"></div>
+
+                    {{-- Real empty state (BUILD_STANDARD §1a) — 2026-09-21, Johan: a
+                         panel that renders silently when empty is why the feature read
+                         as broken rather than unconfigured. This is the checklist an
+                         in/out inspection walks; with zero rows here, both of those
+                         panels below have nothing to record against either. --}}
+                    <div x-show="!activeItems().length" class="space-y-2">
+                        <p class="text-xs" style="color:var(--text-muted);">
+                            No inspection items yet. Build this property's inspection form from its
+                            advertising Spaces and ticked Features, or add rooms and meters by hand
+                            below — e.g. "Bedroom 1", "Water meter". In and Out Inspection can't record
+                            anything until at least one item exists here.
+                        </p>
+                        <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
+                                class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                    </div>
+
+                    {{-- 2026-09-21, Johan on property 5792 — "no logical way to line
+                         up the rooms as the inspection goes." Rooms already default-
+                         order on creation (RentalInspectionSetting::defaultRoomSortOrderFor()),
+                         but existing rooms keep whatever order they already have —
+                         never silently recomputed by a deploy. This is the explicit,
+                         one-click way to bring THIS property's existing rooms onto
+                         the agency's current walking order. Only worth showing once
+                         there's more than one room to reorder. --}}
+                    <div x-show="roomGroups().filter(g => g.room).length > 1" class="flex justify-end">
+                        <button type="button" :disabled="itemBusy" @click="applyDefaultRoomOrder()"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">
+                            Apply default order
+                        </button>
+                    </div>
+
+                    {{-- 2026-09-22 — retired items are never deleted (§3.3); this is
+                         their only way back. Closed by default so a working list of
+                         active items is never cluttered by ones nobody is using. --}}
+                    <div x-show="retiredItems().length" class="flex justify-end">
+                        <button type="button" @click="retiredItemsOpen = !retiredItemsOpen"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                                x-text="retiredItemsOpen ? 'Hide retired items' : retiredItems().length + ' retired item(s)'"></button>
+                    </div>
+                    <div x-show="retiredItemsOpen" x-collapse class="space-y-1">
+                        <template x-for="item in retiredItems()" :key="'retired-' + item.id">
+                            <div class="flex items-center justify-between py-1 pl-3" style="border-bottom:1px solid var(--border);">
+                                <span class="text-sm" style="color:var(--text-muted);" x-text="item.label + (item.room ? ' — ' + item.room.label : '')"></span>
+                                <button type="button" :disabled="itemBusy" @click="restoreItem(item)"
+                                        class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Restore</button>
+                            </div>
+                        </template>
+                    </div>
+
+                    {{-- 2026-09-21, Johan on property 5792: a room's name was printed
+                         once per facet item (15 rows, 3 rooms, "Bedroom 2 —" repeated
+                         5 times) — pure repeated metadata with nothing the agent needs
+                         to read more than once. Grouped under one heading per room
+                         instead, room name printed ONCE. Grouping keys on
+                         item.room.id — the real PropertyRoom foreign key — never on
+                         the room's free-text label, so two rooms named with different
+                         casing ("Bedroom 2" vs "bedroom 2") are never merged or split
+                         by string comparison; they're already distinct rows before
+                         any label is read. Items with no room (meters, and legacy
+                         spaces still awaiting a room type) fall into one trailing
+                         "General" group rather than floating unheaded. --}}
+                    <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
+                        <div class="space-y-1 pt-2">
+                            <div class="flex items-center justify-between">
+                                <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
+                                    x-text="group.room ? group.room.label : 'General'"></h4>
+                                {{-- Johan: "the agent must be able to reorder rooms
+                                     themselves and have it stick." --}}
+                                <div x-show="group.room" class="flex items-center gap-1">
+                                    <button type="button" :disabled="itemBusy" @click="moveRoomUp(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move up</button>
+                                    <button type="button" :disabled="itemBusy" @click="moveRoomDown(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move down</button>
+                                </div>
+                            </div>
+                            <template x-for="item in group.items" :key="item.id">
+                                <div class="flex items-center justify-between py-1.5 pl-3 flex-wrap gap-1" style="border-bottom:1px solid var(--border);">
+                                    <template x-if="renamingItemId !== item.id">
+                                        <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                                    </template>
+                                    <template x-if="renamingItemId === item.id">
+                                        <div class="flex items-center gap-1">
+                                            <input type="text" x-model="renameDraft" maxlength="191" class="prop-input text-xs" style="max-width:11rem;"
+                                                   @keydown.enter.prevent="renameItem(item)" @keydown.escape.prevent="renamingItemId = null">
+                                            <button type="button" :disabled="itemBusy || !renameDraft.trim()" @click="renameItem(item)"
+                                                    class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Save</button>
+                                            <button type="button" @click="renamingItemId = null"
+                                                    class="text-xs font-semibold" style="color:var(--text-muted);">Cancel</button>
+                                        </div>
+                                    </template>
+                                    <div class="flex items-center gap-3 flex-wrap">
+                                        {{-- 2026-09-21 — a space created before the room-type
+                                             picker existed has no room and no space_type; give
+                                             it one retroactively instead of leaving it stuck
+                                             with an empty checklist forever. --}}
+                                        <template x-if="item.kind === 'space' && !item.room && !item.space_type">
+                                            <div class="flex items-center gap-1">
+                                                <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
+                                                    <option value="">Give it a room type…</option>
+                                                    @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                                        <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
+                                                        class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Set</button>
+                                            </div>
+                                        </template>
+                                        <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
+                                        {{-- Reorder within this room — same convention as the
+                                             room-level Move up/down above, one level down.
+                                             Only meaningful with more than one item to reorder. --}}
+                                        <template x-if="group.room && group.items.length > 1">
+                                            <span class="flex items-center gap-1">
+                                                <button type="button" :disabled="itemBusy" @click="moveItemUp(group, item)"
+                                                        class="text-xs font-semibold" style="color:var(--text-muted);">Move up</button>
+                                                <button type="button" :disabled="itemBusy" @click="moveItemDown(group, item)"
+                                                        class="text-xs font-semibold" style="color:var(--text-muted);">Move down</button>
+                                            </span>
+                                        </template>
+                                        <button type="button" :disabled="itemBusy" @click="renamingItemId = item.id; renameDraft = item.label"
+                                                class="text-xs font-semibold" style="color:var(--text-muted);">Rename</button>
+                                        <button type="button" :disabled="itemBusy" @click="retireItem(item)"
+                                                class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <form @submit.prevent="addItem()" class="flex items-end gap-2 pt-2 flex-wrap">
+                        {{-- 2026-09-22 — Johan, property 4862, read Space here as which
+                             room to add INTO and got a new room instead: this picker was
+                             only ever a what-am-I-creating choice, never a which-room
+                             choice. Item (in a space) is a third, distinct choice — add
+                             ONE facet to a room that already exists, never a new room. --}}
+                        <select x-model="newItem.kind" class="prop-input" style="max-width:11rem;">
+                            <option value="space">Space (new room)</option>
+                            <option value="meter">Meter</option>
+                            <option value="item">Item (in a space)</option>
+                        </select>
+                        {{-- Room type — only meaningful for a NEW Space; a Meter has no
+                             room. Sourced from the real PHP config, not the JS copy
+                             of this list elsewhere on this page — that copy has been
+                             found to drift for a DIFFERENT catalog (feature labels),
+                             so this picker renders server-side rather than trust it. --}}
+                        <select x-show="newItem.kind === 'space'" x-model="newItem.space_type" class="prop-input" style="max-width:10rem;">
+                            <option value="">Room type…</option>
+                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                            @endforeach
+                        </select>
+                        {{-- Which EXISTING room the item goes into — this is the control
+                             that did not exist before. Sourced from this property's own
+                             already-built rooms, never a room-type catalog. --}}
+                        <select x-show="newItem.kind === 'item'" x-model="newItem.property_room_id" class="prop-input" style="max-width:10rem;">
+                            <option value="">Which space…</option>
+                            <template x-for="group in roomGroups().filter(g => g.room)" :key="'pick-' + group.room.id">
+                                <option :value="group.room.id" x-text="group.room.label"></option>
+                            </template>
+                        </select>
+                        <input type="text" x-model="newItem.label" :placeholder="newItemPlaceholder()" maxlength="191"
+                               class="prop-input flex-1" @keydown.enter.prevent="addItem()">
+                        <button type="submit" :disabled="itemBusy || !newItem.label.trim() || (newItem.kind === 'space' && !newItem.space_type) || (newItem.kind === 'item' && !newItem.property_room_id)"
+                                class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">
+                            Add
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {{-- Inspection — Johan's ruling, 2026-09-23: "the out inspection
+                 sits BELOW the in inspection as a separate section — that
+                 is the segregated thing he is objecting to, and it is what
+                 must change." Replaces the two independently-toggled In/Out
+                 sections above with ONE section: the chain's predecessor
+                 (read-only, left) beside its current tail (editable, right),
+                 side by side, whichever two links those actually are — In
+                 and Out for the common two-link case, or any two adjacent
+                 links in a longer In -> Routine -> Routine -> Out chain.
+                 "Aligned row by row, same item sits opposite itself" — both
+                 sides iterate the SAME roomGroups() (§20.15.4's own
+                 alignment-is-automatic reasoning), never resorted or
+                 filtered differently between them. --}}
                 <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
-                        <h3 class="prop-section-heading">
-                            <span class="prop-section-heading-text">In Inspection</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'(' + data.in_inspection.images.length + ')'"></span>
-                        </h3>
-                        <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-                    </button>
-                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body space-y-4">
-                        @include('corex.properties.partials.rental-section-body', [
-                            'section' => "'in_inspection'", 'cid' => 'null', 'key' => "'in_inspection'",
-                            'images' => 'data.in_inspection.images', 'date' => 'data.in_inspection.date',
-                        ])
+                    {{-- §28, 2026-09-27 — Johan, property 5792: "a shitty like 2
+                         and a half lines... fix that it all sits in line. its
+                         wasted space and the collapse arrow sits uncomfortably
+                         in the middle of it all." One line at desktop widths
+                         (lg: / 1024px+): chevron left (prop-section-toggle-
+                         chevron-left, resources/css/corex.css), title+status
+                         flexing to fill the middle, controls flex-none so they
+                         never get squeezed, lg:flex-nowrap on the row and both
+                         controls groups so Start/select never drop to their
+                         own line. Below 1024px, wrapping is allowed exactly as
+                         before. --}}
+                    <div class="flex items-center gap-2 flex-wrap lg:flex-nowrap" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <button type="button" data-qa="toggle-inspection-panel" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle('inspection')" style="border-bottom:0; width:auto; flex:1 1 auto; min-width:0; padding-top:0.375rem; padding-bottom:0.375rem;">
+                            <h3 class="prop-section-heading">
+                                <span class="prop-section-heading-text">Inspection</span>
+                                {{-- Same "never the coerced literal undefined" fix
+                                     as the pre-chain version (2026-09-22) — a
+                                     ternary that returns a real empty string. --}}
+                                <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                      x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
+                            </h3>
+                            <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                        </button>
+                        {{-- Johan's ruling, 2026-09-25 — moved here from the very
+                             bottom of the section (below every room, OVERALL
+                             NOTES, the signature rows, and Complete). Functionally
+                             present there, practically invisible: an agent
+                             finishing an inspection had to scroll past the whole
+                             form to find out they could start the next one, which
+                             is why he asked for a "next inspection" button that
+                             already existed. Chain logic, type options and Start
+                             behaviour are unchanged — only the position moved, out
+                             of the collapsible body and into the always-visible
+                             header row, beside the type/status text above. The
+                             helper sentence moves into a title attribute (native
+                             tooltip) instead of a paragraph, so it costs no
+                             vertical space on a working screen. chainTail, by
+                             construction (chainTailFor()'s own
+                             whereDoesntHave('nextInChain')), never already has a
+                             successor — no extra check needed for when to offer
+                             this. In is never offered here: it can only ever be
+                             the chain's first link (RentalInspection::startNext()'s
+                             own guard). --}}
+                        @permission('rental_inspections.create')
+                            {{-- §24.5, AT-433 Part B — the explicit "Auto-pair"
+                                 button from Johan's approved mockup: re-runs
+                                 the same unambiguous-only matching that fires
+                                 automatically on first view, for whenever new
+                                 photos have been added since. Gated on BOTH
+                                 sides existing — auto-pair needs a predecessor
+                                 AND a tail to compare, same precondition
+                                 runAutoPair() itself checks. --}}
+                            <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
+                                <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair()"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                                        title="Link any obviously-matching photos between this inspection and its predecessor.">
+                                    <span x-text="autoPairBusy ? 'Pairing…' : 'Auto-pair'"></span>
+                                </button>
+                            </div>
+                            <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
+                                <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);"
+                                      title="Compares against this inspection's own recorded condition, room by room.">Next inspection:</span>
+                                <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
+                                    <option value="ad_hoc">Routine (mid-tenancy)</option>
+                                    <option value="out">Out</option>
+                                </select>
+                                <button type="button" data-qa="next-inspection" :disabled="nextBusy" @click="nextInspection(nextType)"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
+                                        x-text="nextBusy ? 'Starting…' : 'Start'"></button>
+                            </div>
+                            {{-- §41, 2026-09-28, Johan's ruling — "how do we
+                                 print/share it now." A completed inspection
+                                 already has its signed report filed +
+                                 auto-emailed (or the agency has that off,
+                                 in which case this Resend button is the
+                                 only send path). Download reuses the
+                                 existing agency-level report route
+                                 unchanged; the confirm popover lists real
+                                 recipients before sending, same anchored-
+                                 popover pattern already used elsewhere on
+                                 this page (share-actions.blade.php). --}}
+                            <div x-show="chainTail && chainTail.status === 'completed'" x-cloak
+                                 class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
+                                <a :href="inspectionUrls.inspectionsBase + '/' + chainTail.id + '/report'"
+                                   target="_blank" rel="noopener"
+                                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    Download report
+                                </a>
+                                <button type="button" x-show="publicShareUrl()" @click="navigator.clipboard.writeText(publicShareUrl()).then(() => { copiedShareLink = true; setTimeout(() => copiedShareLink = false, 2000); })"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    <span x-text="copiedShareLink ? 'Copied!' : 'Copy share link'"></span>
+                                </button>
+                                <a :href="publicShareUrl() ? ('https://wa.me/?text=' + encodeURIComponent('Inspection report: ' + publicShareUrl())) : '#'"
+                                   x-show="publicShareUrl()" target="_blank" rel="noopener"
+                                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">
+                                    WhatsApp
+                                </a>
+                                <div class="relative">
+                                    <button type="button" @click="resendOpen = !resendOpen; resendResult = null; resendError = '';"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                        Resend report
+                                    </button>
+                                    <div x-show="resendOpen" x-cloak @click.outside="resendOpen = false"
+                                         style="position:absolute; top:100%; right:0; margin-top:4px; width:22rem; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,0.18);"
+                                         class="p-3">
+                                        <template x-if="!resendResult">
+                                            <div class="space-y-2">
+                                                <p class="text-xs font-semibold" style="color:var(--text-primary);">Send the signed report to:</p>
+                                                <ul class="text-xs space-y-0.5" style="color:var(--text-secondary);">
+                                                    <template x-for="r in reportRecipients()" :key="r.email">
+                                                        <li x-text="r.name + ' (' + r.role + ') — ' + r.email"></li>
+                                                    </template>
+                                                </ul>
+                                                <p x-show="!reportRecipients().length" class="text-xs" style="color:var(--ds-crimson);">No recipient has an email on file.</p>
+                                                <p x-show="resendError" x-text="resendError" class="text-xs" style="color:var(--ds-crimson);"></p>
+                                                <div class="flex justify-end gap-2 pt-1">
+                                                    <button type="button" @click="resendOpen = false" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="color:var(--text-secondary);">Cancel</button>
+                                                    <button type="button" :disabled="resendBusy || !reportRecipients().length" @click="sendReportResend()"
+                                                            class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">
+                                                        <span x-text="resendBusy ? 'Sending…' : 'Confirm & send'"></span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="resendResult">
+                                            <div class="space-y-1">
+                                                <template x-for="r in resendResult" :key="r.email">
+                                                    <p class="text-xs" :style="r.status === 'sent' ? 'color:var(--ds-green,#059669);' : 'color:var(--ds-crimson);'" x-text="(r.status === 'sent' ? '✓ ' : '✗ ') + r.email"></p>
+                                                </template>
+                                                <div class="flex justify-end pt-1">
+                                                    <button type="button" @click="resendOpen = false; resendResult = null;" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Close</button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        @endpermission
+                    </div>
+                    <div x-show="open['inspection']" x-collapse class="prop-section-body space-y-3">
+                        {{-- §6 of the approved proposal — nothing started yet
+                             for this property at all. The ONLY case that
+                             creates a type='in' inspection (RentalInspection::
+                             start(), unchanged) — every later link is
+                             "Next inspection" below, off an explicit
+                             predecessor (RentalInspection::startNext()). --}}
+                        <template x-if="!chainTail">
+                            <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+                                <div x-show="startError['in']" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError['in']"></div>
+                                <button type="button" :disabled="startBusy['in']" @click="startInspection('in')"
+                                        class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                        x-text="startBusy['in'] ? 'Starting…' : 'Start In-Inspection'"></button>
+                            </div>
+                        </template>
+
+                        <template x-if="chainTail">
+                            <div class="space-y-3">
+                                {{-- REBUILD, 2026-09-23 — Johan, property 5792, after
+                                     browser-testing the previous round's fix: "The two
+                                     sides are two INDEPENDENT lists rendered next to
+                                     each other. They share nothing." The old
+                                     two-independent-@include shape (readonly-panel on
+                                     the left, recording on the right, each running its
+                                     OWN roomGroups() x-for) could never guarantee
+                                     row-for-row alignment — it only worked "by luck"
+                                     when both sides happened to have identical
+                                     recorded/collapsed state, which real data never
+                                     does. rental-inspection-recording.blade.php is now
+                                     the WHOLE comparison surface (metadata/discrepancy/
+                                     progress/tray moved out of any column — there is no
+                                     column wrapper here at all now — and a single
+                                     shared room/item grid inside it drives BOTH cells
+                                     from ONE x-for, so item N is the same DOM row on
+                                     both sides by construction). rental-inspection-
+                                     readonly-panel.blade.php is retired (git rm'd) —
+                                     see that file's own former docblock; Johan: "Reuse
+                                     the recording partial for both sides with a
+                                     readOnly flag rather than maintaining a separate
+                                     read-only panel that drifts."
+                                     Kept as two x-show branches (never <template x-if>
+                                     — see the PRIOR fix on this exact line for why)
+                                     purely to flip $tailReadOnly between a real,
+                                     literal PHP true/false at compile time — no runtime
+                                     boolean threading into the partial's own @if/
+                                     @unless blocks. --}}
+                                <div x-show="chainTail.status !== 'completed'">
+                                    @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()', 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => false])
+                                </div>
+                                <div x-show="chainTail.status === 'completed'">
+                                    @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()', 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => true])
+                                </div>
+
+                                {{-- .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 —
+                                     Johan's own reason for the whole feature: "geyser in
+                                     month 7... an agent can see what damages there were,
+                                     and what was not repaired." Attached, not merged —
+                                     a separate block, unchanged from the pre-chain
+                                     version, still gated the same way. Read-only:
+                                     resolved from its own screen, not here. --}}
+                                <template x-if="outInspectionRecorded">
+                                    <div class="pt-3 space-y-2" style="border-top:1px solid var(--border);">
+                                        <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
+                                        <template x-if="!outInspectionFaultHistory.length">
+                                            <div class="text-xs" style="color:var(--text-muted);">No faults reported during this tenancy.</div>
+                                        </template>
+                                        <template x-for="fault in outInspectionFaultHistory" :key="fault.id">
+                                            <div class="text-sm py-1.5" style="border-bottom:1px solid var(--border);">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span x-text="fault.title" style="color:var(--text-primary);"></span>
+                                                    <span class="text-xs" style="color:var(--text-muted);">
+                                                        <span x-text="fault.outcome ? fault.outcome.replace('_',' ') : fault.status.replace('_',' ')" class="uppercase tracking-wide"></span>
+                                                        <span x-text="'— ' + fault.reported_at.substring(0, 10)"></span>
+                                                    </span>
+                                                </div>
+                                                <div x-show="fault.repaired_at" class="text-xs" style="color:var(--text-muted);">
+                                                    Repaired: <span x-text="fault.repaired_at"></span>
+                                                </div>
+                                                <div x-show="fault.outcome_note" class="text-xs" style="color:var(--text-muted);" x-text="fault.outcome_note"></div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
-            {{-- Out Inspection --}}
-                <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
-                        <h3 class="prop-section-heading">
-                            <span class="prop-section-heading-text">Out Inspection</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'(' + data.out_inspection.images.length + ')'"></span>
-                        </h3>
-                        <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-                    </button>
-                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body space-y-4">
-                        @include('corex.properties.partials.rental-section-body', [
-                            'section' => "'out_inspection'", 'cid' => 'null', 'key' => "'out_inspection'",
-                            'images' => 'data.out_inspection.images', 'date' => 'data.out_inspection.date',
-                        ])
+
+
+            {{-- §20.17, 2026-09-24 — the full-screen photo comparison
+                 viewer. This is now the ENTIRE comparison feature (Johan:
+                 "the modal that loads should carry the functionality, not
+                 a complete compare section") — opened from a photo on the
+                 side-by-side predecessor/tail screen via
+                 openCompareViewer(photo, insp). "1 view is this photo that
+                 was clicked view, the next view is a side by side
+                 comparison view... a carousal allows you to flip through
+                 the photos and again tag them to each other."
+
+                 Named compareViewer* throughout (not the shorter "viewer")
+                 — this same Alpine component already owns a DIFFERENT
+                 viewer/openViewer/viewerPrev/viewerNext for the generic
+                 rental-images lightbox; reusing that name would silently
+                 clobber it. --}}
+            <div x-show="compareViewer.open" x-cloak
+                 class="fixed inset-0 flex flex-col compare-viewer-backdrop"
+                 @keydown.escape.window="closeCompareViewer()"
+                 @mousemove.window="compareViewerDragMove($event)" @mouseup.window="compareViewerDragEnd()"
+                 @touchmove.window="compareViewerDragMove($event)" @touchend.window="compareViewerDragEnd()"
+                 role="dialog" aria-modal="true" aria-label="Photo compare">
+                {{-- 1) TOP BAR — Johan-approved mockup, 2026-09-24. --}}
+                <div class="flex items-center justify-between px-4 gap-3 compare-viewer-toolbar cv-topbar" @click.stop>
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold cv-text-primary">Photo compare</div>
+                        <div class="text-xs cv-text-secondary truncate">{{ $property->buildDisplayAddress() }} · <span x-text="compareViewerInspectionTypeName(compareViewer.primarySide)"></span></div>
+                    </div>
+                    <div class="flex items-center gap-3 flex-none">
+                        <span class="cv-pill cv-pill-fair" x-show="compareViewerUntaggedCount() > 0" x-text="compareViewerUntaggedCount() + ' untagged photo' + (compareViewerUntaggedCount() === 1 ? '' : 's') + ' in this inspection'"></span>
+                        <div class="flex items-center gap-1">
+                            <button type="button" @click="compareViewerSetMode('single')"
+                                    class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                    :class="compareViewer.mode === 'single' ? 'compare-viewer-mode-btn-active' : ''">Single</button>
+                            {{-- §37, 2026-09-28 — a first inspection (no chainPredecessor) has nothing to
+                                 compare against; hidden rather than disabled, same "blocked action is
+                                 hidden, not a dead button" convention this app already uses elsewhere. --}}
+                            <button type="button" @click="compareViewerSetMode('compare')" x-show="chainPredecessor"
+                                    class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                    :class="compareViewer.mode === 'compare' ? 'compare-viewer-mode-btn-active' : ''">Compare</button>
+                        </div>
+                        <button type="button" @click="compareViewerToggleLock()" x-show="compareViewer.mode === 'compare'"
+                                class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                :class="compareViewer.zoomLocked ? 'compare-viewer-mode-btn-active' : ''"
+                                :aria-pressed="compareViewer.zoomLocked ? 'true' : 'false'"
+                                title="Pan and zoom linked across both panes">
+                            <span x-text="compareViewer.zoomLocked ? 'Move together: On' : 'Move together: Off'"></span>
+                        </button>
+                        {{-- §41, 2026-09-29, Johan — "where do we link photos?"
+                             The backend/JS (toggleCompareMatch(), compareViewerMatch(),
+                             compareViewerIsMatched()) already existed but had no button
+                             anywhere calling them — this is that button. Only shown
+                             once both panes have a real photo (nothing to link
+                             otherwise) and only while this inspection cycle isn't
+                             locked — the same completed/cancelled gate the server
+                             itself now enforces (assertPhotoMatchingUnlocked()),
+                             surfaced here so the control simply isn't there to click
+                             rather than clicking and getting a 409. --}}
+                        <template x-if="compareViewer.mode === 'compare' && compareViewer.leftPhotoId && compareViewer.rightPhotoId && !compareViewerMatchingLocked()">
+                            <div class="flex items-center gap-1">
+                                <template x-if="compareViewerIsMatched()">
+                                    <span class="flex items-center gap-1">
+                                        <span class="cv-pill cv-pill-good" data-qa="cv-link-badge">Linked</span>
+                                        <button type="button" @click="compareViewerMatch()" data-qa="cv-unlink-btn"
+                                                class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                                title="Unlink these two photos">Unlink</button>
+                                    </span>
+                                </template>
+                                <template x-if="!compareViewerIsMatched()">
+                                    <button type="button" @click="compareViewerMatch()" data-qa="cv-link-btn"
+                                            class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                            title="Pair the left and right photo as the same thing">Link these</button>
+                                </template>
+                            </div>
+                        </template>
+                        <span class="cv-pill" data-qa="cv-link-locked-note" x-show="compareViewer.mode === 'compare' && compareViewer.leftPhotoId && compareViewer.rightPhotoId && compareViewerMatchingLocked()" title="Photos can no longer be linked or unlinked once this inspection is completed or cancelled">Locked</span>
+                        <button type="button" @click="closeCompareViewer()" aria-label="Close photo compare" class="cv-touch rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&times;</button>
                     </div>
                 </div>
+
+                {{-- 2) SPACE ROW — every real room on the property; how the
+                     agent moves around the whole inspection without closing
+                     the modal. --}}
+                <div class="flex items-center gap-3 px-4 cv-navrow" @click.stop>
+                    <span class="text-xs font-semibold cv-text-secondary cv-navrow-label">SPACE</span>
+                    <div class="flex items-center gap-1 overflow-x-auto">
+                        <template x-for="group in compareViewerRoomTabs()" :key="'space-' + group.room.id">
+                            <button type="button" @click="compareViewerSelectRoom(group.room.id)"
+                                    class="text-xs font-semibold px-3 cv-touch cv-space-tab"
+                                    :class="compareViewer.roomId === group.room.id ? 'cv-space-tab-active' : ''"
+                                    x-text="group.room.label"></button>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- 3) ITEM ROW — the selected room's own items, "Whole
+                     room" first, each chip carrying its "IN / CURRENT"
+                     photo count so a gap ("Windows 0 / 2") is visible at a
+                     glance. --}}
+                <div class="flex items-center gap-3 px-4 cv-navrow" @click.stop x-show="compareViewerCurrentRoomGroup()">
+                    <span class="text-xs font-semibold cv-text-secondary cv-navrow-label" x-text="'IN ' + (compareViewerCurrentRoomGroup() ? compareViewerCurrentRoomGroup().room.label.toUpperCase() : '')"></span>
+                    <div class="flex items-center gap-1 overflow-x-auto">
+                        <button type="button" @click="compareViewerSelectItem(null)"
+                                class="text-xs font-semibold px-3 cv-touch cv-item-chip"
+                                :class="compareViewer.kind === 'room' ? 'cv-item-chip-active' : ''">
+                            Whole room <span class="cv-mono cv-chip-count" x-text="compareViewerChipCounts(null)"></span>
+                        </button>
+                        <template x-for="item in (compareViewerCurrentRoomGroup() ? compareViewerCurrentRoomGroup().items : [])" :key="'item-' + item.id">
+                            <button type="button" @click="compareViewerSelectItem(item.id)"
+                                    class="text-xs font-semibold px-3 cv-touch cv-item-chip"
+                                    :class="(compareViewer.kind === 'item' && compareViewer.itemId === item.id) ? 'cv-item-chip-active' : ''">
+                                <span x-text="item.label"></span> <span class="cv-mono cv-chip-count" x-text="compareViewerChipCounts(item.id)"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- Mobile side toggle — side-by-side is useless at 390px,
+                     so compare mode shows one panel (and its own carousel
+                     and rail) at a time. --}}
+                <div class="flex justify-center gap-2 py-2 sm:hidden" x-show="compareViewer.mode === 'compare'" @click.stop>
+                    <button type="button" @click="compareViewerMobileSide = 'left'" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'left' ? 'compare-viewer-mode-btn-active' : ''">Predecessor</button>
+                    <button type="button" @click="compareViewerMobileSide = 'right'" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'right' ? 'compare-viewer-mode-btn-active' : ''">Current</button>
+                </div>
+
+                {{-- SINGLE MODE — one header strip, one large image, one rail. --}}
+                <div class="flex-1 flex flex-col min-h-0 px-4 py-2 overflow-y-auto" x-show="compareViewer.mode === 'single'" @click.stop>
+                    <div class="flex items-center justify-between gap-2 cv-pane-header">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="cv-badge" :class="compareViewer.primarySide === 'left' ? 'cv-badge-in' : 'cv-badge-current'" x-text="compareViewer.primarySide === 'left' ? 'IN' : 'CURRENT'"></span>
+                            <span class="text-xs font-semibold cv-text-primary" x-text="compareViewerInspectionTypeName(compareViewer.primarySide)"></span>
+                            <span class="text-xs cv-mono cv-text-secondary" x-text="compareViewerInspectionDate(compareViewer.primarySide)"></span>
+                            <span class="text-xs cv-text-secondary truncate" x-text="compareViewer.label"></span>
+                        </div>
+                        <div class="flex items-center gap-2 flex-none">
+                            <span class="cv-pill" :class="compareViewerConditionClass(compareViewerConditionFor(compareViewer.primarySide))" x-show="compareViewerConditionFor(compareViewer.primarySide)" x-text="compareViewerConditionLabel(compareViewerConditionFor(compareViewer.primarySide))"></span>
+                            <button type="button" @click="compareViewerOpenTagPanel(compareViewer.primarySide)" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" x-text="(compareViewerCurrentPhoto(compareViewer.primarySide) && (compareViewerCurrentPhoto(compareViewer.primarySide).property_room_id || compareViewerCurrentPhoto(compareViewer.primarySide).rental_inspection_observation_id)) ? 'Retag' : 'Tag photo'"></button>
+                            {{-- §25, AT-433 Part C — "the full note opens
+                                 with the photo in the compare viewer, where
+                                 there is room for it" (Johan). Same button
+                                 placement/style as Tag photo/Retag above. --}}
+                            <button type="button" @click="compareViewerOpenNotePanel(compareViewer.primarySide)" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" x-text="compareViewerCurrentPhoto(compareViewer.primarySide)?.note ? 'Edit note' : 'Add note'"></button>
+                            {{-- §37, 2026-09-28 — same gate as the top-bar Compare toggle: no predecessor, no path back into an empty compare view. --}}
+                            <button type="button" @click="compareViewerSetMode('compare')" x-show="chainPredecessor" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Back to compare</button>
+                        </div>
+                    </div>
+                    <div class="relative compare-viewer-pane cv-pane-single"
+                         @wheel.prevent="compareViewerWheelZoom(compareViewer.primarySide, $event)"
+                         @mousedown="compareViewerDragStart(compareViewer.primarySide, $event)"
+                         @touchstart="compareViewerDragStart(compareViewer.primarySide, $event)"
+                         @dblclick="compareViewerDoubleClickReset(compareViewer.primarySide)">
+                        <template x-if="compareViewerCurrentPhoto(compareViewer.primarySide)">
+                            <img :src="compareViewerCurrentPhoto(compareViewer.primarySide).storage_path"
+                                 :style="compareViewerZoomStyle(compareViewer.primarySide)"
+                                 class="w-full h-full object-contain block select-none" draggable="false" alt="">
+                        </template>
+                        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 compare-viewer-zoom-controls">
+                            <button type="button" @click.stop="compareViewerZoomOutBtn(compareViewer.primarySide)" aria-label="Zoom out" class="cv-touch font-bold">&minus;</button>
+                            <span class="cv-mono text-xs px-1" x-text="compareViewerZoomPercent(compareViewer.primarySide)"></span>
+                            <button type="button" @click.stop="compareViewerZoomInBtn(compareViewer.primarySide)" aria-label="Zoom in" class="cv-touch font-bold">&plus;</button>
+                            <span class="cv-zoom-sep"></span>
+                            <button type="button" @click.stop="compareViewerDoubleClickReset(compareViewer.primarySide)" class="text-xs px-2 cv-touch">Fit</button>
+                            <span class="text-xs cv-text-secondary pl-1" x-show="_compareViewerZoomState(compareViewer.primarySide).scale > 1">drag to pan</span>
+                        </div>
+                    </div>
+                    {{-- §25, AT-433 Part C — the full note (never truncated
+                         here, unlike the strip's own two-line caption). --}}
+                    <div class="px-1 pt-2 text-xs" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)?.note">
+                        <span class="cv-pill" x-text="photoNoteClassificationLabel(compareViewerCurrentPhoto(compareViewer.primarySide)?.note?.classification_key)"></span>
+                        <span class="cv-text-secondary" x-text="compareViewerCurrentPhoto(compareViewer.primarySide)?.note?.note"></span>
+                    </div>
+                    <div class="flex items-center justify-between px-1 pt-2 cv-rail-label">
+                        <span class="text-xs font-semibold" :class="compareViewer.primarySide === 'left' ? 'cv-text-secondary' : 'cv-accent'" x-text="compareViewerInspectionTypeName(compareViewer.primarySide).toUpperCase() + (compareViewer.primarySide === 'right' ? ' — CURRENT' : '')"></span>
+                        <span class="cv-mono text-xs cv-text-secondary" x-text="(compareViewerCarouselPhotos(compareViewer.primarySide).findIndex(p => p.id === compareViewer[compareViewer.primarySide + 'PhotoId']) + 1) + ' of ' + compareViewerCarouselPhotos(compareViewer.primarySide).length"></span>
+                    </div>
+                    <div class="px-1 py-2 flex items-center gap-2 justify-center overflow-x-auto compare-viewer-carousel">
+                        <template x-for="photo in compareViewerCarouselPhotos(compareViewer.primarySide)" :key="'single-' + photo.id">
+                            <button type="button" @click="compareViewerSelectCarouselPhoto(photo, compareViewer.primarySide)"
+                                    class="relative flex-none rounded overflow-hidden compare-viewer-thumb"
+                                    :class="compareViewer[compareViewer.primarySide + 'PhotoId'] === photo.id ? 'compare-viewer-thumb-active' : ''">
+                                <img :src="photo.storage_path" class="cv-thumb-img object-cover block" alt="">
+                                <span class="cv-untagged-dot" x-show="!photo.property_room_id && !photo.rental_inspection_observation_id"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- COMPARE MODE — 4) two panes, identical boxes; 5) two
+                     rails underneath, same grid. --}}
+                <div class="flex-1 flex flex-col min-h-0 overflow-y-auto" x-show="compareViewer.mode === 'compare'" @click.stop>
+                    <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-px min-h-0 cv-pane-grid">
+                        @foreach(['left', 'right'] as $side)
+                        <div class="flex flex-col min-h-0 compare-viewer-side" :class="compareViewerMobileSide === '{{ $side }}' ? '' : 'compare-viewer-side-hide-mobile'">
+                            <div class="flex items-center justify-between gap-2 cv-pane-header">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="cv-badge" :class="'{{ $side }}' === 'left' ? 'cv-badge-in' : 'cv-badge-current'">{{ $side === 'left' ? 'IN' : 'CURRENT' }}</span>
+                                    <span class="text-xs font-semibold cv-text-primary" x-text="compareViewerInspectionTypeName('{{ $side }}')"></span>
+                                    <span class="text-xs cv-mono cv-text-secondary" x-text="compareViewerInspectionDate('{{ $side }}')"></span>
+                                </div>
+                                <span class="cv-pill" :class="compareViewerConditionClass(compareViewerConditionFor('{{ $side }}'))" x-show="compareViewerConditionFor('{{ $side }}')" x-text="compareViewerConditionLabel(compareViewerConditionFor('{{ $side }}'))"></span>
+                            </div>
+                            <div class="relative compare-viewer-pane"
+                                 @wheel.prevent="compareViewerWheelZoom('{{ $side }}', $event)"
+                                 @mousedown="compareViewerDragStart('{{ $side }}', $event)"
+                                 @touchstart="compareViewerDragStart('{{ $side }}', $event)"
+                                 @dblclick="compareViewerDoubleClickReset('{{ $side }}')">
+                                <template x-if="compareViewerCurrentPhoto('{{ $side }}')">
+                                    <img :src="compareViewerCurrentPhoto('{{ $side }}').storage_path"
+                                         :style="compareViewerZoomStyle('{{ $side }}')"
+                                         data-qa="cv-pane-img-{{ $side }}"
+                                         class="w-full h-full object-contain block select-none" draggable="false" alt="">
+                                </template>
+                                <template x-if="!compareViewerCurrentPhoto('{{ $side }}')">
+                                    <div class="w-full h-full flex items-center justify-center compare-viewer-empty-pane" data-qa="cv-pane-empty-{{ $side }}">
+                                        <span class="text-xs">Nothing yet</span>
+                                    </div>
+                                </template>
+                                {{-- The "1 of 5" step control (Johan's own
+                                     instinct, approved) — shown only when this
+                                     side's matched group has 2+ candidates.
+                                     DEFECT 5 FIX, 2026-09-24 — moved from
+                                     bottom-left to top-left: the zoom cluster
+                                     now owns bottom-left (Johan: "the design
+                                     puts it bottom-left, clear of the
+                                     image"), and the two controls occupying
+                                     the same corner would have overlapped
+                                     whenever both are visible at once. --}}
+                                <div class="absolute top-2 left-2 flex items-center gap-2 compare-viewer-step"
+                                     x-show="compareViewerCandidatesFor('{{ $side }}').length > 1">
+                                    <button type="button" @click.stop="compareViewerStep('{{ $side }}', -1)" aria-label="Previous matched photo" class="cv-touch font-semibold">&larr;</button>
+                                    <span class="cv-mono text-xs" x-text="compareViewerStepLabel('{{ $side }}')"></span>
+                                    <button type="button" @click.stop="compareViewerStep('{{ $side }}', 1)" aria-label="Next matched photo" class="cv-touch font-semibold">&rarr;</button>
+                                </div>
+                                {{-- DEFECT 5 FIX, 2026-09-24, Johan: "the zoom
+                                     cluster is in the wrong corner and
+                                     overlaps the photo. It renders bottom-
+                                     right, sitting on top of the image
+                                     content. The design puts it bottom-left,
+                                     clear of the image." Moved from
+                                     bottom-right to bottom-left. --}}
+                                <div class="absolute bottom-2 left-2 flex items-center gap-1 compare-viewer-zoom-controls">
+                                    <button type="button" @click.stop="compareViewerZoomOutBtn('{{ $side }}')" aria-label="Zoom out" class="cv-touch font-bold">&minus;</button>
+                                    <span class="cv-mono text-xs px-1" x-text="compareViewerZoomPercent('{{ $side }}')"></span>
+                                    <button type="button" @click.stop="compareViewerZoomInBtn('{{ $side }}')" aria-label="Zoom in" class="cv-touch font-bold">&plus;</button>
+                                    <span class="cv-zoom-sep"></span>
+                                    <button type="button" @click.stop="compareViewerDoubleClickReset('{{ $side }}')" class="text-xs px-2 cv-touch">Fit</button>
+                                </div>
+                                <button type="button" @click.stop="compareViewer.primarySide = '{{ $side }}'; compareViewerSetMode('single')"
+                                        aria-label="Open this photo full screen"
+                                        x-show="compareViewerCurrentPhoto('{{ $side }}')"
+                                        class="absolute top-2 right-2 cv-touch rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&#9974;</button>
+                            </div>
+                            {{-- Tag bar (item 4c) — tagged vs untagged state. --}}
+                            <div class="flex items-center justify-between gap-2 px-3 cv-tagbar" x-show="compareViewerCurrentPhoto('{{ $side }}')">
+                                <template x-if="compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)">
+                                    <div class="flex items-center gap-2 text-xs min-w-0">
+                                        <span class="cv-dot cv-dot-good">&check;</span>
+                                        <span class="cv-text-secondary">Tagged to</span>
+                                        <span class="font-semibold cv-text-primary truncate" x-text="compareViewer.label"></span>
+                                    </div>
+                                </template>
+                                <template x-if="compareViewerCurrentPhoto('{{ $side }}') && !(compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)">
+                                    <div class="flex items-center gap-2 text-xs min-w-0">
+                                        <span class="cv-dot cv-dot-fair"></span>
+                                        <span class="cv-text-secondary truncate">Untagged — not linked to a space or item yet</span>
+                                    </div>
+                                </template>
+                                <button type="button" @click="compareViewerOpenTagPanel('{{ $side }}')" class="text-xs font-semibold px-3 cv-touch rounded-md flex-none"
+                                        :class="(compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)) ? 'compare-viewer-mode-btn' : 'compare-viewer-match-btn-active'"
+                                        x-text="(compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)) ? 'Retag' : 'Tag photo'"></button>
+                                {{-- §25, AT-433 Part C — same button as the
+                                     single-mode pane header above. --}}
+                                <button type="button" @click="compareViewerOpenNotePanel('{{ $side }}')" class="text-xs font-semibold px-3 cv-touch rounded-md flex-none compare-viewer-mode-btn"
+                                        x-text="compareViewerCurrentPhoto('{{ $side }}')?.note ? 'Edit note' : 'Add note'"></button>
+                            </div>
+                            {{-- §25, AT-433 Part C — the full note, same
+                                 room-for-it placement as single mode. --}}
+                            <div class="px-3 pb-1 text-xs" x-show="compareViewerCurrentPhoto('{{ $side }}')?.note">
+                                <span class="cv-pill" x-text="photoNoteClassificationLabel(compareViewerCurrentPhoto('{{ $side }}')?.note?.classification_key)"></span>
+                                <span class="cv-text-secondary" x-text="compareViewerCurrentPhoto('{{ $side }}')?.note?.note"></span>
+                            </div>
+                            {{-- Dim this pane while the tag panel OR the note
+                                 panel is open on the OTHER side, so focus is
+                                 obvious. --}}
+                            <div class="cv-dim-overlay" x-show="(compareViewerTagPanel.open && compareViewerTagPanel.side !== '{{ $side }}') || (compareViewerNotePanel.open && compareViewerNotePanel.side !== '{{ $side }}')"></div>
+                        </div>
+                        @endforeach
+                    </div>
+
+                    {{-- 5) TWO THUMBNAIL RAILS — same 2-column grid as the panes. --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-px cv-rail-grid">
+                        @foreach(['left', 'right'] as $side)
+                        {{-- DEFECT 3 FIX, 2026-09-24 — this wrapper is
+                             reused from the pane-side wrapper above
+                             (compare-viewer-side, so the same mobile-hide
+                             rule applies), but the pane wrapper also carries
+                             Tailwind's own `flex flex-col` while this one
+                             did not — `.compare-viewer-side` only declares
+                             `display:flex`, so with no flex-direction of its
+                             own this container defaulted to flex ROW,
+                             squeezing the label line and the thumbnail line
+                             side by side instead of stacking them. `flex
+                             flex-col` here matches the pane wrapper exactly. --}}
+                        <div class="px-3 py-2 flex flex-col compare-viewer-side" :class="compareViewerMobileSide === '{{ $side }}' ? '' : 'compare-viewer-side-hide-mobile'">
+                            <div class="flex items-center justify-between cv-rail-label">
+                                <span class="text-xs font-semibold" :class="'{{ $side }}' === 'left' ? 'cv-text-secondary' : 'cv-accent'" x-text="compareViewerInspectionTypeName('{{ $side }}').toUpperCase() + '{{ $side === 'right' ? ' — CURRENT' : '' }}' + ' · ' + compareViewer.label"></span>
+                                <span class="cv-mono text-xs cv-text-secondary" x-text="(compareViewerCarouselPhotos('{{ $side }}').findIndex(p => p.id === compareViewer.{{ $side }}PhotoId) + 1) + ' of ' + compareViewerCarouselPhotos('{{ $side }}').length"></span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                {{-- DEFECT 4 FIX, 2026-09-24 — these prev/next
+                                     buttons used to x-show (display:none),
+                                     which removes them from layout entirely
+                                     on whichever side had 1 or fewer photos —
+                                     the thumbnail strip on THAT side then
+                                     started flush against the column edge
+                                     while the other side's strip stayed
+                                     pushed in by its own visible button,
+                                     so the two rails' thumbnails never lined
+                                     up. Both buttons now always occupy their
+                                     44px slot on both sides; only their
+                                     visibility/hit-testing toggles, so the
+                                     thumbnail strip starts at the same
+                                     offset in both columns regardless of
+                                     either side's photo count. --}}
+                                <button type="button" @click="compareViewerStep('{{ $side }}', -1)" aria-label="Scroll thumbnails back" class="cv-touch flex-none" :class="compareViewerCarouselPhotos('{{ $side }}').length > 1 ? '' : 'invisible'" :disabled="compareViewerCarouselPhotos('{{ $side }}').length <= 1">&lsaquo;</button>
+                                <div class="flex items-center gap-2 overflow-x-auto compare-viewer-carousel py-1">
+                                    <template x-for="photo in compareViewerCarouselPhotos('{{ $side }}')" :key="'{{ $side }}-' + photo.id">
+                                        <button type="button" @click="compareViewerSelectCarouselPhoto(photo, '{{ $side }}')"
+                                                class="relative flex-none rounded overflow-hidden compare-viewer-thumb"
+                                                :class="compareViewer.{{ $side }}PhotoId === photo.id ? 'compare-viewer-thumb-active' : ''">
+                                            <img :src="photo.storage_path" class="cv-thumb-img object-cover block" alt="">
+                                            <span class="cv-untagged-dot" x-show="!photo.property_room_id && !photo.rental_inspection_observation_id"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                                <button type="button" @click="compareViewerStep('{{ $side }}', 1)" aria-label="Scroll thumbnails forward" class="cv-touch flex-none" :class="compareViewerCarouselPhotos('{{ $side }}').length > 1 ? '' : 'invisible'" :disabled="compareViewerCarouselPhotos('{{ $side }}').length <= 1">&rsaquo;</button>
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Tagging panel — anchored over whichever pane opened it,
+                     420px wide, two-column SPACE/ITEM picker. Reuses the
+                     SAME tag endpoints the recording screen's own chooser
+                     calls (compareViewerConfirmTag()) — not a second
+                     mechanism. --}}
+                <div class="cv-tagpanel" x-show="compareViewerTagPanel.open" x-cloak @click.stop
+                     :class="compareViewerTagPanel.side === 'right' ? 'cv-tagpanel-right' : 'cv-tagpanel-left'">
+                    <div class="flex items-center justify-between px-3 py-2 cv-tagpanel-head">
+                        <span class="text-xs font-semibold">Tag photo</span>
+                        <button type="button" @click="compareViewerCloseTagPanel()" aria-label="Cancel tagging" class="cv-touch">&times;</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-px cv-tagpanel-body">
+                        <div class="cv-tagpanel-col">
+                            <div class="text-xs font-semibold cv-text-secondary px-2 py-1">SPACE</div>
+                            <template x-for="group in compareViewerRoomTabs()" :key="'tp-room-' + group.room.id">
+                                <button type="button" @click="compareViewerTagPanel.pickedRoomId = group.room.id; compareViewerTagPanel.pickedItemId = null"
+                                        class="block w-full text-left text-xs px-2 py-2 cv-tagpanel-row"
+                                        :class="compareViewerTagPanel.pickedRoomId === group.room.id ? 'cv-tagpanel-row-active' : ''"
+                                        x-text="group.room.label"></button>
+                            </template>
+                        </div>
+                        <div class="cv-tagpanel-col">
+                            <div class="text-xs font-semibold cv-text-secondary px-2 py-1">ITEM</div>
+                            <button type="button" @click="compareViewerTagPanel.pickedItemId = null"
+                                    class="block w-full text-left text-xs px-2 py-2 cv-tagpanel-row"
+                                    :class="!compareViewerTagPanel.pickedItemId ? 'cv-tagpanel-row-active' : ''">Whole room</button>
+                            <template x-for="item in compareViewerTagPanelItems()" :key="'tp-item-' + item.id">
+                                <button type="button" @click="compareViewerTagPanel.pickedItemId = item.id"
+                                        class="block w-full text-left text-xs px-2 py-2 cv-tagpanel-row"
+                                        :class="compareViewerTagPanel.pickedItemId === item.id ? 'cv-tagpanel-row-active' : ''"
+                                        x-text="item.label"></button>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 px-3 py-2 cv-tagpanel-foot">
+                        <span class="text-xs cv-text-secondary truncate">
+                            Tagging to
+                            <span class="font-semibold cv-text-primary" x-text="(compareViewerRoomTabs().find(g => g.room.id === compareViewerTagPanel.pickedRoomId)?.room.label || '') + (compareViewerTagPanel.pickedItemId ? ' › ' + (compareViewerTagPanelItems().find(i => i.id === compareViewerTagPanel.pickedItemId)?.label || '') : '')"></span>
+                        </span>
+                        <div class="flex items-center gap-2 flex-none">
+                            <button type="button" @click="compareViewerCloseTagPanel()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Cancel</button>
+                            <button type="button" @click="compareViewerConfirmTag()" :disabled="!compareViewerTagPanel.pickedRoomId" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active">Tag photo</button>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- §25, AT-433 Part C — the note composer. Same anchored-
+                     over-the-pane panel shell as the tag panel just above
+                     (.cv-tagpanel/-left/-right, .cv-tagpanel-head/-foot —
+                     reused classes, not a parallel set) — "the full note
+                     opens with the photo in the compare viewer, where there
+                     is room for it" (Johan). Read-only once the owning
+                     inspection is signed: the composer still opens (so the
+                     agent can read what's there) but Save/Archive are
+                     replaced by an explanation, never a dead control that
+                     silently 409s — STANDARDS.md "No Silent Locks". --}}
+                <div class="cv-tagpanel" x-show="compareViewerNotePanel.open" x-cloak @click.stop
+                     :class="compareViewerNotePanel.side === 'right' ? 'cv-tagpanel-right' : 'cv-tagpanel-left'">
+                    <div class="flex items-center justify-between px-3 py-2 cv-tagpanel-head">
+                        <span class="text-xs font-semibold">Photo note</span>
+                        <button type="button" @click="compareViewerCloseNotePanel()" aria-label="Close note" class="cv-touch">&times;</button>
+                    </div>
+                    <div class="p-3 space-y-2">
+                        <template x-if="compareViewerNoteLocked()">
+                            <p class="text-xs cv-text-secondary">This inspection is completed and signed — its photo notes are read-only.</p>
+                        </template>
+                        <div class="flex items-center gap-1 flex-wrap">
+                            <template x-for="c in (photoNoteClassifications || [])" :key="'note-class-' + c.key">
+                                <button type="button" :disabled="compareViewerNoteLocked()"
+                                        @click="compareViewerNotePanel.classificationKey = c.key"
+                                        class="text-xs font-semibold px-2 py-1 rounded-md"
+                                        :class="compareViewerNotePanel.classificationKey === c.key ? 'compare-viewer-match-btn-active' : 'compare-viewer-mode-btn'"
+                                        x-text="c.label"></button>
+                            </template>
+                        </div>
+                        <textarea x-model="compareViewerNotePanel.noteText" :disabled="compareViewerNoteLocked()"
+                                  rows="3" maxlength="4000" placeholder="What does this photo show?"
+                                  class="prop-input w-full text-xs"></textarea>
+                        <p class="text-xs" style="color:#ef4444;" x-show="compareViewerNotePanel.error" x-text="compareViewerNotePanel.error"></p>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 px-3 py-2 cv-tagpanel-foot">
+                        <button type="button" x-show="!compareViewerNoteLocked() && compareViewerCurrentPhoto(compareViewerNotePanel.side)?.note"
+                                :disabled="compareViewerNotePanel.saving"
+                                @click="compareViewerArchiveNote()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Remove note</button>
+                        <div class="flex items-center gap-2 flex-none" style="margin-left:auto;">
+                            <button type="button" @click="compareViewerCloseNotePanel()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Close</button>
+                            <button type="button" x-show="!compareViewerNoteLocked()"
+                                    :disabled="compareViewerNotePanel.saving || !compareViewerNotePanel.noteText.trim() || !compareViewerNotePanel.classificationKey"
+                                    @click="compareViewerSaveNote()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active"
+                                    x-text="compareViewerNotePanel.saving ? 'Saving…' : 'Save note'"></button>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Untagged tray — bottom of the modal, multi-select then
+                     bulk-tag, identical behaviour to the recording screen's
+                     own tray. --}}
+                <div class="px-4 py-2 flex items-center gap-3 cv-untagged-tray" x-show="compareViewerUntaggedCount() > 0" @click.stop>
+                    <span class="text-xs font-semibold cv-text-secondary flex-none">UNTAGGED<br><span class="cv-text-secondary" style="font-weight:400;">Not yet linked to a space</span></span>
+                    <div class="flex items-center gap-2 overflow-x-auto flex-1">
+                        <template x-for="photo in compareViewerUntaggedPhotos()" :key="'untagged-' + photo.id">
+                            <button type="button" @click="compareViewerToggleUntaggedSelect(photo.id)"
+                                    class="relative flex-none rounded overflow-hidden cv-untagged-thumb"
+                                    :class="compareViewerUntaggedSelected[photo.id] ? 'cv-untagged-thumb-selected' : ''">
+                                <img :src="photo.storage_path" class="cv-untagged-thumb-img object-cover block" alt="">
+                            </button>
+                        </template>
+                    </div>
+                    <div class="flex items-center gap-2 flex-none">
+                        <span class="text-xs cv-text-secondary">Select several, then tag them together</span>
+                        <button type="button" @click="compareViewerSelectAllUntagged()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Select all</button>
+                        <button type="button" @click="compareViewerBulkTagUntagged(compareViewer.roomId)" :disabled="!Object.keys(compareViewerUntaggedSelected).length" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active">Tag to <span x-text="compareViewerCurrentRoomGroup() ? compareViewerCurrentRoomGroup().room.label : 'room'"></span></button>
+                    </div>
+                </div>
+            </div>
 
             {{-- Custom sections --}}
             <template x-for="sec in data.custom" :key="sec.id">
                 <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle(sec.id)">
+                    {{-- §28 — chevron moved left, matching every other header on this tab. --}}
+                    <button type="button" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle(sec.id)">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text" x-text="sec.name"></span>
                             <span class="ml-2 text-xs" style="color:var(--text-muted);"
@@ -4598,15 +5714,23 @@
                 </div>
             </template>
 
-            {{-- Add section --}}
-            <button type="button" @click="openAdd()" :disabled="busy"
-                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
-                    style="background:var(--brand-button,#0ea5e9);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                Add section
-            </button>
+            {{-- "Add photo section" entry-point button removed 2026-09-25 per
+                 Johan: redundant on this tab. It created a named photo-gallery
+                 folder, not an inspection — the rename yesterday from "+ Add
+                 section" to "Add photo section" didn't fix that confusion,
+                 it just relabelled it (see the two empty accidental sections
+                 already on property 5792: "Ad Hoc inspection (0)" and "test
+                 inspection (0)"). The underlying feature (rental-images.save,
+                 action add_section, App\Http\Controllers\CoreX\
+                 PropertyController::saveRentalImagesMeta()) is NOT removed —
+                 only this entry point. The modal directly below is shared
+                 with Rename (openRename(), used by the "Rename" button on
+                 each existing custom section in rental-section-body.blade.php)
+                 so it stays; openAdd() and submitModal()'s add_section branch
+                 are now unreachable from this UI but left in place rather than
+                 stripped, since nothing else in this task asked for that. --}}
 
-            {{-- Add / Rename section modal (CoreX-styled — replaces the native browser prompt) --}}
+            {{-- Add / Rename photo section modal (CoreX-styled — replaces the native browser prompt) --}}
             <div x-show="modal.open" x-cloak
                  class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
                  @keydown.escape.window="closeModal()">
@@ -4615,14 +5739,14 @@
                      style="background:var(--surface); border:1px solid var(--border);" @click.stop>
                     <div class="px-5 py-3 flex items-center justify-between" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                         <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);"
-                            x-text="modal.mode === 'rename' ? 'Rename Section' : 'New Section'"></h3>
+                            x-text="modal.mode === 'rename' ? 'Rename Photo Section' : 'New Photo Section'"></h3>
                         <button type="button" @click="closeModal()" class="p-1 rounded-md hover:opacity-70" style="color:var(--text-muted);">
                             <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
                         </button>
                     </div>
                     <form @submit.prevent="submitModal()">
                         <div class="px-5 py-4 space-y-2">
-                            <label class="prop-label">Section name</label>
+                            <label class="prop-label">Photo section name</label>
                             <input type="text" x-model="modal.name" x-ref="modalInput" maxlength="120"
                                    placeholder="e.g. Garden handover" class="prop-input w-full">
                         </div>
@@ -4633,7 +5757,7 @@
                             <button type="submit" :disabled="busy || !modal.name.trim()"
                                     class="px-4 py-2 rounded-md text-sm font-semibold text-white"
                                     style="background:var(--brand-button,#0ea5e9);"
-                                    x-text="modal.mode === 'rename' ? 'Rename' : 'Add section'"></button>
+                                    x-text="modal.mode === 'rename' ? 'Rename' : 'Add photo section'"></button>
                         </div>
                     </form>
                 </div>
@@ -4666,14 +5790,53 @@
                 <div class="absolute bottom-5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-semibold"
                      style="background:rgba(0,0,0,0.5);color:#fff;"
                      x-text="(viewer.index + 1) + ' / ' + viewer.images.length"></div>
-                <button type="button" @click.stop="downloadOne(viewer.images[viewer.index])"
-                        class="absolute bottom-4 right-4 inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold"
-                        style="background:rgba(255,255,255,0.12);color:#fff;">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                    Download
-                </button>
+                {{-- FACT 5, 2026-09-22 (Johan, measured live: the select landed
+                     at left:16/top:686, the viewport's own bottom-left corner,
+                     on top of the app sidebar — the modal's real photo starts
+                     around x=334). `bottom-4 left-4` on its own standalone div
+                     positioned it against this FULL-VIEWPORT `fixed inset-0`
+                     lightbox, not against anything resembling "the modal" —
+                     there was no modal-scoped box for it to sit in. Fixed by
+                     folding "Move to…" into the SAME wrapper as Download,
+                     reusing Download's own already-correct `bottom-4 right-4`
+                     anchor instead of introducing a second, unproven
+                     left-edge one. Design constraint, 2026-09-22 (Johan): "on
+                     item and on room if you click the photo it opens up...
+                     wont work from room to item as there are many items to 1
+                     room" — a many-destination move doesn't fit a button or a
+                     dropdown squeezed onto a thumbnail; this is its real
+                     home, the already-open photo, which has room for a
+                     proper chooser. Only rendered when the viewer was opened
+                     from an inspection room/item photo (openInspectionPhoto()
+                     sets `section`/`room`) — every other caller of this same
+                     shared viewer (the plain property gallery, documents,
+                     etc.) never sets those fields, so this stays absent
+                     there. --}}
+                <div class="absolute bottom-4 right-4 flex items-center gap-2" @click.stop>
+                    <template x-if="viewer.section && viewer.room">
+                        <select class="prop-input text-xs" style="max-width:12rem;"
+                                @change="moveViewerPhotoTo($event.target.value); $event.target.value = ''">
+                            <option value="">Move to…</option>
+                            <template x-for="i in itemMoveChoicesFor(viewer.section, viewer.room)" :key="i.id">
+                                <option :value="i.id" x-text="i.label"></option>
+                            </template>
+                        </select>
+                    </template>
+                    <button type="button" @click.stop="downloadOne(viewer.images[viewer.index])"
+                            class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold"
+                            style="background:rgba(255,255,255,0.12);color:#fff;">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                        Download
+                    </button>
+                </div>
             </div>
         </div>
+
+        {{-- Same lightweight canvas-capture library already proven for compliance
+             sign-off (resources/views/compliance/policy-ack/sign.blade.php) — not a
+             second signature pipeline. Scoped inside this rental-only block so
+             non-rental property pages never load it. --}}
+        <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 
         <script>
         function rentalImages(config) {
@@ -4690,6 +5853,2805 @@
                 viewer: { open: false, images: [], index: 0 },
                 selecting: {},
                 sel: {},
+
+                // ── Inspection items (§14.1/§14.2 — same endpoints a mobile
+                // client calls; this is a thin caller, not a second
+                // implementation) ──────────────────────────────────────────
+                inspectionUrls: config.inspectionUrls,
+                items: config.inspectionData.items,
+                // Johan's ruling, 2026-09-23 — replaces the old fixed
+                // inInspection/outInspection pair: the tab's live recording
+                // surface is always exactly ONE inspection (the chain's
+                // tail, any type) beside its own predecessor, never two
+                // independently-tracked named slots. See currentInspection()
+                // below — this is the only state currentInspection() reads.
+                chainTail: config.inspectionData.chain_tail,
+                chainPredecessor: config.inspectionData.chain_predecessor,
+                // §20.16 — every match GROUP touching the current predecessor/
+                // tail pair (server-scoped — see RentalInspection::tabPayloadFor()).
+                photoMatches: config.inspectionData.photo_matches,
+                // §24.5/§24.7, AT-433 Part B — whether maybeAutoPairPhotos()
+                // (below) should call the auto-pair endpoint automatically;
+                // the explicit "Auto-pair" button always works regardless.
+                autoPairPhotosEnabled: config.inspectionData.auto_pair_photos_enabled,
+                // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — read-only,
+                // never edited from here (a fault report is resolved from its
+                // own screen or the property tab, §6a's own instruction).
+                outInspectionFaultHistory: config.inspectionData.out_inspection_fault_history,
+                // §15.4, Stage 3 — property-level, shared by both sections. Null
+                // means Property::sellerOwnerContact() couldn't resolve one.
+                landlordContact: config.inspectionData.landlord_contact,
+                // §15.5/§15.6, Stage 4 — agency-configurable one-tap reason
+                // list; 'other' always present and always last (server-side
+                // guarantee — RentalInspectionSetting::refusalReasonPresetsFor()).
+                refusalReasonPresets: config.inspectionData.refusal_reason_presets,
+                // 2026-09-20 fix — deliberately NOT derived from outInspection
+                // above (that goes null the moment the out-inspection
+                // completes). Drives the fault-history block's own
+                // visibility so it stays shown after completion, when it
+                // matters most.
+                outInspectionRecorded: config.inspectionData.out_inspection_recorded,
+                // §17, Johan 2026-09-21, from Retha's real paper form — the
+                // agency's own condition vocabulary (Good/Fair/Damaged/Not
+                // working/Missing/Other/N/A by default), rendered into the
+                // recording UI's condition picker instead of a hardcoded
+                // set of <option> tags.
+                conditionStates: config.inspectionData.condition_states,
+                // §25, AT-433 Part C — the photo note's classification
+                // vocabulary (Defect/Wear and tear/Reference by default),
+                // same agency-configurable pattern as conditionStates above.
+                photoNoteClassifications: config.inspectionData.photo_note_classifications,
+                // §27.7 — recording-screen navigation. Server-resolved, per
+                // user, synchronously available at construction (same
+                // pattern as conditionStates above) — never a lazy fetch
+                // that would otherwise render the default first and flip a
+                // moment later.
+                photosVisible: config.inspectionData.screen_preferences.photos_visible,
+                filterMode: config.inspectionData.screen_preferences.filter_mode,
+                // §29 — untagged-photo tray tile size (small/large), same
+                // per-user server-resolved pattern as the two above.
+                trayTileSize: config.inspectionData.screen_preferences.tray_tile_size,
+                // Item 8, 2026-09-22 — read-only, sourced from the live
+                // Property record.
+                propertyType: config.propertyType,
+                // Item 5, 2026-09-22 — "All Good" bulk-fill's target state.
+                baselineConditionKey: config.baselineConditionKey,
+
+                // §20.13, 2026-09-22 — one corexPhotoBatchUploader (public/js/
+                // corex-photo-batch-uploader.js, the reusable piece cc6 can
+                // also consume) per section, keyed by inspection id so a
+                // freshly-started inspection gets its own fresh instance
+                // rather than inheriting the previous one's photo list.
+                // `insp.photos` arrives already populated by tabPayloadFor()'s
+                // eager load — untagged (tray), room-tagged, or item-tagged.
+                dragOverRoom: null,
+                // AT-433 Part E, 2026-09-27 — which item's strip (by item id)
+                // a desktop file is currently being dragged over, for the
+                // dashed-outline affordance. Same single-scalar shape as
+                // dragOverRoom above (only one strip can be hovered at once).
+                stripFileDragOverItemId: null,
+                // §24.6, AT-433 Part B — a drag-to-pair is in progress
+                // (photoDraggedForPairing() below started it). Read by the
+                // predecessor (read-only) cell's tile to decide whether to
+                // render as a drop target AT ALL — Johan's ruling: "The cell
+                // gains a drop target ONLY while a drag is in progress — no
+                // persistent affordance, no hover state, nothing on that
+                // cell when the agent is not dragging." pairDragOverId is
+                // the finer "currently over THIS tile" highlight, cleared on
+                // dragleave/drop/dragend regardless of outcome.
+                pairDragActive: false,
+                pairDragOverId: null,
+                trayTagRoomChoice: '',
+                // R1, 2026-09-22 — room photos default to one row (Johan:
+                // "maybe show 1 row of photos, then expand to see more?"),
+                // keyed per section+room so In and Out Inspection expand
+                // independently. Never gated on a hardcoded photo count —
+                // it's a pure row-height clip, holds for any number.
+                roomPhotosExpanded: {},
+                photoUploaders: {},
+                photoUploader(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    if (!this.photoUploaders[section] || this.photoUploaders[section]._cpu_inspId !== insp.id) {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}`;
+                        this.photoUploaders[section] = window.corexPhotoBatchUploader({
+                            csrf: this.csrf,
+                            uploadUrl: `${base}/photos`,
+                            tagUrl: (photoId) => `${base}/photos/${photoId}/tag`,
+                            tagBulkUrl: `${base}/photos/tag-bulk`,
+                            untagUrl: (photoId) => `${base}/photos/${photoId}/untag`,
+                            archiveUrl: (photoId) => `${base}/photos/${photoId}`,
+                            photos: insp.photos || [],
+                        });
+                        this.photoUploaders[section]._cpu_inspId = insp.id;
+                    }
+                    return this.photoUploaders[section];
+                },
+
+                // §20.16 — persisted match/unmatch, evidence-weight audit
+                // (added_by_user_id/added_at, removed_by_user_id — server
+                // side, RentalInspectionPhotoMatchGroup/...GroupMember). A
+                // GROUP, not a pair: groupForPhoto() finds the set a photo
+                // currently belongs to (Johan: "join the group, not the
+                // other photo"); matchFor() answers the narrower "are THESE
+                // TWO specific photos in the same group right now" question
+                // every existing template binding already expects a
+                // truthy/falsy answer to.
+                groupForPhoto(photoId) {
+                    return (this.photoMatches || []).find(g => (g.members || []).some(m => m.photo_id === photoId)) || null;
+                },
+                matchFor(photoId, otherPhotoId) {
+                    const group = this.groupForPhoto(photoId);
+                    if (!group) return null;
+                    return group.members.some(m => m.photo_id === otherPhotoId) ? group : null;
+                },
+                // First OTHER member of photoId's group, if any — used by
+                // openCompareViewer()/compareViewerSelectCarouselPhoto() to
+                // load the matched counterpart on the opposite side.
+                matchPartnerId(photoId) {
+                    const group = this.groupForPhoto(photoId);
+                    if (!group) return null;
+                    const other = group.members.find(m => m.photo_id !== photoId);
+                    return other ? other.photo_id : null;
+                },
+                // Reconciles local state after any match/unmatch: one group
+                // per photo (Johan's rule) means a photo that just moved
+                // must disappear from wherever it USED to be, not only
+                // appear in its new group — so every affected photo id is
+                // stripped from every OTHER local group first.
+                _applyGroupPatch(group, affectedPhotoIds) {
+                    this.photoMatches = (this.photoMatches || [])
+                        .filter(g => g.id !== group.id)
+                        .map(g => ({ ...g, members: g.members.filter(m => !affectedPhotoIds.includes(m.photo_id)) }))
+                        .filter(g => g.members.length > 1);
+                    if (group.members && group.members.length > 1) {
+                        this.photoMatches.push(group);
+                    }
+                },
+                async toggleCompareMatch(leftPhoto, rightPhoto) {
+                    if (!leftPhoto || !rightPhoto) return;
+                    const group = this.matchFor(leftPhoto.id, rightPhoto.id);
+                    if (group) {
+                        const member = group.members.find(m => m.photo_id === rightPhoto.id);
+                        if (!member) return;
+                        const res = await fetch(`${this.inspectionUrls.photoMatchesBase}/${member.member_id}`, {
+                            method: 'DELETE',
+                            headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this._applyGroupPatch(data.group || { id: group.id, members: [] }, [rightPhoto.id]);
+                        } else {
+                            // §41, 2026-09-29 — the compare-viewer Link/Unlink
+                            // button is the first caller of this function that
+                            // can hit the new completed/cancelled 409 without
+                            // the drag-drop path's own precondition (a
+                            // read-only tail cell has no drag source to begin
+                            // with) ruling it out first — surfaced the same
+                            // way pairDropOnPredecessor() already does.
+                            const data = await res.json().catch(() => ({}));
+                            this.error = data.message || 'Could not unlink those photos — please try again.';
+                        }
+                        return;
+                    }
+                    const res = await fetch(this.inspectionUrls.photoMatchesStore, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: JSON.stringify({ photo_id: leftPhoto.id, anchor_photo_id: rightPhoto.id }),
+                    });
+                    if (res.ok) {
+                        this._applyGroupPatch(await res.json(), [leftPhoto.id, rightPhoto.id]);
+                    } else {
+                        const data = await res.json().catch(() => ({}));
+                        this.error = data.message || 'Could not link those photos — please try again.';
+                    }
+                },
+
+                // §24.6, AT-433 Part B — drag a tail-side (current-inspection)
+                // photo onto its predecessor-side counterpart. Reuses
+                // photoUploader().dragStartSelection() exactly as it already
+                // exists for the untagged tray's drag-onto-a-room gesture
+                // (rental-inspection-recording.blade.php) rather than a
+                // second drag mechanism — same dataTransfer payload shape,
+                // same effectAllowed. Direction is fixed per Johan's own
+                // words ("drag it left onto the photo it matches"): only the
+                // tail tile is ever draggable; only the predecessor tile is
+                // ever a drop target. Never reversed.
+                photoDraggedForPairing(section, photoId, event) {
+                    this.photoUploader(section).dragStartSelection(event, photoId);
+                    this.pairDragActive = true;
+                },
+                photoDragEndForPairing() {
+                    this.pairDragActive = false;
+                    this.pairDragOverId = null;
+                },
+                // Called on the predecessor tile's OWN @dragover — never
+                // .prevent at the Alpine-directive level, because that would
+                // call preventDefault() on EVERY dragover regardless of
+                // whether it's our own pairing drag, silently enabling drop
+                // for an unrelated drag too (e.g. a desktop file dropped on
+                // this exact strip — a separate, pre-existing, explicitly
+                // out-of-scope question named on this same round). Only our
+                // own in-progress pairing drag (pairDragActive) ever calls
+                // preventDefault() here, so any other drag over this tile
+                // behaves exactly as it did before this feature existed.
+                pairDragOverTile(event, predecessorPhoto) {
+                    if (!predecessorPhoto || !this.pairDragActive) return;
+                    event.preventDefault();
+                    this.pairDragOverId = predecessorPhoto.id;
+                },
+                // Same non-.prevent discipline as pairDragOverTile() above —
+                // only calls preventDefault()/acts when it's genuinely our
+                // own pairing drag; anything else falls through untouched.
+                async pairDropOnPredecessor(event, predecessorPhoto) {
+                    if (!predecessorPhoto || !this.pairDragActive) return;
+                    event.preventDefault();
+                    this.pairDragActive = false;
+                    this.pairDragOverId = null;
+
+                    let ids = [];
+                    try { ids = JSON.parse(event.dataTransfer.getData('text/plain') || '[]'); } catch (e) {}
+                    if (!ids.length) return;
+
+                    // Johan's ruling, 2026-09-26 — a staged (picked, not yet
+                    // uploaded) photo has no server id yet
+                    // (dragStartSelection() was called with `null` for it,
+                    // see the staged tile's own dragstart in
+                    // rental-inspection-item-cell.blade.php); refused with
+                    // the reason VISIBLE, never silently ignored.
+                    if (ids.includes(null) || ids.includes(undefined)) {
+                        this.error = 'This photo is still uploading — it can be paired once it has finished.';
+                        return;
+                    }
+
+                    for (const photoId of ids) {
+                        if (photoId === predecessorPhoto.id) continue; // dropped a photo onto itself — no-op, not an error
+                        const res = await fetch(this.inspectionUrls.photoMatchesStore, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                            body: JSON.stringify({ photo_id: photoId, anchor_photo_id: predecessorPhoto.id }),
+                        });
+                        if (res.ok) {
+                            this._applyGroupPatch(await res.json(), [photoId, predecessorPhoto.id]);
+                        } else {
+                            const data = await res.json().catch(() => ({}));
+                            this.error = data.message || 'Could not pair those photos — please try again.';
+                        }
+                    }
+                },
+
+                // §24.5, AT-433 Part B — Johan's ruling: auto-pair runs
+                // automatically the first time an item's comparison is
+                // viewed (once chainPredecessor/chainTail both exist), and
+                // again from the explicit "Auto-pair" button (which calls
+                // runAutoPair() directly, bypassing the "already ran this
+                // pair" guard below — the button's whole purpose is
+                // re-running after new photos are added). Keyed on the
+                // predecessor/tail PAIR, not just "has it ever run this
+                // page load" — a genuinely new pair (Next inspection,
+                // without a full page reload) must get its own run.
+                _autoPairedForPair: null,
+                autoPairBusy: false,
+                async maybeAutoPairPhotos() {
+                    if (!this.autoPairPhotosEnabled) return;
+                    if (!this.chainPredecessor || !this.chainTail) return;
+                    const key = this.chainPredecessor.id + ':' + this.chainTail.id;
+                    if (this._autoPairedForPair === key) return;
+                    this._autoPairedForPair = key;
+                    await this.runAutoPair();
+                },
+                async runAutoPair() {
+                    if (!this.chainPredecessor || !this.chainTail) return;
+                    this.autoPairBusy = true;
+                    try {
+                        const res = await fetch(this.inspectionUrls.photoMatchesAutoPair, {
+                            method: 'POST',
+                            headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        });
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            this.error = data.message || 'Auto-pair could not run — please try again.';
+                            return;
+                        }
+                        const data = await res.json();
+                        (data.groups || []).forEach(group => {
+                            this._applyGroupPatch(group, (group.members || []).map(m => m.photo_id));
+                        });
+                    } finally {
+                        this.autoPairBusy = false;
+                    }
+                },
+
+                // §20.17, 2026-09-24, Johan — the standalone Compare section
+                // is gone (the inline rows above, deleted). Comparison now
+                // happens in exactly ONE place: this viewer, opened from a
+                // photo on the side-by-side predecessor/tail screen (cc3's
+                // panel). "the modal that loads should carry the
+                // functionality, not a complete compare section." Entry
+                // point is openCompareViewer(photo, insp) — insp is
+                // whichever of chainPredecessor/chainTail the clicked photo
+                // belongs to; cc3's panel already has both in scope at every
+                // photo it renders (rental-inspection-item-cell.blade.php's
+                // own $inspectionJs var, and chainTail directly in
+                // rental-inspection-recording.blade.php's room gallery) and
+                // calls this directly.
+                compareViewer: {
+                    open: false, mode: 'compare',
+                    kind: null, roomId: null, itemId: null, label: '',
+                    leftPhotoId: null, rightPhotoId: null,
+                    primarySide: 'left',
+                    zoomLocked: true,
+                    step: { left: 0, right: 0 }, // which candidate is shown when a group has 2+ members on that side
+                },
+                compareViewerMobileSide: 'left',
+                // DEFECT 6 FIX, 2026-09-24, Johan — "Move together" now
+                // defaults ON, superseding the earlier "default to
+                // independent" ruling: "comparing the same patch of wall on
+                // both sides is the primary use of this screen; independent
+                // panning is the exception." One shared transform is used
+                // for BOTH sides while zoomLocked is on — dragging either
+                // side then moves both; the two independent transforms
+                // below remain available for the (now non-default) case the
+                // agent explicitly turns "Move together" off.
+                compareViewerZoomLeft: { scale: 1, tx: 0, ty: 0 },
+                compareViewerZoomRight: { scale: 1, tx: 0, ty: 0 },
+                compareViewerZoomShared: { scale: 1, tx: 0, ty: 0 },
+                // Which room (untagged photo) or item (tagged-to-an-
+                // observation photo) a clicked photo belongs to — every
+                // photo already carries property_room_id and, if
+                // item-tagged, rental_inspection_observation_id (the exact
+                // shape §20.15.9 already relied on), so this needs no new
+                // field on the photo itself.
+                //
+                // DEFECT 1/2 FIX, 2026-09-24 — this used to resolve the
+                // item (and never resolved a roomId at all) by searching
+                // the SINGLE passed-in `insp` snapshot's own .observations.
+                // Two bugs from that: (a) the 'item' branch returned no
+                // roomId key whatsoever, so compareViewer.roomId stayed
+                // null and the item-chip row's x-show="compareViewerCurrentRoomGroup()"
+                // never matched anything — the row simply never rendered
+                // on open; (b) `insp` is whichever ONE side (predecessor or
+                // tail) the click came from, but the clicked photo's own
+                // live object (from the tail's photoUploader cache) is not
+                // guaranteed to be the exact same object instance the
+                // passed insp snapshot's .observations was loaded from, so
+                // the id lookup could miss or land on nothing. Fixed by
+                // resolving BOTH roomId and itemId from this.items — the
+                // single global per-property item list (already the one
+                // and only source roomGroups()/the SPACE+ITEM chip rows
+                // themselves read from) — by scanning each item's own
+                // .observations (unscoped by inspection, per
+                // tabPayloadFor()) for the clicked photo's observation id.
+                // Same source of truth everywhere means the chip that
+                // lights up is guaranteed to be the chip the data loads
+                // from.
+                _compareViewerContextFor(photo) {
+                    if (photo.rental_inspection_observation_id) {
+                        for (const item of this.activeItems()) {
+                            const obs = (item.observations || []).find(o => o.id === photo.rental_inspection_observation_id);
+                            if (obs) return { kind: 'item', roomId: item.room ? item.room.id : null, itemId: item.id };
+                        }
+                        return { kind: 'item', roomId: null, itemId: null };
+                    }
+                    return { kind: 'room', roomId: photo.property_room_id || null };
+                },
+                _compareViewerLabelFor(kind, roomId, itemId) {
+                    const groups = this.roomGroups();
+                    for (const group of groups) {
+                        if (kind === 'room' && group.room && group.room.id === roomId) return group.room.label;
+                        if (kind === 'item') {
+                            const item = (group.items || []).find(i => i.id === itemId);
+                            if (item) return (group.room ? group.room.label + ' — ' : '') + item.label;
+                        }
+                    }
+                    return kind === 'room' ? 'Room' : 'Item';
+                },
+                openCompareViewer(photo, insp) {
+                    const isTail = this.chainTail && insp && insp.id === this.chainTail.id;
+                    const side = isTail ? 'right' : 'left';
+                    const otherSide = isTail ? 'left' : 'right';
+                    const otherInsp = isTail ? this.chainPredecessor : this.chainTail;
+                    const ctx = this._compareViewerContextFor(photo);
+                    const label = this._compareViewerLabelFor(ctx.kind, ctx.roomId, ctx.itemId);
+
+                    // §37, 2026-09-28 (Johan, property 5294) — a first
+                    // inspection in its chain has no predecessor, so
+                    // opening straight into 'compare' left the whole left
+                    // pane permanently empty ("Nothing yet") with no photo
+                    // to ever fill it. Same gate §32.1's compare-row
+                    // already uses (chainPredecessor null → nothing to
+                    // compare against): default to 'single' whenever THIS
+                    // viewer's own other-side inspection doesn't exist,
+                    // never a global chain-wide check — a predecessor that
+                    // exists but has no photo for this one item is a
+                    // different, legitimate "no match" case (§35) that
+                    // still belongs in compare mode.
+                    this.compareViewer = {
+                        open: true, mode: otherInsp ? 'compare' : 'single',
+                        kind: ctx.kind, roomId: ctx.roomId || null, itemId: ctx.itemId || null, label,
+                        leftPhotoId: null, rightPhotoId: null,
+                        primarySide: side,
+                        zoomLocked: true,
+                        step: { left: 0, right: 0 },
+                    };
+                    this.compareViewer[side + 'PhotoId'] = photo.id;
+
+                    if (otherInsp) {
+                        const candidates = this.compareViewerGroupSideMembers(photo.id, otherInsp.id);
+                        if (candidates.length) {
+                            this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
+                        } else {
+                            // §40, 2026-09-29 (Johan) — clicking a photo
+                            // opened the viewer but did not show the other
+                            // side, reproduced both directions. Old and new
+                            // sides both had real, independently-uploaded
+                            // photos, but the clicked photo was never run
+                            // through auto-pair, so it has no match-group
+                            // candidate on the other side. Leaving
+                            // otherSide's photoId null left that pane on the
+                            // empty placeholder even though its own carousel
+                            // strip (below, sourced from
+                            // compareViewerPhotosForSide() independent of
+                            // pairing) had real photos to show. Same
+                            // fallback compareViewerSelectItem() already
+                            // uses for its own initial load: prefer an exact
+                            // match, but default to that side's first real
+                            // photo rather than nothing.
+                            const fallback = this.compareViewerPhotosForSide(otherSide);
+                            if (fallback.length) {
+                                this.compareViewer[otherSide + 'PhotoId'] = fallback[0].id;
+                            }
+                        }
+                    }
+                    this.compareViewerMobileSide = side;
+                    this.compareViewerResetZoom();
+                },
+                closeCompareViewer() { this.compareViewer.open = false; },
+                compareViewerSetMode(mode) { this.compareViewer.mode = mode; },
+                compareViewerResetZoom() {
+                    this.compareViewerZoomLeft = { scale: 1, tx: 0, ty: 0 };
+                    this.compareViewerZoomRight = { scale: 1, tx: 0, ty: 0 };
+                    this.compareViewerZoomShared = { scale: 1, tx: 0, ty: 0 };
+                },
+                // A carousel PER SIDE (Johan, 2026-09-24 — replacing the
+                // earlier single shared strip): every photo for the current
+                // room/item, scoped to THAT side's own inspection
+                // (chainPredecessor for left, chainTail for right) — reuses
+                // cc3's own roomPhotosForInspection()/conditionForInspection()
+                // rather than a second, parallel data path. The storage_path
+                // guard is what stops a stray/broken entry rendering as a
+                // blank tile.
+                compareViewerPhotosForSide(side) {
+                    const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    if (!insp) return [];
+                    // §40, 2026-09-29 — item-kind used to read
+                    // conditionForInspection(), which resolves only the
+                    // item's SINGLE LATEST observation. Any item with 2+
+                    // observations this inspection (e.g. a corrected
+                    // condition) had earlier photos silently missing from
+                    // this rail even though the strip tile that was clicked
+                    // (stripTilesForInspection()/stripTilesFor(), both built
+                    // on itemPhotosForInspection()/itemPhotosFor() — EVERY
+                    // observation, not just the latest) showed them fine.
+                    // Same source both sides now use everywhere else in
+                    // this file for item photos.
+                    const photos = this.compareViewer.kind === 'room'
+                        ? this.roomPhotosForInspection(insp, this.compareViewer.roomId)
+                        : this.itemPhotosForInspection(insp, this.compareViewer.itemId);
+                    return (photos || []).filter(p => p && p.storage_path);
+                },
+                // §24.11, AT-433 Part B follow-up, 2026-09-27 — pairs first
+                // (in pair order), then unmatched, each labelled with the
+                // side it came from by which rail it sits in (each rail is
+                // already under its own "IN"/"CURRENT" pane header, §20.17.3
+                // — no separate label needed here). Shares pairedRows() with
+                // the strip's own pairedStripRows() rather than a second
+                // ordering implementation; works for room-kind AND item-kind
+                // for free, since compareViewerPhotosForSide() already
+                // branches on that. Filtering out the null half of each row
+                // is enough — the viewer's two rails are independent
+                // scrollable lists, not a fixed two-column grid like the
+                // strip, so there is no "NO MATCH" placeholder tile to
+                // render here. openCompareViewer(photo, insp) itself is
+                // untouched — nothing here calls or modifies it.
+                compareViewerPairedRows() {
+                    return this.pairedRows(
+                        this.compareViewerPhotosForSide('left'),
+                        this.compareViewerPhotosForSide('right'),
+                    );
+                },
+                compareViewerCarouselPhotos(side) {
+                    if (!this.compareViewer.open) return [];
+                    return this.compareViewerPairedRows()
+                        .map(row => side === 'left' ? row.predecessorPhoto : row.tailPhoto)
+                        .filter(Boolean);
+                },
+                compareViewerPhotoById(id) {
+                    if (!id) return null;
+                    return this.compareViewerCarouselPhotos('left').find(p => p.id === id)
+                        || this.compareViewerCarouselPhotos('right').find(p => p.id === id)
+                        || null;
+                },
+                // Clicking a carousel photo loads it into ITS OWN side, and
+                // its matched group's members into the other — Johan: "if I
+                // click a photo either side of the carousel it not only
+                // loads that photo into view, it also loads the tagged
+                // photo on the other side."
+                compareViewerSelectCarouselPhoto(photo, side) {
+                    const otherSide = side === 'left' ? 'right' : 'left';
+                    this.compareViewer[side + 'PhotoId'] = photo.id;
+                    this.compareViewer.primarySide = side;
+                    this.compareViewer.step[side] = 0;
+
+                    const otherInsp = otherSide === 'left' ? this.chainPredecessor : this.chainTail;
+                    const candidates = otherInsp ? this.compareViewerGroupSideMembers(photo.id, otherInsp.id) : [];
+                    if (candidates.length) {
+                        this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
+                        this.compareViewer.step[otherSide] = 0;
+                    }
+                    this.compareViewerResetZoom();
+                },
+                // Every member of photoId's match group that belongs to the
+                // given inspection — the "1 of 5" stepper's own candidate
+                // list (Johan's own instinct, approved: "show the first of
+                // the group with a small '1 of 5' control").
+                compareViewerGroupSideMembers(photoId, inspectionId) {
+                    if (!photoId || !inspectionId) return [];
+                    const group = this.groupForPhoto(photoId);
+                    if (!group) return [];
+                    return group.members.filter(m => m.rental_inspection_id === inspectionId);
+                },
+                compareViewerCandidatesFor(side) {
+                    const anchorId = side === 'left' ? this.compareViewer.rightPhotoId : this.compareViewer.leftPhotoId;
+                    const wantInsp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    return wantInsp ? this.compareViewerGroupSideMembers(anchorId, wantInsp.id) : [];
+                },
+                compareViewerCurrentPhoto(side) {
+                    const id = this.compareViewer[side + 'PhotoId'];
+                    return id ? this.compareViewerPhotoById(id) : null;
+                },
+                compareViewerStep(side, delta) {
+                    const candidates = this.compareViewerCandidatesFor(side);
+                    if (candidates.length < 2) return;
+                    let next = (this.compareViewer.step[side] + delta) % candidates.length;
+                    if (next < 0) next += candidates.length;
+                    this.compareViewer.step[side] = next;
+                    this.compareViewer[side + 'PhotoId'] = candidates[next].photo_id;
+                    this.compareViewerResetZoom();
+                },
+                compareViewerStepLabel(side) {
+                    const candidates = this.compareViewerCandidatesFor(side);
+                    return candidates.length > 1 ? ((this.compareViewer.step[side] || 0) + 1) + ' of ' + candidates.length : '';
+                },
+                // The pane header (mockup, 2026-09-24, Johan-approved):
+                // badge + inspection NAME + date as separate elements, not
+                // one combined string — "IN"/"CURRENT" badge (never "OUT":
+                // "the chain can run In -> Routine -> Out, so the right
+                // pane is not always an out-inspection"), name, date in
+                // mono. Room/item label is the SAME on both sides (it is
+                // the same room/item being compared) — compareViewer.label.
+                compareViewerInspectionFor(side) {
+                    return side === 'left' ? this.chainPredecessor : this.chainTail;
+                },
+                compareViewerInspectionTypeName(side) {
+                    const insp = this.compareViewerInspectionFor(side);
+                    if (!insp) return 'Nothing yet';
+                    const typeLabel = insp.type === 'out' ? 'Out' : (insp.type === 'in' ? 'In' : 'Routine');
+                    return typeLabel + '-inspection';
+                },
+                compareViewerInspectionDate(side) {
+                    const insp = this.compareViewerInspectionFor(side);
+                    return insp ? (insp.scheduled_for || '') : '';
+                },
+                compareViewerPaneInspectionLabel(side) {
+                    const insp = this.compareViewerInspectionFor(side);
+                    if (!insp) return 'Nothing yet';
+                    return this.compareViewerInspectionTypeName(side) + (insp.scheduled_for ? ' — ' + insp.scheduled_for : '');
+                },
+                // Match/unmatch straight from the viewer/carousel, without
+                // leaving it (item 6, approved).
+                async compareViewerMatch() {
+                    if (!this.compareViewer.leftPhotoId || !this.compareViewer.rightPhotoId) return;
+                    const leftPhoto = this.compareViewerPhotoById(this.compareViewer.leftPhotoId);
+                    const rightPhoto = this.compareViewerPhotoById(this.compareViewer.rightPhotoId);
+                    await this.toggleCompareMatch(leftPhoto, rightPhoto);
+                },
+                compareViewerIsMatched() {
+                    if (!this.compareViewer.leftPhotoId || !this.compareViewer.rightPhotoId) return false;
+                    return !!this.matchFor(this.compareViewer.leftPhotoId, this.compareViewer.rightPhotoId);
+                },
+                // §41, 2026-09-29 — same lock the server enforces
+                // (RentalInspectionRecordingController::assertPhotoMatchingUnlocked());
+                // checked here purely so the Link/Unlink control isn't shown
+                // at all once it would just 409 — never the source of truth,
+                // the server call above is.
+                compareViewerMatchingLocked() {
+                    return !!(this.chainTail && ['completed', 'cancelled'].includes(this.chainTail.status));
+                },
+                // ── Forensic zoom/pan (item 3/4, approved) ───────────────────
+                // Real continuous zoom+pan: wheel/pinch, drag to pan, PLUS
+                // explicit +/- /reset buttons (2026-09-24 — a lock toggle
+                // with no visible zoom control is not a zoom feature).
+                // Cursor/touch-anchored on wheel so zooming in on a mark
+                // doesn't immediately require panning to find it again;
+                // button zoom anchors on the pane's own center, since there
+                // is no cursor position to anchor to. Locked mode (opt-in
+                // per session, default off) shares ONE transform between
+                // both sides — drag or zoom either one, both move — for the
+                // same-wall-same-spot case; independent otherwise, since two
+                // shots of "the same thing" are rarely framed identically.
+                _compareViewerZoomState(side) {
+                    return this.compareViewer.zoomLocked ? this.compareViewerZoomShared : (side === 'left' ? this.compareViewerZoomLeft : this.compareViewerZoomRight);
+                },
+                compareViewerZoomStyle(side) {
+                    const z = this._compareViewerZoomState(side);
+                    return 'transform: translate(' + z.tx + 'px,' + z.ty + 'px) scale(' + z.scale + '); transform-origin: 0 0;';
+                },
+                compareViewerToggleLock() {
+                    if (!this.compareViewer.zoomLocked) {
+                        this.compareViewerZoomShared = { ...this.compareViewerZoomLeft };
+                    }
+                    this.compareViewer.zoomLocked = !this.compareViewer.zoomLocked;
+                },
+                compareViewerZoomBy(side, factor, anchorPx, anchorPy) {
+                    const z = this._compareViewerZoomState(side);
+                    const newScale = Math.min(6, Math.max(1, z.scale * factor));
+                    const px = anchorPx === undefined ? 0 : anchorPx;
+                    const py = anchorPy === undefined ? 0 : anchorPy;
+                    z.tx = px - (px - z.tx) * (newScale / z.scale);
+                    z.ty = py - (py - z.ty) * (newScale / z.scale);
+                    z.scale = newScale;
+                    if (newScale <= 1) { z.tx = 0; z.ty = 0; }
+                },
+                compareViewerZoomInBtn(side) { this.compareViewerZoomBy(side, 1.3); },
+                compareViewerZoomOutBtn(side) { this.compareViewerZoomBy(side, 1 / 1.3); },
+                compareViewerWheelZoom(side, event) {
+                    event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const factor = event.deltaY < 0 ? 1.15 : (1 / 1.15);
+                    this.compareViewerZoomBy(side, factor, event.clientX - rect.left, event.clientY - rect.top);
+                },
+                _compareViewerDrag: { active: false, side: null, startX: 0, startY: 0, startTx: 0, startTy: 0 },
+                compareViewerDragStart(side, event) {
+                    const point = event.touches ? event.touches[0] : event;
+                    const z = this._compareViewerZoomState(side);
+                    this._compareViewerDrag = { active: true, side, startX: point.clientX, startY: point.clientY, startTx: z.tx, startTy: z.ty };
+                },
+                compareViewerDragMove(event) {
+                    if (!this._compareViewerDrag.active) return;
+                    const point = event.touches ? event.touches[0] : event;
+                    const z = this._compareViewerZoomState(this._compareViewerDrag.side);
+                    z.tx = this._compareViewerDrag.startTx + (point.clientX - this._compareViewerDrag.startX);
+                    z.ty = this._compareViewerDrag.startTy + (point.clientY - this._compareViewerDrag.startY);
+                },
+                compareViewerDragEnd() { this._compareViewerDrag.active = false; },
+                compareViewerDoubleClickReset(side) {
+                    const z = this._compareViewerZoomState(side);
+                    z.scale = 1; z.tx = 0; z.ty = 0;
+                },
+                compareViewerZoomPercent(side) {
+                    return Math.round(this._compareViewerZoomState(side).scale * 100) + '%';
+                },
+
+                // ── §20.17 mockup, 2026-09-24, Johan-approved — room/item
+                // navigation WITHOUT closing the modal. "SPACE" tabs are
+                // every real room on the property; the "ITEM" row is the
+                // selected room's own items, plus a synthetic "Whole room"
+                // entry (itemId null) for that room's general photos —
+                // matching the tagging panel's own "Whole room" option.
+                compareViewerRoomTabs() {
+                    return this.roomGroups().filter(g => g.room);
+                },
+                compareViewerCurrentRoomGroup() {
+                    return this.compareViewerRoomTabs().find(g => g.room.id === this.compareViewer.roomId) || null;
+                },
+                compareViewerSelectRoom(roomId) {
+                    this.compareViewer.roomId = roomId;
+                    this.compareViewerSelectItem(null);
+                },
+                compareViewerSelectItem(itemId) {
+                    const group = this.compareViewerCurrentRoomGroup();
+                    this.compareViewer.kind = itemId ? 'item' : 'room';
+                    this.compareViewer.itemId = itemId;
+                    this.compareViewer.label = itemId
+                        ? this._compareViewerLabelFor('item', null, itemId)
+                        : (group ? group.room.label : '');
+                    this.compareViewer.leftPhotoId = null;
+                    this.compareViewer.rightPhotoId = null;
+                    this.compareViewer.step = { left: 0, right: 0 };
+
+                    const leftPhotos = this.compareViewerPhotosForSide('left');
+                    const rightPhotos = this.compareViewerPhotosForSide('right');
+                    if (leftPhotos.length) this.compareViewer.leftPhotoId = leftPhotos[0].id;
+                    if (rightPhotos.length) this.compareViewer.rightPhotoId = rightPhotos[0].id;
+                    // Prefer the LEFT photo's actual match over an arbitrary
+                    // "first photo" pairing, same rule openCompareViewer() uses.
+                    if (this.compareViewer.leftPhotoId && this.chainTail) {
+                        const candidates = this.compareViewerGroupSideMembers(this.compareViewer.leftPhotoId, this.chainTail.id);
+                        if (candidates.length) this.compareViewer.rightPhotoId = candidates[0].photo_id;
+                    }
+                    this.compareViewerResetZoom();
+                },
+                // The chip's own "2 / 1" count — IN side / CURRENT side.
+                compareViewerChipCounts(itemId) {
+                    const countFor = (insp) => {
+                        if (!insp) return 0;
+                        if (!itemId) return this.roomPhotosForInspection(insp, this.compareViewer.roomId).length;
+                        return ((this.conditionForInspection(insp, itemId) || {}).photos || []).length;
+                    };
+                    return countFor(this.chainPredecessor) + ' / ' + countFor(this.chainTail);
+                },
+                // §27.1 — was a hardcoded conditionKey === 'good' /
+                // indexOf('damag') string check: only ever correct for an
+                // agency that kept the shipped English keys, and would
+                // mis-colour (or, reused for a filter, mis-flag) any agency
+                // that renamed or reduced its condition set (Retha's own
+                // Good/OK/Bad has no 'damag'-containing key at all). §36 —
+                // now driven by the same severity every other condition
+                // read on this screen uses, four-way rather than the old
+                // two-way good/damaged split, so the compare viewer's own
+                // pill matches the same colour the condition button showed.
+                compareViewerConditionClass(conditionKey) {
+                    if (!conditionKey) return 'cv-pill-fair';
+                    return 'cv-pill-sev-' + this.conditionSeverity(conditionKey);
+                },
+                compareViewerConditionFor(side) {
+                    if (this.compareViewer.kind !== 'item' || !this.compareViewer.itemId) return null;
+                    const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    const obs = this.conditionForInspection(insp, this.compareViewer.itemId);
+                    return obs ? obs.condition : null;
+                },
+                compareViewerConditionLabel(conditionKey) {
+                    const state = (this.conditionStates || []).find(c => c.key === conditionKey);
+                    return state ? state.label : (conditionKey ? conditionKey.replace('_', ' ') : '');
+                },
+                // How many untagged photos exist on the CURRENT (tail)
+                // inspection — the top-bar amber pill.
+                compareViewerUntaggedCount() {
+                    if (!this.chainTail) return 0;
+                    return (this.chainTail.photos || []).filter(p => !p.property_room_id && !p.rental_inspection_observation_id).length;
+                },
+                compareViewerUntaggedPhotos() {
+                    if (!this.chainTail) return [];
+                    return (this.chainTail.photos || []).filter(p => !p.property_room_id && !p.rental_inspection_observation_id);
+                },
+
+                // ── Tagging, from the modal — reuses the SAME endpoints the
+                // recording screen's own tray/chooser already call
+                // (RentalInspectionRecordingController::tagPhoto/
+                // tagPhotosBulk/untagPhoto), not a second mechanism. An item
+                // with no observation recorded yet on that inspection has
+                // no observation id to tag a photo TO (the endpoint
+                // requires one, same constraint the recording screen's own
+                // camera control already works around) — the picker only
+                // lists items that already have one; "Whole room" always
+                // works since it needs no observation at all.
+                compareViewerTagPanel: { open: false, side: null, photoId: null, pickedRoomId: null, pickedItemId: null },
+                compareViewerOpenTagPanel(side) {
+                    const photoId = this.compareViewer[side + 'PhotoId'];
+                    if (!photoId) return;
+                    this.compareViewerTagPanel = {
+                        open: true, side, photoId,
+                        pickedRoomId: this.compareViewer.roomId,
+                        pickedItemId: this.compareViewer.kind === 'item' ? this.compareViewer.itemId : null,
+                    };
+                },
+                compareViewerCloseTagPanel() {
+                    this.compareViewerTagPanel = { open: false, side: null, photoId: null, pickedRoomId: null, pickedItemId: null };
+                },
+                compareViewerTagPanelItems() {
+                    const group = this.compareViewerRoomTabs().find(g => g.room.id === this.compareViewerTagPanel.pickedRoomId);
+                    if (!group) return [];
+                    const insp = this.compareViewerTagPanel.side === 'left' ? this.chainPredecessor : this.chainTail;
+                    return (group.items || []).filter(item => this.conditionForInspection(insp, item.id));
+                },
+                async compareViewerConfirmTag() {
+                    const panel = this.compareViewerTagPanel;
+                    if (!panel.photoId || !panel.pickedRoomId) return;
+                    const insp = panel.side === 'left' ? this.chainPredecessor : this.chainTail;
+                    if (!insp) return;
+                    const fields = { property_room_id: panel.pickedRoomId };
+                    if (panel.pickedItemId) {
+                        const obs = this.conditionForInspection(insp, panel.pickedItemId);
+                        if (obs) fields.rental_inspection_observation_id = obs.id;
+                    }
+                    const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}`;
+                    const res = await this._post(`${base}/photos/${panel.photoId}/tag`, fields);
+                    this._compareViewerReplacePhotoInInsp(insp, res);
+                    this.compareViewerCloseTagPanel();
+                    this.compareViewerSelectItem(this.compareViewer.itemId);
+                },
+                // The tag/untag/bulk-tag endpoints return the updated
+                // photo(s) — patch them into chainPredecessor/chainTail's
+                // own .photos array in place, the same "replace, don't
+                // refetch everything" pattern corex-photo-batch-uploader.js
+                // already uses for the recording screen.
+                _compareViewerReplacePhotoInInsp(insp, updatedPhoto) {
+                    if (!insp || !insp.photos) return;
+                    const idx = insp.photos.findIndex(p => p.id === updatedPhoto.id);
+                    if (idx !== -1) insp.photos[idx] = updatedPhoto; else insp.photos.push(updatedPhoto);
+                    if (insp.observations) {
+                        insp.observations.forEach(o => {
+                            o.photos = (o.photos || []).filter(p => p.id !== updatedPhoto.id);
+                            if (o.id === updatedPhoto.rental_inspection_observation_id) o.photos.push(updatedPhoto);
+                        });
+                    }
+                },
+
+                // §25, AT-433 Part C — the photo note panel. Same
+                // anchored-over-the-pane pattern as compareViewerTagPanel
+                // just above (own state object, own open/close, side
+                // resolved the exact same way) — not a second panel
+                // mechanism, the same one for a second purpose. "The full
+                // note opens with the photo in the compare viewer, where
+                // there is room for it" (Johan) — this is that room.
+                compareViewerNotePanel: { open: false, side: null, photoId: null, classificationKey: '', noteText: '', saving: false, error: null },
+                compareViewerOpenNotePanel(side) {
+                    const photo = this.compareViewerCurrentPhoto(side);
+                    if (!photo) return;
+                    this.compareViewerNotePanel = {
+                        open: true, side, photoId: photo.id,
+                        classificationKey: photo.note?.classification_key || ((this.photoNoteClassifications || [])[0]?.key || ''),
+                        noteText: photo.note?.note || '',
+                        saving: false, error: null,
+                    };
+                },
+                compareViewerCloseNotePanel() {
+                    this.compareViewerNotePanel = { open: false, side: null, photoId: null, classificationKey: '', noteText: '', saving: false, error: null };
+                },
+                // The inspection a note-panel photo actually belongs to —
+                // same side-to-inspection resolution as
+                // compareViewerConfirmTag() above.
+                _compareViewerNoteInspection() {
+                    return this.compareViewerNotePanel.side === 'left' ? this.chainPredecessor : this.chainTail;
+                },
+                // True once the owning inspection is completed/signed or
+                // cancelled — Johan's ruling: a report someone signed must
+                // not change underneath them. Mirrors the server's own
+                // RentalInspectionPhotoNote::assertMutable() gate exactly,
+                // so the UI never offers a control the server will refuse —
+                // "No Silent Locks" (STANDARDS.md): say why, don't just let
+                // Save fail with a raw 409.
+                compareViewerNoteLocked() {
+                    const insp = this._compareViewerNoteInspection();
+                    return !insp || insp.status === 'completed' || insp.status === 'cancelled';
+                },
+                async compareViewerSaveNote() {
+                    const panel = this.compareViewerNotePanel;
+                    const insp = this._compareViewerNoteInspection();
+                    if (!insp || !panel.photoId || !panel.noteText.trim() || !panel.classificationKey) return;
+                    const photo = this.compareViewerPhotoById(panel.photoId);
+                    if (!photo) return;
+                    panel.saving = true;
+                    panel.error = null;
+                    try {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}/photos/${photo.id}/notes`;
+                        const body = { classification_key: panel.classificationKey, note: panel.noteText.trim() };
+                        const note = photo.note
+                            ? await this._compareViewerNoteRequest(`${base}/${photo.note.id}`, 'PATCH', body)
+                            : await this._compareViewerNoteRequest(base, 'POST', body);
+                        photo.note = note;
+                        this.compareViewerCloseNotePanel();
+                    } catch (e) {
+                        panel.error = e.message;
+                    } finally {
+                        panel.saving = false;
+                    }
+                },
+                async compareViewerArchiveNote() {
+                    const panel = this.compareViewerNotePanel;
+                    const insp = this._compareViewerNoteInspection();
+                    const photo = panel.photoId ? this.compareViewerPhotoById(panel.photoId) : null;
+                    if (!insp || !photo || !photo.note) return;
+                    panel.saving = true;
+                    panel.error = null;
+                    try {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}/photos/${photo.id}/notes/${photo.note.id}`;
+                        await this._compareViewerNoteRequest(base, 'DELETE', null);
+                        photo.note = null;
+                        this.compareViewerCloseNotePanel();
+                    } catch (e) {
+                        panel.error = e.message;
+                    } finally {
+                        panel.saving = false;
+                    }
+                },
+                // A small, self-contained fetch helper — never reuses
+                // _post() below, which is hardcoded to the POST method.
+                // Same error-shape convention (throws with .message set
+                // from the server's JSON body when present).
+                async _compareViewerNoteRequest(url, method, body) {
+                    const opts = { method, headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' } };
+                    if (body) {
+                        opts.headers['Content-Type'] = 'application/json';
+                        opts.body = JSON.stringify(body);
+                    }
+                    const res = await fetch(url, opts);
+                    if (!res.ok) {
+                        let msg = 'Request failed (HTTP ' + res.status + ').';
+                        try { const data = await res.json(); if (data && data.message) msg = data.message; } catch (_) {}
+                        throw new Error(msg);
+                    }
+                    return res.status === 204 ? null : res.json();
+                },
+
+                // ── Untagged tray — bottom of the modal, multi-select then
+                // bulk-tag, identical behaviour to the recording screen's
+                // own tray (tagPhotosBulk).
+                compareViewerUntaggedSelected: {},
+                compareViewerToggleUntaggedSelect(photoId) {
+                    if (this.compareViewerUntaggedSelected[photoId]) delete this.compareViewerUntaggedSelected[photoId];
+                    else this.compareViewerUntaggedSelected[photoId] = true;
+                },
+                compareViewerSelectAllUntagged() {
+                    this.compareViewerUntaggedPhotos().forEach(p => { this.compareViewerUntaggedSelected[p.id] = true; });
+                },
+                async compareViewerBulkTagUntagged(roomId) {
+                    const ids = Object.keys(this.compareViewerUntaggedSelected).map(Number);
+                    if (!ids.length || !roomId || !this.chainTail) return;
+                    const base = `${this.inspectionUrls.inspectionsBase}/${this.chainTail.id}`;
+                    const res = await this._post(`${base}/photos/tag-bulk`, { photo_ids: ids, property_room_id: roomId });
+                    (res.photos || []).forEach(p => this._compareViewerReplacePhotoInInsp(this.chainTail, p));
+                    this.compareViewerUntaggedSelected = {};
+                },
+
+                // AT-436, 2026-09-27, Johan (property 5792 — a staged photo
+                // was silently lost on reload): "adding a photo uploads it.
+                // Immediately. Always. Whether or not a condition has been
+                // recorded on that item." No staging branch any more — this
+                // is the ONE thing this function does, every time. The
+                // server (currentOrPendingObservationFor(),
+                // RentalInspectionRecordingController::storePhotos()) finds
+                // the item's own observation on this inspection if one
+                // exists, real or a prior photo-anchor row, or creates a
+                // photo-anchor one — this function never needs to know
+                // which case it is.
+                //
+                // Each file gets a preview URL up front, read directly off
+                // the File object rather than a separate keyed cache — a
+                // File isn't a plain object, so it passes through untouched
+                // by this page's reactivity wrapping. pendingUploadTilesFor()
+                // below reads photoUploader().uploadBatches directly for the
+                // strip's own pending tile (uploading / failed-with-retry),
+                // so nothing here needs its own separate "is this done yet"
+                // bookkeeping. _mergeObservation() folds a brand-new
+                // photo-anchor observation into insp.observations the
+                // moment the upload confirms one exists — without it,
+                // itemPhotosFor() (which resolves obsIds from
+                // insp.observations, not from the uploader's own photos
+                // array) would never find the just-uploaded photo until a
+                // full reload re-fetched tabPayloadFor().
+                async onItemPhotosSelected(section, item, fileList) {
+                    if (!fileList || !fileList.length) return;
+                    const files = Array.from(fileList);
+                    files.forEach(f => { f._corexPreviewUrl = URL.createObjectURL(f); });
+                    await this.photoUploader(section).uploadFiles(files, { rental_inspection_item_id: item.id }, (body, entry) => {
+                        this._mergeObservation(section, body.observation);
+                        (entry.files || []).forEach(f => {
+                            if (f._corexPreviewUrl) { URL.revokeObjectURL(f._corexPreviewUrl); f._corexPreviewUrl = null; }
+                        });
+                    });
+                },
+
+                // AT-436, 2026-09-27 — the ONLY place a photo-upload response's
+                // observation gets folded into local state. A no-op if
+                // insp.observations already has this id (the common case:
+                // the item already had a real or pending observation, so the
+                // server reused it and the client already knows about it) —
+                // only a BRAND NEW photo-anchor row is actually new here.
+                _mergeObservation(section, observation) {
+                    if (!observation) return;
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    if (insp.observations.some(o => o.id === observation.id)) return;
+                    observation.photos = observation.photos || [];
+                    insp.observations.push(observation);
+                },
+
+                // AT-433 Part E, 2026-09-27 — drop a desktop file onto an
+                // item's own strip to upload it, same call as the add-tile's
+                // file picker (onItemPhotosSelected() above) — one path, not
+                // a second one. Never .prevent unconditionally: only when
+                // dataTransfer.types actually contains 'Files', so a drag
+                // this handler doesn't own passes through completely
+                // untouched. That matters specifically because cc6's own
+                // pairing drag (photoDraggedForPairing()/pairDropOnPredecessor()
+                // above, read directly off QA1 before writing this) can pass
+                // a drag through this same tail-side row on its way to the
+                // predecessor cell's own drop tiles one column over — its
+                // own discipline is identical (never .prevent unless
+                // pairDragActive), so the two never fight over the same
+                // event even though they don't share a target element.
+                // 'Files' is the one type string a genuine OS file drag
+                // always carries and an in-page dragstart(setData(...)) call
+                // (cc6's pairing drag, or the existing tag-to-room drag) can
+                // never produce, so the two are mutually exclusive by
+                // construction — if a drag somehow carried both, Files wins
+                // the tie: a real, visibly-dragged file takes priority over
+                // any same-drag internal payload.
+                stripDragOverTile(event, itemId) {
+                    if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+                    event.preventDefault();
+                    this.stripFileDragOverItemId = itemId;
+                },
+                stripDragLeaveTile() {
+                    this.stripFileDragOverItemId = null;
+                },
+                async stripDropOnTile(event, section, item) {
+                    if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+                    event.preventDefault();
+                    this.stripFileDragOverItemId = null;
+                    await this.onItemPhotosSelected(section, item, event.dataTransfer.files);
+                },
+
+                // ── Inspections-tab rebuild, 2026-09-22 — ONE quiet save
+                // indicator for the whole screen (never per-row): every
+                // autosave (condition, notes, room note, overall notes,
+                // header block) routes through _autosave() below, which
+                // owns this single piece of state. A failed save stays
+                // visible with a working Retry, never silently lost. ──────
+                saveState: { status: 'idle', message: '', retry: null },
+                _saveSeq: 0,
+                _debounceTimers: {},
+                _debounce(key, fn, ms) {
+                    clearTimeout(this._debounceTimers[key]);
+                    this._debounceTimers[key] = setTimeout(fn, ms || 700);
+                },
+                async _autosave(fn) {
+                    const seq = ++this._saveSeq;
+                    this.saveState = { status: 'saving', message: '', retry: null };
+                    try {
+                        await fn();
+                        if (seq === this._saveSeq) {
+                            this.saveState = { status: 'saved', message: 'Saved', retry: null };
+                            setTimeout(() => {
+                                if (seq === this._saveSeq && this.saveState.status === 'saved') {
+                                    this.saveState = { status: 'idle', message: '', retry: null };
+                                }
+                            }, 2000);
+                        }
+                    } catch (e) {
+                        this.saveState = { status: 'failed', message: e.message || 'Save failed.', retry: () => this._autosave(fn) };
+                    }
+                },
+                retrySave() { if (this.saveState.retry) this.saveState.retry(); },
+
+                // §32, 2026-09-28 (Johan, property 5294) — the bug class this
+                // pair closes: several autosave commits used to
+                // `Object.assign(insp, updated)` where `updated` was a bare
+                // `$rentalInspection->fresh()` (every plain COLUMN on the
+                // row — meter readings, overall_notes, etc. — no relations).
+                // Any TWO of those commits racing (e.g. typing a meter
+                // reading, then typing overall notes before the meter
+                // save's own response has landed) let the SLOWER response's
+                // stale snapshot stomp the field the OTHER one just wrote —
+                // or, worse, land WHILE the agent is still actively typing
+                // into a field this commit's response also carries an
+                // (older) value for, visibly corrupting/truncating what
+                // they were mid-typing. Reproduced live, before this fix:
+                // typing a meter reading then "INSPECTION LOOKS FINE
+                // OVERALL" into Overall notes saved as "INE OVERALL" —
+                // truncated, not just visually, PERSISTED.
+                //
+                // The rule (also recorded in .ai/specs/rental-inspections.md
+                // §32.4): an autosave response may only ever update the
+                // fields ITS OWN request sent — never the whole object.
+                //
+                // Two flavours, because not every field carries the same
+                // risk:
+                // - _mergeIfUnchanged() — for fields a user can be ACTIVELY
+                //   TYPING into via a live x-model (header block, overall
+                //   notes): only apply the server's value if the local
+                //   value is STILL EXACTLY what was sent (captured in
+                //   `snapshot` before the request went out) — if it
+                //   changed locally in the meantime (still typing, or a
+                //   newer save is already in flight), the newer local edit
+                //   wins and the stale response is simply dropped for that
+                //   field.
+                // - _mergeFields() — for fields NOTHING ever types into
+                //   (lifecycle status/timestamps, server-computed) — always
+                //   safe to apply directly, no snapshot needed, since
+                //   nothing else concurrently writes to them.
+                _mergeIfUnchanged(insp, snapshot, updated, fields) {
+                    fields.forEach(f => { if (insp[f] === snapshot[f]) insp[f] = updated[f]; });
+                },
+                _mergeFields(insp, updated, fields) {
+                    fields.forEach(f => { insp[f] = updated[f]; });
+                },
+
+                itemError: '',
+                itemBusy: false,
+                newItem: { kind: 'space', label: '', space_type: '', property_room_id: '' },
+                // 2026-09-21 — one pending room-type choice per legacy
+                // typeless item, keyed by item id (several can be mid-pick
+                // at once without clobbering each other).
+                assignTypeChoice: {},
+                // 2026-09-22 — inline rename, one item at a time (matches the
+                // assign-type picker's own one-at-a-time convention above).
+                renamingItemId: null,
+                renameDraft: '',
+                // 2026-09-22 — retired items are already loaded (this.items
+                // holds every item regardless of is_retired) but hidden from
+                // every group; a closed-by-default toggle keeps the working
+                // list uncluttered, matching the archived/restore convention
+                // already used elsewhere in CoreX rather than inventing one.
+                retiredItemsOpen: false,
+                retiredItems() { return this.items.filter(i => i.is_retired); },
+                newItemPlaceholder() {
+                    if (this.newItem.kind === 'meter') return 'e.g. Water meter';
+                    if (this.newItem.kind === 'item') return 'e.g. Built-in cupboard (BIC)';
+                    return 'e.g. Bedroom 2';
+                },
+
+                activeItems() { return this.items.filter(i => !i.is_retired); },
+                // 2026-09-21, Johan on property 5792 — replaces the old flat
+                // "Bedroom 2 — Ceiling" x5 list with one heading per room and
+                // its facets nested beneath (itemDisplayLabel() is gone; both
+                // callers render item.label directly under the group heading
+                // now). Keys on item.room.id — the real PropertyRoom foreign
+                // key — never on item.room.label, so casing/naming
+                // differences in an agent's free-text room names can never
+                // merge or split a group; two items either share the same
+                // room_id or they don't, full stop. Groups sort by
+                // group.room.sort_order ascending (PropertyRoom's own
+                // column) — today that's still creation order (the room-
+                // reorder feature is separate, upcoming work), but every
+                // consumer of this method picks up a persisted reorder for
+                // free once that lands, with no further change here. Items
+                // with no room (meters, and legacy spaces still awaiting a
+                // room type) land in one trailing "General" group.
+                roomGroups() {
+                    const byRoom = new Map();
+                    const general = [];
+                    for (const item of this.activeItems()) {
+                        if (item.room) {
+                            if (!byRoom.has(item.room.id)) byRoom.set(item.room.id, { room: item.room, items: [] });
+                            byRoom.get(item.room.id).items.push(item);
+                        } else {
+                            general.push(item);
+                        }
+                    }
+                    // 2026-09-22 — same tiebreak reasoning as the room-level
+                    // sort just below, one level down: an item added before
+                    // sort_order existed, or two items that happen to share
+                    // one, must not flip order between page loads.
+                    for (const group of byRoom.values()) {
+                        group.items.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.id - b.id));
+                    }
+                    // 2026-09-21, Johan on property 5792 — `id` is a required
+                    // secondary tiebreak, not decoration: two rooms of the
+                    // same type that both lack a number in their label (or
+                    // share the same number) resolve to the EXACT SAME
+                    // sort_order from defaultRoomSortOrderFor(), and without
+                    // this, their relative order is undefined and can flip
+                    // between page loads — the "stable, predictable order"
+                    // Johan explicitly asked for.
+                    const groups = Array.from(byRoom.values()).sort((a, b) => (a.room.sort_order ?? 0) - (b.room.sort_order ?? 0) || (a.room.id - b.room.id));
+                    if (general.length) groups.push({ room: null, items: general });
+                    return groups;
+                },
+
+                // 2026-09-21, Johan on property 5792 — "the agent must be
+                // able to reorder rooms themselves and have it stick."
+                // Swaps this room with its neighbour in the CURRENT rendered
+                // order, then persists the property's full room order in one
+                // call — roomGroups() already sorts by room.sort_order, so
+                // updating each item's embedded room.sort_order locally is
+                // enough to re-render immediately, no full page reload.
+                moveRoomUp(room) { this._moveRoom(room, -1); },
+                moveRoomDown(room) { this._moveRoom(room, 1); },
+                _moveRoom(room, delta) {
+                    const ids = this.roomGroups().filter(g => g.room).map(g => g.room.id);
+                    const from = ids.indexOf(room.id);
+                    const to = from + delta;
+                    if (from === -1 || to < 0 || to >= ids.length) return;
+                    const tmp = ids[from];
+                    ids[from] = ids[to];
+                    ids[to] = tmp;
+                    this._persistRoomOrder(ids);
+                },
+                async _persistRoomOrder(roomIds) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.roomsReorder, { room_ids: roomIds });
+                        this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                // Johan: existing rooms keep their sort_order until an agent
+                // explicitly asks for this — never silently recomputed by a
+                // deploy. One-click, explicit, idempotent.
+                async applyDefaultRoomOrder() {
+                    if (!window.confirm('Apply the agency default room order to this property\'s existing rooms? This only reorders rooms — nothing else changes.')) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.roomsApplyDefaultOrder, {});
+                        this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                _applyRoomSortOrders(rooms) {
+                    const bySortOrder = new Map(rooms.map(r => [r.id, r.sort_order]));
+                    this.items.forEach(item => {
+                        if (item.room && bySortOrder.has(item.room.id)) {
+                            item.room.sort_order = bySortOrder.get(item.room.id);
+                        }
+                    });
+                },
+
+                async addItem() {
+                    const label = this.newItem.label.trim();
+                    if (!label) return;
+                    if (this.newItem.kind === 'space' && !this.newItem.space_type) return;
+                    if (this.newItem.kind === 'item' && !this.newItem.property_room_id) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        // 2026-09-21 — a Space add returns the checklist rows
+                        // created under its new room, not the bare space itself;
+                        // a Meter add returns its own one bare item. 2026-09-22 —
+                        // an Item add returns its own one new facet, under the
+                        // EXISTING room it was pointed at, no new room created.
+                        // All three come back the same shape ({items: [...]}) so
+                        // this push path covers them without branching.
+                        const result = await this._post(this.inspectionUrls.itemStore, {
+                            kind: this.newItem.kind, label,
+                            space_type: this.newItem.kind === 'space' ? this.newItem.space_type : null,
+                            property_room_id: this.newItem.kind === 'item' ? this.newItem.property_room_id : null,
+                        });
+                        this.items.push(...result.items);
+                        this.newItem.label = '';
+                        this.newItem.space_type = '';
+                        this.newItem.property_room_id = '';
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-21 — retrofit a room type onto a legacy item that has
+                // neither (created before this fix). Adds this room's new
+                // checklist items and marks the old bare item retired locally,
+                // matching what the server just did to it.
+                async assignType(item) {
+                    const spaceType = this.assignTypeChoice[item.id];
+                    if (!spaceType) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/assign-type`, {
+                            space_type: spaceType,
+                        });
+                        this.items.push(...result.items);
+                        item.is_retired = true;
+                        delete this.assignTypeChoice[item.id];
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                async retireItem(item) {
+                    if (!window.confirm(`Retire "${item.label}"? It stops appearing for new observations — its history stays exactly as it is.`)) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        await this._post(`${this.inspectionUrls.itemStore}/${item.id}/retire`, {});
+                        item.is_retired = true;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-22 — never a hard delete; brings a retired item back
+                // exactly as it was, same row, same history, nothing recreated.
+                async restoreItem(item) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const restored = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/restore`, {});
+                        item.is_retired = restored.is_retired;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-22 — label only; never touches item.id, so every
+                // observation/photo/discrepancy already recorded stays
+                // attached to exactly the same item, unaffected by a rename.
+                async renameItem(item) {
+                    const label = this.renameDraft.trim();
+                    if (!label) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/rename`, { label });
+                        item.label = updated.label;
+                        this.renamingItemId = null;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-22 — reorder within one room, same swap-then-persist
+                // shape as _moveRoom()/_persistRoomOrder() above, one level
+                // down: only this room's own items are ever touched.
+                moveItemUp(group, item) { this._moveItem(group, item, -1); },
+                moveItemDown(group, item) { this._moveItem(group, item, 1); },
+                _moveItem(group, item, delta) {
+                    const ids = group.items.map(i => i.id);
+                    const from = ids.indexOf(item.id);
+                    const to = from + delta;
+                    if (from === -1 || to < 0 || to >= ids.length) return;
+                    const tmp = ids[from];
+                    ids[from] = ids[to];
+                    ids[to] = tmp;
+                    this._persistItemOrder(group.room.id, ids);
+                },
+                async _persistItemOrder(roomId, itemIds) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.itemsReorder, {
+                            property_room_id: roomId, item_ids: itemIds,
+                        });
+                        const bySortOrder = new Map(result.items.map(i => [i.id, i.sort_order]));
+                        this.items.forEach(i => { if (bySortOrder.has(i.id)) i.sort_order = bySortOrder.get(i.id); });
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // Stage 2 — Johan: "use the advertising details to build the
+                // inspection report as a basic." One-time; the server itself
+                // refuses a second call (409), surfaced here as itemError.
+                seedBusy: false,
+                async seedFromAdvertising() {
+                    if (!window.confirm('Build this property\'s inspection form from its advertising Spaces and ticked Features? This only happens once — after this, the form is edited by hand.')) return;
+                    this.seedBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.seedFromAdvertising, {});
+                        this.items.push(...result.items.filter(i => !this.items.some(existing => existing.id === i.id)));
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.seedBusy = false; }
+                },
+
+                // ── Inspection recording (§14.1/§14.2, same endpoints a
+                // mobile client calls) ──────────────────────────────────────────
+                // Johan's ruling, 2026-09-23 — generalized beyond the old
+                // fixed 'in'/'out' ternary: the recording partial is always
+                // included with $section set to the chain tail's OWN type
+                // (in/out/ad_hoc), so "does this match the tail?" is the
+                // whole rule — works for any chain length without special-
+                // casing a third slot. Returns null for any other value,
+                // same as the old ternary did for an unrecognised section.
+                currentInspection(section) { return (this.chainTail && this.chainTail.type === section) ? this.chainTail : null; },
+                // The read-only left panel — always this inspection's own
+                // predecessor, never resolved by type. Null for the first
+                // inspection in a chain (§6 of the approved proposal).
+                predecessorInspection() { return this.chainPredecessor; },
+                // 'in' | 'out' | 'ad_hoc' | null — the tab's own single
+                // editable section is always the chain tail; this is what
+                // the include below passes as $section (see the Blade
+                // markup, not this script).
+                tailSection() { return this.chainTail?.type ?? null; },
+                sourceForSection(section) {
+                    return section === 'in' ? 'in_inspection' : (section === 'out' ? 'out_inspection' : 'ad_hoc');
+                },
+                hasUnresolvedDiscrepancy(section) {
+                    const insp = this.currentInspection(section);
+                    return !!insp && (insp.discrepancies || []).some(d => !d.resolved_at);
+                },
+
+                startBusy: {},
+                startError: {},
+
+                // FIX, 2026-09-22, Johan: "the screen does not refresh after
+                // starting an out inspection" — starting the SECOND
+                // inspection on a property is exactly the moment chainTail/
+                // chainPredecessor/photoMatches first become meaningful, and
+                // hand-patching a handful of fields on the POST response
+                // never touched them (or anything else added to the payload
+                // later). Refetch the canonical tab payload instead of
+                // trying to keep two response shapes in sync by hand.
+                async startInspection(section) {
+                    this.startBusy[section] = true;
+                    this.startError[section] = '';
+                    try {
+                        await this._post(this.inspectionUrls.startInspection, { type: section });
+                        await this.refreshInspectionData();
+                    } catch (e) { this.startError[section] = e.message; }
+                    finally { this.startBusy[section] = false; }
+                },
+                // Johan's ruling, 2026-09-23 — "Next inspection" from the
+                // chain's current tail. Same refetch-the-canonical-payload
+                // pattern as startInspection() above, for the same reason:
+                // a new link is exactly the moment chainPredecessor/
+                // chainTail both change, and hand-patching risks missing a
+                // field added to the payload later.
+                nextBusy: false,
+                nextError: '',
+                nextType: 'ad_hoc',
+                // §41, 2026-09-28 — the "Resend report" confirm popover's
+                // own state, top-level (not local to the popover's markup)
+                // since sendReportResend() below is a method on THIS
+                // component and needs `this.resendBusy` etc to resolve here.
+                resendOpen: false,
+                resendBusy: false,
+                resendError: '',
+                resendResult: null,
+                copiedShareLink: false,
+                async nextInspection(type) {
+                    if (!this.chainTail) return;
+                    this.nextBusy = true;
+                    this.nextError = '';
+                    try {
+                        await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type });
+                        await this.refreshInspectionData();
+                    } catch (e) { this.nextError = e.message; }
+                    finally { this.nextBusy = false; }
+                },
+
+                // §41, 2026-09-28 — client-side mirror of RentalInspection::
+                // distributionRecipients(): the lease's own tenant(s) (already
+                // eager-loaded on chainTail.lease.tenants.contact, per
+                // tabPayloadFor()'s own docblock) plus the property's landlord
+                // (this.landlordContact, already loaded for the signature
+                // gate above — one source of truth, not a second lookup). A
+                // party with no email on file is excluded, same reasoning as
+                // the server-side resolver.
+                reportRecipients() {
+                    if (!this.chainTail) return [];
+                    const recipients = [];
+                    (this.chainTail.lease?.tenants || []).forEach(t => {
+                        if (t.contact?.email) recipients.push({ name: t.contact.first_name + ' ' + t.contact.last_name, email: t.contact.email, role: 'tenant' });
+                    });
+                    if (this.landlordContact?.email) {
+                        recipients.push({ name: this.landlordContact.first_name + ' ' + this.landlordContact.last_name, email: this.landlordContact.email, role: 'landlord' });
+                    }
+                    return recipients;
+                },
+                publicShareUrl() {
+                    return this.chainTail?.public_token ? (window.location.origin + '/rental-inspection-report/' + this.chainTail.public_token) : '';
+                },
+                async sendReportResend() {
+                    if (!this.chainTail) return;
+                    this.resendBusy = true;
+                    this.resendError = '';
+                    try {
+                        const data = await this._post(`${this.inspectionUrls.inspectionsBase}/${this.chainTail.id}/resend-report`, {});
+                        this.resendResult = data.results;
+                    } catch (e) { this.resendError = e.message; }
+                    finally { this.resendBusy = false; }
+                },
+                async refreshInspectionData() {
+                    const data = await fetch(this.inspectionUrls.tabData, {
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    }).then(r => r.json());
+                    this.items = data.items;
+                    this.chainTail = data.chain_tail;
+                    this.chainPredecessor = data.chain_predecessor;
+                    this.outInspectionFaultHistory = data.out_inspection_fault_history;
+                    this.landlordContact = data.landlord_contact;
+                    this.refusalReasonPresets = data.refusal_reason_presets;
+                    this.outInspectionRecorded = data.out_inspection_recorded;
+                    this.conditionStates = data.condition_states;
+                    this.photoNoteClassifications = data.photo_note_classifications;
+                    this.photoMatches = data.photo_matches;
+                    this.autoPairPhotosEnabled = data.auto_pair_photos_enabled;
+                    this.maybeAutoPairPhotos();
+                },
+
+                // Latest observation recorded for this item WITHIN this inspection —
+                // null means nothing recorded yet on this event.
+                conditionFor(section, itemId) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    const mine = insp.observations.filter(o => o.rental_inspection_item_id === itemId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+                // Johan's ruling, 2026-09-23 — the read-only predecessor
+                // panel's own equivalents, taking the inspection OBJECT
+                // directly rather than a section/type key. A section key
+                // can't distinguish the predecessor from the tail when
+                // both happen to share a type (two ad-hoc links back to
+                // back in a longer chain) — this is why these exist as
+                // separate functions rather than section-string overloads
+                // of the ones above. Read-only here: no photoUploader
+                // instance, nothing here uploads, tags, or matches — 2026-
+                // 09-24, these two are now ALSO the compare viewer's own
+                // data source (compareViewerPhotosForSide(), §20.17) rather
+                // than a second, parallel query path. Each observation
+                // already carries its own .photos (tabPayloadFor()'s
+                // 'observations.photos' eager-load), so item photos need
+                // no separate lookup at all — only room-level (untagged-to-
+                // item) photos need their own filter, mirroring
+                // corex-photo-batch-uploader.js's own roomPhotos() exactly.
+                conditionForInspection(insp, itemId) {
+                    if (!insp) return null;
+                    const mine = (insp.observations || []).filter(o => o.rental_inspection_item_id === itemId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+                roomPhotosForInspection(insp, roomId) {
+                    if (!insp || !roomId) return [];
+                    return (insp.photos || []).filter(p => p.property_room_id === roomId && !p.rental_inspection_observation_id);
+                },
+                // 2026-09-23 — the read-only cell's own generic counterpart
+                // to itemPhotosFor() below (which reads through
+                // photoUploader(section)'s live upload/tag cache — the
+                // right, EDITABLE cell's own path, unchanged). This one
+                // reads straight off the plain inspection object's own
+                // eager-loaded observations[].photos (tabPayloadFor()'s
+                // 'observations.photos'), exactly like conditionForInspection()
+                // just above reads .observations directly — no uploader
+                // instance needed for a historical, non-current inspection.
+                itemPhotosForInspection(insp, itemId) {
+                    if (!insp) return [];
+                    return (insp.observations || [])
+                        .filter(o => o.rental_inspection_item_id === itemId)
+                        .flatMap(o => o.photos || []);
+                },
+
+                obsForm: {},
+                obsBusy: {},
+                _obsKey(section, itemId) { return section + '_' + itemId; },
+                // 2026-09-22, Johan regression report ("none of the conditions
+                // can be clicked") — every condition button was rendering
+                // permanently disabled. Root cause: `:disabled="obsBusy[_obsKey(
+                // section, item.id)]"` bound an inline bracket-lookup on a
+                // DYNAMICALLY computed key directly in the template; Alpine's
+                // dependency tracking for that pattern does not reliably
+                // re-run when the object backing it is mutated elsewhere,
+                // and reused x-for nodes were left holding a stale `true`
+                // that no later write to the (different) real key ever
+                // cleared. Every OTHER per-item lookup on this same page
+                // (selectedConditionFor(), itemPhotosFor(), etc.) already
+                // goes through a plain method call instead of an inline
+                // bracket expression and was never affected — this wraps
+                // obsBusy the same way, the fix, not a workaround.
+                isObsBusy(section, itemId) { return !!this.obsBusy[this._obsKey(section, itemId)]; },
+                obsField(section, itemId) {
+                    const key = this._obsKey(section, itemId);
+                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '' });
+                },
+                // Item 3, 2026-09-22 — what the condition-button row shows as
+                // selected: a not-yet-committed tap (still waiting on a
+                // required note) takes priority over the last SAVED
+                // condition, so the agent's own tap is never visually
+                // overridden by stale server state while they're mid-entry.
+                selectedConditionFor(section, item) {
+                    const pending = this.obsForm[this._obsKey(section, item.id)];
+                    if (pending && pending.condition) return pending.condition;
+                    return this.conditionFor(section, item.id)?.condition || null;
+                },
+
+                // §17, Johan 2026-09-21 — client-side mirror of
+                // RentalInspectionSetting::conditionRequiresNotesFor(); the
+                // server is still authoritative, this just avoids a round
+                // trip for the common case. An unknown key defaults to
+                // requiring notes, same as the server.
+                conditionRequiresNotes(key) {
+                    const state = (this.conditionStates || []).find(s => s.key === key);
+                    return state ? !!state.requires_notes : true;
+                },
+                // §36 — client-side mirror of
+                // RentalInspectionSetting::conditionSeverityFor(): one of
+                // blue/red/amber/grey. An unknown key defaults to 'red' —
+                // never silently hidden — same reasoning as the resolver
+                // it mirrors.
+                conditionSeverity(key) {
+                    const state = (this.conditionStates || []).find(s => s.key === key);
+                    const sev = state?.severity;
+                    return ['blue', 'red', 'amber', 'grey'].includes(sev) ? sev : 'red';
+                },
+                // The CSS class a selected condition button carries, per
+                // severity — rir-cond-btn-selected-{blue|red|amber|grey},
+                // defined once in rental-inspection-recording.blade.php's
+                // own <style> block (§32.1's precedent: page-specific CSS
+                // lives with the partial that uses it).
+                conditionSelectedClass(key) {
+                    return 'rir-cond-btn-selected-' + this.conditionSeverity(key);
+                },
+                // §36 — the note callout's own tint: red/amber for an issue
+                // condition, light blue for everything else (Johan: "never
+                // muted grey" — grey-severity conditions like N/A still get
+                // the calm blue tint, never the old muted-grey text style).
+                noteCalloutTone(key) {
+                    const sev = this.conditionSeverity(key);
+                    return (sev === 'red' || sev === 'amber') ? sev : 'blue';
+                },
+                // §36 — supersedes the old §27.2 needs_attention boolean:
+                // derived straight from severity so the "Needs attention"
+                // filter and the colour an agent is looking at can never
+                // silently disagree. red/amber needs attention; blue/grey
+                // does not.
+                conditionNeedsAttention(key) {
+                    const sev = this.conditionSeverity(key);
+                    return sev === 'red' || sev === 'amber';
+                },
+                conditionLabel(key) {
+                    return (this.conditionStates || []).find(s => s.key === key)?.label || key;
+                },
+                // §25, AT-433 Part C — same read-time-default resolution
+                // pattern as conditionLabel() just above.
+                photoNoteClassificationLabel(key) {
+                    if (!key) return '';
+                    return (this.photoNoteClassifications || []).find(c => c.key === key)?.label || key;
+                },
+                hasNaConditionState() {
+                    return (this.conditionStates || []).some(s => s.key === 'n_a');
+                },
+
+                // Item 2/3, 2026-09-22 — one tap. A condition that needs no
+                // reason (§0.3) commits immediately; one that does waits for
+                // onNotesInput() below to see a non-empty note before it
+                // counts as recorded (item 3: "States with requires_notes
+                // force the note field before the item counts as recorded").
+                onConditionTap(section, item, key) {
+                    const form = this.obsField(section, item.id);
+                    form.condition = key;
+                    if (!this.conditionRequiresNotes(key) || form.notes.trim()) {
+                        this._commitObservation(section, item);
+                    }
+                },
+                // Debounced so a commit fires once typing settles, not on
+                // every keystroke — same 800ms pause used for room/overall
+                // notes below.
+                onNotesInput(section, item) {
+                    const obsKey = this._obsKey(section, item.id);
+                    this._debounce('notes_' + obsKey, () => {
+                        const form = this.obsField(section, item.id);
+                        if (form.condition && this.conditionRequiresNotes(form.condition) && form.notes.trim()) {
+                            this._commitObservation(section, item);
+                        }
+                    }, 800);
+                },
+                // The ONE path an observation is actually recorded through —
+                // called by onConditionTap() (immediate) and onNotesInput()
+                // (debounced), never by a button click. AT-436, 2026-09-27 —
+                // no longer uploads anything itself: a photo already posts
+                // the moment it's picked (onItemPhotosSelected), whether or
+                // not a condition has been recorded on the item yet, so
+                // there is nothing left here to upload on commit — this
+                // function's only job is the condition/notes POST.
+                async _commitObservation(section, item) {
+                    const key = this._obsKey(section, item.id);
+                    const form = this.obsField(section, item.id);
+                    if (!form.condition || this.obsBusy[key]) return;
+                    if (this.conditionRequiresNotes(form.condition) && !form.notes.trim()) return;
+                    clearTimeout(this._debounceTimers['notes_' + key]);
+                    const insp = this.currentInspection(section);
+                    this.obsBusy[key] = true;
+                    let observation = null;
+                    await this._autosave(async () => {
+                        observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                            rental_inspection_item_id: item.id,
+                            condition: form.condition,
+                            notes: form.notes || null,
+                            source: this.sourceForSection(section),
+                        });
+                        observation.photos = [];
+                        insp.observations.push(observation);
+                    });
+                    this.obsBusy[key] = false;
+                    if (!observation) return; // POST failed — _autosave already surfaced it with Retry.
+                    this.obsForm[key] = { condition: '', notes: '' };
+                    this._collapseRoomIfComplete(section, item);
+                },
+
+                // AT-436, 2026-09-27 — every photo upload still in flight or
+                // failed for this item, flattened to one entry per FILE (not
+                // per batch — a batch's own status/error is carried through
+                // on each entry so a mixed batch still shows the same state
+                // per tile it would if uploaded one at a time). Reads
+                // photoUploader().uploadBatches directly rather than a
+                // separate keyed cache — that array IS the one place upload
+                // state already lives (§20.13). Replaces stagedPhotosFor()
+                // (removed with the staging model it existed for) — a
+                // pending tile now means "uploading right now", never
+                // "waiting for you to do something else".
+                pendingUploadTilesFor(section, item) {
+                    const uploader = this.photoUploader(section);
+                    if (!uploader) return [];
+                    return uploader.uploadBatches
+                        .filter(b => b.status !== 'done' && b.extraFields && Number(b.extraFields.rental_inspection_item_id) === item.id)
+                        .flatMap(batch => batch.files.map(file => ({ file, batch })));
+                },
+                // Item 6 — every photo ever attached to any observation this
+                // item has this inspection (not just the latest one), so a
+                // corrected condition never hides an earlier photo.
+                itemPhotosFor(section, item) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return [];
+                    const obsIds = insp.observations.filter(o => o.rental_inspection_item_id === item.id).map(o => o.id);
+                    return this.photoUploader(section).itemPhotos(obsIds);
+                },
+                // Item 7 — recorded/total + photo count, per room and for
+                // the whole inspection.
+                roomProgress(section, group) {
+                    const total = group.items.length;
+                    // AT-436, 2026-09-27 — recorded means a REAL condition is
+                    // set, not merely that an observation row exists: a
+                    // photo-anchor observation (RentalInspectionObservation
+                    // ::CONDITION_PENDING, an empty string) now gets created
+                    // the moment a photo is added, with nobody having
+                    // assessed the item. Checking .condition (falsy for an
+                    // empty string) rather than the whole object's
+                    // truthiness is the fix — same correction as the 8
+                    // backend sites in .ai/specs/rental-inspections.md §20.22.
+                    const recorded = group.items.filter(i => this.conditionFor(section, i.id)?.condition).length;
+                    const itemPhotos = group.items.reduce((sum, i) => sum + this.itemPhotosFor(section, i).length, 0);
+                    // Item 2, 2026-09-22 — the room's own general shots
+                    // (roomPhotosFor) count toward the heading total too, not
+                    // just item photos rolled up.
+                    const roomPhotos = group.room ? this.roomPhotosFor(section, group.room).length : 0;
+                    return { recorded, total, photos: itemPhotos + roomPhotos };
+                },
+                // Item 2, 2026-09-22 — general room shots only (no single
+                // item) — the room's OWN photo bucket, distinct from any
+                // item's.
+                roomPhotosFor(section, room) {
+                    return this.photoUploader(section).roomPhotos(room.id);
+                },
+                async onRoomPhotosSelected(section, room, fileList) {
+                    if (!fileList || !fileList.length) return;
+                    await this.photoUploader(section).uploadFiles(fileList, { property_room_id: room.id });
+                },
+                // Bug 2, 2026-09-22 (cc photo-tagging pass) — room→item
+                // multi-select: which of this section's currently-selected
+                // photo ids actually belong to THIS room, keyed off the
+                // uploader's own shared `selected` Set so a mixed selection
+                // (some tray, some this room, some another room) only ever
+                // acts on the ones that make sense for the room being asked.
+                selectedRoomPhotoIds(section, room) {
+                    const roomIds = new Set(this.roomPhotosFor(section, room).map(p => p.id));
+                    return Array.from(this.photoUploader(section).selected).filter(id => roomIds.has(id));
+                },
+                // Which of this ROOM's items can actually receive a re-tagged
+                // photo. Fix, 2026-09-22: a photo's rental_inspection_
+                // FIX, 2026-09-22 (Johan, reproduced on property 5792) — this
+                // used to filter to `.filter(i => i.observationId)`, so on a
+                // fresh out-inspection (the normal case: agent walks in on
+                // move-out day with a blank form) it offered almost no item
+                // destinations at all — only items cc6's seeding or an
+                // earlier photo move happened to have already touched. Every
+                // room/item destination control on this screen is now built
+                // from THIS ONE function — filtering it once here means every
+                // caller inherits the fix, instead of each control carrying
+                // its own copy of the same bug. observationId is still
+                // returned (an item with nothing recorded has it as null) so
+                // callers that need to create-on-demand (ensureObservationFor
+                // below) know whether they have to.
+                itemChoicesFor(section, room) {
+                    if (!room) return [];
+                    const group = this.roomGroups().find(g => g.room && g.room.id === room.id);
+                    if (!group) return [];
+                    return group.items.map(i => ({ id: i.id, label: i.label, observationId: this.conditionFor(section, i.id)?.id || null }));
+                },
+                // The viewer's "Move to…" chooser used to duplicate
+                // itemChoicesFor()'s own room-lookup/mapping — now the same
+                // list, one function, one place to fix.
+                itemMoveChoicesFor(section, room) {
+                    return this.itemChoicesFor(section, room);
+                },
+                // Same list, every room — the untagged tray doesn't know a
+                // room yet, so its "move to item" choice has to span all of
+                // them (Room — Item labelling keeps them distinguishable).
+                allItemChoices(section) {
+                    return this.roomGroups().filter(g => g.room).flatMap(g =>
+                        this.itemChoicesFor(section, g.room).map(i => ({ ...i, roomLabel: g.room.label }))
+                    );
+                },
+                // FIX, 2026-09-22 (Johan) — shared by every control that tags
+                // photos to an item: an item with nothing recorded yet has no
+                // observation row to file a photo against, so this creates
+                // one on the fly (the agency's own baseline condition,
+                // RentalInspectionSetting::baselineConditionKeyFor(), the
+                // same starting-value mechanism markAllGood() uses — never a
+                // null/placeholder condition of its own invention) rather
+                // than leaving the item unreachable until it's separately
+                // rated first. The agent's own next real chip tap is a new,
+                // current observation (§3.1, append-only) — this starting
+                // value is never locked in as the actual finding. Extracted
+                // from moveViewerPhotoTo() so every caller (the viewer, the
+                // room bulk "Tag selected", the tray bulk "Tag to…") creates
+                // an observation the exact same way — one code path, not one
+                // per control.
+                async ensureObservationFor(section, itemId) {
+                    let observation = this.conditionFor(section, itemId);
+                    if (observation) return observation;
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                        rental_inspection_item_id: itemId,
+                        condition: this.baselineConditionKey,
+                        notes: null,
+                        source: this.sourceForSection(section),
+                    });
+                    observation.photos = [];
+                    insp.observations.push(observation);
+                    return observation;
+                },
+                // Per-room "which item" choice for the multi-select tag bar
+                // below the room photo grid, keyed by room id so several
+                // rooms can be mid-pick at once without clobbering each
+                // other (matches roomPhotosExpanded/roomOpenOverride).
+                roomPhotoTagItemChoice: {},
+                // FIX, 2026-09-22 (Johan) — took an observation id before, so
+                // it only ever worked for an item that already had one (the
+                // same bug itemChoicesFor() carried). Now takes the item id
+                // and resolves/creates the observation via the shared
+                // ensureObservationFor(), same as the viewer and the tray.
+                async tagSelectedRoomPhotosToItem(section, room, itemId) {
+                    if (!itemId) return;
+                    const ids = this.selectedRoomPhotoIds(section, room);
+                    if (!ids.length) return;
+                    try {
+                        const observation = await this.ensureObservationFor(section, Number(itemId));
+                        if (!observation) return;
+                        await this.photoUploader(section).tagSelectedToItem(ids, room.id, observation.id);
+                    } catch (e) { this.error = e.message; return; }
+                    this.roomPhotoTagItemChoice[room.id] = '';
+                },
+                // Design constraint, 2026-09-22 (Johan): room→untagged is a
+                // SINGLE destination, so the single-photo case is a plain
+                // button on the tile (below) — this is only the bulk
+                // equivalent, same "select several, one action" shape as
+                // tagSelectedRoomPhotosToItem above.
+                async untagSelectedRoomPhotos(section, room) {
+                    await this.photoUploader(section).untagSelected(this.selectedRoomPhotoIds(section, room));
+                },
+                // Same shape, one level down: an item's own selected photos.
+                // Both item→room and item→untagged are single-destination
+                // (Johan), so neither needs a chooser — two plain buttons.
+                selectedItemPhotoIds(section, item) {
+                    const itemIds = new Set(this.itemPhotosFor(section, item).map(p => p.id));
+                    return Array.from(this.photoUploader(section).selected).filter(id => itemIds.has(id));
+                },
+                async untagSelectedItemPhotos(section, item) {
+                    await this.photoUploader(section).untagSelected(this.selectedItemPhotoIds(section, item));
+                },
+                async backToRoomSelectedItemPhotos(section, item, room) {
+                    if (!room) return;
+                    await this.photoUploader(section).tagIdsToRoom(this.selectedItemPhotoIds(section, item), room.id);
+                },
+                // Design constraint, 2026-09-22 (Johan): "on item and on room
+                // if you click the photo it opens up... wont work from room
+                // to item as there are many items to 1 room" — many-
+                // destination moves (room→item) don't fit a button OR a
+                // dropdown squeezed onto a thumbnail; their home is the
+                // already-open lightbox, which has room for a real chooser.
+                // Extends the existing shared `viewer` (used by the plain
+                // property gallery too) with just enough inspection context
+                // to carry it — any OTHER caller of `viewer = {...}` simply
+                // never sets `section`/`photos`/`room`, so the chooser stays
+                // absent there (see the lightbox markup below).
+                openInspectionPhoto(section, photoList, photo, room) {
+                    this.viewer = {
+                        open: true,
+                        images: photoList.map(p => p.storage_path),
+                        index: photoList.indexOf(photo),
+                        section,
+                        photos: photoList,
+                        room: room || null,
+                    };
+                },
+                // FACT 4, 2026-09-22 (Johan) — takes an ITEM id (see
+                // itemMoveChoicesFor() above), not an observation id: "the
+                // photo is usually what prompts the rating," so picking an
+                // item with nothing recorded yet must not be a dead end.
+                // Observation create-on-demand now lives in the shared
+                // ensureObservationFor() above — the room bulk "Tag
+                // selected" and the tray bulk "Tag to…" both create theirs
+                // through the exact same call.
+                async moveViewerPhotoTo(itemId) {
+                    if (!itemId || !this.viewer.photos) return;
+                    const photo = this.viewer.photos[this.viewer.index];
+                    if (!photo) return;
+                    itemId = Number(itemId);
+                    const section = this.viewer.section;
+                    try {
+                        const observation = await this.ensureObservationFor(section, itemId);
+                        if (!observation) return;
+                        await this.photoUploader(section).tagPhoto(photo.id, { rental_inspection_observation_id: observation.id });
+                    } catch (e) { this.error = e.message; }
+                },
+                // Untagged → room OR item, one shared destination control
+                // (same interaction language as the viewer chooser above,
+                // just for the bulk tray case, where there's no single
+                // opened photo to attach a chooser to). Value is
+                // 'room:<roomId>' or 'item:<itemId>' — see the tray's
+                // <select> below. Reuses the existing trayTagRoomChoice
+                // field declared earlier in this component.
+                // FIX, 2026-09-22 (Johan) — the item branch used to treat
+                // rawId as an observation id (matching the old, now-removed
+                // filter in itemChoicesFor()); the option's :value is now the
+                // item id (see the tray <select> in the recording partial),
+                // resolved/created through the same shared
+                // ensureObservationFor() the viewer and room-bulk tag use —
+                // one create-on-demand for the whole batch, not one per photo.
+                async applyTrayDestination(section, value) {
+                    if (!value) return;
+                    const ids = Array.from(this.photoUploader(section).selected);
+                    if (!ids.length) return;
+                    const [kind, rawId] = value.split(':');
+                    try {
+                        if (kind === 'room') {
+                            await this.photoUploader(section).tagIdsToRoom(ids, Number(rawId));
+                        } else if (kind === 'item') {
+                            const observation = await this.ensureObservationFor(section, Number(rawId));
+                            if (!observation) return;
+                            await this.photoUploader(section).tagSelectedToItem(ids, null, observation.id);
+                        }
+                    } catch (e) { this.error = e.message; return; }
+                    this.trayTagRoomChoice = '';
+                },
+                inspectionProgress(section) {
+                    const items = this.activeItems();
+                    // AT-436, 2026-09-27 — same correction as roomProgress()
+                    // above: .condition, not the observation object's own
+                    // truthiness (a photo-anchor row is a truthy object with
+                    // an empty condition).
+                    return { recorded: items.filter(i => this.conditionFor(section, i.id)?.condition).length, total: items.length };
+                },
+                // §24, AT-433 Part B — the comparison row's photo strip
+                // (rental-inspection-item-cell.blade.php), replacing Part
+                // A's POSITIONAL-only pairing (tile.index was plain array
+                // order, not a real match). pairedStripRows() is now the ONE
+                // place that decides row order for BOTH cells: every matched
+                // GROUP touching this item's own predecessor/tail photo pool
+                // first (ordered by group id — insertion order, .ai/specs/
+                // rental-inspections.md §24.9's own "sets the order" design
+                // call), each row spending its one predecessor member and
+                // one tail member so neither is reused by a later row; then
+                // whichever side has a photo nobody claimed, "NO MATCH" on
+                // the other side — same visual contract as before, just
+                // driven by the real link instead of shared array position.
+                // Both stripTilesForInspection()/stripTilesFor() below read
+                // the SAME array by index, so slot N is still the same
+                // physical row on both sides — item-cell.blade.php's own
+                // :key="tile.index"/x-text="tile.index + 1" bindings are
+                // UNCHANGED; `index` is still a stable per-row position, it
+                // is just computed from real pairs now, not from raw array
+                // order.
+                // §24.11, AT-433 Part B follow-up, 2026-09-27 — extracted
+                // out of pairedStripRows() (unchanged below it) into a
+                // photo-array-agnostic core so the compare viewer's carousel
+                // (compareViewerPairedRows()) can share the exact same,
+                // already-proven ordering instead of a second
+                // reimplementation. Takes two already-resolved photo arrays
+                // — item-scoped or room-scoped, it doesn't care which —
+                // returns pairs first (by group id, insertion order), then
+                // every remaining photo on either side interleaved so
+                // neither side is ever starved. Every photo in EITHER input
+                // array appears in EXACTLY one output row: pairing only ever
+                // reorders, never hides (the rule that broke twice, §24).
+                pairedRows(predPhotos, tailPhotos) {
+                    const predById = new Map(predPhotos.map(p => [p.id, p]));
+                    const tailById = new Map(tailPhotos.map(p => [p.id, p]));
+                    const usedPred = new Set();
+                    const usedTail = new Set();
+                    const rows = [];
+
+                    (this.photoMatches || []).slice().sort((a, b) => a.id - b.id).forEach(group => {
+                        const predMember = (group.members || []).find(m => predById.has(m.photo_id) && !usedPred.has(m.photo_id));
+                        const tailMember = (group.members || []).find(m => tailById.has(m.photo_id) && !usedTail.has(m.photo_id));
+                        const predPhoto = predMember ? predById.get(predMember.photo_id) : null;
+                        const tailPhoto = tailMember ? tailById.get(tailMember.photo_id) : null;
+                        if (!predPhoto && !tailPhoto) return; // this group has nothing to do with this item's own photo pool
+                        rows.push({ predecessorPhoto: predPhoto, tailPhoto: tailPhoto });
+                        if (predPhoto) usedPred.add(predPhoto.id);
+                        if (tailPhoto) usedTail.add(tailPhoto.id);
+                    });
+                    // FIX, 2026-09-26 (Johan, property found live on QA1) —
+                    // every remaining photo on EITHER side still gets its own
+                    // row (nothing is ever dropped — it never was), but the
+                    // PREVIOUS version pushed every unmatched predecessor row
+                    // BEFORE every unmatched tail row. That's fine in
+                    // isolation, but stripVisibleCount() below caps the
+                    // default (collapsed) view at the first 4 rows of
+                    // WHATEVER this array returns — so the moment an item has
+                    // little or nothing paired yet (the common case right
+                    // after an out-inspection starts, before any pairing has
+                    // happened), those first 4 rows were ALL predecessor-only
+                    // and every real tail photo — including one an agent had
+                    // literally just uploaded — sat behind "+N", collapsed
+                    // out of the default view entirely. Interleaving one
+                    // unmatched-predecessor row with one unmatched-tail row,
+                    // alternating, means neither side can be shut out of the
+                    // visible prefix by the other's count — pairing changes
+                    // ORDER and ALIGNMENT (Johan's own rule), never WHICH
+                    // photos a normal, unexpanded view can actually reach.
+                    const unmatchedPred = predPhotos.filter(p => !usedPred.has(p.id));
+                    const unmatchedTail = tailPhotos.filter(p => !usedTail.has(p.id));
+                    const maxUnmatched = Math.max(unmatchedPred.length, unmatchedTail.length);
+                    for (let i = 0; i < maxUnmatched; i++) {
+                        if (unmatchedPred[i]) rows.push({ predecessorPhoto: unmatchedPred[i], tailPhoto: null });
+                        if (unmatchedTail[i]) rows.push({ predecessorPhoto: null, tailPhoto: unmatchedTail[i] });
+                    }
+
+                    return rows.map((row, index) => ({ ...row, index }));
+                },
+                // Item-level wrapper — unchanged behaviour, now a one-line
+                // call into the shared core above.
+                pairedStripRows(item) {
+                    return this.pairedRows(
+                        this.itemPhotosForInspection(this.chainPredecessor, item.id),
+                        this.itemPhotosFor(this.tailSection(), item),
+                    );
+                },
+                stripPairCount(item) {
+                    return this.pairedStripRows(item).length;
+                },
+                // Read-only cell — insp is an inspection object. Two DISTINCT
+                // callers pass this: the genuine predecessor cell always
+                // passes chainPredecessor (§27, $predecessorJs), and — since
+                // §33's completed/awaiting_signature fix made the TAIL cell
+                // read-only too — item-cell.blade.php's tail include also
+                // calls this, passing $tailInspectionJs, i.e. chainTail once
+                // completed. Both go through the SAME pairedStripRows() pairs
+                // (predecessorPhoto/tailPhoto per row), so which field to
+                // read depends on WHICH side `insp` actually is — the
+                // previous version always read row.predecessorPhoto
+                // regardless, which was correct only for the genuine
+                // predecessor cell. On a chain's first inspection (no
+                // predecessor — property 5294, Johan, 2026-09-28) every row
+                // is an unmatched tail row (predecessorPhoto null), so the
+                // tail cell's own real photos were silently discarded and
+                // every tile rendered as an unclickable "NO MATCH" — same
+                // isTail comparison already used for this exact
+                // predecessor-vs-tail distinction elsewhere in this file
+                // (see openCompareViewer() above).
+                stripTilesForInspection(insp, item) {
+                    const isTail = this.chainTail && insp && insp.id === this.chainTail.id;
+                    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: isTail ? row.tailPhoto : row.predecessorPhoto }));
+                },
+                // Live (tail) cell — section is the section-type string.
+                stripTilesFor(section, item) {
+                    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: row.tailPhoto }));
+                },
+                // Collapsed shows at most 4 slots (real photo or NO MATCH
+                // placeholder) then a "+N" tile; expanded shows every slot,
+                // scrolling rather than wrapping (rir-strip-row).
+                stripVisibleCount(item) {
+                    const total = this.stripPairCount(item);
+                    return this.isItemStripExpanded(item) ? total : Math.min(4, total);
+                },
+                stripMoreCount(item) {
+                    const total = this.stripPairCount(item);
+                    return this.isItemStripExpanded(item) ? 0 : Math.max(0, total - 4);
+                },
+                // Expand/collapse state is keyed by item id only (not by
+                // side), so toggling from either cell — or the room-level
+                // control below — moves both sides together, which is what
+                // keeps thumbnail N level with thumbnail N. No per-user
+                // preference endpoint exists for this screen (checked: only
+                // roomOpenOverride/roomPhotosExpanded below, both in-memory,
+                // neither persisted server-side) — reused the same
+                // client-only localStorage pattern this page's own sidebar
+                // collapse (hfc.propSidebar.collapsed) already uses, rather
+                // than inventing a second persistence mechanism.
+                itemStripExpanded: {},
+                isItemStripExpanded(item) { return !!this.itemStripExpanded[item.id]; },
+                toggleItemStrip(item) {
+                    this.itemStripExpanded[item.id] = !this.isItemStripExpanded(item);
+                    this._persistStripExpanded();
+                },
+                allItemStripsOpenInRoom(group) {
+                    return (group.items || []).length > 0 && (group.items || []).every(i => this.isItemStripExpanded(i));
+                },
+                toggleAllItemStrips(group) {
+                    const openingAll = !this.allItemStripsOpenInRoom(group);
+                    (group.items || []).forEach(i => { this.itemStripExpanded[i.id] = openingAll; });
+                    this._persistStripExpanded();
+                },
+                _persistStripExpanded() {
+                    try { localStorage.setItem('hfc.inspStripExpanded', JSON.stringify(this.itemStripExpanded)); } catch (e) {}
+                },
+
+                // §25, AT-433 Part C — room-level "Photo notes on/off",
+                // remembered per user. Same client-only localStorage pattern
+                // as itemStripExpanded just above (this screen has no
+                // per-user preference endpoint at all — see that property's
+                // own docblock) — not a second persistence mechanism, the
+                // same one under a new key. Defaults ON: a note is evidence,
+                // and the toggle exists to let an agent declutter the strip
+                // when they want the unobstructed image, not to hide notes
+                // by default. Keyed by room id ('general' for the roomless
+                // group), independent of item id, position, or pairing state
+                // — a photo's note visibility follows its ROOM, never a row
+                // index (Johan's ruling: nothing keys off position).
+                photoNotesVisible: {},
+                _photoNotesRoomKey(room) { return room ? room.id : 'general'; },
+                arePhotoNotesVisibleForRoom(room) {
+                    const key = this._photoNotesRoomKey(room);
+                    return this.photoNotesVisible[key] !== false;
+                },
+                togglePhotoNotesForRoom(room) {
+                    const key = this._photoNotesRoomKey(room);
+                    this.photoNotesVisible[key] = !this.arePhotoNotesVisibleForRoom(room);
+                    this._persistPhotoNotesVisible();
+                },
+                _persistPhotoNotesVisible() {
+                    try { localStorage.setItem('hfc.inspPhotoNotesVisible', JSON.stringify(this.photoNotesVisible)); } catch (e) {}
+                },
+
+                // §27 — recording-screen navigation (space nav, photo
+                // show/hide, problem filter). Johan's ruling: photosVisible
+                // and filterMode persist PER USER, server-side, reusing the
+                // rental-applications review screen's own panel-preference
+                // pattern — a filter set on a laptop must follow the agent
+                // to the phone they inspect with, which localStorage alone
+                // can never do. Both are already synchronously initialized
+                // from config.inspectionData.screen_preferences above, so
+                // there is nothing to load here; these two setters only
+                // ever WRITE the change back.
+                togglePhotosVisible() {
+                    this.photosVisible = !this.photosVisible;
+                    this._saveScreenPreference('photos_visible', this.photosVisible);
+                },
+                setFilterMode(mode) {
+                    if (this.filterMode === mode) return;
+                    this.filterMode = mode;
+                    this._saveScreenPreference('filter_mode', mode);
+                },
+                // §29 — untagged-photo tray tile size. Small/Large only; the
+                // controller clamps anything else to 'small', mirrored here
+                // so a stale value never gets echoed back verbatim.
+                setTrayTileSize(size) {
+                    if (this.trayTileSize === size) return;
+                    this.trayTileSize = size;
+                    this._saveScreenPreference('tray_tile_size', size);
+                },
+                _saveScreenPreference(key, value) {
+                    this._post(this.inspectionUrls.screenPreference, { preference_key: key, value: value }).catch(() => {});
+                },
+                // Read-time mirror of RentalInspectionSetting::
+                // conditionNeedsAttentionFor() applied to a real item: an
+                // item with no observation yet is NOT "needs attention" —
+                // that is the third, distinct bucket (unrecorded), never
+                // folded into this one.
+                itemNeedsAttention(section, item) {
+                    const condition = this.conditionFor(section, item.id)?.condition;
+                    if (!condition) return false;
+                    return this.conditionNeedsAttention(condition);
+                },
+                // All / Needs attention / Not yet recorded — a single
+                // three-way read, never two independent booleans that could
+                // both switch off and silently blank the screen.
+                itemMatchesFilter(section, item) {
+                    if (this.filterMode === 'attention') return this.itemNeedsAttention(section, item);
+                    if (this.filterMode === 'unrecorded') return !this.conditionFor(section, item.id)?.condition;
+                    return true;
+                },
+                // Drives the top nav strip's own attention dot — always
+                // computed against every item in the room, independent of
+                // whatever filter happens to be active right now.
+                roomHasAttentionItem(section, group) {
+                    return (group.items || []).some(i => this.itemNeedsAttention(section, i));
+                },
+                // §36 — the room header/pill's own issue count ("Bedroom 1
+                // · 1 issue"): every item in the room whose current
+                // condition is red/amber severity. Always computed against
+                // every item, same "independent of the active filter"
+                // reasoning as roomHasAttentionItem() just above.
+                roomIssueCount(section, group) {
+                    return (group.items || []).filter(i => this.itemNeedsAttention(section, i)).length;
+                },
+                // Whether this room has anything left to show under the
+                // CURRENT filter — a room with zero matches stays visible
+                // in the top nav (greyed, so the agent never wonders where
+                // a room went) but is hidden entirely from the vertical
+                // list below (the filter's whole point is a shorter scroll).
+                roomMatchesFilter(section, group) {
+                    if (this.filterMode === 'all') return true;
+                    return (group.items || []).some(i => this.itemMatchesFilter(section, i));
+                },
+                hasAnyFilterMatch(section) {
+                    return this.roomGroups().some(g => this.roomMatchesFilter(section, g));
+                },
+                // Johan's ruling — a filter that matches nothing must say so
+                // in words, never render a blank panel with no explanation.
+                filteredEmptyMessage() {
+                    if (this.filterMode === 'attention') return 'No items need attention in this inspection.';
+                    if (this.filterMode === 'unrecorded') return 'Every item in this inspection has been recorded.';
+                    return '';
+                },
+                // Jump-to-room from the top nav strip. Force-opens the room
+                // (overriding roomOpenOverride/the auto-collapse default —
+                // isRoomOpen() below already does this unconditionally while
+                // a non-'all' filter is active, but a matching room can also
+                // be jumped to under 'all', where the room's own computed
+                // collapse state still applies) so clicking a room's tab
+                // never scrolls to a heading with nothing visibly open
+                // beneath it. tailReadOnly is a real JS boolean (the calling
+                // partial's own compile-time $tailReadOnly literal) — both
+                // included copies of this partial share the page, so the
+                // anchor id disambiguates which copy is currently visible.
+                scrollToInspectionRoom(section, group, tailReadOnly) {
+                    if (!this.roomMatchesFilter(section, group)) return;
+                    if (group.room) {
+                        this.roomOpenOverride[section + '_' + group.room.id] = true;
+                    }
+                    this.$nextTick(() => {
+                        const prefix = tailReadOnly ? 'ro' : 'rw';
+                        const id = 'insp-room-' + prefix + '-' + (group.room ? group.room.id : 'general');
+                        const el = document.getElementById(id);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                },
+
+                // Alpine calls init() once automatically on the component
+                // that owns this object — no other init() existed on
+                // rentalImages() before this, and no x-init is needed on
+                // its wrapping element.
+                init() {
+                    try {
+                        const saved = JSON.parse(localStorage.getItem('hfc.inspStripExpanded') || '{}');
+                        this.itemStripExpanded = (saved && typeof saved === 'object') ? saved : {};
+                    } catch (e) {}
+                    try {
+                        const savedNotesVisible = JSON.parse(localStorage.getItem('hfc.inspPhotoNotesVisible') || '{}');
+                        this.photoNotesVisible = (savedNotesVisible && typeof savedNotesVisible === 'object') ? savedNotesVisible : {};
+                    } catch (e) {}
+                    // §24.5, AT-433 Part B — the property tab's own initial
+                    // server render already carries chainPredecessor/
+                    // chainTail (RentalInspection::tabPayloadFor()), so a
+                    // property that already has both when the page loads
+                    // must not wait for refreshInspectionData() (only called
+                    // from startInspection()/nextInspection()) to get its
+                    // first auto-pair run.
+                    this.maybeAutoPairPhotos();
+                },
+                // A room defaults OPEN while incomplete and COLLAPSED once
+                // every item in it is recorded (item 7) — but a manual
+                // toggle (click the heading) always wins over that computed
+                // default for the rest of the page's life, so an agent can
+                // still reopen a finished room to review or correct it.
+                roomOpenOverride: {},
+                isRoomOpen(section, group) {
+                    if (!group.room) return true; // General (meters/legacy) — never auto-collapsed.
+                    // §27.3 — a non-'all' filter is never fighting the room's
+                    // own collapse state to show what it just promised to
+                    // show. Any room this override skips past is already
+                    // hidden entirely from the vertical list by
+                    // roomMatchesFilter() when it has nothing matching, so
+                    // forcing every OTHER room open here is safe.
+                    if (this.filterMode !== 'all') return true;
+                    const key = section + '_' + group.room.id;
+                    if (this.roomOpenOverride[key] !== undefined) return this.roomOpenOverride[key];
+                    const p = this.roomProgress(section, group);
+                    return !(p.total > 0 && p.recorded === p.total);
+                },
+                toggleRoomOpen(section, group) {
+                    if (!group.room) return;
+                    this.roomOpenOverride[section + '_' + group.room.id] = !this.isRoomOpen(section, group);
+                },
+                // 2026-09-22, Johan (property 5792 regression) — "the whole
+                // inspection needs the same: a way to open everything, for
+                // an agent who wants to review the lot." One action, every
+                // room in this section; re-clicking closes everything back
+                // to the computed per-room default rather than force-closing
+                // every room outright, so a room an agent explicitly reopened
+                // earlier this session isn't silently re-collapsed by using
+                // this as a blunt "close all" hammer.
+                allRoomsOpen(section) {
+                    const groups = this.roomGroups().filter(g => g.room);
+                    return groups.length > 0 && groups.every(g => this.isRoomOpen(section, g));
+                },
+                toggleAllRooms(section) {
+                    const openingAll = !this.allRoomsOpen(section);
+                    this.roomGroups().filter(g => g.room).forEach(g => {
+                        this.roomOpenOverride[section + '_' + g.room.id] = openingAll;
+                    });
+                },
+                _collapseRoomIfComplete(section, item) {
+                    const roomId = item.room ? item.room.id : item.property_room_id;
+                    if (roomId) this._collapseRoomIfCompleteById(section, roomId);
+                },
+
+                // §17, Johan 2026-09-21, from Retha's real paper form: "she
+                // strikes ENTIRE ROOMS out with one big N/A across the
+                // table." One click records N/A against every active item
+                // in the room, through the same atomic record() path a
+                // single-item observation uses — a genuine conflict with an
+                // earlier observation on the same item still raises a real
+                // discrepancy, exactly as it should.
+                markNaBusy: {},
+                // FIX, 2026-09-27 (Johan, cc5 live-browser report, property
+                // 5792) — same class as isObsBusy() above (2026-09-22) and
+                // rental-click-through.mjs's own documented 2026-09-15
+                // incident: `:disabled="markNaBusy[group.room?.id]"` read a
+                // key directly in the template before any room had ever
+                // triggered mark-N/A, so the value was `undefined`, not
+                // `false` — and a boolean-attribute binding backed by
+                // `undefined` resolves through `Element.toggleAttribute(name,
+                // force)` with `force` OMITTED, which just flips the
+                // attribute's current presence instead of forcing it false.
+                // The button started disabled on every fresh load and had no
+                // way to ever become enabled by itself. Coercing to a real
+                // boolean here is the fix, not a workaround — the third time
+                // this exact root cause has shipped in this file.
+                isMarkNaBusy(roomId) { return !!this.markNaBusy[roomId]; },
+                async markRoomNa(section, room) {
+                    if (!window.confirm(`Mark every item in "${room.label}" as N/A for this inspection?`)) return;
+                    const insp = this.currentInspection(section);
+                    this.markNaBusy[room.id] = true;
+                    await this._autosave(async () => {
+                        const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/mark-na`, {});
+                        insp.observations.push(...result.observations);
+                        this.roomOpenOverride[section + '_' + room.id] = false;
+                    });
+                    this.markNaBusy[room.id] = false;
+                },
+
+                // Item 5, 2026-09-22 — "All Good" bulk-fill, per-room and
+                // whole-inspection. Only fills items with no observation yet
+                // THIS inspection (server-enforced too — never overwrites an
+                // agent's own entry) and is reversible the same way any
+                // observation is: recording a different condition on that
+                // item afterward simply becomes the new current fact.
+                markGoodBusy: {},
+                // FIX, 2026-09-27 — the confirmed-dead control (Johan, cc5
+                // live-browser report, property 5792): three real click
+                // attempts did nothing, markRoomGood() itself returned 200
+                // when called directly. Same root cause as isMarkNaBusy()
+                // above — see its own comment for the exact mechanism.
+                isMarkGoodBusy(roomId) { return !!this.markGoodBusy[roomId]; },
+                async markRoomGood(section, room) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    this.markGoodBusy[room.id] = true;
+                    await this._autosave(async () => {
+                        const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/mark-good`, {});
+                        insp.observations.push(...result.observations);
+                        this.roomOpenOverride[section + '_' + room.id] = false;
+                    });
+                    this.markGoodBusy[room.id] = false;
+                },
+                markAllGoodBusy: false,
+                async markAllGood(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    if (!window.confirm('Mark every unrecorded item in this inspection as ' + this.conditionLabel(this.baselineConditionKey) + '? Items already recorded are left exactly as they are.')) return;
+                    this.markAllGoodBusy = true;
+                    await this._autosave(async () => {
+                        const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/mark-all-good`, {});
+                        insp.observations.push(...result.observations);
+                        this.roomGroups().filter(g => g.room).forEach(g => this._collapseRoomIfCompleteById(section, g.room.id));
+                    });
+                    this.markAllGoodBusy = false;
+                },
+                _collapseRoomIfCompleteById(section, roomId) {
+                    const group = this.roomGroups().find(g => g.room && g.room.id === roomId);
+                    if (!group) return;
+                    const p = this.roomProgress(section, group);
+                    if (p.total > 0 && p.recorded === p.total) this.roomOpenOverride[section + '_' + roomId] = false;
+                },
+
+                // §17, Johan 2026-09-21, from Retha's real paper form: one
+                // free-text notes box per room, holding evidence that
+                // belongs to the whole room, not any single item. Latest
+                // note for a room is "current" — same pattern as
+                // conditionFor() above for item observations.
+                //
+                // §34, 2026-09-28 — was `insp.roomNotes` (camelCase) here
+                // and in _commitRoomNote() below. RentalInspection::
+                // tabPayloadFor() eager-loads the relation as `roomNotes`
+                // (the method name), but Eloquent's own toArray()/JSON
+                // serialization snake_cases a multi-word relation key by
+                // default — every OTHER relation this file reads
+                // (observations, photos, signatures, discrepancies) is a
+                // single word, so this is the first place that default
+                // ever mattered, and the mismatch was never caught: it
+                // silently returned null/undefined instead of throwing.
+                // Confirmed live, property 5577: the server payload
+                // genuinely carries the data under `room_notes` (checked
+                // the raw page source directly), so `insp.roomNotes` was
+                // ALWAYS undefined, on every load, for every room, in both
+                // the editable view (roomNoteField() below silently seeded
+                // an empty textarea over a real saved note on every page
+                // reload — not data loss, since _commitRoomNote() still
+                // only ever appends, but a real "your note disappeared"
+                // scare) and the new completed read-only display this
+                // round adds (rental-inspection-recording.blade.php).
+                roomNoteFor(section, roomId) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    const mine = (insp.room_notes || []).filter(n => n.property_room_id === roomId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+                roomNoteDraft: {},
+                roomNoteField(section, roomId) {
+                    const key = section + '_' + roomId;
+                    if (this.roomNoteDraft[key] === undefined) {
+                        this.roomNoteDraft[key] = this.roomNoteFor(section, roomId)?.note || '';
+                    }
+                    return this.roomNoteDraft[key];
+                },
+                // Item 2, 2026-09-22 — autosaves 800ms after typing settles;
+                // no Save button. Each settle appends a NEW note row
+                // (§3.2 — room notes are immutable, "current" = latest),
+                // same as the old explicit-Save flow already did.
+                autosaveRoomNote(section, room) {
+                    const key = section + '_' + room.id;
+                    this._debounce('roomnote_' + key, () => this._commitRoomNote(section, room), 800);
+                },
+                async _commitRoomNote(section, room) {
+                    const key = section + '_' + room.id;
+                    const text = (this.roomNoteDraft[key] || '').trim();
+                    const insp = this.currentInspection(section);
+                    if (!text || !insp) return;
+                    await this._autosave(async () => {
+                        const note = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/notes`, { note: text });
+                        insp.room_notes = insp.room_notes || [];
+                        insp.room_notes.push(note);
+                    });
+                },
+
+                // §17, Johan 2026-09-21, from Retha's real paper form: one
+                // free-text summary for the whole inspection, at the foot.
+                // Item 2, 2026-09-22 — autosaves 800ms after typing settles;
+                // no Save button. Plain mutable field (not append-only), so
+                // repeated debounced saves simply overwrite in place.
+                autosaveOverallNotes(section) {
+                    this._debounce('overallnotes_' + section, () => this._commitOverallNotes(section), 800);
+                },
+                async _commitOverallNotes(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    // §32, 2026-09-28 — snapshot taken NOW (send time), not
+                    // read again after the request resolves — see
+                    // _mergeIfUnchanged()'s own docblock above.
+                    const snapshot = { overall_notes: insp.overall_notes };
+                    await this._autosave(async () => {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/overall-notes`, {
+                            overall_notes: snapshot.overall_notes || null,
+                        });
+                        this._mergeIfUnchanged(insp, snapshot, updated, ['overall_notes']);
+                    });
+                },
+
+                // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────
+                lifecycleError: '',
+                discForm: {},
+                discBusy: {},
+                // FIX, 2026-09-27 — same root cause as isMarkGoodBusy()/
+                // isMarkNaBusy() above, on the sibling state right next to
+                // discForm's own already-wrapped discField() accessor:
+                // discBusy was read via a raw `discBusy[discrepancy.id]`
+                // bracket lookup directly in :disabled, always `undefined`
+                // until a discrepancy had been resolved once. Confirmed by
+                // reading, not assumed identical — same "populated only
+                // imperatively inside an async handler, read via inline
+                // bracket lookup inside an x-for" shape as the other two.
+                isDiscBusy(discrepancyId) { return !!this.discBusy[discrepancyId]; },
+                discField(discrepancyId) {
+                    return this.discForm[discrepancyId] || (this.discForm[discrepancyId] = { accepted_observation_id: null, resolution_note: '' });
+                },
+
+                async resolveDiscrepancy(section, discrepancy) {
+                    const form = this.discField(discrepancy.id);
+                    if (!form.accepted_observation_id) return;
+                    const insp = this.currentInspection(section);
+                    this.discBusy[discrepancy.id] = true;
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/discrepancies/${discrepancy.id}/resolve`, {
+                            accepted_observation_id: form.accepted_observation_id,
+                            resolution_note: form.resolution_note || null,
+                        });
+                        Object.assign(discrepancy, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.discBusy[discrepancy.id] = false; }
+                },
+
+                // §"Notes (required)" gate — opens every room named in the
+                // server's missing_required_notes list so the agent lands on
+                // them directly rather than hunting through the whole form.
+                // Reuses roomOpenOverride exactly as toggleRoomOpen() does —
+                // no new state, no new DOM anchors.
+                jumpToMissingRequiredNotes(section, e) {
+                    (e?.data?.missing_required_notes || []).forEach(m => {
+                        if (m.room_id) this.roomOpenOverride[section + '_' + m.room_id] = true;
+                    });
+                },
+
+                async completeInspection(section) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
+                        // §32, 2026-09-28 — was Object.assign(insp, updated),
+                        // a bare fresh() carrying every plain column
+                        // (meter readings, overall_notes, ...), not just
+                        // what this action actually changed
+                        // (RentalInspection::markCompleted() only ever
+                        // touches these three) — an agent completing the
+                        // inspection right after typing overall notes could
+                        // have that typing clobbered by this response.
+                        // Nothing types into these three directly, so a
+                        // plain merge (no snapshot/unchanged check) is safe.
+                        this._mergeFields(insp, updated, ['status', 'completed_at', 'fault_report_deadline_at']);
+                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section, e); }
+                },
+
+                async startAwaitingSignature(section) {
+                    // §15.3 (2026-09-20) — widened from out-only to both
+                    // types; kept the param so Stage 2's new in-section UI
+                    // and the existing out-section UI share one method.
+                    const insp = this.currentInspection(section || 'out');
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
+                        // §32, 2026-09-28 — same reasoning as completeInspection()
+                        // just above: RentalInspection::startAwaitingSignature()
+                        // only ever touches these two.
+                        this._mergeFields(insp, updated, ['status', 'signing_deadline_at']);
+                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section || 'out', e); }
+                },
+
+                // §17 — the header block. x-model binds straight to
+                // currentInspection(section)'s own attributes (electricity_
+                // meter_reading etc.), so this just POSTs whatever the object
+                // currently holds — no separate form-state object to keep in
+                // sync, matching how the item/observation inputs on this same
+                // component already read/write directly off live data.
+                // Item 2/8, 2026-09-22 — autosaves 700ms after a field
+                // changes; no Save button. property_type is no longer sent
+                // — item 8 made it read-only, derived from the Property
+                // record, never client-edited.
+                autosaveDetails(section) {
+                    this._debounce('details_' + section, () => this._commitDetails(section), 700);
+                },
+                async _commitDetails(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    // §32, 2026-09-28 — snapshot taken NOW (send time), not
+                    // read again after the request resolves — see
+                    // _mergeIfUnchanged()'s own docblock above. Reproduced
+                    // live, before this fix: typing a meter reading here,
+                    // then immediately typing into Overall notes before
+                    // this request's own response landed, corrupted the
+                    // Overall notes text down to its last few characters —
+                    // this response's stale overall_notes snapshot (via the
+                    // old Object.assign(insp, updated)) overwrote it
+                    // mid-keystroke.
+                    const fields = ['electricity_meter_reading', 'water_meter_reading', 'furnished_status', 'keys_count', 'keys_description', 'remotes_count', 'remotes_description', 'move_in_date_recorded'];
+                    const snapshot = {};
+                    fields.forEach(f => { snapshot[f] = insp[f]; });
+                    await this._autosave(async () => {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/details`, {
+                            electricity_meter_reading: snapshot.electricity_meter_reading || null,
+                            water_meter_reading: snapshot.water_meter_reading || null,
+                            furnished_status: snapshot.furnished_status || null,
+                            keys_count: snapshot.keys_count ?? null,
+                            keys_description: snapshot.keys_description || null,
+                            remotes_count: snapshot.remotes_count ?? null,
+                            remotes_description: snapshot.remotes_description || null,
+                            move_in_date_recorded: snapshot.move_in_date_recorded || null,
+                        });
+                        this._mergeIfUnchanged(insp, snapshot, updated, fields);
+                    });
+                },
+
+                // ── In/out signing, shared (§15, Stages 2-3 — the old
+                // out-only tenant/agent_on_behalf mechanism is fully retired;
+                // both sections now use this one path). One canvas active at
+                // a time (activeSigningKey), matching how an agent actually
+                // hands one device to one person at a time. ──────
+                activeSigningKey: null,
+                signaturePads: {},
+
+                inspectionTenants(section) {
+                    return this.currentInspection(section)?.lease?.tenants || [];
+                },
+                tenantName(tenant) {
+                    return [tenant.contact?.first_name, tenant.contact?.last_name].filter(Boolean).join(' ') || 'Tenant';
+                },
+                // §16 — a superseded row (a corrected wet-ink upload) is never
+                // "the" current disposition for its party; excluded here the
+                // same way the server excludes it (RentalInspection::
+                // outstandingSignatories()/RentalInspectionSignature::capture()).
+                tenantDisposition(section, contactId) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'tenant' && s.party_contact_id === contactId && !s.superseded_at) || null;
+                },
+                landlordDisposition(section) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'landlord' && !s.superseded_at) || null;
+                },
+                agentDisposition(section) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
+                },
+                // §16 — one label, everywhere a disposition badge is shown, so
+                // wet-ink can never be mistaken for "Signed" (an e-signature).
+                dispositionLabel(sig) {
+                    if (!sig) return '';
+                    if (sig.disposition === 'refused') return 'Refused';
+                    if (sig.disposition === 'wet_ink') return 'Signed on paper';
+                    return 'Signed';
+                },
+                // §16 — mirrors RentalInspectionSignature::supersedeWetInk()'s
+                // own guard so the UI never offers a "Replace" the server will
+                // refuse: only a live (not superseded) wet-ink row, only before
+                // the agent has attested to the record.
+                canReplaceWetInk(section, sig) {
+                    return !!sig && sig.disposition === 'wet_ink' && !sig.superseded_at && !this.agentDisposition(section);
+                },
+                allTenantsDispositioned(section) {
+                    return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
+                },
+                // §15.4/§15.7 — gates the agent's own "Sign" button: every
+                // tenant, AND the landlord unless sellerOwnerContact()
+                // couldn't resolve one (§15.4's waived-not-blocking rule).
+                allRequiredPartiesDispositioned(section) {
+                    return this.allTenantsDispositioned(section)
+                        && (!this.landlordContact || !!this.landlordDisposition(section));
+                },
+
+                openSigningFor(key) {
+                    this.activeRefusalKey = null;
+                    this.activeWetInkKey = null;
+                    this.activeSigningKey = this.activeSigningKey === key ? null : key;
+                },
+                initSignaturePadFor(key, canvasEl) {
+                    if (!canvasEl || typeof SignaturePad === 'undefined') return;
+                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                    canvasEl.width = canvasEl.offsetWidth * ratio;
+                    canvasEl.height = 140 * ratio;
+                    canvasEl.getContext('2d').scale(ratio, ratio);
+                    this.signaturePads[key] = new SignaturePad(canvasEl, { backgroundColor: '#fff' });
+                },
+                clearSignatureFor(key) { this.signaturePads[key]?.clear(); },
+
+                async saveTenantSignatureFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'signed',
+                        party_contact_id: tenant.contact_id, signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                async saveLandlordSignatureFor(section) {
+                    const key = section + '_landlord';
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'signed',
+                        party_contact_id: this.landlordContact?.id, signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                // §15.5, Stage 4 — refusal, tenant/landlord only, never the
+                // agent. One form active at a time, same discipline as
+                // signing (activeRefusalKey mirrors activeSigningKey).
+                activeRefusalKey: null,
+                refusalForm: {},
+                refusalField(key) {
+                    return this.refusalForm[key] || (this.refusalForm[key] = { preset: '', note: '' });
+                },
+                openRefusalFor(key) {
+                    this.activeSigningKey = null;
+                    this.activeWetInkKey = null;
+                    this.activeRefusalKey = this.activeRefusalKey === key ? null : key;
+                },
+
+                async saveTenantRefusalFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const form = this.refusalField(key);
+                    if (!form.preset) return;
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'refused', party_contact_id: tenant.contact_id,
+                        refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
+                    }, key);
+                },
+
+                async saveLandlordRefusalFor(section) {
+                    const key = section + '_landlord';
+                    const form = this.refusalField(key);
+                    if (!form.preset) return;
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'refused', party_contact_id: this.landlordContact?.id,
+                        refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
+                    }, key);
+                },
+
+                // §16 — wet-ink upload, tenant/landlord only, never the agent
+                // (the agent is always present and signs live). One form
+                // active at a time, same discipline as signing/refusal.
+                activeWetInkKey: null,
+                wetInkForm: {},
+                wetInkBusy: {},
+                wetInkField(key) {
+                    return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null });
+                },
+                openWetInkFor(key) {
+                    this.activeSigningKey = null;
+                    this.activeRefusalKey = null;
+                    this.activeWetInkKey = this.activeWetInkKey === key ? null : key;
+                },
+
+                async saveTenantWetInkFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const field = this.wetInkField(key);
+                    if (!field.file) return;
+                    const existing = this.tenantDisposition(section, tenant.contact_id);
+                    await this._saveWetInk(section, key, field.file,
+                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        { party_role: 'tenant', party_contact_id: tenant.contact_id });
+                },
+
+                async saveLandlordWetInkFor(section) {
+                    const key = section + '_landlord';
+                    const field = this.wetInkField(key);
+                    if (!field.file) return;
+                    const existing = this.landlordDisposition(section);
+                    await this._saveWetInk(section, key, field.file,
+                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        { party_role: 'landlord', party_contact_id: this.landlordContact?.id });
+                },
+
+                // §16 — existingWetInk present = a Replace (supersede-wet-ink);
+                // absent = a fresh capture (signatures.store with
+                // disposition=wet_ink). Same endpoint family, same insp.signatures
+                // array — the old row is stamped superseded locally (never
+                // removed) so tenantDisposition()/landlordDisposition() move on
+                // to the freshly-pushed replacement, matching the server's own
+                // whereNull('superseded_at') filter.
+                async _saveWetInk(section, key, file, existingWetInk, payload) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    this.wetInkBusy[key] = true;
+                    try {
+                        const form = new FormData();
+                        form.append('wet_ink_file', file);
+                        let signature;
+                        if (existingWetInk) {
+                            signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures/${existingWetInk.id}/supersede-wet-ink`, form, true);
+                            existingWetInk.superseded_at = new Date().toISOString();
+                            existingWetInk.superseded_by_signature_id = signature.id;
+                        } else {
+                            form.append('party_role', payload.party_role);
+                            form.append('disposition', 'wet_ink');
+                            if (payload.party_contact_id) form.append('party_contact_id', payload.party_contact_id);
+                            signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, form, true);
+                        }
+                        insp.signatures.push(signature);
+                        this.activeWetInkKey = null;
+                        this.wetInkForm[key] = { file: null };
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.wetInkBusy[key] = false; }
+                },
+
+                // §34, 2026-09-28 (Johan's ruling) — was a hand-drawn
+                // canvas (SignaturePad, same as tenant/landlord); the agent
+                // now uses their own saved PIN signature instead (the SAME
+                // `signaturePlacer()` widget e-sign/the CMA certificate
+                // generator already use — rental-inspection-recording.
+                // blade.php's own docblock on this call site has the full
+                // reasoning). The image arrives already decrypted/ready
+                // from that component's own PIN-unlock flow, not drawn
+                // here — this function's only job is the same POST every
+                // other disposition already goes through.
+                async saveAgentSignatureFor(section, signatureImageDataUri) {
+                    if (!signatureImageDataUri) { this.lifecycleError = 'Unlock your saved signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'agent', disposition: 'signed', signature_image: signatureImageDataUri,
+                    }, section + '_agent');
+                },
+
+                async _saveDisposition(section, payload, key) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    try {
+                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, payload);
+                        insp.signatures.push(signature);
+                        if (this.activeSigningKey === key) this.activeSigningKey = null;
+                        if (this.activeRefusalKey === key) this.activeRefusalKey = null;
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
 
                 toggle(key) { this.open[key] = !this.open[key]; },
 
@@ -4713,8 +8675,15 @@
                     const res = await fetch(url, opts);
                     if (!res.ok) {
                         let msg = 'Request failed (HTTP ' + res.status + ').';
-                        try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (_) {}
-                        throw new Error(msg);
+                        let body = null;
+                        try { body = await res.json(); if (body && body.message) msg = body.message; } catch (_) {}
+                        // .data is additive only — every existing catch (e) { e.message }
+                        // caller is unaffected; this just lets a NEW caller read structured
+                        // fields the server sent alongside the message (e.g. §"Notes
+                        // (required)", missing_required_notes) without a second fetch path.
+                        const err = new Error(msg);
+                        err.data = body;
+                        throw err;
                     }
                     return res.json();
                 },
@@ -4921,6 +8890,20 @@
             };
         }
         </script>
+        @endif
+
+        {{-- ── INVENTORY TAB ─────────────────────────────────────────────────── --}}
+        {{-- .ai/specs/rental-inventory.md §0b — moved out of the bottom of the
+             Overview tab into its own tab, immediately after Inspections, so
+             the agent no longer has to scroll past the map/Surveyor
+             General/Key Dates/Tenant blocks to find it. Same single link,
+             same partial, same target route — only its location on the page
+             changed. Never gated on listing_type (§0a) — sale properties get
+             this tab too. --}}
+        @if(!$isNew)
+        <div x-show="activeTab === 'inventory'" x-cloak class="p-6 space-y-6">
+            @include('corex.rental-inventories.partials._related-inventories', ['property' => $property])
+        </div>
         @endif
 
         {{-- ── CONTACTS TAB ─────────────────────────────────────────────────── --}}

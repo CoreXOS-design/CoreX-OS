@@ -6,10 +6,12 @@ namespace App\Services\Communications;
 
 use App\Exceptions\Communications\OutgoingMailboxSendFailedException;
 use App\Models\Communications\CommunicationMailbox;
+use App\Support\OutboundMailGuard;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailer;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\Mailer\Transport\Dsn;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 
@@ -61,24 +63,89 @@ class PerMailboxMailTransportBuilder
             default => 'smtp', // 'tls' negotiates STARTTLS over plain 'smtp'
         };
 
+        // §42, 2026-09-28, Johan's ruling, HARD RULE — a real IP block
+        // (Afrihost, mail.hfcoastal.co.za) traced to this exact class:
+        // this transport is a RAW EsmtpTransport built directly from a
+        // mailbox's own real host/credentials — Illuminate's own
+        // MessageSending event (OutboundMailGuardServiceProvider) is the
+        // ONLY thing that has ever stood between this and a real socket,
+        // and that is an INDIRECT dependency this dangerous a path must
+        // not rely on alone (a provider boot-order change, a differently-
+        // constructed Mailer anywhere in this codebase, a future caller
+        // that doesn't pass app('events') through — any of those silently
+        // re-opens the exact same door). Gated HERE, explicitly, on
+        // environment config: OutboundMailGuard::isSendingConfirmed() is
+        // the same hardcoded, override-proof environment allowlist
+        // (production+corexos.co.za / staging+staging.corexos.co.za) the
+        // guard itself trusts — deliberately NOT isActive(), which a
+        // super-admin kill-switch can flip on ANY environment; that
+        // override exists for the CONTROLLED, centrally-captured default-
+        // mailer path, never for a raw socket to an arbitrary real
+        // mailbox host with real credentials. Every other environment —
+        // QA1, Staging (the QA meaning, not the sending one), demo,
+        // local, anything not on that exact allowlist — connects to the
+        // environment's own Mailpit instead, unconditionally, using the
+        // SAME sink host/port OutboundMailGuardServiceProvider's own
+        // redirected-copy path already uses. The mailbox's real
+        // credentials are still validated above (blank() check) so a
+        // misconfigured mailbox still surfaces as a real setup problem —
+        // only the actual TCP destination changes.
+        $sendingConfirmed = OutboundMailGuard::isSendingConfirmed();
+        $connectHost = $sendingConfirmed ? (string) $mailbox->smtp_host : OutboundMailGuard::sinkHost();
+        $connectPort = $sendingConfirmed ? (int) $mailbox->smtp_port : OutboundMailGuard::sinkPort();
+
+        if (! $sendingConfirmed) {
+            Log::warning('PER-MAILBOX SEND REDIRECTED TO MAILPIT (non-sending environment)', [
+                'app_env' => config('app.env'),
+                'app_url' => config('app.url'),
+                'mailbox_id' => $mailbox->id,
+                'real_host' => $mailbox->smtp_host,
+                'redirected_to' => $connectHost . ':' . $connectPort,
+            ]);
+        }
+
         $dsn = new Dsn(
             $scheme,
-            (string) $mailbox->smtp_host,
+            $connectHost,
             (string) $username,
             (string) $password,
-            (int) $mailbox->smtp_port,
+            $connectPort,
         );
 
         try {
-            $transport = new EsmtpTransport($dsn->getHost(), $dsn->getPort(), $mailbox->smtp_encryption === 'ssl');
-            $transport->setUsername($dsn->getUser());
-            $transport->setPassword((string) $dsn->getPassword());
+            $transport = new EsmtpTransport($dsn->getHost(), $dsn->getPort(), $sendingConfirmed && $mailbox->smtp_encryption === 'ssl');
+            // Confirmed live (this fix's own verification): presenting
+            // AUTH credentials to Mailpit's own SMTP listener — which
+            // does not advertise AUTH support at all — gets the whole
+            // connection rejected outright, not just the auth step.
+            // Mailpit needs (and accepts) no credentials; only the real
+            // mailbox connection authenticates.
+            if ($sendingConfirmed) {
+                $transport->setUsername($dsn->getUser());
+                $transport->setPassword((string) $dsn->getPassword());
+            }
             $transport->getStream()->setTimeout($timeout);
         } catch (\Throwable $e) {
             throw new OutgoingMailboxSendFailedException(
                 'incomplete_credentials',
                 'Could not build a mail connection from this mailbox\'s settings.'
             );
+        }
+
+        // Confirmed live (this fix's own verification): without this, the
+        // PRE-EXISTING OutboundMailGuardServiceProvider listener — which
+        // fires on Illuminate\Mail\Events\MessageSending regardless of
+        // which transport built the Mailer — vetoes THIS redirected-to-
+        // Mailpit send too (it has no way to know the destination already
+        // changed), so nothing ever reaches Mailpit either. Stamping the
+        // SAME REDIRECTED_HEADER that provider's own sendRedirectedCopy()
+        // uses tells it "this is already a redirected copy, let it
+        // through" — the exact mechanism already established for this
+        // exact purpose, reused rather than duplicated.
+        if (! $sendingConfirmed) {
+            $mailable->withSymfonyMessage(function ($message) {
+                $message->getHeaders()->addTextHeader(OutboundMailGuard::REDIRECTED_HEADER, '1');
+            });
         }
 
         $mailer = new Mailer('per_mailbox', app('view'), $transport, app('events'));

@@ -114,7 +114,19 @@ function fakePermissiveObject() {
 function makeSandbox() {
     const fakeEl = () => ({
         style: { setProperty: () => {}, removeProperty: () => {} },
-        setAttribute: () => {}, getContext: () => fakePermissiveObject(), focus: () => {}, select: () => {},
+        setAttribute: () => {},
+        // A real element's getAttribute() returns null for a missing
+        // attribute, never throws — missing here made a real, correct,
+        // completely standard call (`document.querySelector('meta[name=
+        // "csrf-token"]')?.getAttribute('content')`, capture.blade.php's
+        // own CSRF read) surface as a false "CONSTRUCTION ERROR", the
+        // SAME false-failure shape as the dataset/getContext gaps above
+        // (found 2026-09-28, rental-inventory "Nothing in this room" fix —
+        // this file's own fakeEl() was never the bug, but it hid the real
+        // one under a fabricated crash long enough to need a real browser
+        // to see past it).
+        getAttribute: () => null,
+        getContext: () => fakePermissiveObject(), focus: () => {}, select: () => {},
         value: '', scrollIntoView: () => {}, closest: () => fakeEl(), getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
         // Every real element supports these — missing here surfaced right
         // after the dataset/getContext fixes above, same false-failure
@@ -151,6 +163,15 @@ function makeSandbox() {
         // payload builder) had no global to construct at all, a plain
         // ReferenceError-shaped false failure (2026-09-12).
         FormData: function () { return fakePermissiveObject(); },
+        // Real, standard, deterministic small-surface Web API — Node has its
+        // own working global implementation, so pass it through directly
+        // rather than stubbing it (unlike FormData/getContext, whose real
+        // surface is too large to model honestly). Missing entirely broke
+        // the PPRA sample-picker's search() with a plain ReferenceError-
+        // shaped false failure (2026-09-28, same class as the FormData gap
+        // above) despite `new URLSearchParams(...)` working correctly in
+        // every real browser this component actually runs in.
+        URLSearchParams,
         fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
         confirm: () => true,
         setTimeout, clearTimeout, setInterval, clearInterval,

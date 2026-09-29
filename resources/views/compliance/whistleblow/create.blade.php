@@ -26,6 +26,7 @@
         hasProperty: {{ $property ? 'true' : 'false' }},
         propertyId: '{{ $property?->id ?? '' }}',
         subjects: [{ agency_name: '', practitioner_name: '', portal_url: '', portal_source: 'p24' }],
+        sellerStatement: {{ Illuminate\Support\Js::from(old('seller_statement', '')) }},
         submitting: false,
         addSubject() { if (this.subjects.length < 10) this.subjects.push({ agency_name: '', practitioner_name: '', portal_url: '', portal_source: 'p24' }); },
         removeSubject(i) { if (this.subjects.length > 1) this.subjects.splice(i, 1); }
@@ -139,11 +140,19 @@
         <div x-show="tier === 'tier_1'" x-cloak class="rounded-md p-5 space-y-4" style="background:color-mix(in srgb, var(--ds-amber) 4%, var(--surface)); border:1px solid var(--border);">
             <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--ds-amber);">Seller Information (Tier 1)</h3>
             <div>
-                <label class="text-sm font-medium" style="color:var(--text-primary);">Seller statement *</label>
-                <textarea name="seller_statement" rows="4"
-                          class="mt-1 w-full rounded-md text-sm px-3 py-2" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                          placeholder="Capture exactly what the seller told you about the competing agencies' listing...">{{ old('seller_statement') }}</textarea>
-                <p class="text-xs mt-1" style="color:var(--text-muted);">This statement will appear verbatim in the PPRA complaint PDF.</p>
+                <label class="text-sm font-medium" style="color:var(--text-primary);">Seller statement * <span class="font-normal" style="color:var(--text-muted);">(minimum 20 characters)</span></label>
+                <textarea name="seller_statement" rows="4" x-model="sellerStatement" :required="tier === 'tier_1'"
+                          class="mt-1 w-full rounded-md text-sm px-3 py-2"
+                          style="background:var(--surface-2); border:1px solid {{ $errors->has('seller_statement') ? 'var(--ds-crimson, #c41e3a)' : 'var(--border)' }}; color:var(--text-primary);"
+                          placeholder="Capture exactly what the seller told you about the competing agencies' listing..."></textarea>
+                <div class="flex items-center justify-between mt-1">
+                    <p class="text-xs" style="color:{{ $errors->has('seller_statement') ? 'var(--ds-crimson, #c41e3a)' : 'var(--text-muted)' }};">
+                        {{ $errors->first('seller_statement') ?: "This statement will appear verbatim in the PPRA complaint PDF." }}
+                    </p>
+                    <p class="text-xs flex-shrink-0 ml-2" :style="sellerStatement.length < 20 ? 'color:var(--ds-crimson, #c41e3a)' : 'color:var(--text-muted)'">
+                        <span x-text="sellerStatement.length"></span>/20
+                    </p>
+                </div>
             </div>
         </div>
 
@@ -159,10 +168,14 @@
         <div class="rounded-md p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
             <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Evidence</h3>
             <div x-show="tier === 'tier_1'" class="text-xs" style="color:var(--text-secondary);">A clear seller statement above is the primary evidence. File attachments are optional but recommended.</div>
-            <div x-show="tier === 'tier_2'" x-cloak class="text-xs" style="color:var(--ds-amber);">Required: a screenshot of the advert showing the missing FFC number.</div>
-            <div x-show="tier === 'tier_3'" x-cloak class="text-xs" style="color:var(--ds-amber);">Required: a screenshot of the advert AND the PPRA register search showing no result.</div>
+            <div x-show="tier === 'tier_2'" x-cloak class="text-xs font-medium" style="color:var(--ds-amber);">Required: a screenshot of the advert showing the missing FFC number.</div>
+            <div x-show="tier === 'tier_3'" x-cloak class="text-xs font-medium" style="color:var(--ds-amber);">Required: a screenshot of the advert AND the PPRA register search showing no result.</div>
             <input type="file" name="evidence_files[]" multiple accept="image/*,.pdf,.doc,.docx"
+                   :required="tier === 'tier_2' || tier === 'tier_3'"
                    class="w-full text-sm" style="color:var(--text-primary);">
+            @error('evidence_files')
+            <p class="text-xs" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+            @enderror
         </div>
 
         {{-- Submit --}}

@@ -73,8 +73,15 @@
     // computation now, folding in everything either version knew about,
     // used everywhere on this header instead of two separately-maintained
     // English strings that happened to agree by luck.
+    //
+    // Johan, QA1 walk, 2026-09-21 — the consolidation above carried the
+    // title-first bug forward from the locked-state widget: "the search on
+    // application status is wrong. its displays the header and not the
+    // property address." Address always, never the listing's marketing
+    // title — same fix as the search results below and the other two
+    // rental-application screens sharing this endpoint.
     $propertyLabel = $rentalApplication->property
-        ? (optional($rentalApplication->property)->title ?: optional($rentalApplication->property)->buildDisplayAddress())
+        ? optional($rentalApplication->property)->buildDisplayAddress()
         : $rentalApplication->property_address_override;
     $headerContactName = $rentalApplication->contact->full_name
         ?? trim(($rentalApplication->contact->first_name ?? '') . ' ' . ($rentalApplication->contact->last_name ?? ''));
@@ -167,6 +174,12 @@
          documentChecklist: {{ Js::from($documentChecklist) }},
          documentTypeOptions: {{ Js::from($documentTypeOptions) }},
          reviewLocked: {{ Js::from($reviewLocked) }},
+         panelPreferences: {{ Js::from($panelPreferences) }},
+         panelPreferenceUrl: '{{ route('corex.rental-applications.review.panel-preference') }}',
+         checklistSections: {{ Js::from($checklistSections) }},
+         checklistItemUrlTemplate: '{{ route('corex.rental-applications.checklist.items.update', [$rentalApplication, '__ITEM_ID__']) }}',
+         checklistSectionUrlTemplate: '{{ route('corex.rental-applications.checklist.sections.update', [$rentalApplication, '__SECTION_ID__']) }}',
+         checklistItemDocumentUploadUrlTemplate: '{{ route('corex.rental-applications.checklist.items.documents.store', [$rentalApplication, '__ITEM_ID__']) }}',
      })"
      @else
      x-data="rentalAuthorisationViewer({
@@ -189,6 +202,11 @@
          initialStatementPeriodFrom: {{ Js::from($assessment->statement_period_from?->format('Y-m-d')) }},
          initialStatementPeriodTo: {{ Js::from($assessment->statement_period_to?->format('Y-m-d')) }},
          captureStrikeUrlTemplate: '{{ route('corex.rental-applications.authorisation.capture-entries.strike', [$rentalApplication, '__MARK_UID__']) }}',
+         panelPreferences: {{ Js::from($panelPreferences) }},
+         panelPreferenceUrl: '{{ route('corex.rental-applications.review.panel-preference') }}',
+         checklistSections: {{ Js::from($checklistSections) }},
+         checklistItemUrlTemplate: '{{ route('corex.rental-applications.checklist.items.update', [$rentalApplication, '__ITEM_ID__']) }}',
+         checklistSectionUrlTemplate: '{{ route('corex.rental-applications.checklist.sections.update', [$rentalApplication, '__SECTION_ID__']) }}',
      })"
      @endif
      {{-- Capture-ledger rework, 2026-09-11 — the chip lives inside
@@ -350,9 +368,18 @@
                                        placeholder="Search rental properties…" autofocus
                                        class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
                                 <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
-                                <div class="absolute z-10 mt-1 w-full rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                                {{-- Johan, QA1 walk, 2026-09-21 — same richer
+                                     result row as the PDF splitter's property
+                                     picker: address + status, then ref + agent. --}}
+                                <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
                                     <template x-for="p in results" :key="p.id">
-                                        <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1 text-xs hover:bg-slate-50" x-text="p.label"></button>
+                                        <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
+                                            <div class="flex items-center gap-1.5">
+                                                <span x-text="p.label"></span>
+                                                <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                                            </div>
+                                            <div style="color: var(--text-muted);" x-text="[p.ref ? ('Ref: ' + p.ref) : '', p.agent].filter(Boolean).join(' · ')"></div>
+                                        </button>
                                     </template>
                                 </div>
                             </div>
@@ -476,8 +503,18 @@
                has nothing to negotiate for; every prior round's width fight
                was about fitting INPUT fields, and there are none left in
                this panel — capture happens on the document now. */
+            /* AT-430, 2026-09-24 — widened 196px -> 280px. The 196px width
+               was sized deliberately for a READ-ONLY tally with nothing to
+               negotiate for (see this rule's own original comment above,
+               still true of Finances); the Checklist section added
+               alongside it (state buttons + a note box per item) is
+               genuinely input-heavy and cannot function inside 196px.
+               Same "big boxes, not a wall of small text" instruction this
+               aside was already redesigned under once (Item 6, see the
+               .rental-review-aside markup's own comment) — sizing the box
+               to what it now actually holds. */
             .rental-review-aside  {
-                flex: 0 0 196px; width: 196px; align-self: stretch;
+                flex: 0 0 280px; width: 280px; align-self: stretch;
                 position: sticky; top: 72px;
                 height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px));
                 overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
@@ -507,6 +544,52 @@
            fit a 196px column — same scoped-override pattern already used
            by .dr2-distribute/.dr2-pipeline elsewhere in this codebase. */
         .rental-review-aside .corex-input { padding: 4px 6px; }
+
+        /* AT-430, 2026-09-24 — the docs-panel width toggle and the
+           document-label font-size toggle both used to carry a static
+           `style=` attribute ALONGSIDE their own `:style` binding — the
+           exact bug class flagged in this build's own tasking ("same bug
+           that cost four rounds on the inspections screen"): a static
+           style attribute and an Alpine :style binding on the SAME element
+           fight over the same attribute, and whichever one the browser
+           parses last wins, silently, with no error. Statics moved into
+           these two classes; :style now carries ONLY the genuinely dynamic
+           property on each element. */
+        .rr-docs-panel { border-right: 1px solid var(--border); background: var(--surface-2, #f9fafb); }
+        .rr-cv-doc-label { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* AT-430 §3.1 — the right-hand panel's own accordion (Finances,
+           Checklist). Plain disclosure pattern, no JS library: a header
+           button toggles an x-show'd body. */
+        .rr-accordion-section { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .rr-accordion-header {
+            width: 100%; display: flex; align-items: center; justify-content: space-between;
+            gap: 6px; padding: 8px 10px; background: var(--surface-2, #f9fafb);
+            font-size: 12px; font-weight: 600; color: var(--text-primary); text-align: left;
+        }
+        .rr-accordion-chevron { transition: transform 120ms ease; color: var(--text-muted); font-size: 10px; }
+        .rr-accordion-chevron-open { transform: rotate(90deg); }
+        .rr-accordion-body { padding: 10px; }
+        .rr-checklist-section-header {
+            display: flex; align-items: center; justify-content: space-between; gap: 6px;
+            padding: 6px 8px; background: var(--surface-2, #f9fafb); border-radius: 4px;
+            font-size: 11px; font-weight: 600; color: var(--text-primary); text-align: left; width: 100%;
+        }
+        .rr-checklist-item { padding: 6px 2px; border-bottom: 1px solid var(--border); }
+        .rr-checklist-item:last-child { border-bottom: none; }
+        .rr-checklist-item-name { font-size: 12px; color: var(--text-primary); }
+        .rr-checklist-item-help { font-size: 10px; color: var(--text-muted); }
+        .rr-checklist-state-btn {
+            font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-secondary);
+        }
+        .rr-checklist-state-btn-active-done { background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669); border-color: var(--ds-emerald, #059669); }
+        .rr-checklist-state-btn-active-na { background: var(--surface-2, #f9fafb); color: var(--text-muted); border-color: var(--text-muted); }
+        .rr-checklist-derived-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb); }
+        /* AT-430 Part E — the checklist item's own drop target (design point 2: "the item row is ALSO a drop target"). */
+        .rr-checklist-attach-zone { border: 1px dashed var(--border); border-radius: 4px; padding: 4px 6px; }
+        .rr-checklist-attach-zone-over { border-color: var(--ds-blue, #2563eb); background: var(--ds-blue-soft, #eff6ff); }
+        .rr-checklist-attachment-name { font-size: 10px; color: var(--text-secondary); text-decoration: underline; }
 
         /* FIX (2026-09-14, Johan live on QA1) — per-document Save button was
            scrolling off with the rest of the document, exactly the same
@@ -743,30 +826,146 @@
                     <span class="text-xs" style="color: var(--ds-blue, #2563eb);" x-text="summaryOpen ? 'Hide' : 'Show'"></span>
                 </button>
                 <div x-show="summaryOpen" x-cloak class="mt-3">
+                    {{--
+                        .ai/specs/rental-application-field-config.md, staff-
+                        facing follow-up 2026-09-20 — every row below now
+                        resolves its label and order from $fieldConfig
+                        (RentalApplication::displayFieldConfig() — the
+                        frozen snapshot for a submitted application, live
+                        settings otherwise). The rule this build settled:
+                        hidden governs whether an EMPTY field clutters this
+                        glance-box; it never suppresses a real answer
+                        already on file — a field hidden today may still
+                        carry a genuine answer from before it was hidden
+                        (or from before the applicant's most recent
+                        resubmit), and that answer is part of the record.
+                        $hideWhenEmpty=true on "In their own words" only
+                        preserves this row's own pre-existing behaviour
+                        (free text — never shown as a bare "—" placeholder),
+                        unrelated to the config-driven hide rule.
+                    --}}
+                    @php
+                        $summaryRows = [];
+                        $addSummaryField = function (string $key, $value, ?string $display = null, bool $hideWhenEmpty = false) use (&$summaryRows, $fieldConfig) {
+                            $cfg = $fieldConfig[$key] ?? null;
+                            $hasValue = $value !== null && $value !== '';
+                            $configHidden = $cfg && ! $cfg['shown'];
+                            if (! $hasValue && ($hideWhenEmpty || $configHidden)) {
+                                return;
+                            }
+                            $summaryRows[] = [
+                                'order' => $cfg['order'] ?? 999,
+                                'label' => $cfg['label'] ?? \Illuminate\Support\Str::headline($key),
+                                'display' => $display ?? ($hasValue ? $value : '—'),
+                            ];
+                        };
+
+                        $addSummaryField('employer_name', $rentalApplication->employer_name);
+                        $addSummaryField('employer_position', $rentalApplication->employer_position);
+                        $addSummaryField('monthly_salary', $rentalApplication->monthly_salary,
+                            $rentalApplication->monthly_salary !== null ? 'R ' . number_format($rentalApplication->monthly_salary, 2) : null);
+                        $addSummaryField('current_rental_amount', $rentalApplication->current_rental_amount,
+                            $rentalApplication->current_rental_amount !== null ? 'R ' . number_format($rentalApplication->current_rental_amount, 2) : null);
+                        // "Dates on entries" (Johan, 2026-09-10) — once submitted, this
+                        // screen is the agent's only way to VERIFY the rent-due-day the
+                        // applicant answered (the edit form above locks after submission,
+                        // same as every other applicant-facing field on this summary).
+                        $addSummaryField('current_rental_due_day', $rentalApplication->current_rental_due_day);
+                        $addSummaryField('current_landlord_name', $rentalApplication->current_landlord_name);
+                        // "Current living situation" (2026-09-11) — the old form
+                        // assumed a landlord always exists; not every applicant is
+                        // currently renting. Kept alongside "Current landlord" above
+                        // rather than folded together — different facts (who they
+                        // rent from vs. whether they're renting at all). Fallback
+                        // covers pre-existing applications that have landlord data
+                        // but never answered this newer field.
+                        $addSummaryField(
+                            'current_living_situation',
+                            $rentalApplication->current_living_situation ?: $rentalApplication->current_landlord_name,
+                            \App\Models\RentalApplication::currentLivingSituationLabel($rentalApplication->current_living_situation)
+                                ?? ($rentalApplication->current_landlord_name ? 'Currently renting' : null)
+                        );
+                        $addSummaryField('current_living_situation_notes', $rentalApplication->current_living_situation_notes, null, true);
+
+                        // Adults / Children — a single combined row by original design
+                        // (Johan's own screen-space rulings on this summary); the label
+                        // itself stays fixed rather than merging two independently-
+                        // overridable labels into one line. Each subfield still
+                        // independently honours hidden-when-empty.
+                        $adultsCfg = $fieldConfig['adults'] ?? null;
+                        $childrenCfg = $fieldConfig['children'] ?? null;
+                        $adultsHasValue = $rentalApplication->adults !== null;
+                        $childrenHasValue = $rentalApplication->children !== null;
+                        $adultsSuppressed = $adultsCfg && ! $adultsCfg['shown'] && ! $adultsHasValue;
+                        $childrenSuppressed = $childrenCfg && ! $childrenCfg['shown'] && ! $childrenHasValue;
+                        if (! ($adultsSuppressed && $childrenSuppressed)) {
+                            $summaryRows[] = [
+                                'order' => min($adultsCfg['order'] ?? 999, $childrenCfg['order'] ?? 999),
+                                'label' => 'Adults / Children',
+                                'display' => ($adultsSuppressed ? '—' : ($rentalApplication->adults ?? '—'))
+                                    . ' / '
+                                    . ($childrenSuppressed ? '—' : ($rentalApplication->children ?? '—')),
+                            ];
+                        }
+
+                        usort($summaryRows, fn ($a, $b) => $a['order'] <=> $b['order']);
+                    @endphp
                     <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                        <dt style="color: var(--text-muted);">Employer</dt><dd>{{ $rentalApplication->employer_name ?? '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Position</dt><dd>{{ $rentalApplication->employer_position ?? '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Monthly salary (self-reported)</dt><dd>{{ $rentalApplication->monthly_salary !== null ? 'R ' . number_format($rentalApplication->monthly_salary, 2) : '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Current rental amount</dt><dd>{{ $rentalApplication->current_rental_amount !== null ? 'R ' . number_format($rentalApplication->current_rental_amount, 2) : '—' }}</dd>
-                        {{-- "Dates on entries" (Johan, 2026-09-10) — once submitted, this
-                             screen is the agent's only way to VERIFY the rent-due-day the
-                             applicant answered (the edit form above locks after submission,
-                             same as every other applicant-facing field on this summary). --}}
-                        <dt style="color: var(--text-muted);">Current rent due day</dt><dd>{{ $rentalApplication->current_rental_due_day ?? '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Current landlord</dt><dd>{{ $rentalApplication->current_landlord_name ?? '—' }}</dd>
-                        {{-- "Current living situation" (2026-09-11) — the old form
-                             assumed a landlord always exists; not every applicant is
-                             currently renting. Kept alongside "Current landlord" above
-                             rather than folded together — different facts (who they
-                             rent from vs. whether they're renting at all). Fallback
-                             covers pre-existing applications that have landlord data
-                             but never answered this newer field. --}}
-                        <dt style="color: var(--text-muted);">Current living situation</dt><dd>{{ \App\Models\RentalApplication::currentLivingSituationLabel($rentalApplication->current_living_situation) ?? ($rentalApplication->current_landlord_name ? 'Currently renting' : '—') }}</dd>
-                        @if($rentalApplication->current_living_situation_notes)
-                            <dt style="color: var(--text-muted);">In their own words</dt><dd>{{ $rentalApplication->current_living_situation_notes }}</dd>
-                        @endif
-                        <dt style="color: var(--text-muted);">Adults / Children</dt><dd>{{ $rentalApplication->adults ?? '—' }} / {{ $rentalApplication->children ?? '—' }}</dd>
+                        @foreach($summaryRows as $row)
+                            <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt><dd>{{ $row['display'] }}</dd>
+                        @endforeach
                     </dl>
+                    @php
+                        // .ai/specs/rental-application-field-config.md §7,
+                        // piece (c)(3) — custom field ANSWERS, sourced from
+                        // $fieldConfig (already includes them, per the
+                        // resolver extension) and the application's own
+                        // custom_field_values. Screen-space rule (Johan) —
+                        // only a field with a real answer earns a row here;
+                        // an empty custom field is nothing the agent needs
+                        // to see on this curated glance-box.
+                        // §7, piece (c)(4) — a file-type field's own
+                        // custom_field_values entry is a Document id, never
+                        // a display-ready value — resolved the SAME scoped
+                        // way as everywhere else (source + custom_field_key
+                        // together), never the raw id printed as-is.
+                        $customFieldRows = collect($fieldConfig)
+                            ->where('is_custom', true)
+                            ->sortBy('order')
+                            ->map(function ($cf) use ($rentalApplication) {
+                                $value = $rentalApplication->custom_field_values[$cf['key']] ?? null;
+                                $doc = $cf['field_type'] === 'file' && $value
+                                    ? \App\Models\Document::where('id', $value)
+                                        ->where('source_type', 'rental_application')
+                                        ->where('source_id', $rentalApplication->id)
+                                        ->where('custom_field_key', $cf['key'])
+                                        ->first()
+                                    : null;
+
+                                return [
+                                    'label' => $cf['label'],
+                                    'value' => $cf['field_type'] === 'file' ? $doc : $value,
+                                    'field_type' => $cf['field_type'],
+                                ];
+                            })
+                            ->filter(fn ($row) => $row['value'] !== null && $row['value'] !== '');
+                    @endphp
+                    @if($customFieldRows->isNotEmpty())
+                        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-2 pt-2" style="border-top: 1px solid var(--border);">
+                            @foreach($customFieldRows as $row)
+                                <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt>
+                                <dd>
+                                    @if($row['field_type'] === 'file')
+                                        <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $row['value']]) }}" target="_blank" rel="noopener" style="color: var(--ds-blue, #2563eb);">✓ {{ $row['value']->original_name }}</a>
+                                    @elseif($row['field_type'] === 'yes_no')
+                                        {{ $row['value'] == '1' ? 'Yes' : 'No' }}
+                                    @else
+                                        {{ $row['value'] }}
+                                    @endif
+                                </dd>
+                            @endforeach
+                        </dl>
+                    @endif
                     @if($viewerRole === 'agent')
                         <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="text-xs inline-block mt-3" style="color: var(--ds-blue, #2563eb);">View submitted application &rarr;</a>
                     @endif
@@ -1212,9 +1411,8 @@
                          correction: "expanded = document gets narrower.
                          collapsed = document gets the space back. nothing
                          ever sits on top of the document." --}}
-                    <div class="flex-shrink-0 h-full overflow-y-auto"
-                         :style="{ width: (docsPanelExpanded ? '220px' : '44px'), transition: 'width 150ms ease' }"
-                         style="border-right: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
+                    <div class="flex-shrink-0 h-full overflow-y-auto rr-docs-panel"
+                         :style="{ width: (docsPanelExpanded ? '220px' : '44px'), transition: 'width 150ms ease' }">
                         <template x-if="!docsPanelExpanded">
                             <div class="h-full flex flex-col items-center gap-1.5 py-2">
                                 {{-- BUG FIX, 2026-09-12 — Johan, live: "clicking
@@ -1265,7 +1463,7 @@
                                                 <span style="position: absolute; top: -4px; right: -4px; color: #fff; background: var(--ds-blue, #2563eb); border-radius: 9999px; min-width: 14px; height: 14px; padding: 0 2px; font-size: 9px; font-weight: 800; line-height: 14px; text-align: center;" x-text="d.mark_count"></span>
                                             </template>
                                         </button>
-                                        <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: cvDocLabelFontSizePx + 'px' }" :title="d.label" x-text="d.label"></p>
+                                        <p class="text-center leading-tight mt-0.5 rr-cv-doc-label" :style="{ fontSize: cvDocLabelFontSizePx + 'px' }" :title="d.label" x-text="d.label"></p>
                                     </div>
                                 </template>
                             </div>
@@ -1425,17 +1623,28 @@
              this aside's own pre-existing "Qualifies for up to" box already
              use. This is "put big boxes on there" read literally: boxes
              sized to what they actually hold, not a wall of small text. --}}
+        {{-- AT-430 §3.1 — the panel becomes a set of collapsible sections
+             (accordion): Finances (exactly what was here before, content
+             unchanged, now inside a collapsible section) and Checklist
+             (new, below). Open/collapsed remembered per user per section
+             via rentalChecklistPanel()'s togglePanel()/isPanelOpen() —
+             default Finances open, Checklist open (§3.1). --}}
         <div class="rental-review-aside">
-            <div class="flex items-center gap-1.5 mb-2">
-                <h2 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}</h2>
-                @if($viewerRole === 'agent')
-                    <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                          title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
-                @else
-                    <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                          title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
-                @endif
-            </div>
+        <div class="rr-accordion-section">
+            <button type="button" class="rr-accordion-header" @click="togglePanel('finances', true)">
+                <span class="flex items-center gap-1.5">
+                    {{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}
+                    @if($viewerRole === 'agent')
+                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                              title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
+                    @else
+                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                              title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
+                    @endif
+                </span>
+                <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('finances', true) }">&rsaquo;</span>
+            </button>
+            <div class="rr-accordion-body" x-show="isPanelOpen('finances', true)" x-cloak>
 
             {{-- ROUND 6, 2026-09-11 — status banners that used to live inside
                  the ACTIONS card (bottom of the old right-hand column) moved
@@ -1714,6 +1923,139 @@
                 <p class="text-[11px] mt-1" style="color: var(--ds-crimson, #dc2626);" x-show="ledgerActionError" x-text="ledgerActionError"></p>
             </div>
 
+            </div>
+        </div>
+        {{-- END Finances accordion section. --}}
+
+        {{-- AT-430 §3 — Checklist accordion section. Same panel for agent
+             and authoriser (§3.1: "there is no separate authoriser view").
+             Header shows the OVERALL done/total across every section
+             (§3.5: "what makes the panel useful at a glance to an
+             authoriser who did not do the work"). An agency that has
+             archived every section renders nothing here at all. --}}
+        <template x-if="checklistSections.length > 0">
+            <div class="rr-accordion-section">
+                <button type="button" class="rr-accordion-header" @click="togglePanel('checklist', true)">
+                    <span>Checklist <span class="text-[10px] font-normal" style="color: var(--text-muted);" x-text="'(' + checklistOverall() + ')'"></span></span>
+                    <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('checklist', true) }">&rsaquo;</span>
+                </button>
+                <div class="rr-accordion-body" x-show="isPanelOpen('checklist', true)" x-cloak>
+                    <template x-for="section in checklistSections" :key="section.id">
+                        <div class="mb-2">
+                            <button type="button" class="rr-checklist-section-header" @click="toggleChecklistSection(section.id)">
+                                <span x-text="section.name"></span>
+                                <span class="flex items-center gap-1">
+                                    <span class="text-[10px] font-normal" style="color: var(--text-muted);" x-text="sectionProgress(section)"></span>
+                                    <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('checklist_section_' + section.id, false) }">&rsaquo;</span>
+                                </span>
+                            </button>
+                            <div x-show="isPanelOpen('checklist_section_' + section.id, false)" x-cloak class="mt-1 px-1">
+                                {{-- §3.2 — "each section has a desc where agents can type in what they find." One box per section, on the application, not the template. --}}
+                                <textarea class="corex-input text-xs w-full mb-1.5" rows="2" placeholder="Notes for this section…"
+                                          x-model="section.description" @change="saveSectionDescription(section)" :disabled="reviewLocked"></textarea>
+                                <template x-for="item in section.items" :key="item.id">
+                                    <div class="rr-checklist-item">
+                                        <div class="flex items-start justify-between gap-1">
+                                            <p class="rr-checklist-item-name" x-text="item.name"></p>
+                                            <span class="rr-checklist-derived-badge flex-shrink-0" x-show="item.is_derived" title="Ticks itself off the lease — cannot be set by hand.">Derived</span>
+                                        </div>
+                                        <p class="rr-checklist-item-help" x-show="item.help_text" x-text="item.help_text"></p>
+                                        <template x-if="!item.is_derived">
+                                            <div>
+                                                <div class="flex gap-1 mt-1">
+                                                    <button type="button" class="rr-checklist-state-btn" :class="{ 'rr-checklist-state-btn-active-done': item.state === 'done' }" :disabled="reviewLocked" @click="setItemState(item, item.state === 'done' ? 'not_started' : 'done')">Done</button>
+                                                    <button type="button" class="rr-checklist-state-btn" :class="{ 'rr-checklist-state-btn-active-na': item.state === 'not_applicable' }" :disabled="reviewLocked" @click="setItemState(item, item.state === 'not_applicable' ? 'not_started' : 'not_applicable')">N/A</button>
+                                                </div>
+                                                {{-- §3.2 — a free-text note per item; §3.3's note_required is enforced server-side too (setItemState()/updateChecklistItem()), this is just always-visible for a required item so the box is never hidden behind a rejected click. noteOpen is a client-only display flag — never sent to the server, never confused with whether a note VALUE exists. --}}
+                                                <template x-if="item.note_required || item.note || item.noteOpen">
+                                                    <input type="text" class="corex-input text-xs w-full mt-1" placeholder="Note" x-model="item.note" @change="saveItemNote(item)" :disabled="reviewLocked">
+                                                </template>
+                                                <template x-if="!item.note_required && !item.note && !item.noteOpen">
+                                                    <button type="button" class="text-[10px] mt-1" style="color: var(--ds-blue, #2563eb);" @click="item.noteOpen = true" :disabled="reviewLocked">+ Add note</button>
+                                                </template>
+                                                {{-- AT-430 Part E — the TPN-doc paperclip. Johan: "I log into tpn do
+                                                     the verifications and download the results. then I can attach
+                                                     whilst on the tpn verification." The row itself is the drop
+                                                     target (design point 2) — dragOver only flips true/false, read
+                                                     through :class, never :style, so this stays clear of the
+                                                     Vue-proxy trap this file already hit once today on a DIFFERENT
+                                                     lazily-added key (panelState's checklist_section_N) — attachments/
+                                                     dragOver/uploading are seeded on every item at construction
+                                                     time (rentalChecklistPanel()'s own map), never added later, so
+                                                     that trap does not apply here, but :class over :style is the
+                                                     safer habit regardless. --}}
+                                                @if($viewerRole === 'agent')
+                                                    {{-- Agent-only, same rule Johan already gave for the generic
+                                                         Supporting Documents upload above ("agent should in any
+                                                         case be able to add docs... Agent-only") — an authoriser
+                                                         adding evidence to someone else's application isn't part
+                                                         of what this feature is for. The drag/drop handlers live
+                                                         ONLY inside this @if, not on a shared element both roles
+                                                         render — checklistItemDocumentUploadUrlTemplate is never
+                                                         passed into rentalAuthorisationViewer() at all, so a drop
+                                                         handler reachable from the authoriser's screen would throw
+                                                         on a missing URL template the moment it fired. --}}
+                                                    <div class="rr-checklist-attach-zone mt-1" :class="{ 'rr-checklist-attach-zone-over': item.dragOver }"
+                                                         @dragover.prevent="onChecklistItemDragEnter(item)"
+                                                         @dragleave.prevent="onChecklistItemDragLeave(item)"
+                                                         @drop.prevent="onChecklistItemDrop(item, $event)">
+                                                        <template x-if="item.attachments.length > 0">
+                                                            <div class="space-y-0.5 mb-1">
+                                                                <template x-for="doc in item.attachments" :key="doc.id">
+                                                                    <div class="flex items-center justify-between gap-1">
+                                                                        <a :href="doc.view_url" target="_blank" class="rr-checklist-attachment-name truncate" x-text="doc.name"></a>
+                                                                        <button type="button" class="text-[10px] flex-shrink-0" style="color: var(--ds-red, #dc2626);" :disabled="reviewLocked" @click="removeChecklistItemDocument(item, doc)">Remove</button>
+                                                                    </div>
+                                                                </template>
+                                                            </div>
+                                                        </template>
+                                                        <label class="text-[10px] cursor-pointer" style="color: var(--ds-blue, #2563eb);">
+                                                            <span x-show="!item.uploading">+ Attach</span>
+                                                            <span x-show="item.uploading">Attaching…</span>
+                                                            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="hidden" :disabled="reviewLocked || item.uploading" @change="onChecklistItemFilesPicked(item, $event.target.files); $event.target.value = ''">
+                                                        </label>
+                                                        <span class="text-[10px]" style="color: var(--text-muted);"> or drop a file here</span>
+                                                        <p class="text-[10px] mt-0.5" style="color: var(--ds-red, #dc2626);" x-show="item.attachError" x-text="item.attachError"></p>
+                                                        <template x-if="item.removedAttachments.length > 0">
+                                                            <div class="mt-1">
+                                                                <button type="button" class="text-[10px]" style="color: var(--text-muted);" @click="item.removedOpen = !item.removedOpen" x-text="'Removed (' + item.removedAttachments.length + ')'"></button>
+                                                                <div x-show="item.removedOpen" x-cloak class="mt-0.5 space-y-0.5">
+                                                                    <template x-for="doc in item.removedAttachments" :key="doc.id">
+                                                                        <div class="flex items-center justify-between gap-1">
+                                                                            <span class="rr-checklist-attachment-name truncate" style="color: var(--text-muted);" x-text="doc.name"></span>
+                                                                            <button type="button" class="text-[10px] flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="reviewLocked" @click="restoreChecklistItemDocument(item, doc)">Restore</button>
+                                                                        </div>
+                                                                    </template>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                @else
+                                                    {{-- Authoriser — read-only mirror of the same attachment list, no upload/remove control. --}}
+                                                    <template x-if="item.attachments.length > 0">
+                                                        <div class="space-y-0.5 mt-1">
+                                                            <template x-for="doc in item.attachments" :key="doc.id">
+                                                                <a :href="doc.view_url" target="_blank" class="rr-checklist-attachment-name truncate block" x-text="doc.name"></a>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                @endif
+                                            </div>
+                                        </template>
+                                        <template x-if="item.is_derived">
+                                            <p class="text-[10px] mt-1" :style="{ color: item.state === 'done' ? 'var(--ds-emerald, #059669)' : 'var(--text-muted)' }" x-text="(item.state === 'done' ? '✓ ' : '— ') + (item.note || 'Derived from the lease')"></p>
+                                        </template>
+                                        <p class="text-[10px] mt-0.5" style="color: var(--ds-red, #dc2626);" x-show="item.error" x-text="item.error"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+        {{-- END Checklist accordion section. --}}
+
             {{-- Actions. --}}
             <div class="pt-2" style="border-top: 1px solid var(--border);">
                 @if($viewerRole === 'agent')
@@ -1759,7 +2101,20 @@
                         <button type="button" data-qa="send-back-to-applicant-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
                     @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
-                        <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        @if($canApproveDirectly)
+                            {{-- AT-430 Part A, 2026-09-24 — one-step approval:
+                                 "Submit for approval" is REPLACED, in the same
+                                 position, when the agency is one_step and this
+                                 user already holds RO/CO tier. Posts to the
+                                 SAME authorisation approve/decline endpoints an
+                                 authoriser uses — guardCanDecide() is the real
+                                 gate; this button only ever renders when the
+                                 server will actually accept it. --}}
+                            <button type="button" data-qa="approve-application-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve application</button>
+                            <button type="button" data-qa="decline-application-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline application</button>
+                        @else
+                            <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        @endif
                     @endunless
                     @if($rentalApplication->generations->count() > 1)
                         <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
@@ -1890,6 +2245,85 @@
                     </div>
                 </div>
             @endif
+
+            @if($canApproveDirectly)
+                {{-- AT-430 Part A, 2026-09-24 — one-step approval. Same
+                     fields, same form/action/CSRF as the authoriser's own
+                     Approve modal below (this one-person agency flow posts
+                     to the exact same corex.rental-applications.authorisation.approve
+                     endpoint) — there is no "always a first decision" override
+                     path here, since $canApproveDirectly only renders while
+                     the application is still pre-decision. --}}
+                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve application</h3>
+                        @if($rentalApplication->ficaOutstanding())
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            </p>
+                        @endif
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
+                        <input type="text" inputmode="decimal" x-model="approveAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit (optional)</label>
+                        <input type="text" inputmode="decimal" x-model="approveDepositAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        <textarea x-model="approveReason" rows="2" :disabled="approveConfirming" class="corex-input text-xs w-full mb-3" placeholder="Notes (optional)"></textarea>
+                        <template x-if="approveConfirming">
+                            <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                <p class="font-semibold" x-text="'Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?'"></p>
+                            </div>
+                        </template>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.agentApproveAmountField.value = approveAmount; $refs.agentApproveDepositAmountField.value = approveDepositAmount; $refs.agentApproveReasonField.value = approveReason">
+                            @csrf
+                            <input type="hidden" name="approved_rental_amount" x-ref="agentApproveAmountField">
+                            <input type="hidden" name="approved_deposit_amount" x-ref="agentApproveDepositAmountField">
+                            <input type="hidden" name="reason" x-ref="agentApproveReasonField">
+                            <div class="flex justify-end gap-2">
+                                <template x-if="!approveConfirming">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
+                                </template>
+                                <template x-if="approveConfirming">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="approveConfirming = false">Go back</button>
+                                </template>
+                                <template x-if="!approveConfirming">
+                                    <button type="button" data-qa="approve-application-continue" class="corex-btn-primary text-xs" :disabled="!approveAmount"
+                                            :title="!approveAmount ? 'Enter a monthly amount first.' : null" @click="approveConfirming = true">Approve</button>
+                                </template>
+                                <template x-if="approveConfirming">
+                                    <button type="submit" data-qa="approve-application-confirm" class="corex-btn-primary text-xs">Yes, approve</button>
+                                </template>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div x-show="declineModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="declineModalOpen = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="declineModalOpen = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Decline application</h3>
+                        <p class="text-xs mb-2" style="color: var(--text-secondary);">{{ $headerContactName }}{{ $propertyLabel ? ' — ' . $propertyLabel : '' }}</p>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Reason to give the applicant</label>
+                        <select x-model="declineReasonTemplateId" class="corex-input text-xs w-full mb-3" required>
+                            <option value="">Choose a reason…</option>
+                            @foreach($declineReasonTemplates ?? [] as $template)
+                                <option value="{{ $template->id }}" title="{{ $template->reason }}">{{ \Illuminate\Support\Str::limit($template->reason, 60) }}</option>
+                            @endforeach
+                        </select>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note (for the record)</label>
+                        <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required)"></textarea>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.agentDeclineReasonField.value = declineReason; $refs.agentDeclineReasonTemplateIdField.value = declineReasonTemplateId">
+                            @csrf
+                            <input type="hidden" name="reason" x-ref="agentDeclineReasonField">
+                            <input type="hidden" name="decline_reason_template_id" x-ref="agentDeclineReasonTemplateIdField">
+                            <div class="flex justify-end gap-2">
+                                <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
+                                <button type="submit" data-qa="decline-application-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId"
+                                        :title="!declineReasonTemplateId && !declineReason.trim() ? 'Choose a reason for the applicant and add a note first.' : (!declineReasonTemplateId ? 'Choose a reason for the applicant first.' : (!declineReason.trim() ? 'Add a note first.' : null))">Decline</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            @endif
         @else
             @unless($blockedBySelfApproval)
                 {{-- Approve — same fields, same form/action/CSRF, same AT-401
@@ -1915,6 +2349,12 @@
                         @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
                         <input type="text" inputmode="decimal" x-model="approveAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        {{-- Johan, 2026-09-22 (property 4283) — optional: most
+                             approvals never set a deposit here, and the
+                             tenant-link screen falls back to the property's
+                             own deposit_amount when this is left blank. --}}
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit (optional)</label>
+                        <input type="text" inputmode="decimal" x-model="approveDepositAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
                         <textarea x-model="approveReason" rows="2" :disabled="approveConfirming" class="corex-input text-xs w-full mb-3" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
                         {{-- 2026-09-16, Johan — native confirm() removed, same
                              reasoning as the decline path (see that modal's own
@@ -1942,9 +2382,10 @@
                             </div>
                         </template>
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
-                              @submit="window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveDepositAmountField.value = approveDepositAmount; $refs.approveReasonField.value = approveReason">
                             @csrf
                             <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
+                            <input type="hidden" name="approved_deposit_amount" x-ref="approveDepositAmountField">
                             <input type="hidden" name="reason" x-ref="approveReasonField">
                             <div class="flex justify-end gap-2">
                                 <template x-if="!approveConfirming">
@@ -2205,7 +2646,20 @@
              freely edit both before sending. Submitting posts whatever is
              actually in these two fields, edited or not. --}}
         @if($viewerRole === 'agent' && $rentalApplication->status === 'declined' && !$rentalApplication->applicant_notified_at)
-            @php($declineRecipientEmail = $rentalApplication->recipientEmail())
+            {{-- .ai/specs/rental-application-field-config.md §7, piece
+                 (c)(3) — the bare single-parenthesis PHP-directive
+                 one-liner form has no guard against Blade's raw-PHP
+                 extraction regex treating it as a block-opener (confirmed
+                 live elsewhere in this same build — show.blade.php's own
+                 identical fix, which also found that even TYPING that
+                 literal one-liner syntax inside a Blade comment gets
+                 matched by the same regex, comment or not — deliberately
+                 not written out literally here either). Converted
+                 proactively before adding new content to this file, not
+                 reactively after breaking it. --}}
+            @php
+                $declineRecipientEmail = $rentalApplication->recipientEmail();
+            @endphp
             <div x-show="declineSendDrawerOpen" x-cloak
                  class="fixed inset-0 z-[100] flex justify-end"
                  style="background: rgba(0,0,0,0.5);"
@@ -2581,7 +3035,275 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked }) {
+// AT-430 §3 — the right-hand panel's Checklist section (and the
+// Finances/Checklist open-collapsed toggle that sits above it). Shared by
+// rentalReview() (agent) and rentalAuthorisationViewer() (authoriser) via
+// the same spread convention as rentalDocumentHighlighter()/
+// rentalCaptureLedger() above — "same panel, same data — there is no
+// separate authoriser view" (§3.1).
+function rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, checklistItemDocumentUploadUrlTemplate, reviewLocked } = {}) {
+    return {
+        panelState: Object.assign({ finances: true, checklist: true }, panelPreferences || {}),
+        checklistSections: (checklistSections || []).map(s => ({ ...s, items: (s.items || []).map(i => ({ ...i, error: '', noteOpen: false, attachments: i.attachments || [], removedAttachments: i.removed_attachments || [], attachError: '', uploading: false, dragOver: false, removedOpen: false })) })),
+        checklistItemDocumentUploadUrlTemplate,
+        // 2026-09-25, Johan's own catch — these three were destructured out
+        // of this factory's own argument but never put back on the returned
+        // object, so every this.panelPreferenceUrl/checklistItemUrlTemplate/
+        // checklistSectionUrlTemplate read below resolved to undefined:
+        // togglePanel() posted to ".../undefined" (404, silently swallowed by
+        // its own best-effort catch), and setItemState()/saveSectionDescription()
+        // did the same — ticking Done/N/A or typing a section note optimistically
+        // updated the screen but never reached the server either. Same missing-
+        // property bug, same function, all four instances of it fixed together.
+        panelPreferenceUrl,
+        checklistItemUrlTemplate,
+        checklistSectionUrlTemplate,
+        // 2026-09-25, Johan — a lazily-created key (every checklist_section_N
+        // one, added the first time its section is ever toggled) never got
+        // watched: Alpine's reactivity is Vue's own Proxy engine
+        // (alpinejs/src/index.js imports straight from @vue/reactivity), and
+        // Object.prototype.hasOwnProperty.call(this.panelState, key) resolves
+        // via the Proxy's [[GetOwnProperty]] trap, which Vue's handler never
+        // defines — no track() call fires, so the x-show effect that only
+        // ever called this via the ternary's untaken branch (the key didn't
+        // exist yet on first render) never subscribed to it. Read the value
+        // straight through the proxy instead — @vue/reactivity's get() trap
+        // calls track() unconditionally, for a genuinely absent key too, and
+        // its trigger() on "add" notifies exactly that per-key dependency —
+        // confirmed directly against the vendored @vue/reactivity source in
+        // this app, not assumed. No hasOwnProperty/Object.keys/`in` may ever
+        // stand between an Alpine binding and the state it reads — that gap
+        // is why "Finances"/"Checklist" (pre-seeded keys, tracked from the
+        // very first render) always worked while every section never did.
+        isPanelOpen(key, defaultOpen = false) {
+            const value = this.panelState[key];
+            return value === undefined ? defaultOpen : !!value;
+        },
+        async togglePanel(key, defaultOpen = false) {
+            const next = !this.isPanelOpen(key, defaultOpen);
+            this.panelState[key] = next;
+            try {
+                await fetch(this.panelPreferenceUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ panel_key: key, open: next }),
+                });
+            } catch (e) {
+                // Best-effort persistence — a failed save just means this
+                // toggle reverts to its old default next reload, never a
+                // blocking error for what is otherwise a pure UI action.
+            }
+        },
+        toggleChecklistSection(sectionId) {
+            this.togglePanel('checklist_section_' + sectionId, false);
+        },
+        /** §3.5 — done/total excluding not_applicable. */
+        sectionProgress(section) {
+            const countable = section.items.filter(i => i.state !== 'not_applicable');
+            const done = countable.filter(i => i.state === 'done').length;
+            return done + '/' + countable.length;
+        },
+        checklistOverall() {
+            let done = 0, total = 0;
+            this.checklistSections.forEach(s => {
+                s.items.forEach(i => {
+                    if (i.state === 'not_applicable') return;
+                    total++;
+                    if (i.state === 'done') done++;
+                });
+            });
+            return done + '/' + total;
+        },
+        /**
+         * Derived items (Part D) never reach this method — the panel never
+         * renders a state control for one (see the Blade's own
+         * `x-if="!item.is_derived"` guard), and the server independently
+         * refuses a write for one regardless (RentalApplicationReviewController::
+         * updateChecklistItem()) — defence in depth, not a single point of trust.
+         */
+        async setItemState(item, newState) {
+            if (this.reviewLocked || item.is_derived) return;
+            if (newState === 'done' && item.note_required && !(item.note || '').trim()) {
+                item.error = 'Add a note before marking this item done.';
+                return;
+            }
+            const previousState = item.state;
+            item.state = newState;
+            item.error = '';
+            try {
+                const res = await fetch(this.checklistItemUrlTemplate.replace('__ITEM_ID__', encodeURIComponent(item.id)), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ state: newState, note: item.note || null }),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    item.error = body.error || 'Could not save this item.';
+                    item.state = previousState;
+                }
+            } catch (e) {
+                item.error = 'Network error — this item was not saved.';
+                item.state = previousState;
+            }
+        },
+        async saveItemNote(item) {
+            if (this.reviewLocked || item.is_derived) return;
+            try {
+                const res = await fetch(this.checklistItemUrlTemplate.replace('__ITEM_ID__', encodeURIComponent(item.id)), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ state: item.state, note: item.note || null }),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    item.error = body.error || 'Could not save this note.';
+                    return;
+                }
+                item.error = '';
+            } catch (e) {
+                item.error = 'Network error — this note was not saved.';
+            }
+        },
+        async saveSectionDescription(section) {
+            if (this.reviewLocked) return;
+            try {
+                await fetch(this.checklistSectionUrlTemplate.replace('__SECTION_ID__', encodeURIComponent(section.id)), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ description: section.description || null }),
+                });
+            } catch (e) {
+                // Best-effort — same "don't block the screen over a note" call as the panel-preference toggle above.
+            }
+        },
+        /**
+         * AT-430 Part E — "attach where you are": the paperclip AND the
+         * drop target both land here. Reload-on-success rather than
+         * hand-patching panelState/checklistSections — the exact same
+         * choice this file already made for every other document-mutating
+         * action (agentDocumentUploadReview(), attachExistingDocument()
+         * below) — so the item's Done state, the section's done/total, and
+         * the Checklist header's overall count all come from one server
+         * render, never a second, hand-maintained copy that could drift
+         * from it.
+         */
+        async uploadChecklistItemFiles(item, fileList) {
+            if (this.reviewLocked || item.is_derived) return;
+            const files = Array.from(fileList || []);
+            if (!files.length) return;
+            item.uploading = true;
+            item.attachError = '';
+            const formData = new FormData();
+            files.forEach(file => formData.append('files[]', file));
+            try {
+                const res = await fetch(this.checklistItemDocumentUploadUrlTemplate.replace('__ITEM_ID__', encodeURIComponent(item.id)), {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: formData,
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    item.attachError = data.error || 'Could not attach this file.';
+                    item.uploading = false;
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                item.attachError = 'Network error — this file was not attached.';
+                item.uploading = false;
+            }
+        },
+        onChecklistItemFilesPicked(item, fileList) {
+            this.uploadChecklistItemFiles(item, fileList);
+        },
+        onChecklistItemDragEnter(item) {
+            if (this.reviewLocked || item.is_derived) return;
+            item.dragOver = true;
+        },
+        onChecklistItemDragLeave(item) {
+            item.dragOver = false;
+        },
+        onChecklistItemDrop(item, event) {
+            item.dragOver = false;
+            this.uploadChecklistItemFiles(item, event.dataTransfer.files);
+        },
+        async removeChecklistItemDocument(item, doc) {
+            if (this.reviewLocked) return;
+            try {
+                const res = await fetch(doc.remove_url, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    item.attachError = data.error || 'Could not remove this file.';
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                item.attachError = 'Network error — this file was not removed.';
+            }
+        },
+        async restoreChecklistItemDocument(item, doc) {
+            if (this.reviewLocked) return;
+            try {
+                const res = await fetch(doc.restore_url, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    item.attachError = data.error || 'Could not restore this file.';
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                item.attachError = 'Network error — this file was not restored.';
+            }
+        },
+    };
+}
+
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked, panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, checklistItemDocumentUploadUrlTemplate }) {
     return {
         // 2026-09-12 — Johan-approved read-only lock while the application
         // is with the authoriser (isPendingAuthorisation()). Set once, from
@@ -2603,6 +3325,10 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // tally logic, one copy. See its own docblock for the full
         // reasoning (rentalCaptureLedger(), defined further below).
         ...rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate }),
+        // AT-430 §3 — the checklist half of this same panel. Spread rather
+        // than a nested x-data, same reasoning as the two factories above:
+        // one shared scope, no cross-component reach-through needed.
+        ...rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, checklistItemDocumentUploadUrlTemplate, reviewLocked }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No
@@ -2753,6 +3479,18 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         submittingForApproval: false,
         agentActionStatus: '',
         agentActionError: false,
+        // AT-430 Part A, 2026-09-24 — one-step approval. Same field names as
+        // rentalAuthorisationViewer()'s own decision-panel fields (see that
+        // factory's own comment) — this agent screen posts to the exact
+        // same approve/decline endpoints when $canApproveDirectly.
+        approveModalOpen: false,
+        approveAmount: '',
+        approveDepositAmount: '',
+        approveReason: '',
+        approveConfirming: false,
+        declineModalOpen: false,
+        declineReason: '',
+        declineReasonTemplateId: '',
         // Reopen/resubmit, 2026-09-08 — expectedGeneration is bootstrapped
         // from the generation this page actually rendered; sent back on
         // every write the applicant's own resubmit could invalidate, so a
@@ -3454,7 +4192,7 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
     };
 }
 
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, initialStatementPeriodFrom, initialStatementPeriodTo, captureStrikeUrlTemplate }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, initialStatementPeriodFrom, initialStatementPeriodTo, captureStrikeUrlTemplate, panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
         ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
@@ -3463,6 +4201,10 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         // factory, same tally, read-only either way (no edit UI in the new
         // panel for anyone — capture happens on the document itself).
         ...rentalCaptureLedger({ initialCaptureEntries, captureStrikeUrlTemplate }),
+        // AT-430 §3.1 — "same panel, same data — there is no separate
+        // authoriser view." The authoriser CAN work the checklist (§3.3
+        // names no role restriction), same factory as the agent's own.
+        ...rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked }),
         // statementMonths has no editable UI on the authoriser's side (the
         // dates are the agent's own field, read-only here) — just the
         // number needed for monthlyIncome()/netMonthly() to compute.
@@ -3479,6 +4221,11 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
 
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
+        // Johan, 2026-09-22 (property 4283) — optional, same shape as
+        // approveAmount: the tenant-link screen prefers this over the
+        // property's own deposit_amount when present, but most approvals
+        // will never set one.
+        approveDepositAmount: '',
         approveReason: '',
         // 2026-09-16 — the in-page confirmation step that replaced native
         // confirm() on this form (see the modal's own comment). Reset to

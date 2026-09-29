@@ -80,7 +80,21 @@
 </div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Applicant Signature</span></div>
 
-<div class="corex-h2">Tenant Profile Network Consent</div>
+@php
+    // Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." The
+    // heading/caption below used to hardcode "TPN"/"Tenant Profile
+    // Network" — HFC's own choice of bureau, not a universal one.
+    // displayFieldConfig() (not resolvedFieldConfigFor()/today's live
+    // setting directly) so a regenerated PDF for an OLD submitted
+    // application keeps naming whichever bureau it actually disclosed at
+    // submission time — same historical-integrity rule as every other
+    // frozen field, never today's config reaching backward into a signed
+    // record. The clause text itself was always bureau-agnostic ("any
+    // credit provider or registered credit bureau") and needs no change.
+    $creditBureauConsentLabel = $application->displayFieldConfig()['tpn_consent_signature']['label']
+        ?? \App\Models\RentalApplication::creditBureauConsentLabel(null);
+@endphp
+<div class="corex-h2">{{ $creditBureauConsentLabel }}</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact, request and obtain information from any credit provider or registered credit bureau relevant to an assessment of the behaviour, profile, payment patterns, indebtedness, whereabouts, and creditworthiness of the tenant.</span></div>
 <div class="corex-clause corex-clause-indent-1">
     @if($tpn = $application->tpnConsentSignature())
@@ -89,7 +103,7 @@
         <span class="corex-field-value">_________________________</span>
     @endif
 </div>
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Applicant Signature — TPN Consent</span></div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ \App\Models\RentalApplication::creditBureauConsentCaption($creditBureauConsentLabel) }}</span></div>
 
 @if($application->token)
 <div class="corex-h2">Returning this application</div>

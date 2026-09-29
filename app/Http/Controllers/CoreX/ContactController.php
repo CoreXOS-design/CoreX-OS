@@ -1068,6 +1068,28 @@ class ContactController extends Controller
         // its own clone, so filtering the list below can never affect it.
         $rentalApplicationsTotalCount = (clone $contact->visibleRentalApplicationsFor($request->user()))->count();
 
+        // Johan, from his own live walk, 2026-09-21 — the "Current status"
+        // summary above the history list reads from Contact::
+        // rental_application_status, a cache RecomputeRentalApplicationStatus
+        // keeps in sync on submit/approve/decline/reopen — but nothing tells
+        // it a lease happened since, so it never moves off "approved" once
+        // a tenant is placed. Rather than wire a new cross-pillar event into
+        // that cache (real option, more consistent with how the rest of
+        // this codebase reacts to state changes, but only as reliable as
+        // remembering to fire it at every place a lease's status can
+        // change — the exact class of thing that got us here), this checks
+        // the SAME "most recent application" the listener's own
+        // deriveStatus() uses, live, every render: cheap (one indexed
+        // lookup), and it can never go stale, because nothing has to
+        // remember to invalidate it. Mirrors RentalApplication::
+        // isTenanted()'s own reasoning exactly — see that method's docblock.
+        $latestRentalApplication = \App\Models\RentalApplication::withoutGlobalScopes()
+            ->where('contact_id', $contact->id)
+            ->orderByDesc('updated_at')
+            ->first();
+        $currentlyTenanted = $latestRentalApplication?->isTenanted() ?? false;
+        $tenantedLabel = \App\Models\RentalApplicationQualifyingSetting::tenantedLabelFor($contact->agency_id);
+
         $rentalHistoryQuery = $contact->visibleRentalApplicationsFor($request->user());
         $this->applySearchSortAndDateRange($rentalHistoryQuery, $request, 'submitted_at', 'created_at', 'desc');
         // Grouped "outcome" filter (Approved/Declined/Withdrawn/In progress/
@@ -1132,7 +1154,7 @@ class ContactController extends Controller
         // Contact-details Phase 2 adds $contactIdentifierLabels; Phase 4 adds the
         // Recent-Sends panel vars ($recentSends, $sendAuditLog, $sendAuditActors);
         // AT-321 audit adds $includeSystem (History-tab system-trail toggle).
-        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals', 'visibleRentalApplications', 'hasAnyRentalApplications', 'rentalApplicationsTotalCount', 'rentalOutcome'));
+        return view('corex.contacts.show', compact('contact', 'contactTypes', 'contactIdentifierLabels', 'contactTags', 'matchCategories', 'matchTypes', 'featureOptions', 'documentTypes', 'driveLinkedGroups', 'driveUnlinkedDocs', 'drivePropertyMap', 'buyerViewings', 'sellerViewings', 'buyerUpcoming', 'buyerPast', 'sellerUpcoming', 'sellerPast', 'viewingsCount', 'outreachSends', 'outreachClickCounts', 'outreachOutcomeOptions', 'agencyAgents', 'canViewComms', 'contactComms', 'contactThreads', 'commsViaGrant', 'canRequestComms', 'pendingCommsRequest', 'myCaptureStatus', 'waSent', 'emailSent', 'fullAuditLog', 'includeSystem', 'historyCount', 'recentSends', 'sendAuditLog', 'sendAuditActors', 'canEdit', 'linkedDeals', 'visibleRentalApplications', 'hasAnyRentalApplications', 'rentalApplicationsTotalCount', 'rentalOutcome', 'currentlyTenanted', 'tenantedLabel'));
     }
 
     public function checkDuplicate(Request $request)

@@ -229,6 +229,25 @@ class RentalApplicationQualifyingSetting extends Model
      */
     public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = false;
 
+    /** AT-430 §3.6 — see requireChecklistCompleteFor()'s own docblock. */
+    public const DEFAULT_REQUIRE_CHECKLIST_COMPLETE = false;
+
+    /**
+     * AT-430 Part A, 2026-09-24 — Johan, via Sherry (single-person Cape Town
+     * agency): today an application is reviewed, then sent for authorisation
+     * to a SECOND person who approves it — correct for Home Finders Coastal
+     * (agents + principal), wrong for a one-person agency, where the hand-off
+     * is a screen she sends to herself. `one_step` lets an agent who already
+     * holds RO/CO tier approve/decline directly on the review screen,
+     * skipping the `submitted_for_approval_at` hand-off entirely — it
+     * removes a STEP, never a CHECK: a user without RO/CO tier still sees
+     * "Submit for approval" regardless of this setting (see
+     * RentalApplicationAuthorisationController::guardCanDecide()).
+     */
+    public const DEFAULT_APPROVAL_MODE = 'two_step';
+
+    public const APPROVAL_MODES = ['two_step', 'one_step'];
+
     /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
      * not gated but if the applicant submits... after initial submission
@@ -323,11 +342,14 @@ class RentalApplicationQualifyingSetting extends Model
         'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
         'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
-        'require_fica_before_authorisation',
+        'require_fica_before_authorisation', 'approval_mode', 'require_checklist_complete',
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
         'required_field_keys', 'marital_status_options',
+        'hidden_field_keys', 'field_label_overrides', 'field_help_text_overrides', 'field_order',
+        'credit_bureau_name',
+        'tenanted_label',
     ];
 
     protected $casts = [
@@ -342,6 +364,7 @@ class RentalApplicationQualifyingSetting extends Model
         'document_rate_limit_window_minutes' => 'integer',
         'document_uploads_open_after_approval' => 'boolean',
         'require_fica_before_authorisation' => 'boolean',
+        'require_checklist_complete' => 'boolean',
         'return_gate_attempt_max' => 'integer',
         'return_gate_attempt_window_minutes' => 'integer',
         'show_rate_limit_max' => 'integer',
@@ -362,6 +385,10 @@ class RentalApplicationQualifyingSetting extends Model
         'identity_gate_resend_cooldown_seconds' => 'integer',
         'required_field_keys' => 'array',
         'marital_status_options' => 'array',
+        'hidden_field_keys' => 'array',
+        'field_label_overrides' => 'array',
+        'field_help_text_overrides' => 'array',
+        'field_order' => 'array',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -648,6 +675,41 @@ class RentalApplicationQualifyingSetting extends Model
             : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
     }
 
+    public static function approvalModeFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_APPROVAL_MODE;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->approval_mode !== null && in_array($row->approval_mode, self::APPROVAL_MODES, true)
+            ? $row->approval_mode
+            : self::DEFAULT_APPROVAL_MODE;
+    }
+
+    /**
+     * AT-430 §3.6 — "the checklist does not block approval by default."
+     * Default OFF: Sherry's checklist is a working aid, not a gate, until an
+     * agency deliberately turns it into one. Consulted by
+     * RentalApplicationChecklistService::isCompleteFor() at the approve
+     * action — see that service's own docblock for the ownership boundary
+     * (this lane builds the check, the approval controller itself is
+     * cc4's file and wires the call).
+     */
+    public static function requireChecklistCompleteFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRE_CHECKLIST_COMPLETE;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->require_checklist_complete !== null
+            ? (bool) $row->require_checklist_complete
+            : self::DEFAULT_REQUIRE_CHECKLIST_COMPLETE;
+    }
+
     public static function returnGateMethodFor(?int $agencyId): string
     {
         if ($agencyId === null || $agencyId <= 0) {
@@ -718,6 +780,82 @@ class RentalApplicationQualifyingSetting extends Model
             : self::DEFAULT_REQUIRED_FIELD_KEYS;
     }
 
+    /**
+     * .ai/specs/rental-application-field-config.md — extends
+     * required_field_keys's own contract exactly (nullable, never
+     * force-populated, an explicit empty array is a real choice). NULL/no
+     * row = nothing hidden, every shipped field shows.
+     */
+    public static function hiddenFieldKeysFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->hidden_field_keys !== null ? $row->hidden_field_keys : [];
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md — required_field_keys
+     * and hidden_field_keys are two independent agency choices; nothing
+     * stops an agency ticking a field BOTH compulsory and hidden. Neither
+     * requiredFieldKeysFor() nor hiddenFieldKeysFor() alone can answer
+     * "what must this applicant actually fill in" — a raw required list
+     * that still names a hidden field is an unsatisfiable server-side
+     * validation rule for a field the applicant has no way to see or
+     * complete. Every consumer that turns "required" into an enforced
+     * rule (submit()'s validation, show()'s `required` attribute) goes
+     * through this, never requiredFieldKeysFor() directly.
+     */
+    public static function effectiveRequiredFieldKeysFor(?int $agencyId): array
+    {
+        return array_values(array_diff(
+            self::requiredFieldKeysFor($agencyId),
+            self::hiddenFieldKeysFor($agencyId)
+        ));
+    }
+
+    public static function fieldLabelOverridesFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->field_label_overrides !== null ? $row->field_label_overrides : [];
+    }
+
+    public static function fieldHelpTextOverridesFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->field_help_text_overrides !== null ? $row->field_help_text_overrides : [];
+    }
+
+    /**
+     * WITHIN-SECTION order only (see the migration's own docblock for why
+     * cross-section reordering isn't attempted here) — a partial ordering
+     * (some keys named, others not) puts named keys first in the given
+     * order, then every unnamed key in its shipped registry order.
+     */
+    public static function fieldOrderFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->field_order !== null ? $row->field_order : [];
+    }
+
     public static function maritalStatusOptionsFor(?int $agencyId): array
     {
         if ($agencyId === null || $agencyId <= 0) {
@@ -729,6 +867,58 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->marital_status_options !== null
             ? $row->marital_status_options
             : self::DEFAULT_MARITAL_STATUS_OPTIONS;
+    }
+
+    /**
+     * Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." Null
+     * (no row, or a row with this column unset) means no specific bureau
+     * named — deliberately NOT a 'TPN' constant fallback the way every
+     * other setting here falls through to a DEFAULT_* value. A brand new
+     * agency has no reason to be defaulted to a named competitor product
+     * neither they nor CoreX chose on their behalf; RentalApplication::
+     * creditBureauConsentLabel() renders null as generic "Credit Bureau
+     * Consent" wording, which is also the correct reading for an agency
+     * that genuinely runs no bureau check at all — same safe state, same
+     * text, no blank gap in applicant-facing copy either way.
+     */
+    public static function creditBureauNameFor(?int $agencyId): ?string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return null;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+        $value = $row ? trim((string) $row->credit_bureau_name) : '';
+
+        return $value !== '' ? $value : null;
+    }
+
+    /** Sensible default for a brand-new agency — Johan's own words from his live walk. */
+    public const DEFAULT_TENANTED_LABEL = 'Rented Out';
+
+    /**
+     * Johan, 2026-09-21, from his own live walk — an approved application
+     * with an active linked lease reads as merely "Approved" everywhere,
+     * indistinguishable from a decision made last week with no tenant yet.
+     * The wording for that further state is agency-configurable, same
+     * convention as credit_bureau_name immediately above: null (no row, or
+     * an unset column) falls through to DEFAULT_TENANTED_LABEL, never a
+     * hardcoded string in a view. Deliberately ONE label, used identically
+     * on the applications list tile, the application detail screen, and
+     * the contact record — Johan's own instruction: "if an agent sees
+     * 'tenant' in one place and 'approved' in another, we have made it
+     * worse."
+     */
+    public static function tenantedLabelFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_TENANTED_LABEL;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+        $value = $row ? trim((string) $row->tenanted_label) : '';
+
+        return $value !== '' ? $value : self::DEFAULT_TENANTED_LABEL;
     }
 
     /**

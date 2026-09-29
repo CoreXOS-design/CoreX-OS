@@ -25,6 +25,19 @@
     $priceStep  = ($priceFloor !== null && $priceCeil !== null)
         ? max(10000, (int) (round((($priceCeil - $priceFloor) / 100) / 1000) * 1000))
         : 10000;
+    // The two range inputs below use $priceFloor as their `min` and $priceCeil as
+    // their `max`/default `value`. Per the HTML range-input value-sanitisation
+    // algorithm, a `value` that doesn't land on the {min + n*step} grid gets
+    // silently snapped DOWN to the nearest valid step below it at parse time —
+    // no JS involved. If ($priceCeil - $priceFloor) isn't an exact multiple of
+    // $priceStep, the max thumb's own default value renders below the real
+    // highest-priced match, which the client-side filter then hides on load
+    // with no filter ever "applied" by the buyer. Floor/ceil both bounds onto
+    // the step grid so every real price is guaranteed to fall inside them.
+    if ($priceFloor !== null && $priceCeil !== null) {
+        $priceFloor = (int) (floor($priceFloor / $priceStep) * $priceStep);
+        $priceCeil  = (int) (ceil($priceCeil / $priceStep) * $priceStep);
+    }
     $suburbList = $properties->pluck('suburb')->filter()->unique()->sort()->values();
     $hasScores  = $properties->contains(fn ($p) => (int) ($p->match_score ?? 0) > 0);
 

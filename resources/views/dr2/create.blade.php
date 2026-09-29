@@ -79,6 +79,11 @@
 
 <form method="POST" id="dr2-main-form" action="{{ $mode === 'create' ? route('deals-dr2.store') : route('deals-dr2.update', $deal) }}" class="space-y-6">
         @csrf
+        @if($mode === 'create')
+            {{-- One-time key per rendered form — DealRegisterController::store() accepts it once, so a
+                 double-click / double-submit can never capture the same deal twice (deals 1826/1827). --}}
+            <input type="hidden" name="_submission_key" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
+        @endif
 
         {{-- Deal Details --}}
         <div>
@@ -736,13 +741,33 @@
 
 
         <div class="flex items-center justify-end">
-            <button type="submit"
+            <button type="submit" id="dr2-main-submit"
                     class="corex-btn-primary px-5 py-2.5 text-sm">
                 {{ $mode === 'create' ? 'Save Deal' : 'Update Deal' }}
             </button>
         </div>
 
         <script>
+            // Lock the save button once the form is actually submitting, so a second click cannot
+            // post the deal again. Re-enabled if the page is restored from the back/forward cache.
+            (function () {
+                const form = document.getElementById('dr2-main-form');
+                const btn  = document.getElementById('dr2-main-submit');
+                if (!form || !btn) return;
+                const label = btn.textContent;
+                form.addEventListener('submit', function (e) {
+                    if (form.dataset.submitting === '1') { e.preventDefault(); return; }
+                    form.dataset.submitting = '1';
+                    btn.disabled = true;
+                    btn.textContent = 'Saving…';
+                });
+                window.addEventListener('pageshow', function () {
+                    form.dataset.submitting = '';
+                    btn.disabled = false;
+                    btn.textContent = label;
+                });
+            })();
+
             function syncSelected(selectEl, containerEl, sideName, initialPercents) {
                 const selectedIds = Array.from(selectEl.selectedOptions).map(o => o.value);
 
@@ -990,6 +1015,13 @@
     </div>
 </div>
 
+@php
+    // Blade's @json() compiler splits its raw argument text on every
+    // top-level comma, so an inline multi-key array literal corrupts the
+    // compiled statement. Building the value here first (zero commas at
+    // the @json() call site) is always safe regardless of key count.
+    $propertiesUpdatePriceUrlForJs = $deal->exists ? route('deals-dr2.properties.updatePrice', ['deal' => $deal->id, 'property' => '__ID__']) : null;
+@endphp
 <script>
 (function () {
     const csrf = document.querySelector('input[name="_token"]')?.value
@@ -1001,7 +1033,7 @@
         contactInline: @json(route('deals-dr2.contact.inline')),
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
-        propertiesUpdatePrice: @json($deal->exists ? route('deals-dr2.properties.updatePrice', ['deal' => $deal->id, 'property' => '__ID__']) : null),
+        propertiesUpdatePrice: @json($propertiesUpdatePriceUrlForJs),
         eligibleProperties: @json(route('deals-dr2.search.eligible-properties')),
     };
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };

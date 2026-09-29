@@ -3,6 +3,7 @@
 namespace App\Services\Compliance;
 
 use App\Models\Agency;
+use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\Compliance\WhistleblowAuditLog;
 use App\Models\Compliance\WhistleblowComplaint;
 use App\Models\Compliance\WhistleblowComplaintEvidence;
@@ -12,13 +13,24 @@ use App\Models\Property;
 use App\Models\User;
 use App\Mail\Compliance\SellerInfoMail;
 use App\Mail\Compliance\WhistleblowComplaintMail;
+use App\Mail\Compliance\WhistleblowSubmittedCoMail;
 use App\Models\Compliance\SellerInfoShareLink;
+use App\Notifications\WhistleblowSubmittedNotification;
+use App\Services\CommandCenter\NotificationDispatcher;
+use Illuminate\Mail\Events\MessageSent;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class WhistleblowComplaintService
 {
+    public function __construct(
+        private ComplianceMailDispatcher $mailDispatcher = new ComplianceMailDispatcher(),
+    ) {
+    }
+
     /**
      * Create a new complaint in draft status.
      */
@@ -100,7 +112,170 @@ class WhistleblowComplaintService
         $complaint->update(['status' => 'pending_approval']);
         $this->writeAudit($complaint, 'submitted', $submittedBy);
 
+        // Notification failures must never block a legally-recorded submission
+        // (same principle as FicaReferralService::notifyRecipientOfReferral).
+        try {
+            $this->notifyComplianceOfficerOfSubmission($complaint, $submittedBy);
+        } catch (\Throwable $e) {
+            Log::warning('Whistleblow CO submission email failed (non-fatal)', [
+                'complaint_id' => $complaint->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            $this->notifyApproversOfSubmission($complaint, $submittedBy);
+        } catch (\Throwable $e) {
+            Log::warning('Whistleblow approver submission notification failed (non-fatal)', [
+                'complaint_id' => $complaint->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+
         return $complaint->fresh();
+    }
+
+    /**
+     * Email the agency's Compliance Officer that a new report was filed.
+     * Recipient resolution: agencies.whistleblow_compliance_officer_email
+     * first; if empty, the primary Compliance Officer appointed at
+     * /corex/settings?tab=user (fica_officer_appointments). Absorbs (does
+     * not throw) when neither is configured — a missing CO is a settings
+     * gap, not a broken submission.
+     */
+    private function notifyComplianceOfficerOfSubmission(WhistleblowComplaint $complaint, User $reporter): void
+    {
+        $recipientEmail = $this->resolveComplianceOfficerEmail((int) $complaint->agency_id);
+        if (!$recipientEmail) {
+            Log::info('Whistleblow submitted — no Compliance Officer configured to notify', [
+                'complaint_id' => $complaint->id,
+                'agency_id'    => $complaint->agency_id,
+            ]);
+            return;
+        }
+
+        $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
+        $mailable = new WhistleblowSubmittedCoMail($complaint, $agency, $reporter);
+        $renderedHtml = $mailable->render();
+        $renderedText = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>'], "\n", $renderedHtml));
+        $subject = $mailable->envelope()->subject;
+
+        try {
+            $this->mailDispatcher->send($recipientEmail, $mailable);
+
+            WhistleblowEmailLog::create([
+                'complaint_id'    => $complaint->id,
+                'agency_id'       => $complaint->agency_id,
+                'sent_at'         => now(),
+                'email_type'      => 'co_submission_notice',
+                'subject'         => $subject,
+                'recipients_to'   => [$recipientEmail],
+                'recipients_cc'   => [],
+                'rendered_html'   => $renderedHtml,
+                'rendered_text'   => $renderedText,
+                'sent_by_user_id' => $reporter->id,
+                'status'          => 'sent',
+            ]);
+        } catch (\Throwable $e) {
+            WhistleblowEmailLog::create([
+                'complaint_id'    => $complaint->id,
+                'agency_id'       => $complaint->agency_id,
+                'sent_at'         => now(),
+                'email_type'      => 'co_submission_notice',
+                'subject'         => $subject,
+                'recipients_to'   => [$recipientEmail],
+                'recipients_cc'   => [],
+                'rendered_html'   => $renderedHtml,
+                'rendered_text'   => $renderedText,
+                'sent_by_user_id' => $reporter->id,
+                'status'          => 'failed',
+                'error_message'   => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * agencies.whistleblow_compliance_officer_email first; else the primary
+     * FICA Compliance Officer appointment's own email (agency-scoped,
+     * multi-agency — never a hardcoded fallback).
+     */
+    private function resolveComplianceOfficerEmail(int $agencyId): ?string
+    {
+        $agency = Agency::withoutGlobalScopes()->find($agencyId);
+        if ($agency?->whistleblow_compliance_officer_email) {
+            return $agency->whistleblow_compliance_officer_email;
+        }
+
+        $appointment = FicaOfficerAppointment::currentPrimary($agencyId);
+        if (!$appointment) {
+            return null;
+        }
+        if ($appointment->user_id) {
+            $user = User::find($appointment->user_id);
+            if ($user?->email) {
+                return $user->email;
+            }
+        }
+
+        return $appointment->email ?: null;
+    }
+
+    /**
+     * Database notification (spec §6.2) for every configured approver —
+     * same approver resolution as validateApproverPermission()/the settings
+     * picker: an explicit whistleblow_approver_user_ids list, else all
+     * admin/branch_manager/super_admin users in the agency.
+     */
+    private function notifyApproversOfSubmission(WhistleblowComplaint $complaint, User $reporter): void
+    {
+        $approvers = $this->resolveApproverUsers((int) $complaint->agency_id);
+        if ($approvers->isEmpty()) {
+            return;
+        }
+
+        $dispatcher = app(NotificationDispatcher::class);
+
+        foreach ($approvers as $approver) {
+            try {
+                $dispatcher->send(
+                    $approver,
+                    'whistleblow.submitted_for_approval',
+                    $complaint,
+                    new WhistleblowSubmittedNotification($complaint, $reporter),
+                    [
+                        'threshold_hit_at' => now()->toIso8601String(),
+                        'complaint_id'     => $complaint->id,
+                    ],
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Whistleblow approver notification failed (non-fatal)', [
+                    'complaint_id' => $complaint->id,
+                    'approver_id'  => $approver->id,
+                    'error'        => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /** Agency-scoped approver list — mirrors the settings-page picker query exactly. */
+    private function resolveApproverUsers(int $agencyId): Collection
+    {
+        $agency = Agency::withoutGlobalScopes()->find($agencyId);
+        $approverIds = $agency?->whistleblow_approver_user_ids ?? [];
+
+        if (!empty($approverIds)) {
+            return User::whereIn('id', $approverIds)
+                ->where('is_active', true)
+                ->whereNull('deleted_at')
+                ->get();
+        }
+
+        return User::where('agency_id', $agencyId)
+            ->whereIn('role', ['admin', 'branch_manager', 'super_admin'])
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->get();
     }
 
     /**
@@ -141,9 +316,19 @@ class WhistleblowComplaintService
             $this->flagPropertyEvidence($complaint);
         }
 
-        // Auto-send email to PPRA (or demo recipient)
+        // Auto-send email to PPRA (or demo recipient). A PPRA send failure is
+        // logged/audited (inside sendToPpra()'s own catch) and surfaced via
+        // the complaint staying in 'approved' rather than 'sent' — but must
+        // never abort approve() before the seller pack below has a chance to go out.
         $complaint->refresh();
-        $this->sendToPpra($complaint);
+        try {
+            $this->sendToPpra($complaint, $approver);
+        } catch (\Throwable $e) {
+            Log::error('Whistleblow PPRA send failed during approve() — continuing to seller info send', [
+                'complaint_id' => $complaint->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
 
         // Auto-send seller info to property sellers (non-blocking)
         try {
@@ -245,20 +430,86 @@ class WhistleblowComplaintService
     }
 
     /**
-     * Send the complaint email to PPRA (or demo recipient).
-     * Called automatically from approve(). Can also be called manually for retries.
+     * Statuses sendToPpra() may run from: the first send (approved) and a
+     * manual resend (sent / acknowledged_by_ppra — see resendToPpra()).
      */
-    public function sendToPpra(WhistleblowComplaint $complaint): void
+    private const PPRA_SENDABLE_STATUSES = ['approved', 'sent', 'acknowledged_by_ppra'];
+
+    /**
+     * Resolve exactly which recipients sendToPpra() would use RIGHT NOW —
+     * same logic sendToPpra() itself uses, extracted so the "Resend to
+     * PPRA" confirm UI can show an admin the real answer (live vs demo)
+     * before they send, never a guess that could drift from what actually
+     * happens.
+     *
+     * @return array{to: array<string>, cc: array<string>, is_demo: bool}
+     */
+    public function resolveRecipientsForPpra(WhistleblowComplaint $complaint): array
     {
-        if ($complaint->status !== 'approved') {
+        $complaint->loadMissing('approvedBy');
+        $isDemoMode = !config('compliance.whistleblow.ppra_live_send', false);
+        $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
+
+        if ($isDemoMode) {
+            $recipientTo = [config('compliance.whistleblow.demo_recipient', config('mail.from.address', 'demo-compliance@corexdemo.co.za'))];
+        } else {
+            $tierRecipients = $agency->whistleblow_tier_recipients ?? [];
+            $recipientTo = $tierRecipients[$complaint->tier] ?? ['complaints@theppra.org.za'];
+            if (empty($recipientTo)) {
+                $recipientTo = ['complaints@theppra.org.za'];
+            }
+        }
+
+        $recipientCc = [];
+        if ($agency->whistleblow_compliance_officer_email) {
+            $recipientCc[] = $agency->whistleblow_compliance_officer_email;
+        }
+        if ($complaint->approvedBy?->email) {
+            $recipientCc[] = $complaint->approvedBy->email;
+        }
+
+        return ['to' => $recipientTo, 'cc' => $recipientCc, 'is_demo' => $isDemoMode];
+    }
+
+    /**
+     * Send the complaint email to PPRA (or demo recipient).
+     *
+     * Called automatically from approve() (first send, status 'approved')
+     * and from resendToPpra() (a manual resend — status already 'sent' or
+     * 'acknowledged_by_ppra'). The complaint's status is NEVER changed on a
+     * resend: only the first send sets status='sent'/sent_to_ppra_at; a
+     * resend leaves whatever status the complaint already had untouched,
+     * so 'acknowledged_by_ppra' can never be regressed back to 'sent' by
+     * resending. $actor identifies who triggered this specific send (the
+     * approver on a first send, the admin who clicked Resend on a resend)
+     * for whistleblow_email_log.sent_by_user_id and the audit trail.
+     */
+    public function sendToPpra(WhistleblowComplaint $complaint, ?User $actor = null): void
+    {
+        if (! in_array($complaint->status, self::PPRA_SENDABLE_STATUSES, true)) {
             throw new \InvalidArgumentException(
-                "Complaint #{$complaint->id} must be in 'approved' status to send (current: {$complaint->status})."
+                "Complaint #{$complaint->id} must be approved, sent, or acknowledged by PPRA to send (current: {$complaint->status})."
             );
         }
 
+        $isFirstSend = $complaint->status === 'approved';
+
         $complaint->loadMissing(['approvedBy', 'subjects']);
-        $isDemoMode = !config('compliance.whistleblow.ppra_live_send', false);
+        $actor = $actor ?? $complaint->approvedBy;
+        $recipients = $this->resolveRecipientsForPpra($complaint);
+        $recipientTo = $recipients['to'];
+        $recipientCc = $recipients['cc'];
+        $isDemoMode = $recipients['is_demo'];
         $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
+
+        // Message-id capture mirrors PerMailboxMailTransportBuilder's own
+        // Event::listen/forget pattern (AT-395) — fires for both the
+        // per-mailbox AND shared-mailer send paths, since both dispatch
+        // MessageSent through the app's own event bus either way.
+        $messageId = null;
+        $listener = function (MessageSent $event) use (&$messageId) {
+            $messageId = $messageId ?? $event->sent->getMessageId();
+        };
 
         try {
             if (!$complaint->complaint_pdf_path || !file_exists($complaint->complaint_pdf_path)) {
@@ -267,35 +518,19 @@ class WhistleblowComplaintService
                 );
             }
 
-            $mailable = new WhistleblowComplaintMail($complaint);
+            $mailable = new WhistleblowComplaintMail($complaint, $complaint->approvedBy);
 
             // Pre-render HTML + text for email log
             $renderedHtml = $mailable->render();
             $renderedText = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>'], "\n", $renderedHtml));
 
-            // Determine actual recipients for logging
-            if ($isDemoMode) {
-                $recipientTo = [config('compliance.whistleblow.demo_recipient', config('mail.from.address', 'demo-compliance@corexdemo.co.za'))];
-            } else {
-                $tierRecipients = $agency->whistleblow_tier_recipients ?? [];
-                $recipientTo = $tierRecipients[$complaint->tier] ?? ['complaints@theppra.org.za'];
-                if (empty($recipientTo)) {
-                    $recipientTo = ['complaints@theppra.org.za'];
-                }
-            }
-
-            $recipientCc = [];
-            if ($agency->whistleblow_compliance_officer_email) {
-                $recipientCc[] = $agency->whistleblow_compliance_officer_email;
-            }
-            if ($complaint->approvedBy?->email) {
-                $recipientCc[] = $complaint->approvedBy->email;
-            }
-
             // Build subject line for log
             $agencyShort = $agency->trading_name ?? $agency->name;
             $tierNumber = str_replace('tier_', '', $complaint->tier);
             $emailSubject = "[{$agencyShort}] PPRA Complaint — Tier {$tierNumber} — {$complaint->subjects_summary}";
+            if (! $isFirstSend) {
+                $emailSubject = '[RESEND] ' . $emailSubject;
+            }
             if ($isDemoMode) {
                 $emailSubject = '[DEMO] ' . $emailSubject;
             }
@@ -310,11 +545,19 @@ class WhistleblowComplaintService
                 ];
             }
 
-            Mail::send($mailable);
+            // $recipientEmail is null: WhistleblowComplaintMail's own envelope()
+            // already carries the full to/cc list, set above for logging.
+            Event::listen(MessageSent::class, $listener);
+            try {
+                $this->mailDispatcher->send(null, $mailable);
+            } finally {
+                Event::forget(MessageSent::class);
+            }
 
             // Write email log row — success
             WhistleblowEmailLog::create([
                 'complaint_id'    => $complaint->id,
+                'agency_id'       => $complaint->agency_id,
                 'sent_at'         => now(),
                 'email_type'      => 'ppra_submission',
                 'subject'         => $emailSubject,
@@ -323,30 +566,36 @@ class WhistleblowComplaintService
                 'rendered_html'   => $renderedHtml,
                 'rendered_text'   => $renderedText,
                 'attachments'     => $attachmentInfo,
-                'sent_by_user_id' => $complaint->approved_by_user_id,
+                'sent_by_user_id' => $actor?->id,
+                'mail_message_id' => $messageId,
                 'status'          => 'sent',
             ]);
 
-            $complaint->update([
-                'status'          => 'sent',
-                'sent_to_ppra_at' => now(),
+            if ($isFirstSend) {
+                $complaint->update([
+                    'status'          => 'sent',
+                    'sent_to_ppra_at' => now(),
+                ]);
+            }
+
+            $this->writeAudit($complaint, $isFirstSend ? 'emailed_to_ppra' : 'resent_to_ppra', $actor, [
+                'recipient_to'    => $recipientTo,
+                'recipient_cc'    => $recipientCc,
+                'demo_mode'       => $isDemoMode,
+                'mail_message_id' => $messageId,
             ]);
 
-            $this->writeAudit($complaint, 'emailed_to_ppra', null, [
-                'recipient_to' => $recipientTo,
-                'recipient_cc' => $recipientCc,
-                'demo_mode'    => $isDemoMode,
-            ]);
-
-            Log::info('Whistleblow complaint email sent', [
+            Log::info($isFirstSend ? 'Whistleblow complaint email sent' : 'Whistleblow complaint email resent', [
                 'complaint_id' => $complaint->id,
                 'to'           => $recipientTo,
                 'demo_mode'    => $isDemoMode,
+                'actor_id'     => $actor?->id,
             ]);
         } catch (\Throwable $e) {
             // Write email log row — failure
             WhistleblowEmailLog::create([
                 'complaint_id'    => $complaint->id,
+                'agency_id'       => $complaint->agency_id,
                 'sent_at'         => now(),
                 'email_type'      => 'ppra_submission',
                 'subject'         => $emailSubject ?? 'Failed to generate subject',
@@ -354,12 +603,12 @@ class WhistleblowComplaintService
                 'recipients_cc'   => $recipientCc ?? [],
                 'rendered_html'   => $renderedHtml ?? '',
                 'rendered_text'   => $renderedText ?? '',
-                'sent_by_user_id' => $complaint->approved_by_user_id,
+                'sent_by_user_id' => $actor?->id,
                 'status'          => 'failed',
                 'error_message'   => $e->getMessage(),
             ]);
 
-            $this->writeAudit($complaint, 'email_send_failed', null, [
+            $this->writeAudit($complaint, $isFirstSend ? 'email_send_failed' : 'resend_failed', $actor, [
                 'error'     => $e->getMessage(),
                 'demo_mode' => $isDemoMode,
             ]);
@@ -370,6 +619,29 @@ class WhistleblowComplaintService
             ]);
 
             throw $e;
+        }
+    }
+
+    /**
+     * "Resend to PPRA" — admin action for a complaint already sent to (or
+     * acknowledged by) PPRA. Built 2026-09-28 as a live incident fix:
+     * complaints approved today went out to the demo address because
+     * WHISTLEBLOW_PPRA_LIVE_SEND was off. Sends the PPRA email only by
+     * default; the seller info pack is a separate, explicit opt-in
+     * ($alsoResendSellerPack) so sellers never get a duplicate by accident.
+     */
+    public function resendToPpra(WhistleblowComplaint $complaint, User $actor, bool $alsoResendSellerPack = false): void
+    {
+        if (! in_array($complaint->status, ['sent', 'acknowledged_by_ppra'], true)) {
+            throw new \InvalidArgumentException(
+                "Complaint #{$complaint->id} has not been sent to PPRA yet (status: {$complaint->status}) — use Approve, not Resend."
+            );
+        }
+
+        $this->sendToPpra($complaint, $actor);
+
+        if ($alsoResendSellerPack) {
+            $this->sendSellerInfoFromComplaint($complaint);
         }
     }
 
@@ -389,6 +661,11 @@ class WhistleblowComplaintService
         }
 
         $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
+        $complaint->loadMissing('approvedBy');
+        // The approver sends this pack (they're the one who just actioned the
+        // complaint); falls back to the reporter if approvedBy somehow isn't
+        // resolvable, and to the shared CoreX mailer if neither has a mailbox.
+        $actingAgent = $complaint->approvedBy ?? User::find($complaint->reported_by_user_id);
         $sellerRoles = ['owner', 'lessor', 'landlord', 'seller'];
         $sellers = $property->contacts()
             ->wherePivotIn('role', $sellerRoles)
@@ -406,13 +683,14 @@ class WhistleblowComplaintService
             $sellerName = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'Valued Seller';
 
             try {
-                $mailable = new SellerInfoMail($agency, $complaint->tier, $sellerName, '');
+                $mailable = new SellerInfoMail($agency, $complaint->tier, $sellerName, '', $actingAgent);
                 $renderedHtml = $mailable->render();
 
-                Mail::to($email)->send($mailable);
+                $this->mailDispatcher->send($email, $mailable);
 
                 WhistleblowEmailLog::create([
                     'complaint_id'    => $complaint->id,
+                    'agency_id'       => $complaint->agency_id,
                     'sent_at'         => now(),
                     'email_type'      => 'seller_info_email',
                     'subject'         => $mailable->envelope()->subject,
@@ -427,6 +705,7 @@ class WhistleblowComplaintService
             } catch (\Throwable $e) {
                 WhistleblowEmailLog::create([
                     'complaint_id'    => $complaint->id,
+                    'agency_id'       => $complaint->agency_id,
                     'sent_at'         => now(),
                     'email_type'      => 'seller_info_email',
                     'subject'         => 'Seller info — failed',
@@ -459,6 +738,7 @@ class WhistleblowComplaintService
 
         WhistleblowEmailLog::create([
             'complaint_id'    => $complaint->id,
+            'agency_id'       => $complaint->agency_id,
             'sent_at'         => now(),
             'email_type'      => 'seller_info_whatsapp_link',
             'subject'         => 'WhatsApp shareable link generated',
@@ -643,18 +923,23 @@ class WhistleblowComplaintService
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * Validate tier-specific required fields before submission.
+     * Validate tier-specific required fields before submission. Throws a
+     * field-keyed ValidationException (never a bare InvalidArgumentException)
+     * so a missing field always redirects the user back to their form with
+     * their input intact and the specific field flagged — never a 500. Keys
+     * match the create/edit form's actual input names so
+     * $errors->has('seller_statement') etc. highlight the right field.
      */
     private function validateTierRequirements(WhistleblowComplaint $complaint): void
     {
-        $missing = [];
+        $errors = [];
 
         // Common to all tiers
         if ($complaint->subjects()->count() === 0) {
-            $missing[] = 'at least one subject (agency/practitioner)';
+            $errors['subjects'] = ['At least one subject (competing agency or practitioner) is required.'];
         }
         if (empty($complaint->property_address)) {
-            $missing[] = 'property_address';
+            $errors['property_address'] = ['Property address is required.'];
         }
 
         // Tier-specific evidence requirements per spec §5
@@ -663,22 +948,20 @@ class WhistleblowComplaintService
         if ($complaint->tier === 'tier_1') {
             // Tier 1: seller statement IS the primary evidence — file attachments optional
             if (empty($complaint->seller_statement) || mb_strlen(trim($complaint->seller_statement)) < 20) {
-                $missing[] = 'seller_statement (required for Tier 1, minimum 20 characters)';
+                $errors['seller_statement'] = ['Seller statement is required for Tier 1 (minimum 20 characters).'];
             }
         } elseif ($complaint->tier === 'tier_2') {
             if ($evidenceCount === 0) {
-                $missing[] = 'screenshot evidence (required for Tier 2)';
+                $errors['evidence_files'] = ['Screenshot evidence is required for Tier 2.'];
             }
         } elseif ($complaint->tier === 'tier_3') {
             if ($evidenceCount === 0) {
-                $missing[] = 'screenshot evidence (required for Tier 3)';
+                $errors['evidence_files'] = ['Screenshot evidence (advert + PPRA register search) is required for Tier 3.'];
             }
         }
 
-        if (!empty($missing)) {
-            throw new \InvalidArgumentException(
-                'Missing required fields for ' . $complaint->tier . ': ' . implode(', ', $missing)
-            );
+        if (!empty($errors)) {
+            throw ValidationException::withMessages($errors);
         }
     }
 

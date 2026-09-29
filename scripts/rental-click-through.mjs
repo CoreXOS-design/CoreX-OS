@@ -56,6 +56,62 @@
  *      changes the row count AND every tile count together, and a plain
  *      agent's own ceiling can't be exceeded by a hand-crafted ?scope=all.
  *
+ *  ── INSPECTIONS TAB — added 2026-09-27, after "All Good" (a per-room
+ *     bulk-fill button) shipped completely dead on 2026-09-22 and went
+ *     unnoticed for five days: same root cause as #1/#2 above
+ *     (`:disabled="markGoodBusy[group.room?.id]"`, undefined until the
+ *     control had fired once), and nothing here had ever clicked it. Own
+ *     fixture (rental-inspection-click-through-fixture.php — a property,
+ *     not a rental application), own section below, same checkControl()
+ *     helper. ──
+ *  20. Photo notes on/off (room-level toggle) — client-only (localStorage),
+ *      no request to prove; asserts the real observable effect (the
+ *      button's own label flips On<->Off) instead.
+ *  21. Mark room good (per-room "All Good") — the confirmed-dead control.
+ *  22. Mark room N/A — same shape as #21, on a SEPARATE room so marking one
+ *      room good does not consume the precondition (an unrecorded item)
+ *      this check needs. Uses a native window.confirm() (unlike every
+ *      other control in this gate) — see newPage()'s own
+ *      acceptDialogsMatching param, added for exactly this control rather
+ *      than weakening the standing "unexpected dialog is a failure" policy.
+ *  23. All good — whole inspection — run LAST of the three "mark" checks
+ *      (deliberately): it fills every still-unrecorded item across the
+ *      WHOLE inspection, so it would silently no-op if run before #21/#22
+ *      finished with their own rooms. Also a native window.confirm().
+ *  24. Add photo(s) — a real file upload (Puppeteer's uploadFile()) to an
+ *      already-recorded item, proving the immediate-upload POST fires
+ *      (AT-436) independent of any of the "mark" checks' own item state.
+ *  25. Next inspection — advances the chain. Run LAST of all seven: every
+ *      other check targets THIS pair's own predecessor/tail; starting a
+ *      new tail would move it out from under a check that ran after.
+ *  26. Auto-pair — the explicit button (not the automatic first-view
+ *      trigger, which has no button to click); the fixture's own
+ *      predecessor/tail photo pair (same room+item, both unpaired) is the
+ *      one unambiguous candidate it can find. Run BEFORE #21/#22/#23 — none
+ *      of those touch the Ceiling item this check pairs, but auto-pair's
+ *      own success is easiest to prove while nothing else on the item has
+ *      changed yet.
+ *  27. Compare viewer — opening a photo shows both sides (Johan, 2026-09-29
+ *      — "clicking a photo ... does NOT show the other side", both
+ *      directions). Clicks the Ceiling item's real predecessor photo, then
+ *      its real tail photo (both still UNPAIRED — this runs BEFORE #26),
+ *      and asserts BOTH panes render a real image (naturalWidth/Height > 0)
+ *      each time, not just the clicked side. Screenshots saved to the
+ *      scratchpad for a human to review.
+ *  28. Manual link/unlink (Johan, 2026-09-29 — "where do we link photos?
+ *      Either on the inspections screen or the photo screen?"). The
+ *      compare-viewer "Link these"/"Linked"+"Unlink" button, backed by
+ *      pre-existing but previously never-wired JS (toggleCompareMatch()/
+ *      compareViewerMatch()) and pre-existing backend endpoints
+ *      (storePhotoMatch()/destroyPhotoMatch()). Clicks the (still unpaired
+ *      — same Ceiling item, runs BEFORE #26) predecessor photo, asserts
+ *      "Link these" shows; clicks it, asserts "Linked"+"Unlink" show;
+ *      closes and REOPENS the viewer (proves the link persisted
+ *      server-side, not just client state) and asserts both panes still
+ *      render real images with the Linked badge present; clicks Unlink,
+ *      asserts it reverts to "Link these". Screenshots of all four states
+ *      saved to the scratchpad.
+ *
  *  NOT covered (named so this stays an honest list, not a silent gap):
  *   - The document-highlighter's CREATE flow (drag a new highlight on the
  *     PDF canvas to open the capture chip in 'create' mode) — needs a real
@@ -152,7 +208,17 @@ function recordKnown(name, why) {
   console.log(`[KNOWN ISSUE] ${name} — ${why}`);
 }
 
-async function newPage(browser, userId) {
+// acceptDialogsMatching — 2026-09-27, added for the Inspections tab's
+// markRoomNa()/markAllGood(), which (unlike every rental-applications
+// control this gate covers) still use a genuine native window.confirm().
+// Default stays [] for every existing caller — behaviour identical to
+// before this param existed. Deliberately NOT a blanket auto-accept: only
+// a dialog whose message contains one of the given substrings is accepted;
+// anything else still fails loudly via the same path as before. This is a
+// real, per-control ALLOWLIST, not a weakening of the 2026-09-16 policy —
+// an unrecognised dialog on ANY page, including these two, is still a
+// named failure.
+async function newPage(browser, userId, acceptDialogsMatching = []) {
   const cookie = mintCookie(userId);
   const page = await browser.newPage();
   const domain = new URL(BASE_URL).hostname;
@@ -172,7 +238,12 @@ async function newPage(browser, userId) {
   // dialog fired and what it said, rather than leaving the caller to
   // decode a generic timeout.
   page.on('dialog', async (dialog) => {
-    record('UNEXPECTED NATIVE DIALOG', false, `${dialog.type()} fired: "${dialog.message()}" — a native dialog reappeared on a path that should only ever confirm in-page`);
+    const known = acceptDialogsMatching.find((substr) => dialog.message().includes(substr));
+    if (known) {
+      await dialog.accept();
+      return;
+    }
+    record('UNEXPECTED NATIVE DIALOG', false, `${dialog.type()} fired: "${dialog.message()}" — a native dialog reappeared on a path that should only ever confirm in-page (or is a genuine new one not yet allowlisted here)`);
     await dialog.dismiss();
   });
   return page;
@@ -245,6 +316,11 @@ async function main() {
   const fixtureJson = runPhp([path.join(__dirname, 'rental-click-through-fixture.php'), `--app-root=${APP_ROOT}`, '--create']).trim();
   const fx = JSON.parse(fixtureJson);
   console.log('Fixture:', fixtureJson);
+
+  console.log('Creating throwaway Inspections-tab fixture...');
+  const inspFixtureJson = runPhp([path.join(__dirname, 'rental-inspection-click-through-fixture.php'), `--app-root=${APP_ROOT}`, '--create']).trim();
+  const inspFx = JSON.parse(inspFixtureJson);
+  console.log('Inspections fixture:', inspFixtureJson);
 
   const browser = await puppeteer.launch({
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -659,6 +735,314 @@ async function main() {
         `?scope=all left the All tile at ${plainCraftedCounts.allTileCount}, identical to the real default — clamped server-side regardless of the URL`);
     }
     await plainPage.close();
+
+    // ══════════════════ INSPECTIONS TAB — added 2026-09-27. See this
+    // file's own header for why (control #21, "All Good", shipped
+    // completely dead for five days) and for what each numbered check
+    // below proves. Own fixture (a property, not a rental application),
+    // own page, same checkControl() helper every check above already
+    // uses. ══
+    const inspPage = await newPage(browser, inspFx.agent_user_id, [
+      'Mark every item in',           // markRoomNa()'s own confirm text
+      'Mark every unrecorded item',   // markAllGood()'s own confirm text
+    ]);
+    await inspPage.goto(`${BASE_URL}/corex/properties/${inspFx.property_id}`, { waitUntil: 'networkidle0', timeout: 25000 });
+    await new Promise((r) => setTimeout(r, 800));
+    // 2026-09-29 — a genuinely fresh fixture user (first ever page view,
+    // empty localStorage in this fresh Puppeteer page — unlike a real
+    // agent's browser, which has long since dismissed this) auto-opens the
+    // "Working on a property" product tour (layouts/partials/tour-
+    // engine.blade.php) on THIS exact page. It sits on top of the tab bar
+    // and swallows the click below silently (no error — the click just
+    // lands on the tour overlay instead of the tab), which then cascades
+    // into every check in this section finding its target elements with a
+    // zero-size bounding box (still on the wrong tab). Dismissed the same
+    // way a human would: the tour's own explicit "Close tour" control
+    // (data-tour-close — AT-41, overlay/X/ESC close is deliberately
+    // disabled, so this is the only dismissal path). No-op (0ms) if the
+    // tour isn't showing.
+    const tourClose = await inspPage.$('[data-tour-close]');
+    if (tourClose) {
+      await tourClose.click();
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    // The Inspections tab is not the default tab on the property page —
+    // every control this section checks lives behind it. Real selector,
+    // checked directly (show.blade.php's tab bar), not guessed:
+    // data-prop-tab="{{ $tab['key'] }}" on each tab button.
+    await inspPage.click('[data-prop-tab="inspections"]');
+    await new Promise((r) => setTimeout(r, 500));
+    // 2026-09-29 — the "Inspection" panel (show.blade.php's own
+    // open['inspection'] flag) starts collapsed on every fresh page load —
+    // `open: {}` has no default entry for it, and nothing anywhere sets one
+    // except this toggle's own @click. Every control checks #20-24 target
+    // (mark-room-good, mark-room-na, toggle-photo-notes, add-item-photo)
+    // lives inside rental-inspection-recording.blade.php, which is rendered
+    // INSIDE that collapsed body (x-show="open['inspection']") — a
+    // display:none element has no bounding box, so Puppeteer's own
+    // elementHandle.click() throws "Node is either not clickable" on all of
+    // them from a genuinely fresh session, not just check #27. Opened here,
+    // once, before any numbered check in this section runs — same fix,
+    // shared entry point, not five separate patches.
+    await inspPage.click('[data-qa="toggle-inspection-panel"]');
+    await new Promise((r) => setTimeout(r, 500));
+
+    // 27 — Compare viewer: opening a photo shows the OTHER side too (Johan,
+    // 2026-09-29 — "clicking a photo opens the viewer, but it does NOT show
+    // the other side", reproduced both directions: an old photo clicked
+    // shows only old, a new photo clicked shows only new). Root cause:
+    // openCompareViewer() only populated the other side's photo when the
+    // clicked photo already belonged to an auto-paired match group; with no
+    // match it left that pane's photoId null (rendered as the empty
+    // placeholder) even though that side had real, unrelated photos of its
+    // own. Run BEFORE #26 (Auto-pair): the Ceiling item is the fixture's
+    // one pair of real, UNPAIRED photos on both predecessor and tail (see
+    // the fixture's own docblock) — exactly the shape that reproduced the
+    // bug. Running this after #26 would pair them first and never exercise
+    // the no-match fallback the fix adds.
+    {
+      const name = '27. Compare viewer — opening a photo shows both sides';
+      const ceilingId = inspFx.ceiling_item_id;
+      // rental-inspection-recording.blade.php includes item-cell.blade.php
+      // TWICE (the active and completed x-show branches — see this file's
+      // own RentalInspectionChainTest coverage of that same fact), so a
+      // data-qa/data-item-id selector legitimately matches more than one
+      // DOM node — only one of which sits inside the currently-visible
+      // branch. querySelectorAll + boundingBox, not $()'s first-match.
+      const firstVisible = async (selector) => {
+        const handles = await inspPage.$$(selector);
+        for (const h of handles) {
+          const box = await h.boundingBox();
+          if (box && box.width > 0 && box.height > 0) return h;
+        }
+        return null;
+      };
+      const dims = async (qa) => {
+        const img = await firstVisible(`[data-qa="${qa}"]`);
+        if (!img) return null;
+        return inspPage.evaluate((el) => ({ w: el.naturalWidth, h: el.naturalHeight }), img);
+      };
+      const clickAndCheck = async (clickSelector, clickedQa, otherQa, label, screenshotName) => {
+        const handle = await firstVisible(clickSelector);
+        if (!handle) return { ok: false, detail: `${label}: no VISIBLE element matched: ${clickSelector}` };
+        await handle.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const clickedDims = await dims(clickedQa);
+        const otherDims = await dims(otherQa);
+        try {
+          await inspPage.screenshot({ path: `/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/${screenshotName}` });
+        } catch (e) { console.error('Screenshot failed (non-fatal):', e.message); }
+        await inspPage.keyboard.press('Escape');
+        await new Promise((r) => setTimeout(r, 300));
+        if (!clickedDims || clickedDims.w <= 0 || clickedDims.h <= 0) {
+          return { ok: false, detail: `${label}: clicked side (${clickedQa}) did not render a real image` };
+        }
+        if (!otherDims || otherDims.w <= 0 || otherDims.h <= 0) {
+          return { ok: false, detail: `${label}: OTHER side (${otherQa}) did not render a real image (${otherDims ? `${otherDims.w}x${otherDims.h}` : 'no element'}) — THE BUG CLASS THIS CHECK HUNTS` };
+        }
+        return { ok: true, detail: `${label}: clicked=${clickedDims.w}x${clickedDims.h}, other=${otherDims.w}x${otherDims.h}` };
+      };
+
+      const oldSide = await clickAndCheck(
+        `img[data-qa="insp-tile-predecessor"][data-item-id="${ceilingId}"]`,
+        'cv-pane-img-left', 'cv-pane-img-right',
+        'clicked OLD (predecessor) photo', 'compare-viewer-old-clicked.png',
+      );
+      const newSide = await clickAndCheck(
+        `img[data-qa="insp-tile-tail"][data-item-id="${ceilingId}"]`,
+        'cv-pane-img-right', 'cv-pane-img-left',
+        'clicked NEW (tail) photo', 'compare-viewer-new-clicked.png',
+      );
+      record(name, oldSide.ok && newSide.ok, [oldSide.detail, newSide.detail].join(' | '));
+    }
+
+    // 28 — Manual link/unlink: link -> reopen -> partner still shows -> unlink
+    // (Johan, 2026-09-29 — "where do we link photos?"). Run BEFORE #26
+    // (Auto-pair), same reason #27 does: the Ceiling item's predecessor/tail
+    // photos are still genuinely unpaired at this point in the run, which is
+    // the ONLY state that actually exercises the new Link button (once
+    // paired, "Linked"/"Unlink" is all there is to click).
+    {
+      const name = '28. Manual link/unlink — link, reopen, partner shows, unlink';
+      const ceilingId = inspFx.ceiling_item_id;
+      const firstVisible = async (selector) => {
+        const handles = await inspPage.$$(selector);
+        for (const h of handles) {
+          const box = await h.boundingBox();
+          if (box && box.width > 0 && box.height > 0) return h;
+        }
+        return null;
+      };
+      const visible = async (qa) => !!(await firstVisible(`[data-qa="${qa}"]`));
+      const dims = async (qa) => {
+        const img = await firstVisible(`[data-qa="${qa}"]`);
+        if (!img) return null;
+        return inspPage.evaluate((el) => ({ w: el.naturalWidth, h: el.naturalHeight }), img);
+      };
+
+      const steps = [];
+      const step = (ok, detail) => steps.push({ ok, detail });
+
+      const predTile = await firstVisible(`img[data-qa="insp-tile-predecessor"][data-item-id="${ceilingId}"]`);
+      if (!predTile) {
+        record(name, false, 'predecessor tile not found — cannot run this check');
+      } else {
+        await predTile.click();
+        await new Promise((r) => setTimeout(r, 600));
+
+        // Not linked yet: "Link these" visible, "Linked"/"Unlink" not.
+        const linkBtnBefore = await visible('cv-link-btn');
+        const linkedBadgeBefore = await visible('cv-link-badge');
+        step(linkBtnBefore && !linkedBadgeBefore, `before link: Link-these button=${linkBtnBefore}, Linked badge=${linkedBadgeBefore}`);
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-before.png' });
+
+        const linkBtn = await firstVisible('[data-qa="cv-link-btn"]');
+        if (linkBtn) {
+          await linkBtn.click();
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const linkedBadgeAfter = await visible('cv-link-badge');
+        const unlinkBtnAfter = await visible('cv-unlink-btn');
+        step(linkedBadgeAfter && unlinkBtnAfter, `after Link these clicked: Linked badge=${linkedBadgeAfter}, Unlink button=${unlinkBtnAfter}`);
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-after.png' });
+
+        // Close, then REOPEN — proves the link persisted server-side, not
+        // just client-side optimistic state.
+        await inspPage.keyboard.press('Escape');
+        await new Promise((r) => setTimeout(r, 400));
+        const predTileAgain = await firstVisible(`img[data-qa="insp-tile-predecessor"][data-item-id="${ceilingId}"]`);
+        if (predTileAgain) {
+          await predTileAgain.click();
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const leftDims = await dims('cv-pane-img-left');
+        const rightDims = await dims('cv-pane-img-right');
+        const linkedBadgeReopened = await visible('cv-link-badge');
+        step(
+          !!leftDims && leftDims.w > 0 && !!rightDims && rightDims.w > 0 && linkedBadgeReopened,
+          `reopened: left=${leftDims ? leftDims.w + 'x' + leftDims.h : 'none'}, right=${rightDims ? rightDims.w + 'x' + rightDims.h : 'none'}, Linked badge=${linkedBadgeReopened}`
+        );
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-reopened.png' });
+
+        // Unlink — reverts to "Link these".
+        const unlinkBtn = await firstVisible('[data-qa="cv-unlink-btn"]');
+        if (unlinkBtn) {
+          await unlinkBtn.click();
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const linkBtnAfterUnlink = await visible('cv-link-btn');
+        const linkedBadgeAfterUnlink = await visible('cv-link-badge');
+        step(linkBtnAfterUnlink && !linkedBadgeAfterUnlink, `after Unlink clicked: Link-these button=${linkBtnAfterUnlink}, Linked badge=${linkedBadgeAfterUnlink}`);
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-unlinked.png' });
+        await inspPage.keyboard.press('Escape');
+        await new Promise((r) => setTimeout(r, 300));
+
+        record(name, steps.every((s) => s.ok), steps.map((s) => s.detail).join(' | '));
+      }
+    }
+
+    // 26 — Auto-pair. Run first: nothing else on the Ceiling item (the only
+    // item this check touches) changes state before it.
+    await checkControl(inspPage, {
+      name: '26. Auto-pair',
+      selector: '[data-qa="auto-pair"]',
+      expectDisabledBefore: false,
+      requestPattern: /rental-inspection-photo-matches\/auto-pair$/,
+      requestMethod: 'POST',
+    });
+
+    // 20 — Photo notes on/off. Client-only (localStorage) — no request to
+    // prove, so this asserts the real, observable effect instead: the
+    // button's own label flips, same style as check #7's viewer-visibility
+    // proof above.
+    {
+      const name = '20. Photo notes on/off';
+      const selector = '[data-qa="toggle-photo-notes"]';
+      const readLabel = () => inspPage.$eval(selector, (el) => el.textContent.trim()).catch(() => null);
+      const before = await readLabel();
+      if (before === null) {
+        record(name, false, `selector not found: ${selector}`);
+      } else {
+        await inspPage.click(selector);
+        await new Promise((r) => setTimeout(r, 200));
+        const after = await readLabel();
+        record(name, before !== after, before !== after ? `"${before}" -> "${after}"` : `label did not change from "${before}" after clicking — dead control`);
+      }
+    }
+
+    // 21 — Mark room good (Bedroom 1 / Walls). THE confirmed-dead control.
+    await checkControl(inspPage, {
+      name: '21. Mark room good ("All Good", per room)',
+      selector: '[data-qa="mark-room-good"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/rooms\/\d+\/mark-good$/,
+      requestMethod: 'POST',
+    });
+
+    // 22 — Mark room N/A (Bathroom 1 / Floor — a SEPARATE room from #21's
+    // Bedroom 1, so #21 filling Walls does not also consume this room's own
+    // precondition). Native window.confirm() — allowlisted on THIS page's
+    // own newPage() call above, not a global policy change.
+    await checkControl(inspPage, {
+      name: '22. Mark room N/A',
+      selector: '[data-qa="mark-room-na"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/rooms\/\d+\/mark-na$/,
+      requestMethod: 'POST',
+    });
+
+    // 23 — All good, whole inspection (Garage / Door — the one item #21/#22
+    // deliberately left untouched). Run AFTER both per-room checks, never
+    // before: it would silently fill Walls/Floor itself and this check
+    // would still "pass" while #21/#22 tested nothing real. Native
+    // window.confirm() too — same allowlist as #22.
+    await checkControl(inspPage, {
+      name: '23. All good — whole inspection',
+      selector: '[data-qa="mark-all-good"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/mark-all-good$/,
+      requestMethod: 'POST',
+    });
+
+    // 24 — Add photo(s). A real file, a real Puppeteer upload — not a
+    // synthetic FileList assignment, which would not exercise the same
+    // browser-native change event onItemPhotosSelected() actually listens
+    // for.
+    {
+      const name = '24. Add photo(s)';
+      const input = await inspPage.$('input[data-qa="add-item-photo"]');
+      if (!input) {
+        record(name, false, 'selector not found: input[data-qa="add-item-photo"]');
+      } else {
+        let requestSeen = null;
+        const onReq = (req) => {
+          if (req.method() === 'POST' && /\/rental-inspections\/\d+\/photos$/.test(req.url())) requestSeen = { method: req.method(), url: req.url() };
+        };
+        inspPage.on('request', onReq);
+        await input.uploadFile(path.join(__dirname, '..', 'tests', 'Fixtures', 'Images', 'huawei-orientation0.jpg'));
+        const deadline = Date.now() + 5000;
+        while (!requestSeen && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+        inspPage.off('request', onReq);
+        record(name, !!requestSeen, requestSeen ? `${requestSeen.method} ${requestSeen.url}` : 'file selected, but no upload request fired within 5000ms — dead control');
+      }
+    }
+
+    // 25 — Next inspection. LAST of all seven Inspections-tab checks: this
+    // advances the chain, moving the tail this fixture's other six checks
+    // all target out from under any check that ran after it.
+    await checkControl(inspPage, {
+      name: '25. Next inspection',
+      selector: '[data-qa="next-inspection"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/next$/,
+      requestMethod: 'POST',
+    });
+
+    await inspPage.close();
   } finally {
     await browser.close();
     console.log('Cleaning up fixtures...');
@@ -666,6 +1050,9 @@ async function main() {
       runPhp([path.join(__dirname, 'rental-click-through-fixture.php'), `--app-root=${APP_ROOT}`, `--cleanup=${JSON.stringify(fx)}`]);
       if (fx._sendBackFixture) {
         runPhp([path.join(__dirname, 'rental-click-through-fixture.php'), `--app-root=${APP_ROOT}`, `--cleanup=${JSON.stringify(fx._sendBackFixture)}`]);
+      }
+      if (typeof inspFx !== 'undefined') {
+        runPhp([path.join(__dirname, 'rental-inspection-click-through-fixture.php'), `--app-root=${APP_ROOT}`, `--cleanup=${JSON.stringify(inspFx)}`]);
       }
     } catch (e) {
       console.error('CLEANUP FAILED — throwaway fixture rows may remain:', e.message);

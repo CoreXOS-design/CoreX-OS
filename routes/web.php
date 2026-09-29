@@ -1177,6 +1177,66 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowled
     Route::post('/categories/reorder', [\App\Http\Controllers\Admin\KnowledgeController::class, 'reorderCategories'])->name('admin.knowledge.reorderCategories');
 });
 
+// ===== PPRA INSPECTION PACK (Admin — admin/super_admin only) =====
+// .ai/specs/ppra-inspection-pack.md — Phase A + B + C. Pure Admin feature,
+// Johan's ruling 2026-09-28 — never gated below admin/super_admin, never
+// nested under Compliance.
+Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.required', 'permission:ppra_inspection_pack.view'])->name('admin.ppra-inspection-pack.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'index'])->name('index');
+    Route::get('/report', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'report'])->name('report');
+    Route::get('/remediation-log', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'remediationLog'])->name('remediation-log');
+    Route::get('/practitioners', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitioners'])->name('practitioners');
+    Route::get('/sales-rentals', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentals'])->name('sales-rentals');
+    Route::get('/mandate-register', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'mandateRegister'])->name('mandate-register');
+
+    Route::middleware('permission:ppra_inspection_pack.export')->group(function () {
+        Route::get('/practitioner-register.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitionerRegisterPdf'])->name('practitioner-register.pdf');
+        Route::get('/practitioner-register.csv', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitionerRegisterCsv'])->name('practitioner-register.csv');
+        Route::get('/letterhead', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'letterhead'])->name('letterhead');
+        Route::get('/sales-rentals.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentalsPdf'])->name('sales-rentals.pdf');
+        Route::get('/sales-rentals.csv', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentalsCsv'])->name('sales-rentals.csv');
+        Route::get('/mandate-register.zip', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'mandateRegisterZip'])->name('mandate-register.zip');
+    });
+
+    // Phase J — full inspection pack (§6.9): generate (queued) + download.
+    Route::middleware('permission:ppra_inspection_pack.generate')->group(function () {
+        Route::post('/generate', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'generate'])->name('generate');
+        Route::get('/{pack}/download', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'download'])->whereNumber('pack')->name('download');
+    });
+
+    Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
+        Route::post('/gap-notes', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'storeGapNote'])->name('gap-notes.store');
+        Route::post('/gap-notes/{gapNote}/resolve', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'resolveGapNote'])->name('gap-notes.resolve');
+        Route::delete('/gap-notes/{gapNote}', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'destroyGapNote'])->name('gap-notes.destroy');
+    });
+
+    // Item (i) — transformation initiatives (Phase D, v3). §6.5.
+    Route::prefix('transformation')->name('transformation.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'index'])->name('index');
+        Route::get('/{noteId}/download', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'download'])->name('download');
+
+        Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
+            Route::post('/structured', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'storeStructured'])->name('store-structured');
+            Route::post('/document', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'storeDocument'])->name('store-document');
+            Route::post('/draft', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'draft'])->name('draft');
+            Route::delete('/{note}', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'destroy'])->name('destroy');
+            Route::post('/{noteId}/restore', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'restore'])->name('restore');
+        });
+    });
+
+    // Shared sample picker — Phase F, §6.8a. Pure infrastructure consumed
+    // by items k/l/m (Phases G/H/I); {mode} is deal|rental|listing.
+    Route::prefix('sample-picker')->name('sample-picker.')->group(function () {
+        Route::get('/preview', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'preview'])->name('preview');
+        Route::get('/{mode}/search', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'search'])->name('search');
+        Route::get('/{mode}/most-recent', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'mostRecent'])->name('most-recent');
+
+        Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
+            Route::post('/{mode}', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'store'])->name('store');
+        });
+    });
+});
+
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====
 // 2026-08-24 (Johan) — throttle:30,1 per the resilience audit; raw sequential
 // property ID, previously unthrottled.
@@ -2519,6 +2579,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{complaint}/approve', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'approve'])->name('approve')->middleware('permission:compliance.whistleblow.approve');
         Route::post('/{complaint}/reject', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'reject'])->name('reject')->middleware('permission:compliance.whistleblow.approve');
         Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.approve');
+        // Live incident fix, 2026-09-28 — resend the PPRA email for a complaint
+        // already sent (or acknowledged), e.g. one that went to the demo
+        // address while WHISTLEBLOW_PPRA_LIVE_SEND was off.
+        Route::post('/{complaint}/resend-to-ppra', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'resendToPpra'])->name('resend-to-ppra')->middleware('permission:compliance.whistleblow.approve');
     });
 
     // ── Seller Information Pack ──
@@ -2879,10 +2943,83 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.edit');
     Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.update');
+    // .ai/specs/leases.md §5.2 — expiry-notice window, agency-configurable, default 60 days.
+    Route::get('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'edit'])
+        ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
+    Route::post('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'update'])
+        ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.update');
+    // .ai/specs/agency-onboarding-rentals-step.md §8 — fault-report and out-inspection
+    // signing windows, agency-configurable, both default 7 days.
+    Route::get('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'edit'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.edit');
+    Route::post('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'update'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.update');
+    // Johan, 2026-09-20 — which property feature labels count as inspection
+    // items, and each room type's default items. Own narrow savers, same
+    // reasoning as every other section on this settings screen.
+    Route::post('/settings/rental-inspections/features', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateInspectionFeatures'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.features');
+    Route::post('/settings/rental-inspections/room-type-defaults', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeItemDefaults'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-defaults');
+    // Johan, 2026-09-21, property 5792 — the default room-walking order.
+    Route::post('/settings/rental-inspections/room-type-order', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeWalkingOrder'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-order');
+    // §17, Johan 2026-09-21, from Retha's real paper form — the condition vocabulary.
+    Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
+    // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 — its own narrow
+    // saver, same one-concern-per-endpoint discipline as the four above.
+    Route::post('/settings/rental-inspections/auto-pair-photos', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoPairPhotosEnabled'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-pair-photos');
+    // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo note's
+    // classification vocabulary.
+    Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
+    // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
+    Route::post('/settings/rental-inspections/auto-send-report', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoSendReportEnabled'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-send-report');
+
+    // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
+    // (present/short/damaged/missing), agency-configurable. Own settings
+    // model/screen, deliberately separate from rental-inspections above.
+    Route::get('/settings/rental-inventory', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'edit'])
+        ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.edit');
+    Route::post('/settings/rental-inventory', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'update'])
+        ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.update');
+    // §41-follow-up (Job 3) — auto-send the signed report on completion, on/off.
+    Route::post('/settings/rental-inventory/auto-send-report', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'updateAutoSendReportEnabled'])
+        ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.auto-send-report');
+    // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
+    // below which no owner approval is required, agency-configurable.
+    Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.edit');
+    Route::post('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'update'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.update');
+    // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
+    // the property Rental Details tab. Price type (Part 3) and lease type
+    // (Part 4) lists join this same page as they're built.
+    Route::get('/settings/rental-details', [\App\Http\Controllers\CoreX\RentalDetailsSettingsController::class, 'edit'])
+        ->middleware('permission:rental_details.manage_settings')->name('corex.settings.rental-details.edit');
+    Route::prefix('settings/rental-details/custom-fields')->middleware('permission:rental_details.manage_settings')
+        ->name('corex.settings.rental-details.custom-fields.')->group(function () {
+        Route::post('/', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'store'])->name('store');
+        Route::put('/{customField}', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'update'])->name('update');
+        Route::post('/{customField}/archive', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'archive'])->name('archive');
+        Route::post('/{customField}/restore', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'restore'])->name('restore');
+        Route::post('/reorder', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'reorder'])->name('reorder');
+    });
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.qualifying-formula');
+
+    // Johan, 2026-09-20 — agency-level credit bureau name.
+    Route::post('/settings/rental-applications/credit-bureau', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCreditBureau'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.credit-bureau');
+
+    // Johan, 2026-09-21 — agency-level label for an approved-and-tenanted application.
+    Route::post('/settings/rental-applications/tenanted-label', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantedLabel'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.tenanted-label');
 
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
@@ -2905,6 +3042,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
     Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // AT-430 Part A, 2026-09-24 — one-step approval for single-person agencies.
+    Route::post('/settings/rental-applications/approval-mode', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalMode'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.approval-mode');
+    // AT-430 §3.6 — whether an incomplete checklist blocks approval.
+    Route::post('/settings/rental-applications/require-checklist-complete', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireChecklistComplete'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.require-checklist-complete');
     // Submission hard floor, AT-392 round 5, 2026-09-13 — every applicant
     // form field's compulsory tick, and the agency-configurable marital
     // status option list (Ruling 1) that drives the spouse-fields group.
@@ -2912,6 +3055,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.required-fields');
     Route::post('/settings/rental-applications/marital-status-options', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMaritalStatusOptions'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.marital-status-options');
+    // .ai/specs/rental-application-field-config.md — shown/hidden, label
+    // and help-text overrides, and within-section ordering. Same permission
+    // gate as every other control on this screen (required-fields above,
+    // marital-status-options above) — not a new, finer-grained permission.
+    Route::post('/settings/rental-applications/field-display', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateFieldDisplayConfig'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.field-display');
     // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
     Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.return-gate');
@@ -2951,6 +3100,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.restore');
     Route::post('/settings/rental-applications/highlighters/reorder', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'reorder'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.reorder');
+    // .ai/specs/rental-application-field-config.md §7, piece (c)(1) — custom
+    // fields, the definition side. Full CRUD, same settings screen, same
+    // permission gate, same route shape as highlighters above.
+    Route::post('/settings/rental-applications/custom-fields', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'store'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.store');
+    Route::put('/settings/rental-applications/custom-fields/{customField}', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'update'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.update');
+    Route::post('/settings/rental-applications/custom-fields/{customField}/archive', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'archive'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.archive');
+    Route::post('/settings/rental-applications/custom-fields/{customField}/restore', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'restore'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.restore');
+    Route::post('/settings/rental-applications/custom-fields/reorder', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'reorder'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.reorder');
     // Decline reason templates, 2026-09-15 — Johan: "a decline that tells
     // an applicant how to fix it." Full CRUD, dedicated list screen (search/
     // sort/filter/pagination/empty state), same permission gate as every
@@ -2967,6 +3129,36 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.archive');
     Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/restore', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'restore'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.restore');
+
+    // AT-430 §3.3 — "Application checklist" settings screen. Full CRUD
+    // (sections + items), archive-only, orderable via move up/down. Own
+    // dedicated screen, deliberately not added to
+    // corex/settings/rental-applications.blade.php (cc4's file, AT-430
+    // tasking boundary) — linked from there instead.
+    Route::get('/settings/rental-applications/checklist', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'index'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.index');
+    Route::post('/settings/rental-applications/checklist/sections', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'storeSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.store');
+    Route::put('/settings/rental-applications/checklist/sections/{section}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'updateSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.update');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/archive', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'archiveSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.archive');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/restore', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'restoreSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.restore');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/move/{direction}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'moveSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.move')
+        ->where('direction', 'up|down');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/items', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'storeItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.store');
+    Route::put('/settings/rental-applications/checklist/items/{item}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'updateItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.update');
+    Route::post('/settings/rental-applications/checklist/items/{item}/archive', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'archiveItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.archive');
+    Route::post('/settings/rental-applications/checklist/items/{item}/restore', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'restoreItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.restore');
+    Route::post('/settings/rental-applications/checklist/items/{item}/move/{direction}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'moveItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.move')
+        ->where('direction', 'up|down');
 
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
@@ -3045,6 +3237,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');
         Route::post('/{rentalApplication}/documents', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'uploadDocument'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.upload');
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(4) —
+        // a custom field's own single-slot file, agent side. Upload only,
+        // matching this screen's existing document ceiling (no
+        // replace/remove for ANY document here yet).
+        Route::post('/{rentalApplication}/custom-fields/{customFieldKey}/upload', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'uploadCustomFieldDocument'])
+            ->where('customFieldKey', '[a-z0-9_]+')->middleware('permission:rental_applications.create')->name('corex.rental-applications.custom-fields.upload');
         // AT-392 "pull from contact" — attach a document already on file
         // against this application's contact, without the applicant
         // re-sending it. Same permission as a fresh upload.
@@ -3072,6 +3270,327 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.link-tenant-property');
         Route::delete('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'unlinkTenantProperty'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
+    });
+
+    // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
+    // is not linked to a property, a tenant is linked to a LEASE, and the
+    // lease is linked to the property."
+    Route::prefix('leases')->middleware('permission:leases.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\LeaseController::class, 'index'])->name('corex.leases.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\LeaseController::class, 'create'])
+            ->middleware('permission:leases.create')->name('corex.leases.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\LeaseController::class, 'store'])
+            ->middleware('permission:leases.create')->name('corex.leases.store');
+        Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
+        Route::put('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'update'])
+            ->middleware('permission:leases.create')->name('corex.leases.update');
+        Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
+            ->middleware('permission:leases.create')->name('corex.leases.activate');
+        Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
+            ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
+        Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
+            ->middleware('permission:leases.renew')->name('corex.leases.escalate');
+        Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])
+            ->middleware('permission:leases.create')->name('corex.leases.destroy');
+        Route::post('/{lease}/restore', [\App\Http\Controllers\CoreX\LeaseController::class, 'restore'])
+            ->middleware('permission:leases.create')->name('corex.leases.restore');
+    });
+
+    // .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
+    // every inspection. Recording observations/photos/signatures happens on
+    // the property's Rental Images tab (a separate controller, §1/§4), not
+    // here — this is Read plus administrative lifecycle only.
+    Route::prefix('rental-inspections')->middleware('permission:rental_inspections.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'index'])->name('corex.rental-inspections.index');
+        // 2026-09-20 — the list screen's own "Start Inspection" entry point,
+        // added alongside (never instead of) the property tab's own AJAX
+        // start flow. Registered BEFORE the /{rentalInspection} route below —
+        // otherwise "create" would greedily bind as an inspection id.
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'create'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'store'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.store');
+        // .ai/specs/rental-inspections.md §27.7 — a per-user UI preference for the
+        // recording screen (photos shown/hidden, the problem filter), not inspection
+        // data — no {rentalInspection} in the path, and no extra .create gate: same
+        // reasoning as RentalApplicationReviewController::updatePanelPreference()
+        // (a per-user UI preference, not application data). Registered here, before
+        // the /{rentalInspection} wildcard below, for the same greedy-binding reason
+        // /create is.
+        Route::post('/screen-preference', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateScreenPreference'])
+            ->name('corex.rental-inspections.screen-preference');
+        Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
+        // Printable tick-box form — same .view gate as show() itself, same
+        // scoping precedent as RentalWorkOrderController::pdf().
+        Route::get('/{rentalInspection}/form', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'form'])->name('corex.rental-inspections.form');
+        // 2026-09-23, Johan's ruling — the completed-inspection report: no
+        // photos, a QR + link to the public page below instead.
+        Route::get('/{rentalInspection}/report', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'report'])->name('corex.rental-inspections.report');
+        // The chain — "Next inspection" from this one, and the public-link
+        // lifecycle (generate/regenerate, revoke).
+        Route::post('/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'next'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.next');
+        Route::post('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'generatePublicLink'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.public-link.generate');
+        Route::delete('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'revokePublicLink'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.public-link.revoke');
+        // §13 — the OMR scan reader, part 2 of cc5's two-part job. Upload/
+        // apply/archive are mutating (.create gate, matching cancel/destroy
+        // above); review/download are read (the group's own .view gate).
+        Route::post('/{rentalInspection}/scans', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'store'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.store');
+        Route::get('/{rentalInspection}/scans/{scan}/review', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'review'])->name('corex.rental-inspections.scans.review');
+        Route::post('/{rentalInspection}/scans/{scan}/apply', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'apply'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.apply');
+        Route::get('/{rentalInspection}/scans/{scan}/download', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'download'])->name('corex.rental-inspections.scans.download');
+        Route::delete('/{rentalInspection}/scans/{scan}', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'destroy'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.destroy');
+        Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
+        Route::delete('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'destroy'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.destroy');
+        Route::post('/{rentalInspection}/restore', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'restore'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.restore');
+
+        // Recording — RentalInspectionRecordingController, deliberately separate
+        // (this controller's own docblock). Spec: rental-inspections.md §14.1/§14.2.
+        // §17 — the header block (meter readings, furnished state, property
+        // type, keys/remotes, move-in date).
+        Route::post('/{rentalInspection}/details', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateDetails'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.details.update');
+        Route::post('/{rentalInspection}/observations', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeObservation'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.store');
+        Route::post('/{rentalInspection}/observations/{observation}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.photos.store');
+        // §20.13, 2026-09-22 — item/room/bulk-tray upload, tagging, and
+        // archive. One upload endpoint for all three surfaces; tag-bulk is
+        // the tray's own multi-select-drop-on-a-room action.
+        Route::post('/{rentalInspection}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhotos'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.store');
+        Route::post('/{rentalInspection}/photos/tag-bulk', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tagPhotosBulk'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.tag-bulk');
+        Route::post('/{rentalInspection}/photos/{photo}/tag', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tagPhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.tag');
+        Route::post('/{rentalInspection}/photos/{photo}/untag', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'untagPhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.untag');
+        Route::delete('/{rentalInspection}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'archivePhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.archive');
+        // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo-level
+        // note (Defect/Wear and tear/Reference), full CRUD, own controller
+        // (RentalInspectionPhotoNoteController), never the item/room-shaped
+        // recording controller above. Read-only once the inspection is
+        // signed — enforced inside the controller, not by hiding the route.
+        Route::post('/{rentalInspection}/photos/{photo}/notes', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'store'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.store');
+        Route::patch('/{rentalInspection}/photos/{photo}/notes/{note}', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'update'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.update');
+        Route::delete('/{rentalInspection}/photos/{photo}/notes/{note}', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'archive'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.archive');
+        Route::post('/{rentalInspection}/photos/{photo}/notes/{note}/restore', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'restore'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.restore')->withTrashed();
+        Route::post('/{rentalInspection}/discrepancies/{discrepancy}/resolve', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resolveDiscrepancy'])
+            ->middleware('permission:rental_inspections.resolve_discrepancy')->name('corex.rental-inspections.discrepancies.resolve');
+        // sign_on_behalf is checked INSIDE the controller (§6 — it only applies to
+        // one of the three signer_role values, which a route-level permission:*
+        // middleware can't see) — gated at .create here, the narrower check happens
+        // on the one path that needs it.
+        Route::post('/{rentalInspection}/signatures', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.store');
+        // §16 — correcting a wrong/unreadable wet-ink upload; same base permission
+        // as recording one (evidence-backed, not sign_on_behalf — see the controller).
+        Route::post('/{rentalInspection}/signatures/{signature}/supersede-wet-ink', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'supersedeWetInkSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.supersede-wet-ink');
+        Route::post('/{rentalInspection}/start-awaiting-signature', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'startAwaitingSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
+        Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
+        // §41, 2026-09-28 — the manual "Resend report" path (confirm modal
+        // lists the recipients first). Same permission as completing —
+        // an agent who could complete the inspection can resend its report.
+        Route::post('/{rentalInspection}/resend-report', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resendReport'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-report');
+
+        // rental-inspection-form.md §7 — the in-vs-out deposit comparison.
+        // Read gated at the group's own .view; recording a wear-and-tear/
+        // flagged judgement is a separate, narrower grant (§6 of that spec).
+        Route::get('/{rentalInspection}/deposit-comparison', [\App\Http\Controllers\CoreX\RentalInspectionComparisonController::class, 'show'])
+            ->name('corex.rental-inspections.deposit-comparison');
+        Route::post('/{rentalInspection}/deposit-comparison/items/{rentalInspectionItem}/finding', [\App\Http\Controllers\CoreX\RentalInspectionComparisonController::class, 'recordFinding'])
+            ->middleware('permission:rental_inspections.review_deposit_comparison')->name('corex.rental-inspections.deposit-comparison.finding');
+
+        // §17, Johan 2026-09-21, from Retha's real paper form — N/A as a
+        // bulk room action, per-room notes, and one overall-notes summary.
+        Route::post('/{rentalInspection}/rooms/{room}/mark-na', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markRoomNa'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.mark-na');
+        // Inspections-tab rebuild, item 5, 2026-09-22 — "All Good" bulk-fill,
+        // per-room and whole-inspection.
+        Route::post('/{rentalInspection}/rooms/{room}/mark-good', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markRoomGood'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.mark-good');
+        Route::post('/{rentalInspection}/mark-all-good', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markAllGood'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.mark-all-good');
+        Route::post('/{rentalInspection}/rooms/{room}/notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeRoomNote'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.notes.store');
+        Route::post('/{rentalInspection}/overall-notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateOverallNotes'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.overall-notes.update');
+    });
+
+    // .ai/specs/rental-inventory.md — the counted contents of a furnished
+    // property, its own document (never a tab on RentalInspection).
+    // Produced at move-in, attached to the property and the lease.
+    Route::prefix('rental-inventories')->middleware('permission:rental_inventories.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'index'])->name('corex.rental-inventories.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'create'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'store'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.store');
+        Route::get('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'show'])->name('corex.rental-inventories.show');
+        // §41-follow-up (Job 3) — the signed report PDF (mirrors
+        // corex.rental-inspections.report exactly): generates a public link
+        // first if none is live, so a printed/shared link never 404s.
+        Route::get('/{rentalInventory}/report', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'report'])->name('corex.rental-inventories.report');
+        // §8 — the move-out comparison, read-only, gated on the inventory being completed.
+        Route::get('/{rentalInventory}/comparison', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'comparison'])->name('corex.rental-inventories.comparison');
+        Route::post('/{rentalInventory}/cancel', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'cancel'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.cancel');
+        Route::delete('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'destroy'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.destroy');
+        Route::post('/{rentalInventory}/restore', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'restore'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.restore');
+
+        Route::post('/{rentalInventory}/lines', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLine'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.store');
+        Route::put('/{rentalInventory}/lines/{line}', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'updateLine'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.update');
+        Route::post('/{rentalInventory}/lines/{line}/retire', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'retireLine'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.retire');
+        // §8 — the move-out finding per line. Append-only.
+        Route::post('/{rentalInventory}/lines/{line}/dispositions', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineDisposition'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.dispositions.store');
+        Route::post('/{rentalInventory}/signatures', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeSignature'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
+        Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
+        // §41-follow-up (Job 3) — the manual "Resend report" path (confirm
+        // modal lists the recipients first). Same permission as completing.
+        Route::post('/{rentalInventory}/resend-report', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'resendReport'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.resend-report');
+        // §12 — the "nothing in this room" mark the completion gate checks for.
+        Route::post('/{rentalInventory}/rooms/{room}/mark-empty', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'markRoomEmpty'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.rooms.mark-empty');
+        // Johan, 2026-09-28 — the Undo. Same URI, DELETE verb, RESTful
+        // counterpart to the POST above — never a duplicate mechanism.
+        Route::delete('/{rentalInventory}/rooms/{room}/mark-empty', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'unmarkRoomEmpty'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.rooms.unmark-empty');
+        // §13 — "Copy from last inventory," a re-let property's own prior record.
+        Route::post('/{rentalInventory}/copy-from-last', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'copyFromLastInventory'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.copy-from-last');
+
+        // §0b — room-tagged photo capture, batched multi-file upload, and
+        // optional line-to-photo tagging (the TV serial number example).
+        Route::post('/{rentalInventory}/photos', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'storePhotos'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.store');
+        // §4a — archive (soft delete), the one control the shared uploader's
+        // config always needs (archiveUrl); mirrors rental-inspections' own
+        // DELETE .../photos/{photo} exactly.
+        Route::delete('/{rentalInventory}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'archivePhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.destroy');
+        Route::post('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'attachLinePhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.attach');
+        Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'detachLinePhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.detach');
+        // §14 — the move-out (current) side's own photo evidence, from the
+        // comparison screen. Uploads AND tags to this line in ONE request.
+        Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineMoveOutPhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.move-out-photos.store');
+    });
+
+    // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own
+    // record (2026-09-24/25 amendments). Stage 1 build: the record itself,
+    // reporting, edit-while-reported, cancel/archive/restore, photos.
+    Route::prefix('rental-fault-reports')->middleware('permission:rental_fault_reports.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'index'])->name('corex.rental-fault-reports.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'create'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'store'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.store');
+        Route::get('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'show'])->name('corex.rental-fault-reports.show');
+        // §"Printing" — landlord-facing PDF. Same .view gate as show() itself.
+        Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
+        Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
+        Route::post('/{rentalFaultReport}/cancel', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'cancel'])
+            ->middleware('permission:rental_fault_reports.cancel')->name('corex.rental-fault-reports.cancel');
+        Route::delete('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'destroy'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.destroy');
+        Route::post('/{rentalFaultReport}/restore', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'restore'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.restore');
+        Route::post('/{rentalFaultReport}/photos', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'storePhoto'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.photos.store');
+
+        // Stage 2 (§3a.1/§3a.2, §0c) — the lifecycle: request/record approval,
+        // set the outcome. Separately permissioned per §10 — a decision
+        // becoming final is a heavier call than logging or editing a report.
+        Route::post('/{rentalFaultReport}/request-approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'requestApproval'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.request-approval');
+        Route::post('/{rentalFaultReport}/approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'recordApproval'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.approval.store');
+        Route::post('/{rentalFaultReport}/outcome', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'setOutcome'])
+            ->middleware('permission:rental_fault_reports.resolve')->name('corex.rental-fault-reports.outcome.store');
+
+        // Stage 4 (§3a.1/§0c) — the agency_appoints route: raising a real
+        // work order from an already-approved fault report.
+        Route::post('/{rentalFaultReport}/raise-work-order', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'raiseWorkOrder'])
+            ->middleware('permission:rental_fault_reports.raise_work_order')->name('corex.rental-fault-reports.raise-work-order');
+    });
+
+    // .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work orders
+    // themselves. A work order raised FROM a fault report is created via
+    // the route above instead; store() here is for one raised directly.
+    Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'index'])->name('corex.rental-work-orders.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'create'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
+        Route::get('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'show'])->name('corex.rental-work-orders.show');
+        // §"Printing" — supplier-facing PDF. Same .view gate as show() itself.
+        Route::get('/{rentalWorkOrder}/pdf', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'pdf'])->name('corex.rental-work-orders.pdf');
+        Route::put('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'update'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.update');
+        Route::post('/{rentalWorkOrder}/approval', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'recordApproval'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.approval.store');
+        Route::post('/{rentalWorkOrder}/assign-supplier', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'assignSupplier'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.assign-supplier');
+        Route::post('/{rentalWorkOrder}/start-progress', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'startProgress'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.start-progress');
+        Route::post('/{rentalWorkOrder}/complete', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'complete'])
+            ->middleware('permission:rental_work_orders.complete')->name('corex.rental-work-orders.complete');
+        Route::post('/{rentalWorkOrder}/notes', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'addNote'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.notes.store');
+        Route::post('/{rentalWorkOrder}/cancel', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'cancel'])
+            ->middleware('permission:rental_work_orders.cancel')->name('corex.rental-work-orders.cancel');
+        Route::delete('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'destroy'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.destroy');
+        Route::post('/{rentalWorkOrder}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'restore'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.restore');
+        Route::post('/{rentalWorkOrder}/photos', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'storePhoto'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.photos.store');
+
+        // §3.4c — quotes: the value the approval-limit gate rides on. No
+        // sidebar entry — reachable from the work order's own show screen.
+        Route::post('/{rentalWorkOrder}/quotes', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'store'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.store');
+        Route::put('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'update'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.update');
+        Route::post('/{rentalWorkOrder}/quotes/{quote}/select', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'select'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.select');
+        Route::delete('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'destroy'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.destroy');
+        Route::post('/{rentalWorkOrder}/quotes/{quote}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'restore'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.restore');
+        // Private disk, gated — NOT the public-disk photo pattern. §3.4c.
+        Route::get('/{rentalWorkOrder}/quotes/{quote}/download', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'download'])
+            ->middleware('deny_assistant_download')->name('corex.rental-work-orders.quotes.download');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
@@ -3122,6 +3641,27 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // own actions live under a separate prefix below, gated to authorisers.
         Route::post('/{rentalApplication}/review/request-more-info', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'requestMoreInfoFromApplicant'])->name('corex.rental-applications.review.request-more-info');
         Route::post('/{rentalApplication}/review/submit-for-approval', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'submitForApproval'])->name('corex.rental-applications.review.submit-for-approval');
+        // AT-430 §3 — checklist panel. Section description is Johan's one
+        // free-text box per section; item updates refuse a derived item's
+        // state (Part D — those tick themselves off the lease, never by
+        // hand).
+        Route::put('/{rentalApplication}/checklist/sections/{checklistSection}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateChecklistSectionDescription'])->name('corex.rental-applications.checklist.sections.update');
+        Route::put('/{rentalApplication}/checklist/items/{checklistItem}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateChecklistItem'])->name('corex.rental-applications.checklist.items.update');
+        // AT-430 Part E — checklist-item attachments (the TPN-doc paperclip).
+        // Same permission as the generic Supporting Documents upload above
+        // (corex.rental-applications.documents.upload) — "follow the
+        // existing Supporting Documents rules exactly," not a new gate.
+        Route::post('/{rentalApplication}/checklist/items/{checklistItem}/documents', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'uploadChecklistItemDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.checklist.items.documents.store');
+        Route::delete('/{rentalApplication}/checklist/items/{checklistItem}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'removeChecklistItemDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.checklist.items.documents.destroy');
+        Route::post('/{rentalApplication}/checklist/items/{checklistItem}/documents/{document}/restore', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'restoreChecklistItemDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.checklist.items.documents.restore');
+        // §3.1 — "Open/collapsed state is remembered per user per section."
+        // A per-user UI preference, not application data — no {rentalApplication}
+        // in the path, but kept in this same permission-gated group since it
+        // only ever fires from this screen.
+        Route::post('/review-panel-preference', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updatePanelPreference'])->name('corex.rental-applications.review.panel-preference');
         // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
         // application back to the applicant to fix an answer and re-sign.
         Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');
@@ -3344,6 +3884,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Whistleblower Settings ──
     Route::post('/settings/whistleblow', [CoreXSettingsController::class, 'saveWhistleblowSettings'])->middleware('permission:compliance.whistleblow.configure')->name('corex.settings.whistleblow.save');
+    Route::post('/settings/ppra-inspection-pack', [CoreXSettingsController::class, 'savePpraInspectionPackSettings'])->middleware('permission:ppra_inspection_pack.configure')->name('corex.settings.ppra-inspection-pack.save');
 
     // ── FICA Officer Appointments (unified) ──
     Route::post('/settings/fica-officers/primary', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'savePrimary'])
@@ -3752,6 +4293,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
 
+        // .ai/specs/rental-inventory.md §0b — "it lives on a property." One
+        // click from the property, straight into the room-based capture
+        // surface. Sale or rental, not gated on listing_type.
+        Route::get('/{property}/inventory', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'show'])
+            ->middleware('permission:rental_inventories.view')->name('inventory.show');
+
         // Presentations V2 — one-button generator (Phase 1) + coverage scorer (Phase 2)
         Route::post('/{property}/generate-presentation', [\App\Http\Controllers\Presentation\PresentationGeneratorController::class, 'generate'])
             ->name('generate-presentation');
@@ -3954,6 +4501,49 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Bulk rental-image delete — "Delete selected" / "Delete all". One transaction,
         // same permission + HARD-delete semantics as the single rental delete above.
         Route::post('/{property}/rental-images/delete-bulk',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImages'])->name('rental-images.delete-bulk');
+        // Rental inspection items — Johan's ruling §0.6, the agent adds items per
+        // property, differing from the advertised marketing room list above.
+        // Spec: rental-inspections.md §14.1/§14.2.
+        Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->name('rental-inspection-tab.data');
+        Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
+        // Johan's ruling, 2026-09-23 — "Next inspection" from the tab's own
+        // live recording surface. JSON, same "thin call into the shared
+        // model method" pattern as start() above (RentalInspection::
+        // startNext(), same one the agency-level RentalInspectionController::
+        // next() also calls) — mirrors that controller's own action, a
+        // second caller for the property tab's AJAX flow, not a second
+        // implementation.
+        Route::post('/{property}/rental-inspections/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'next'])
+            ->name('rental-inspections.next');
+        Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
+        Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+        // 2026-09-22 — Johan, property 4862: "how do I add to a room, not a
+        // new room." restore/rename/reorder complete the CRUD floor for an
+        // item added to an existing room (retire already existed above).
+        Route::post('/{property}/rental-inspection-items/{item}/restore', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'restoreItem'])->name('rental-inspection-items.restore');
+        Route::post('/{property}/rental-inspection-items/{item}/rename', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'renameItem'])->name('rental-inspection-items.rename');
+        Route::post('/{property}/rental-inspection-items/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderItems'])->name('rental-inspection-items.reorder');
+        // 2026-09-21 — retrofit a room type onto a legacy typeless space item
+        // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
+        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
+        Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
+        // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
+        // is the explicit, agent-triggered one-click fix for a property's EXISTING
+        // rooms; reorder persists the agent's own manual up/down moves.
+        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->name('rental-inspection-rooms.apply-default-order');
+        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->name('rental-inspection-rooms.reorder');
+        // §20.15 — the two-panel compare view's "match photos" control.
+        // Property-scoped like items/rooms above: a match spans two
+        // different inspections on the same property, never one.
+        Route::post('/{property}/rental-inspection-photo-matches', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhotoMatch'])
+            ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.store');
+        Route::delete('/{property}/rental-inspection-photo-matches/{member}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'destroyPhotoMatch'])
+            ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.destroy');
+        // §24.5, AT-433 Part B — the explicit "Auto-pair" button (approved
+        // mockup) and, once the Blade pass wires it, the automatic
+        // first-view trigger both call this same endpoint.
+        Route::post('/{property}/rental-inspection-photo-matches/auto-pair', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'autoPairPhotoMatches'])
+            ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.auto-pair');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields
@@ -5194,6 +5784,37 @@ Route::prefix('rental-application')->group(function () {
     Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:rental-application-document-view')->name('rental-applications.public.documents.view');
     Route::post('/{token}/documents/{document}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.remove');
     Route::post('/{token}/documents/{document}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.replace');
+    // .ai/specs/rental-application-field-config.md §7, piece (c)(4) — a
+    // custom field's own single-slot file, distinct from the generic
+    // list above (see RentalApplicationSigningController's own comment on
+    // why these are separate methods, not branches of the generic ones).
+    // Same rate limiter — same "managing documents on this application"
+    // action class.
+    Route::post('/{token}/custom-fields/{customFieldKey}/upload', [\App\Http\Controllers\RentalApplicationSigningController::class, 'uploadCustomFieldDocument'])
+        ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.upload');
+    Route::post('/{token}/custom-fields/{customFieldKey}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceCustomFieldDocument'])
+        ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.replace');
+    Route::post('/{token}/custom-fields/{customFieldKey}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeCustomFieldDocument'])
+        ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.remove');
+});
+
+// ===== RENTAL INSPECTION REPORT — public, no auth, token-based =====
+// Johan, 2026-09-23, approved — the completed-report PDF's QR/link, for a
+// tenant or landlord with no CoreX login. Same class of problem as the
+// rental-application public group above, same throttle convention (see
+// AppServiceProvider::boot()); one route, read-only — there is nothing to
+// submit here, unlike the application flow above.
+Route::prefix('rental-inspection-report')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'show'])
+        ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.show');
+});
+
+// ===== RENTAL INVENTORY REPORT — public, no auth, token-based =====
+// §41-follow-up (Job 3, 2026-09-28) — same shape as the inspection report
+// group directly above, mirrored for a completed inventory's own report.
+Route::prefix('rental-inventory-report')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\RentalInventoryPublicController::class, 'show'])
+        ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.show');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

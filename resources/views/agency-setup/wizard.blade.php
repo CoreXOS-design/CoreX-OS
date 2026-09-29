@@ -45,6 +45,27 @@
             </div>
         @endif
 
+        {{-- Bug found 2026-09-20: a saver's failure previously never reached
+             this page at all — this step's savers run inside one DB
+             transaction now (AgencySetupWizardController::save()), so a
+             failure anywhere rolls the whole step back and lands the user
+             back HERE with the real error, never a "Saved." they didn't
+             earn. This banner is the only thing standing between that fix
+             and a user who still can't see it — every @error($key) block
+             on individual controls below only covers fields this step
+             actually renders; a failing field this step never declared
+             (e.g. a hidden submitted-marker) has nowhere else to show up. --}}
+        @if ($errors->any())
+            <div class="mx-6 mt-4 rounded-md px-3 py-2 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#e11d48) 10%, transparent); color:var(--ds-crimson,#e11d48);">
+                <p class="font-semibold mb-1">That didn't save — please try again.</p>
+                <ul class="list-disc pl-5 space-y-0.5">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         <form id="wizard-step-form" method="POST"
               action="{{ route('corex.agency-setup.step.save', ['step' => $stepKey]) }}"
               enctype="multipart/form-data"
@@ -112,8 +133,15 @@
                                   class="mt-2 w-full rounded-md px-3 py-2 text-sm outline-none"
                                   style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">{{ $val }}</textarea>
                     @elseif ($type === 'number')
+                        {{-- Johan, 2026-09-22 (property 4283) — step defaults to
+                             '1' (a plain HTML5 number input's own default), which
+                             blocks a fractional value like 1.5 from ever being
+                             typed. Optional per-control 'step' (e.g. '0.1' for
+                             default_deposit_months) without changing any
+                             existing whole-number control that never sets one. --}}
                         <input id="f_{{ $key }}" name="{{ $key }}" type="number"
                                value="{{ $val }}" min="{{ $control['min'] ?? '' }}" max="{{ $control['max'] ?? '' }}"
+                               step="{{ $control['step'] ?? '1' }}"
                                class="mt-2 w-32 rounded-md px-3 py-2 text-sm outline-none"
                                style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">
                     @elseif ($type === 'select')

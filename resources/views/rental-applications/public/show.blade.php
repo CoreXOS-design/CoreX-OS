@@ -149,8 +149,12 @@
                         <input type="text" value="{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '' }}" disabled
                                class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
                     </div>
-                    <x-rental-application-field name="full_name" label="Full name and surname" :value="$application->full_name" :required="in_array('full_name', $requiredFieldKeys, true)" />
-                    <x-rental-application-field name="id_number" label="ID number" :value="$application->id_number" :required="in_array('id_number', $requiredFieldKeys, true)" />
+                    @if($fieldConfig['full_name']['shown'])
+                    <x-rental-application-field name="full_name" :label="$fieldConfig['full_name']['label']" :hint="$fieldConfig['full_name']['help_text']" :order="$fieldConfig['full_name']['order']" :value="$application->full_name" :required="in_array('full_name', $requiredFieldKeys, true)" />
+                    @endif
+                    @if($fieldConfig['id_number']['shown'])
+                    <x-rental-application-field name="id_number" :label="$fieldConfig['id_number']['label']" :hint="$fieldConfig['id_number']['help_text']" :order="$fieldConfig['id_number']['order']" :value="$application->id_number" :required="in_array('id_number', $requiredFieldKeys, true)" />
+                    @endif
                     {{--
                         Ruling 1, AT-392 round 5, 2026-09-13 — marital_status
                         converts from free text to a real select (agency-
@@ -161,13 +165,21 @@
                         match the agency's current option list) is SHOWN, not
                         blanked — Johan: existing values "must not be
                         destroyed."
+
+                        .ai/specs/rental-application-field-config.md — the
+                        outer x-data scope stays UNCONDITIONAL (it's what the
+                        nested spouse x-show depends on) even when
+                        marital_status itself is hidden — only the marital_status
+                        FIELD's own div, and each spouse field independently,
+                        are gated on their own shown state.
                     --}}
                     <div x-data="{
                             maritalStatus: {{ Js::from(old('marital_status', $application->marital_status)) }},
                             spouseImplyingLabels: {{ Js::from(collect($maritalStatusOptions)->where('implies_spouse', true)->pluck('label')->values()) }}
                          }" class="contents">
-                        <div>
-                            <label class="block text-xs text-slate-500 mb-1">Marital status @if(in_array('marital_status', $requiredFieldKeys, true)) *@endif</label>
+                        @if($fieldConfig['marital_status']['shown'])
+                        <div style="order: {{ $fieldConfig['marital_status']['order'] }}">
+                            <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['marital_status']['label'] }} @if(in_array('marital_status', $requiredFieldKeys, true)) *@endif</label>
                             <select name="marital_status" x-model="maritalStatus"
                                     @if(in_array('marital_status', $requiredFieldKeys, true)) required aria-required="true" @endif
                                     class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('marital_status') ? 'border-red-400' : 'border-slate-300' }}">
@@ -180,43 +192,72 @@
                                     <option value="{{ $application->marital_status }}" selected>{{ $application->marital_status }} (previously recorded)</option>
                                 @endif
                             </select>
+                            @if($fieldConfig['marital_status']['help_text'])
+                                <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['marital_status']['help_text'] }}</p>
+                            @endif
                             @error('marital_status') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                         </div>
-                        <x-rental-application-field name="citizenship" label="Citizenship" :value="$application->citizenship" :required="in_array('citizenship', $requiredFieldKeys, true)" />
+                        @endif
+                        @if($fieldConfig['citizenship']['shown'])
+                        <x-rental-application-field name="citizenship" :label="$fieldConfig['citizenship']['label']" :hint="$fieldConfig['citizenship']['help_text']" :order="$fieldConfig['citizenship']['order']" :value="$application->citizenship" :required="in_array('citizenship', $requiredFieldKeys, true)" />
+                        @endif
                         {{--
                             x-show (not x-if), same reasoning as the landlord
                             section below — never destroys data the applicant
                             already typed just because they're mid-selecting.
                         --}}
                         <div x-show="spouseImplyingLabels.includes(maritalStatus)" x-cloak class="contents">
-                            <x-rental-application-field name="spouse_name" label="Spouse full name" :value="$application->spouse_name"
+                            @if($fieldConfig['spouse_name']['shown'])
+                            <x-rental-application-field name="spouse_name" :label="$fieldConfig['spouse_name']['label']" :hint="$fieldConfig['spouse_name']['help_text']" :order="$fieldConfig['spouse_name']['order']" :value="$application->spouse_name"
                                 required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                            <x-rental-application-field name="spouse_id" label="Spouse ID number" :value="$application->spouse_id"
+                            @endif
+                            @if($fieldConfig['spouse_id']['shown'])
+                            <x-rental-application-field name="spouse_id" :label="$fieldConfig['spouse_id']['label']" :hint="$fieldConfig['spouse_id']['help_text']" :order="$fieldConfig['spouse_id']['order']" :value="$application->spouse_id"
                                 required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_id', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                            @endif
                         </div>
                     </div>
-                    <x-rental-application-field name="email" label="Email address" type="email" :value="$application->email" :required="in_array('email', $requiredFieldKeys, true)" />
-                    <x-rental-application-field name="cell" label="Cell number" :value="$application->cell" :required="in_array('cell', $requiredFieldKeys, true)" />
+                    @if($fieldConfig['contact_method']['shown'] ?? true)
+                    @if($fieldConfig['email']['shown'])
+                    <x-rental-application-field name="email" :label="$fieldConfig['email']['label']" :hint="$fieldConfig['email']['help_text']" :order="$fieldConfig['email']['order']" type="email" :value="$application->email" :required="in_array('email', $requiredFieldKeys, true)" />
+                    @endif
+                    @if($fieldConfig['cell']['shown'])
+                    <x-rental-application-field name="cell" :label="$fieldConfig['cell']['label']" :hint="$fieldConfig['cell']['help_text']" :order="$fieldConfig['cell']['order']" :value="$application->cell" :required="in_array('cell', $requiredFieldKeys, true)" />
+                    @endif
                     @if(in_array('contact_method', $requiredFieldKeys, true) && ! in_array('email', $requiredFieldKeys, true) && ! in_array('cell', $requiredFieldKeys, true))
                         <p class="text-[11px] text-slate-400 sm:col-span-2 -mt-2">At least one of email or cell number is required.</p>
                     @endif
-                    <x-rental-application-field name="work_number" label="Work number" :value="$application->work_number" />
-                    <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Current residential address @if(in_array('current_residential_address', $requiredFieldKeys, true)) *@endif</label>
+                    @endif
+                    @if($fieldConfig['work_number']['shown'])
+                    <x-rental-application-field name="work_number" :label="$fieldConfig['work_number']['label']" :hint="$fieldConfig['work_number']['help_text']" :order="$fieldConfig['work_number']['order']" :value="$application->work_number" />
+                    @endif
+                    @if($fieldConfig['current_residential_address']['shown'])
+                    <div class="sm:col-span-2" style="order: {{ $fieldConfig['current_residential_address']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['current_residential_address']['label'] }} @if(in_array('current_residential_address', $requiredFieldKeys, true)) *@endif</label>
                         <textarea name="current_residential_address" rows="2"
                                   @if(in_array('current_residential_address', $requiredFieldKeys, true)) required aria-required="true" @endif
                                   class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_residential_address') ? 'border-red-400' : 'border-slate-300' }}">{{ old('current_residential_address', $application->current_residential_address) }}</textarea>
+                        @if($fieldConfig['current_residential_address']['help_text'])
+                            <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['current_residential_address']['help_text'] }}</p>
+                        @endif
                         @error('current_residential_address') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
+                    @endif
                 </div>
             </section>
 
             <section data-progress-section="Emergency Contact">
                 <h2 class="font-semibold text-slate-700 mb-3">Emergency Contact</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <x-rental-application-field name="emergency_contact_name" label="Name" :value="$application->emergency_contact_name" />
-                    <x-rental-application-field name="emergency_contact_cell" label="Cell" :value="$application->emergency_contact_cell" />
-                    <x-rental-application-field name="emergency_contact_work" label="Work" :value="$application->emergency_contact_work" />
+                    @if($fieldConfig['emergency_contact_name']['shown'])
+                    <x-rental-application-field name="emergency_contact_name" :label="$fieldConfig['emergency_contact_name']['label']" :hint="$fieldConfig['emergency_contact_name']['help_text']" :order="$fieldConfig['emergency_contact_name']['order']" :value="$application->emergency_contact_name" />
+                    @endif
+                    @if($fieldConfig['emergency_contact_cell']['shown'])
+                    <x-rental-application-field name="emergency_contact_cell" :label="$fieldConfig['emergency_contact_cell']['label']" :hint="$fieldConfig['emergency_contact_cell']['help_text']" :order="$fieldConfig['emergency_contact_cell']['order']" :value="$application->emergency_contact_cell" />
+                    @endif
+                    @if($fieldConfig['emergency_contact_work']['shown'])
+                    <x-rental-application-field name="emergency_contact_work" :label="$fieldConfig['emergency_contact_work']['label']" :hint="$fieldConfig['emergency_contact_work']['help_text']" :order="$fieldConfig['emergency_contact_work']['order']" :value="$application->emergency_contact_work" />
+                    @endif
                 </div>
             </section>
 
@@ -234,8 +275,9 @@
             <section data-progress-section="Current Living Situation" x-data="{ situation: {{ Js::from(old('current_living_situation', $situationDefault)) }} }">
                 <h2 class="font-semibold text-slate-700 mb-3">Current Living Situation</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Which best describes your situation right now?@if(in_array('current_living_situation', $requiredFieldKeys, true)) *@endif</label>
+                    @if($fieldConfig['current_living_situation']['shown'])
+                    <div class="sm:col-span-2" style="order: {{ $fieldConfig['current_living_situation']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['current_living_situation']['label'] }}@if(in_array('current_living_situation', $requiredFieldKeys, true)) *@endif</label>
                         <select name="current_living_situation" x-model="situation"
                                 @if(in_array('current_living_situation', $requiredFieldKeys, true)) required aria-required="true" @endif
                                 class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_living_situation') ? 'border-red-400' : 'border-slate-300' }}">
@@ -244,8 +286,12 @@
                                 <option value="{{ $value }}">{{ $label }}</option>
                             @endforeach
                         </select>
+                        @if($fieldConfig['current_living_situation']['help_text'])
+                            <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['current_living_situation']['help_text'] }}</p>
+                        @endif
                         @error('current_living_situation') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
+                    @endif
                 </div>
 
                 {{--
@@ -260,17 +306,27 @@
                     genuinely optional server-side either way.
                 --}}
                 <div x-show="situation === 'renting'" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                    <x-rental-application-field name="current_landlord_name" label="Landlord name" :value="$application->current_landlord_name"
+                    @if($fieldConfig['current_landlord_name']['shown'])
+                    <x-rental-application-field name="current_landlord_name" :label="$fieldConfig['current_landlord_name']['label']" :hint="$fieldConfig['current_landlord_name']['help_text']" :order="$fieldConfig['current_landlord_name']['order']" :value="$application->current_landlord_name"
                         required-expr="situation === 'renting' && {{ in_array('current_landlord_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                    <x-rental-application-field name="current_landlord_tel" label="Landlord tel" :value="$application->current_landlord_tel"
+                    @endif
+                    @if($fieldConfig['current_landlord_tel']['shown'])
+                    <x-rental-application-field name="current_landlord_tel" :label="$fieldConfig['current_landlord_tel']['label']" :hint="$fieldConfig['current_landlord_tel']['help_text']" :order="$fieldConfig['current_landlord_tel']['order']" :value="$application->current_landlord_tel"
                         required-expr="situation === 'renting' && {{ in_array('current_landlord_tel', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                    <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$application->current_rental_amount"
+                    @endif
+                    @if($fieldConfig['current_rental_amount']['shown'])
+                    <x-rental-application-field name="current_rental_amount" :label="$fieldConfig['current_rental_amount']['label']" :hint="$fieldConfig['current_rental_amount']['help_text']" :order="$fieldConfig['current_rental_amount']['order']" type="text" inputmode="decimal" :value="$application->current_rental_amount"
                         required-expr="situation === 'renting' && {{ in_array('current_rental_amount', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                    <x-rental-application-field name="current_rental_due_day" label="Rent due on which day of the month?" type="number" min="1" max="31" :value="$application->current_rental_due_day"
-                        hint="e.g. 1 if your rent is due on the 1st of every month."
+                    @endif
+                    @if($fieldConfig['current_rental_due_day']['shown'])
+                    <x-rental-application-field name="current_rental_due_day" :label="$fieldConfig['current_rental_due_day']['label']" type="number" min="1" max="31" :value="$application->current_rental_due_day" :order="$fieldConfig['current_rental_due_day']['order']"
+                        :hint="$fieldConfig['current_rental_due_day']['help_text'] ?? 'e.g. 1 if your rent is due on the 1st of every month.'"
                         required-expr="situation === 'renting' && {{ in_array('current_rental_due_day', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                    <x-rental-application-field name="current_rental_from" label="From" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')"
+                    @endif
+                    @if($fieldConfig['current_rental_from']['shown'])
+                    <x-rental-application-field name="current_rental_from" :label="$fieldConfig['current_rental_from']['label']" :hint="$fieldConfig['current_rental_from']['help_text']" :order="$fieldConfig['current_rental_from']['order']" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')"
                         required-expr="situation === 'renting' && {{ in_array('current_rental_from', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                    @endif
                     <div x-data="{ stillLiving: {{ old('current_rental_still_living', $application->current_rental_still_living) ? 'true' : 'false' }} }">
                         <label class="block text-xs text-slate-500 mb-1">To</label>
                         <input type="date" name="current_rental_to" x-ref="currentRentalTo"
@@ -294,20 +350,23 @@
                     gated behind any particular answer above, since a
                     person's housing history doesn't always fit a box.
                 --}}
-                <div class="mt-3">
-                    <label class="block text-xs text-slate-500 mb-1">Tell us more about where you live or have lived, in your own words (optional)</label>
+                @if($fieldConfig['current_living_situation_notes']['shown'])
+                <div class="mt-3" style="order: {{ $fieldConfig['current_living_situation_notes']['order'] }}">
+                    <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['current_living_situation_notes']['help_text'] ?? 'Tell us more about where you live or have lived, in your own words (optional)' }}</label>
                     <textarea name="current_living_situation_notes" rows="4"
                               class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_living_situation_notes') ? 'border-red-400' : 'border-slate-300' }}"
                               placeholder="Anything you'd like your agent to know about your living situation.">{{ old('current_living_situation_notes', $application->current_living_situation_notes) }}</textarea>
                     @error('current_living_situation_notes') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                 </div>
+                @endif
             </section>
 
             <section data-progress-section="Employment" x-data="{ employmentType: {{ Js::from(old('employment_type', $application->employment_type)) }} }">
                 <h2 class="font-semibold text-slate-700 mb-3">Employment</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Employment type @if(in_array('employment_type', $requiredFieldKeys, true)) *@endif</label>
+                    @if($fieldConfig['employment_type']['shown'])
+                    <div class="sm:col-span-2" style="order: {{ $fieldConfig['employment_type']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['employment_type']['label'] }} @if(in_array('employment_type', $requiredFieldKeys, true)) *@endif</label>
                         @php $employmentType = old('employment_type', $application->employment_type) @endphp
                         <select name="employment_type" x-model="employmentType"
                                 @if(in_array('employment_type', $requiredFieldKeys, true)) required aria-required="true" @endif
@@ -317,8 +376,14 @@
                             <option value="business_owner_personal_account" @selected($employmentType === 'business_owner_personal_account')>Business owner — personal account</option>
                             <option value="business_owner_business_account" @selected($employmentType === 'business_owner_business_account')>Business owner — business account</option>
                         </select>
+                        @if($fieldConfig['employment_type']['help_text'])
+                            <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['employment_type']['help_text'] }}</p>
+                        @endif
                         @error('employment_type') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
+                    @else
+                    @php $employmentType = old('employment_type', $application->employment_type) @endphp
+                    @endif
                     {{--
                         Employer fields only apply when permanently employed
                         — Johan: "a ticked employer field must never block a
@@ -327,31 +392,46 @@
                         never loses what they'd already typed here.
                     --}}
                     <div x-show="employmentType === 'permanently_employed'" x-cloak class="contents">
-                        <x-rental-application-field name="employer_name" label="Employer" :value="$application->employer_name"
+                        @if($fieldConfig['employer_name']['shown'])
+                        <x-rental-application-field name="employer_name" :label="$fieldConfig['employer_name']['label']" :hint="$fieldConfig['employer_name']['help_text']" :order="$fieldConfig['employer_name']['order']" :value="$application->employer_name"
                             required-expr="employmentType === 'permanently_employed' && {{ in_array('employer_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                        <x-rental-application-field name="employer_position" label="Position" :value="$application->employer_position"
+                        @endif
+                        @if($fieldConfig['employer_position']['shown'])
+                        <x-rental-application-field name="employer_position" :label="$fieldConfig['employer_position']['label']" :hint="$fieldConfig['employer_position']['help_text']" :order="$fieldConfig['employer_position']['order']" :value="$application->employer_position"
                             required-expr="employmentType === 'permanently_employed' && {{ in_array('employer_position', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                        <x-rental-application-field name="employer_tel" label="Employer tel" :value="$application->employer_tel"
+                        @endif
+                        @if($fieldConfig['employer_tel']['shown'])
+                        <x-rental-application-field name="employer_tel" :label="$fieldConfig['employer_tel']['label']" :hint="$fieldConfig['employer_tel']['help_text']" :order="$fieldConfig['employer_tel']['order']" :value="$application->employer_tel"
                             required-expr="employmentType === 'permanently_employed' && {{ in_array('employer_tel', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                        @endif
                     </div>
-                    <x-rental-application-field name="monthly_salary" label="Gross monthly income, before deductions (R)" type="text" inputmode="decimal" :value="$application->monthly_salary"
-                        hint="The amount on your payslip BEFORE tax and other deductions — not what actually lands in your bank account."
+                    @if($fieldConfig['monthly_salary']['shown'])
+                    <x-rental-application-field name="monthly_salary" :label="$fieldConfig['monthly_salary']['label']" type="text" inputmode="decimal" :value="$application->monthly_salary" :order="$fieldConfig['monthly_salary']['order']"
+                        :hint="$fieldConfig['monthly_salary']['help_text'] ?? 'The amount on your payslip BEFORE tax and other deductions — not what actually lands in your bank account.'"
                         :required="in_array('monthly_salary', $requiredFieldKeys, true)" />
-                    <div x-show="employmentType === 'permanently_employed'" x-cloak class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Employer address</label>
+                    @endif
+                    @if($fieldConfig['employer_address']['shown'])
+                    <div x-show="employmentType === 'permanently_employed'" x-cloak class="sm:col-span-2" style="order: {{ $fieldConfig['employer_address']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['employer_address']['label'] }}</label>
                         <textarea name="employer_address" rows="2"
                                   x-bind:required="employmentType === 'permanently_employed' && {{ in_array('employer_address', $requiredFieldKeys, true) ? 'true' : 'false' }}"
                                   class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('employer_address') ? 'border-red-400' : 'border-slate-300' }}">{{ old('employer_address', $application->employer_address) }}</textarea>
+                        @if($fieldConfig['employer_address']['help_text'])
+                            <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['employer_address']['help_text'] }}</p>
+                        @endif
                         @error('employer_address') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
+                    @endif
                 </div>
             </section>
 
             <section data-progress-section="Lease Requirement">
                 <h2 class="font-semibold text-slate-700 mb-3">Lease Requirement</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <x-rental-application-field name="occupation_date" label="Effective date of occupation" type="date" :value="optional($application->occupation_date)->format('Y-m-d')"
+                    @if($fieldConfig['occupation_date']['shown'])
+                    <x-rental-application-field name="occupation_date" :label="$fieldConfig['occupation_date']['label']" :hint="$fieldConfig['occupation_date']['help_text']" :order="$fieldConfig['occupation_date']['order']" type="date" :value="optional($application->occupation_date)->format('Y-m-d')"
                         :required="in_array('occupation_date', $requiredFieldKeys, true)" />
+                    @endif
                     {{--
                         No native `required` on the hidden input driving this
                         button group — a hidden control can't receive focus,
@@ -361,9 +441,11 @@
                         (server-side + the error banner/scroll-to-error below
                         are the real, always-visible check for this field).
                     --}}
+                    @if($fieldConfig['rental_term_months']['shown'])
                     <div x-data="{ months: {{ old('rental_term_months', $application->rental_term_months) ?: 'null' }} }"
-                         class="sm:col-span-2 {{ $errors->has('rental_term_months') ? 'border border-red-400 rounded-lg p-2' : '' }}">
-                        <label class="block text-xs text-slate-500 mb-1">Rental term required @if(in_array('rental_term_months', $requiredFieldKeys, true)) *@endif</label>
+                         class="sm:col-span-2 {{ $errors->has('rental_term_months') ? 'border border-red-400 rounded-lg p-2' : '' }}"
+                         style="order: {{ $fieldConfig['rental_term_months']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['rental_term_months']['label'] }} @if(in_array('rental_term_months', $requiredFieldKeys, true)) *@endif</label>
                         <input type="hidden" name="rental_term_months" :value="months">
                         <div class="flex gap-2">
                             <template x-for="m in [6, 12, 24]" :key="m">
@@ -379,35 +461,177 @@
                             </template>
                         </div>
                         @error('rental_term_months') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-                        <p class="text-xs text-slate-400 mt-1">Maximum 24 months by law — a longer stay is arranged as a renewal later, not on this form.</p>
+                        <p class="text-xs text-slate-400 mt-1">{{ $fieldConfig['rental_term_months']['help_text'] ?? 'Maximum 24 months by law — a longer stay is arranged as a renewal later, not on this form.' }}</p>
                     </div>
-                    <x-rental-application-field name="adults" label="Adults" type="number" :value="$application->adults" />
-                    <x-rental-application-field name="children" label="Children" type="number" :value="$application->children" />
-                    <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Special conditions</label>
+                    @endif
+                    @if($fieldConfig['adults']['shown'])
+                    <x-rental-application-field name="adults" :label="$fieldConfig['adults']['label']" :hint="$fieldConfig['adults']['help_text']" :order="$fieldConfig['adults']['order']" type="number" :value="$application->adults" />
+                    @endif
+                    @if($fieldConfig['children']['shown'])
+                    <x-rental-application-field name="children" :label="$fieldConfig['children']['label']" :hint="$fieldConfig['children']['help_text']" :order="$fieldConfig['children']['order']" type="number" :value="$application->children" />
+                    @endif
+                    @if($fieldConfig['special_conditions']['shown'])
+                    <div class="sm:col-span-2" style="order: {{ $fieldConfig['special_conditions']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['special_conditions']['label'] }}</label>
                         <textarea name="special_conditions" rows="2" class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('special_conditions') ? 'border-red-400' : 'border-slate-300' }}">{{ old('special_conditions', $application->special_conditions) }}</textarea>
+                        @if($fieldConfig['special_conditions']['help_text'])
+                            <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['special_conditions']['help_text'] }}</p>
+                        @endif
                         @error('special_conditions') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
+                    @endif
                 </div>
             </section>
 
+            @php
+                // .ai/specs/rental-application-field-config.md §7, piece
+                // (c)(2) — custom fields render through the SAME
+                // $fieldConfig this whole form already resolves through,
+                // never a parallel field-listing mechanism (§6's own
+                // rule). Not rendered via <x-rental-application-field> —
+                // that component's old($name, ...) call expects a plain
+                // flat field name; a bracketed HTML name like
+                // "custom_field_values[key]" (required so PHP parses the
+                // submission into a nested array) is not the dot-path
+                // old() needs to actually find it after a failed
+                // validation — AT-392's own "losing a tenant's typed
+                // answers is unacceptable" ruling applies here exactly as
+                // much as it does to every shipped field.
+                $customFields = collect($fieldConfig)->where('is_custom', true)->sortBy('order');
+            @endphp
+            @if($customFields->isNotEmpty())
+            <section data-progress-section="Additional Questions">
+                <h2 class="font-semibold text-slate-700 mb-3">Additional Questions</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @foreach($customFields as $cf)
+                        @php
+                            $cfName = 'custom_field_values[' . $cf['key'] . ']';
+                            $cfOldKey = 'custom_field_values.' . $cf['key'];
+                            $cfValue = old($cfOldKey, $application->custom_field_values[$cf['key']] ?? null);
+                            $cfError = $errors->has($cfOldKey);
+                            // §7, piece (c)(4) — the current file, resolved
+                            // the SAME scoped way as
+                            // RentalApplicationSigningController::
+                            // resolveCustomFieldDocument() (source +
+                            // custom_field_key together), never trusting
+                            // the raw custom_field_values id alone.
+                            $cfDoc = $cf['field_type'] === 'file' && $cfValue
+                                ? \App\Models\Document::where('id', $cfValue)
+                                    ->where('source_type', 'rental_application')
+                                    ->where('source_id', $application->id)
+                                    ->where('custom_field_key', $cf['key'])
+                                    ->first()
+                                : null;
+                        @endphp
+                        <div class="{{ in_array($cf['field_type'], ['text', 'file']) ? 'sm:col-span-2' : '' }}">
+                            <label class="block text-xs text-slate-500 mb-1">{{ $cf['label'] }}@if($cf['required']) *@endif</label>
+                            @if($cf['field_type'] === 'file')
+                                <div x-data="{
+                                        uploading: false,
+                                        error: null,
+                                        doc: {{ Js::from($cfDoc ? ['id' => $cfDoc->id, 'name' => $cfDoc->original_name, 'view_url' => route('rental-applications.public.documents.view', [$application->token, $cfDoc->id])] : null) }},
+                                        action(url, file) {
+                                            this.uploading = true; this.error = null;
+                                            const formData = new FormData();
+                                            formData.append('file', file);
+                                            formData.append('_token', csrfToken());
+                                            return fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() }, body: formData })
+                                                .then(res => res.json().then(data => ({ ok: res.ok, data })))
+                                                .then(({ ok, data }) => {
+                                                    this.uploading = false;
+                                                    if (!ok) { this.error = data.message || 'Upload failed.'; return; }
+                                                    this.doc = data.document;
+                                                })
+                                                .catch(() => { this.uploading = false; this.error = 'Network error — please try again.'; });
+                                        },
+                                        remove() {
+                                            this.uploading = true; this.error = null;
+                                            const formData = new FormData();
+                                            formData.append('_token', csrfToken());
+                                            fetch({{ Js::from(route('rental-applications.public.custom-fields.remove', [$application->token, $cf['key']])) }}, { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() }, body: formData })
+                                                .then(() => { this.uploading = false; this.doc = null; })
+                                                .catch(() => { this.uploading = false; this.error = 'Network error — please try again.'; });
+                                        },
+                                    }">
+                                    <template x-if="!doc">
+                                        <label class="inline-block px-3 py-2 rounded-lg border border-slate-300 text-sm cursor-pointer" :class="uploading ? 'opacity-50' : ''">
+                                            <span x-text="uploading ? 'Uploading…' : 'Choose file'"></span>
+                                            <input type="file" class="hidden" :disabled="uploading" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                                   @change="action({{ Js::from(route('rental-applications.public.custom-fields.upload', [$application->token, $cf['key']])) }}, $event.target.files[0]); $event.target.value = ''">
+                                        </label>
+                                    </template>
+                                    <template x-if="doc">
+                                        <div class="flex items-center gap-2 flex-wrap text-sm">
+                                            <a :href="doc.view_url" target="_blank" rel="noopener" class="text-slate-700 hover:underline" x-text="'✓ ' + doc.name"></a>
+                                            <label class="text-xs font-medium text-slate-500 hover:text-slate-700 cursor-pointer">
+                                                Replace
+                                                <input type="file" class="hidden" :disabled="uploading" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                                       @change="action({{ Js::from(route('rental-applications.public.custom-fields.replace', [$application->token, $cf['key']])) }}, $event.target.files[0]); $event.target.value = ''">
+                                            </label>
+                                            <button type="button" class="text-xs font-medium text-red-500 hover:text-red-700" :disabled="uploading" @click="remove()">Remove</button>
+                                        </div>
+                                    </template>
+                                    <p class="text-xs mt-1" x-show="error" x-text="error" style="color: #dc2626;"></p>
+                                </div>
+                            @elseif($cf['field_type'] === 'yes_no')
+                                <select name="{{ $cfName }}" @if($cf['required']) required @endif
+                                        class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                                    <option value="">— Select —</option>
+                                    <option value="1" @selected($cfValue == '1')>Yes</option>
+                                    <option value="0" @selected($cfValue !== null && $cfValue == '0')>No</option>
+                                </select>
+                            @elseif($cf['field_type'] === 'choice_list')
+                                <select name="{{ $cfName }}" @if($cf['required']) required @endif
+                                        class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                                    <option value="">— Select —</option>
+                                    @foreach($cf['options'] ?? [] as $option)
+                                        <option value="{{ $option }}" @selected($cfValue === $option)>{{ $option }}</option>
+                                    @endforeach
+                                </select>
+                            @elseif($cf['field_type'] === 'date')
+                                <input type="date" name="{{ $cfName }}" value="{{ $cfValue }}" @if($cf['required']) required @endif
+                                       class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                            @elseif($cf['field_type'] === 'number')
+                                <input type="text" inputmode="decimal" name="{{ $cfName }}" value="{{ $cfValue }}" @if($cf['required']) required @endif
+                                       class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                            @else
+                                <input type="text" name="{{ $cfName }}" value="{{ $cfValue }}" @if($cf['required']) required @endif
+                                       class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                            @endif
+                            @if($cf['help_text'])
+                                <p class="text-[11px] text-slate-400 mt-1">{{ $cf['help_text'] }}</p>
+                            @endif
+                            @error($cfOldKey) <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                    @endforeach
+                </div>
+            </section>
+            @endif
+
+            @if($fieldConfig['declaration_signature']['shown'])
             <section data-progress-section="Declaration">
-                <h2 class="font-semibold text-slate-700 mb-2">Declaration @if(in_array('declaration_signature', $requiredFieldKeys, true)) *@endif</h2>
-                <p class="text-xs text-slate-500 mb-2">I hereby declare that all the above information given is true and accurate.</p>
+                <h2 class="font-semibold text-slate-700 mb-2">{{ $fieldConfig['declaration_signature']['label'] }} @if(in_array('declaration_signature', $requiredFieldKeys, true)) *@endif</h2>
+                <p class="text-xs text-slate-500 mb-2">{{ $fieldConfig['declaration_signature']['help_text'] ?? 'I hereby declare that all the above information given is true and accurate.' }}</p>
                 @include('rental-applications.public._signature-pad', ['field' => 'declaration_signature', 'label' => 'declaration'])
                 @error('declaration_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </section>
+            @endif
 
-            <section data-progress-section="Tenant Profile Network Consent">
-                <h2 class="font-semibold text-slate-700 mb-2">Tenant Profile Network Consent @if(in_array('tpn_consent_signature', $requiredFieldKeys, true)) *@endif</h2>
+            @if($fieldConfig['tpn_consent_signature']['shown'])
+            <section data-progress-section="{{ $fieldConfig['tpn_consent_signature']['label'] }}">
+                <h2 class="font-semibold text-slate-700 mb-2">{{ $fieldConfig['tpn_consent_signature']['label'] }} @if(in_array('tpn_consent_signature', $requiredFieldKeys, true)) *@endif</h2>
                 <p class="text-xs text-slate-500 mb-2">
-                    The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact,
-                    request and obtain information from any credit provider or registered credit bureau relevant to
-                    an assessment of the tenant's creditworthiness.
+                    {{ $fieldConfig['tpn_consent_signature']['help_text'] ?? 'The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact, request and obtain information from any credit provider or registered credit bureau relevant to an assessment of the tenant\'s creditworthiness.' }}
                 </p>
-                @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => 'TPN consent'])
+                {{-- Johan, 2026-09-20 — "hfc uses tpn so thats why we have
+                     that." Reuses the SAME resolved label as the heading
+                     above (agency override, or the bureau-aware registry
+                     default) rather than a second hardcoded 'TPN consent'
+                     string, so the two can never say different things. --}}
+                @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => $fieldConfig['tpn_consent_signature']['label']])
                 @error('tpn_consent_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </section>
+            @endif
 
             <input type="hidden" name="declaration_signature" value="{{ old('declaration_signature') }}" x-ref="declaration_signature_input">
             <input type="hidden" name="tpn_consent_signature" value="{{ old('tpn_consent_signature') }}" x-ref="tpn_consent_signature_input">
@@ -846,10 +1070,30 @@ function rentalApplicationForm() {
                 return;
             }
 
+            // Johan, 2026-09-20 — this used to unconditionally require both
+            // signatures, ignoring both 'shown' AND the agency's own
+            // required-field tick, unlike every other field on this form
+            // (each of which drives its `required`/`required-expr`
+            // attribute from $requiredFieldKeys — already reconciled
+            // against hidden fields server-side via
+            // effectiveRequiredFieldKeysFor()). An agency that hides or
+            // un-ticks either signature would have had a form that could
+            // never be submitted, with no error an applicant could act on
+            // — they just leave. Baked in at render time, same pattern as
+            // every other required-expr on this page, and Js::from() for
+            // safe string escaping into the label array.
+            const declRequired = {{ in_array('declaration_signature', $requiredFieldKeys, true) ? 'true' : 'false' }};
+            const tpnRequired = {{ in_array('tpn_consent_signature', $requiredFieldKeys, true) ? 'true' : 'false' }};
+            const declLabel = {{ \Illuminate\Support\Js::from($fieldConfig['declaration_signature']['label']) }};
+            const tpnLabel = {{ \Illuminate\Support\Js::from($fieldConfig['tpn_consent_signature']['label']) }};
+
             const decl = this.$refs.declaration_signature_input.value;
             const tpn = this.$refs.tpn_consent_signature_input.value;
-            if (!decl || !tpn) {
-                this.error = 'Please sign both the declaration and the TPN consent before submitting.';
+            const missingSignatures = [];
+            if (declRequired && !decl) missingSignatures.push(declLabel);
+            if (tpnRequired && !tpn) missingSignatures.push(tpnLabel);
+            if (missingSignatures.length) {
+                this.error = 'Please sign the following before submitting: ' + missingSignatures.join(', ') + '.';
                 return;
             }
 

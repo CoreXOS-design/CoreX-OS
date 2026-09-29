@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -127,10 +128,27 @@ class RentalApplication extends Model
      */
     public const WITHDRAWN_LABEL = 'Applicant withdrawn';
 
-    /** The one place a status's plain-language display label diverges from a simple str_replace('_', ' ', $status). */
-    public static function displayStatusLabel(string $status): string
+    /**
+     * The one place a status's plain-language display label is decided —
+     * every status badge on every rental-application screen calls this,
+     * never re-derives its own text. Converted from a static
+     * string-in-string-out helper to an instance method 2026-09-21 (Johan,
+     * from his own live walk) specifically so it can check isTenanted():
+     * an approved application linked to an active lease is a further
+     * state, not a new status, and this is the single place that further
+     * state has to be reflected for every one of its callers to stay in
+     * sync automatically — the bug this exists to prevent is exactly what
+     * was found building this: the list's tile said "tenanted" while this
+     * SAME application's own status badge, driven by a different, un-
+     * updated call site, still said "approved" two clicks later.
+     */
+    public function displayStatusLabel(): string
     {
-        return $status === 'withdrawn' ? self::WITHDRAWN_LABEL : str_replace('_', ' ', ucfirst($status));
+        if ($this->isTenanted()) {
+            return $this->tenantedLabel();
+        }
+
+        return $this->status === 'withdrawn' ? self::WITHDRAWN_LABEL : str_replace('_', ' ', ucfirst($this->status));
     }
 
     /** Statuses at/after which a hand-set judgement call makes sense. */
@@ -408,7 +426,34 @@ class RentalApplication extends Model
      * "a wrong label is worse than a missing entry, because a missing entry
      * fails the build and a wrong label ships silently."
      */
-    public static function submissionFieldRegistry(): array
+    /**
+     * Johan, 2026-09-20 — the ONE place the credit bureau's display name
+     * gets turned into user-facing text, so every consumer (this
+     * registry's default label, the PDF's own heading, the settings
+     * screen's section heading) reads the identical computed string
+     * rather than re-deriving their own. Null (unconfigured, or an agency
+     * that genuinely runs no bureau check) reads as generic wording —
+     * never a blank gap in a sentence.
+     */
+    public static function creditBureauConsentLabel(?string $bureauName): string
+    {
+        return $bureauName ? "{$bureauName} Consent" : 'Credit Bureau Consent';
+    }
+
+    /**
+     * Takes an already-RESOLVED label (agency label override already
+     * applied, or historical field_config_snapshot value for a submitted
+     * application via displayFieldConfig()) rather than re-deriving from
+     * today's live bureau setting — so an old application's PDF keeps
+     * naming whichever bureau it actually disclosed at submission time,
+     * same historical-integrity rule as every other frozen field.
+     */
+    public static function creditBureauConsentCaption(string $resolvedLabel): string
+    {
+        return 'Applicant Signature — ' . $resolvedLabel;
+    }
+
+    public static function submissionFieldRegistry(?int $agencyId = null): array
     {
         $labels = [
             'full_name' => 'Full name and surname',
@@ -444,7 +489,9 @@ class RentalApplication extends Model
             'adults' => 'Number of adults',
             'children' => 'Number of children',
             'declaration_signature' => 'Declaration signature',
-            'tpn_consent_signature' => 'TPN consent signature',
+            'tpn_consent_signature' => self::creditBureauConsentLabel(
+                \App\Models\RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId)
+            ),
         ];
 
         $registry = [];
@@ -482,6 +529,195 @@ class RentalApplication extends Model
     }
 
     /**
+     * .ai/specs/rental-application-field-config.md — the FORM SECTION a
+     * field lives in (matches show.blade.php's own <section
+     * data-progress-section="..."> boundaries exactly), never confused
+     * with submissionFieldGroupOf()'s conditional-requirement GROUP
+     * (employed/renting/married) above, which is a different axis. Section
+     * is the boundary within-section ordering (§ below) respects — moving
+     * a field between sections is deliberately out of scope for this
+     * build, see the migration's own docblock.
+     */
+    public const SUBMISSION_FIELD_SECTIONS = [
+        'Personal Details' => [
+            'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
+            'contact_method', 'email', 'cell', 'work_number', 'current_residential_address',
+        ],
+        'Emergency Contact' => [
+            'emergency_contact_name', 'emergency_contact_cell', 'emergency_contact_work',
+        ],
+        'Current Living Situation' => [
+            'current_living_situation', 'current_landlord_name', 'current_landlord_tel',
+            'current_rental_amount', 'current_rental_due_day', 'current_rental_from',
+            'current_living_situation_notes',
+        ],
+        'Employment' => [
+            'employment_type', 'employer_name', 'employer_position', 'employer_tel',
+            'monthly_salary', 'employer_address',
+        ],
+        'Lease Requirement' => [
+            'occupation_date', 'rental_term_months', 'adults', 'children', 'special_conditions',
+        ],
+        'Declaration' => ['declaration_signature'],
+        'Tenant Profile Network Consent' => ['tpn_consent_signature'],
+    ];
+
+    public static function submissionFieldSectionOf(string $key): ?string
+    {
+        foreach (self::SUBMISSION_FIELD_SECTIONS as $section => $keys) {
+            if (in_array($key, $keys, true)) {
+                return $section;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * THE one canonical resolver — .ai/specs/rental-application-field-config.md
+     * §6: "there is exactly ONE resolver every consumer goes through. No
+     * consumer is ever allowed its own field-iteration logic." Every
+     * registry field, decorated with its resolved label/help text/shown/
+     * required/within-section order for this agency. Built directly on
+     * submissionFieldRegistry() (existence/default label/group) and
+     * RentalApplicationQualifyingSetting's four new columns (this build)
+     * plus its existing required_field_keys (unchanged, untouched).
+     *
+     * Within-section order resolution for a partial field_order: named
+     * keys (that belong to this section) come first, in the given order;
+     * every unnamed key in the section keeps its shipped registry order,
+     * appended after.
+     *
+     * @return array<string, array{key: string, label: string, help_text: ?string, shown: bool, required: bool, order: int, group: ?string, section: ?string}>
+     */
+    public static function resolvedFieldConfigFor(?int $agencyId): array
+    {
+        $hiddenKeys = \App\Models\RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agencyId);
+        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
+        $labelOverrides = \App\Models\RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agencyId);
+        $helpOverrides = \App\Models\RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agencyId);
+        $orderedKeys = \App\Models\RentalApplicationQualifyingSetting::fieldOrderFor($agencyId);
+
+        // Within-section order, computed once, per §6's own docblock above.
+        $orderIndex = [];
+        foreach (self::SUBMISSION_FIELD_SECTIONS as $section => $sectionKeys) {
+            $named = array_values(array_intersect($orderedKeys, $sectionKeys));
+            $unnamed = array_values(array_diff($sectionKeys, $named));
+            $resolvedSectionOrder = array_merge($named, $unnamed);
+            foreach ($resolvedSectionOrder as $i => $key) {
+                $orderIndex[$key] = $i;
+            }
+        }
+
+        $config = [];
+        foreach (self::submissionFieldRegistry($agencyId) as $field) {
+            $key = $field['key'];
+            $config[$key] = [
+                'key' => $key,
+                'label' => $labelOverrides[$key] ?? $field['label'],
+                'help_text' => $helpOverrides[$key] ?? null,
+                'shown' => ! in_array($key, $hiddenKeys, true),
+                'required' => in_array($key, $requiredKeys, true),
+                'order' => $orderIndex[$key] ?? 999,
+                'group' => $field['group'],
+                'section' => self::submissionFieldSectionOf($key),
+                'is_custom' => false,
+                'field_type' => null,
+                'options' => null,
+            ];
+        }
+
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // custom fields go through this SAME resolver, merged into the
+        // SAME flat array, never a parallel field-listing mechanism. All
+        // under one dedicated section ('Additional Questions', not one of
+        // SUBMISSION_FIELD_SECTIONS — custom fields aren't grouped under
+        // any shipped section). `order` is the row's own sort_order
+        // directly — no named/unnamed reconciliation needed, since every
+        // custom field always has an explicit position (set on creation,
+        // adjustable via reorder()), unlike a shipped field's order which
+        // can be left unconfigured.
+        if ($agencyId !== null && $agencyId > 0) {
+            foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
+                $config[$customField->key] = [
+                    'key' => $customField->key,
+                    'label' => $customField->label,
+                    'help_text' => $customField->help_text,
+                    'shown' => true, // activeFor() already excludes shown=false and retired
+                    'required' => $customField->required,
+                    'order' => $customField->sort_order,
+                    'group' => null,
+                    'section' => 'Additional Questions',
+                    'is_custom' => true,
+                    'field_type' => $customField->field_type,
+                    'options' => $customField->options,
+                ];
+            }
+        }
+
+        return $config;
+    }
+
+    /**
+     * RA-02's "a real person types 15,000... gets 'must be a number'" fix
+     * applies just as much to a custom number-type field as to
+     * monthly_salary — the keys (unprefixed, e.g. 'pet_deposit_amount')
+     * sanitizeNumericInput() needs to run against $application->custom_field_values,
+     * not the top-level request.
+     */
+    public static function customNumberFieldKeysFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        return \App\Models\RentalApplicationCustomField::activeFor($agencyId)
+            ->where('field_type', \App\Models\RentalApplicationCustomField::TYPE_NUMBER)
+            ->pluck('key')
+            ->all();
+    }
+
+    /**
+     * §3 — historical integrity. Called exactly once, at the moment of
+     * submission (never at creation, never on every autosave) — see the
+     * migration's own docblock for the argument on why submission, not
+     * creation, is the right freeze point.
+     */
+    public function snapshotFieldConfig(): void
+    {
+        $this->field_config_snapshot = self::resolvedFieldConfigFor($this->agency_id);
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md, staff-facing follow-up
+     * 2026-09-20 — the ONE resolver every AGENT-facing consumer of THIS
+     * application's own answers goes through (review.blade.php's summary,
+     * the editable pre-submission capture form) — parallel to
+     * resolvedFieldConfigFor() for the applicant-facing form, but aware of
+     * whether THIS specific record has actually been submitted:
+     *
+     * - Submitted, with a frozen snapshot: the snapshot, always — never
+     *   today's live settings. A config change after submission must never
+     *   silently reach backward into an already-signed record.
+     * - Submitted, but no snapshot (a record from before this column
+     *   existed): registry defaults (resolvedFieldConfigFor(null)), not
+     *   today's live agency settings either — a legacy record is rendered
+     *   as it always was (no hide/label/order applied), never retroactively
+     *   reshaped by config that didn't exist yet at its own submission.
+     * - Not yet submitted: today's live settings — nothing is historical
+     *   yet, so an agent capturing/viewing a draft sees exactly what the
+     *   applicant would see right now.
+     */
+    public function displayFieldConfig(): array
+    {
+        if ($this->isSubmitted()) {
+            return $this->field_config_snapshot ?? self::resolvedFieldConfigFor(null);
+        }
+
+        return self::resolvedFieldConfigFor($this->agency_id);
+    }
+
+    /**
      * Builds submit()'s full validation rule set from the agency's saved
      * $requiredKeys (RentalApplicationQualifyingSetting::requiredFieldKeysFor()).
      * A ticked field belonging to a conditional group is only enforced when
@@ -491,7 +727,7 @@ class RentalApplication extends Model
      * names so a failure reads "The Full name field is required." not "The
      * full_name field is required."
      */
-    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId): array
+    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId, ?int $applicationId = null): array
     {
         $rules = self::fieldValidationRules();
         $attributes = [];
@@ -543,7 +779,81 @@ class RentalApplication extends Model
             [self::signatureWellFormedRule()],
         );
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // custom fields validate through this SAME method, never a second
+        // rule-building path. required is the field's own `required`
+        // column directly (no cross-mechanism reconciliation needed like
+        // shipped fields' required_field_keys vs hidden_field_keys — a
+        // custom field's shown and required live on the SAME row, so
+        // activeFor() already excludes anything not shown before this
+        // loop ever sees it: a hidden custom field can never reach here
+        // as "required").
+        if ($agencyId !== null && $agencyId > 0) {
+            foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
+                $fieldKey = 'custom_field_values.' . $customField->key;
+                $attributes[$fieldKey] = $customField->label;
+                $rules[$fieldKey] = self::customFieldValidationRule($customField, applicationId: $applicationId);
+            }
+        }
+
         return [$rules, $attributes];
+    }
+
+    /**
+     * One rule set per RentalApplicationCustomField::FIELD_TYPES value —
+     * the single place a custom field's own validation shape is decided.
+     * $forceNullable — autosave() never enforces `required` (a partial,
+     * still-in-progress draft must always be saveable), same posture as
+     * every shipped field on that same route; true there, false at submit().
+     *
+     * §7, piece (c)(4) — TYPE_FILE never accepts free-typed input at all:
+     * a file custom field's ONLY legitimate value is a Document id placed
+     * there by uploadCustomFieldDocument()/replaceCustomFieldDocument()
+     * (the main form never renders an editable input for it — see
+     * show.blade.php's own file-type branch). $applicationId scopes the
+     * check so a hand-crafted submission can't borrow an unrelated
+     * document id and have it accepted as "the file for this question" —
+     * same "never trust blindly" reasoning as every other cross-tenant
+     * scoping fix already made in this module (property_id resolution in
+     * RentalApplicationController::update(), the exact same bug class).
+     */
+    public static function customFieldValidationRule(\App\Models\RentalApplicationCustomField $customField, bool $forceNullable = false, ?int $applicationId = null): array
+    {
+        $requiredOrNullable = ($customField->required && ! $forceNullable) ? 'required' : 'nullable';
+
+        return match ($customField->field_type) {
+            \App\Models\RentalApplicationCustomField::TYPE_NUMBER => [$requiredOrNullable, 'numeric'],
+            \App\Models\RentalApplicationCustomField::TYPE_DATE => [$requiredOrNullable, 'date'],
+            \App\Models\RentalApplicationCustomField::TYPE_YES_NO => [$requiredOrNullable, 'boolean'],
+            \App\Models\RentalApplicationCustomField::TYPE_CHOICE_LIST => [$requiredOrNullable, 'string', \Illuminate\Validation\Rule::in($customField->options ?? [])],
+            \App\Models\RentalApplicationCustomField::TYPE_FILE => [$requiredOrNullable, function (string $attribute, $value, \Closure $fail) use ($customField, $applicationId) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = $applicationId !== null && \App\Models\Document::where('id', $value)
+                    ->where('source_type', 'rental_application')
+                    ->where('source_id', $applicationId)
+                    ->where('custom_field_key', $customField->key)
+                    ->exists();
+                if (! $exists) {
+                    $fail('Please upload a file for this question.');
+                }
+            }],
+            default => [$requiredOrNullable, 'string', 'max:2000'],
+        };
+    }
+
+    /** Nullable-only custom-field rules for autosave() — same field shapes, never a required gate. */
+    public static function customFieldAutosaveRulesFor(?int $agencyId, ?int $applicationId = null): array
+    {
+        $rules = [];
+        if ($agencyId !== null && $agencyId > 0) {
+            foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
+                $rules['custom_field_values.' . $customField->key] = self::customFieldValidationRule($customField, forceNullable: true, applicationId: $applicationId);
+            }
+        }
+
+        return $rules;
     }
 
     private static function signatureWellFormedRule(): \Closure
@@ -631,6 +941,12 @@ class RentalApplication extends Model
     protected $fillable = [
         'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
         'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'draft_saved_at', 'submitted_for_approval_at', 'approved_rental_amount',
+        // Johan, 2026-09-22 (property 4283) — same shape as
+        // approved_rental_amount, captured optionally alongside it in
+        // RentalApplicationAuthorisationController::approve(). Nullable:
+        // the tenant-link precedence chain (view-readonly.blade.php) falls
+        // back to the property's own deposit_amount when this is absent.
+        'approved_deposit_amount',
         'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
         // Submission identity gate, 2026-09-13 — safe to mass-assign despite
         // being internal-tracking columns: the public form's own fill($fields)
@@ -650,10 +966,12 @@ class RentalApplication extends Model
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',
         'monthly_salary', 'employment_type',
         'occupation_date', 'rental_terms', 'rental_term_months', 'special_conditions', 'adults', 'children',
+        'field_config_snapshot', 'custom_field_values',
     ];
 
     protected $casts = [
         'token_expires_at' => 'datetime',
+        'checklist_snapshotted_at' => 'datetime',
         'submitted_at' => 'datetime',
         'identity_verified_at' => 'datetime',
         'identity_gate_unreachable' => 'boolean',
@@ -663,6 +981,7 @@ class RentalApplication extends Model
         'applicant_notified_at' => 'datetime',
         'current_generation' => 'integer',
         'approved_rental_amount' => 'decimal:2',
+        'approved_deposit_amount' => 'decimal:2',
         'current_rental_amount' => 'decimal:2',
         'monthly_salary' => 'decimal:2',
         'current_rental_from' => 'date',
@@ -673,6 +992,8 @@ class RentalApplication extends Model
         'rental_term_months' => 'integer',
         'adults' => 'integer',
         'children' => 'integer',
+        'field_config_snapshot' => 'array',
+        'custom_field_values' => 'array',
     ];
 
     /**
@@ -741,6 +1062,44 @@ class RentalApplication extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class, 'source_id')->where('source_type', 'rental_application');
+    }
+
+    /**
+     * Johan, from his own live walk, 2026-09-21 — an approved application
+     * linked to a property and a lease still read as merely "Approved"
+     * everywhere. The fact already exists in the data (Lease::
+     * rental_application_id); nothing new needed inventing there.
+     *
+     * Deliberately NOT a new value on `status` — approved is the decision,
+     * made once, and every historical field_config_snapshot/generation
+     * record this whole module builds on depends on a past decision never
+     * being reinterpreted by a later, unrelated fact. This is a further
+     * state the application has reached, derived fresh from Lease.status
+     * every time it's asked, never cached, never a flag that has to be
+     * remembered and cleared — which is exactly how the module got here:
+     * Contact::rental_application_status IS a cache (RecomputeRental
+     * ApplicationStatus), and nothing tells it a lease happened, so it
+     * never moves off "approved". Deriving live means a lease ending,
+     * being cancelled, or a tenant being replaced (Lease::previous_lease_id/
+     * renewed_lease_id — a new lease, new row, own status) all correctly
+     * fall back out of "tenanted" the moment Lease.status leaves 'active',
+     * with nothing to unset by hand anywhere.
+     */
+    public function activeLease(): HasOne
+    {
+        return $this->hasOne(Lease::class, 'rental_application_id')->where('status', Lease::STATUS_ACTIVE);
+    }
+
+    /** True only for an approved application currently linked to an active lease — see activeLease(). */
+    public function isTenanted(): bool
+    {
+        return $this->status === 'approved' && $this->activeLease()->exists();
+    }
+
+    /** The one agency-configurable label used identically everywhere this state is shown. */
+    public function tenantedLabel(): string
+    {
+        return \App\Models\RentalApplicationQualifyingSetting::tenantedLabelFor($this->agency_id);
     }
 
     /**

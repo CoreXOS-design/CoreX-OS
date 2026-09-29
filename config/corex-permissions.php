@@ -129,6 +129,73 @@ return [
         // never the role-manager screen's own 'own' fallback.
         ['key' => 'contact_rental_history.view', 'label' => 'View Rental History on Contact', 'section' => 'contacts', 'type' => 'action', 'module' => 'contact_rental_history', 'sort_order' => 1],
 
+        // ── Leases (leases.md) — the spine of rentals ──
+        ['key' => 'leases.view',   'label' => 'View Leases',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'leases', 'sort_order' => 1],
+        ['key' => 'leases.create', 'label' => 'Create & Activate Leases', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 2],
+        // Separate from .create per leases.md §8 [cc5 design call, flagged for
+        // Johan] — renewal touches the overlap-prevention guard; if the
+        // distinction is unwanted, collapsing it into .create is a one-line change.
+        ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
+        ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
+        ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
+
+        // ── Rental Inspections (rental-inspections.md) ──
+        ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],
+        ['key' => 'rental_inspections.create',             'label' => 'Record Inspections & Observations',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 2],
+        // §6 — deliberately separate from .create [cc5 design call, flagged for
+        // Johan]: resolving a discrepancy decides which of two conflicting
+        // accounts of an item's condition is accepted as current, a judgement
+        // call heavier than recording a routine observation.
+        ['key' => 'rental_inspections.resolve_discrepancy', 'label' => 'Resolve Inspection Discrepancies',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 3],
+        // Separately gated per §6 — overrides a party's own consent to sign.
+        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+        // agency-onboarding-rentals-step.md §8 — same role as leases.manage_settings.
+        ['key' => 'rental_inspections.manage_settings',     'label' => 'Manage Rental Inspection Settings',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 5],
+        // rental-inspection-form.md §7 — separately gated per the same reasoning
+        // as .resolve_discrepancy: marking an in-vs-out difference as fair wear
+        // and tear (excluding it from the deposit conversation) is a judgement
+        // call, not a routine recording action.
+        ['key' => 'rental_inspections.review_deposit_comparison', 'label' => 'Review Deposit Comparison Findings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 6],
+
+        // ── Rental Inventory (rental-inventory.md) — its own document, not a tab on rental_inspections ──
+        ['key' => 'rental_inventories.view',   'label' => 'View Rental Inventories',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inventories', 'sort_order' => 1],
+        ['key' => 'rental_inventories.create', 'label' => 'Record Inventories & Sign',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 2],
+        // §8 — the move-out comparison's disposition vocabulary (present/short/damaged/missing).
+        ['key' => 'rental_inventories.manage_settings', 'label' => 'Manage Rental Inventory Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 3],
+
+        // ── Rental Fault Reports (rental-work-orders.md §3a, 2026-09-24/25) ──
+        ['key' => 'rental_fault_reports.view',   'label' => 'View Rental Fault Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_reports', 'sort_order' => 1],
+        ['key' => 'rental_fault_reports.create', 'label' => 'Report & Edit Faults',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 2],
+        ['key' => 'rental_fault_reports.cancel', 'label' => 'Cancel Fault Reports',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 3],
+        // Stage 2 (§3a.1/§3a.2) — deliberately separate from .create: recording
+        // an owner's decision, or making an outcome final, is a heavier call
+        // than logging or editing what was reported.
+        ['key' => 'rental_fault_reports.record_approval', 'label' => 'Record Owner Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 4],
+        ['key' => 'rental_fault_reports.resolve',         'label' => 'Set Fault Outcome',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 5],
+        // Stage 4 — raising a real work order from an already-approved
+        // fault report (the agency_appoints route, §3a.1) is a distinct,
+        // heavier decision than recording the approval itself.
+        ['key' => 'rental_fault_reports.raise_work_order', 'label' => 'Raise Work Order from Fault Report', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 6],
+
+        // ── Rental Work Orders (rental-work-orders.md §3/§6, Stage 4) ──
+        ['key' => 'rental_work_orders.view',   'label' => 'View Rental Work Orders',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_work_orders', 'sort_order' => 1],
+        ['key' => 'rental_work_orders.create', 'label' => 'Log & Edit Work Orders',    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 2],
+        // Deliberately separate from .create, same reasoning as fault
+        // reports' own .record_approval/.resolve split — a decision or a
+        // final outcome is a heavier call than logging or editing.
+        ['key' => 'rental_work_orders.record_approval', 'label' => 'Record Owner Approval on a Work Order', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 3],
+        ['key' => 'rental_work_orders.complete',        'label' => 'Mark Work Orders Complete',             'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 4],
+        ['key' => 'rental_work_orders.cancel',           'label' => 'Cancel Work Orders',                    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 5],
+        ['key' => 'rental_work_orders.manage_settings', 'label' => 'Manage Rental Work Order Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 6],
+        // §3.4c, 2026-09-29 — capturing/selecting/archiving a quote is the
+        // value the approval-limit gate rides on, separate from .create
+        // (logging/editing the work order itself).
+        ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
+
+        // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
+        // fields, rental price type list, lease type list, all on one settings page.
+        ['key' => 'rental_details.manage_settings', 'label' => 'Manage Rental Details Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_details', 'sort_order' => 1],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],
@@ -689,6 +756,12 @@ return [
         ['key' => 'compliance.whistleblow.view_all_agency','label' => 'View All Agency Complaints',            'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 53],
         ['key' => 'compliance.whistleblow.configure',      'label' => 'Configure Approvers & PPRA Email',      'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 54],
 
+        // ── PPRA Inspection Pack (Admin — admin/super_admin only, no branch_manager/agent) ──
+        ['key' => 'ppra_inspection_pack.view',      'label' => 'View PPRA Inspection Pack',                 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 1],
+        ['key' => 'ppra_inspection_pack.export',    'label' => 'Export PPRA Inspection Pack Data',          'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 2],
+        ['key' => 'ppra_inspection_pack.generate',  'label' => 'Generate Full PPRA Inspection Pack',        'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 3],
+        ['key' => 'ppra_inspection_pack.configure', 'label' => 'Configure PPRA Inspection Pack Settings',   'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 4],
+
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
         // switch   = use the "View as Branch" dropdown to impersonate a branch
@@ -848,6 +921,13 @@ return [
                 // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
                 // granted here to preserve this role's existing effective access unchanged.
                 'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager,
+                // same pattern as every other role default in this file.
+                // manage_settings deliberately NOT included (narrower, matching
+                // every sibling module's own manage_settings key).
+                'rental_inventories.view', 'rental_inventories.create',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
@@ -980,6 +1060,13 @@ return [
                 // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
                 // granted here to preserve this role's existing effective access unchanged.
                 'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager,
+                // same pattern as every other role default in this file.
+                // manage_settings deliberately NOT included (narrower, matching
+                // every sibling module's own manage_settings key).
+                'rental_inventories.view', 'rental_inventories.create',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
@@ -1081,6 +1168,13 @@ return [
                 'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager.
+                // Explicitly includes .create here too, per that ruling — not
+                // narrowed to view-only despite that being this role's usual
+                // pattern elsewhere in this file.
+                'rental_inventories.view', 'rental_inventories.create',
                 'access_training', 'training.view',
                 'access_communication', 'communication.view',
                 'access_client_portal',
@@ -1129,6 +1223,10 @@ return [
             'include' => [
                 'communications.view',
                 'communication_mailboxes.view', // AT-395 — not in scope_defaults, falls to 'own'
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager.
+                'rental_inventories.view', 'rental_inventories.create',
             ],
         ],
 

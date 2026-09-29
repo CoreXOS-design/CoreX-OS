@@ -17,6 +17,7 @@ class AgencyDocumentTypeConfig extends Model
         'agency_id',
         'name',
         'slug',
+        'satisfies_group',
         'description',
         'has_expiry',
         'renewal_days',

@@ -619,9 +619,22 @@ class Property extends Model
         'special_levy',
         'rental_amount',
         'deposit_amount',
+        // Johan, 2026-09-22 (property 4283) — set true when
+        // PropertyController::applyDepositDefault() computed deposit_amount
+        // above from LeaseSetting::defaultDepositMonthsFor() x rental_amount
+        // rather than an agent typing a real figure; cleared the moment a
+        // real figure is submitted. Never written to true anywhere else —
+        // "if it is computed, it is identifiable as computed until someone
+        // confirms it."
+        'deposit_amount_is_default',
         'commission_percent',
         'admin_fee',
         'marketing_fee',
+        // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29 — the
+        // spend-threshold override lives HERE, on the property, not the lease
+        // (superseding the 2026-09-26 lease ruling). Null means "use the
+        // agency default" (RentalWorkOrderSetting::thresholdFor()).
+        'rental_no_approval_spend_threshold',
         'city',
         'suburb',
         'suburb_normalised',
@@ -653,6 +666,7 @@ class Property extends Model
         'features_json_meta',
         'pet_friendly',
         'spaces_json',
+        'spaces_json_legacy_backup',
         'images_json',
         'dawn_images_json',
         'noon_images_json',
@@ -733,6 +747,9 @@ class Property extends Model
         'water_included',
         'electricity_included',
         'levies_included',
+        // .ai/specs/rental-property-tab.md §2/§7, Part 2 — agency-defined
+        // rental-details field values, keyed by PropertyRentalDetailsCustomField::key.
+        'rental_details_custom_field_values',
         'p24_syndication_enabled',
         'p24_syndication_status',
         'p24_ref',
@@ -781,6 +798,8 @@ class Property extends Model
         'features_json_meta'  => 'array',
         'pet_friendly'        => 'boolean',
         'spaces_json'         => 'array',
+        'spaces_json_legacy_backup' => 'array',
+        'rental_inspection_form_seeded_at' => 'datetime',
         'published_at'        => 'datetime',
         'p24_imported_at'      => 'datetime',
         'imported_released_at' => 'datetime',
@@ -790,6 +809,7 @@ class Property extends Model
         'water_included'      => 'boolean',
         'electricity_included' => 'boolean',
         'levies_included'     => 'boolean',
+        'rental_details_custom_field_values' => 'array',
         'listing_type_pending' => 'boolean',
         // Money columns are decimal(12,2) in the schema (storage precision is
         // preserved there regardless of cast). They are cast to float — NOT
@@ -815,9 +835,11 @@ class Property extends Model
         'half_baths'          => 'integer',
         'rental_amount'       => 'float',
         'deposit_amount'      => 'float',
+        'deposit_amount_is_default' => 'boolean',
         'commission_percent'  => 'float',
         'admin_fee'           => 'float',
         'marketing_fee'       => 'float',
+        'rental_no_approval_spend_threshold' => 'float',
         'latitude'                => 'decimal:7',
         'longitude'               => 'decimal:7',
         'geo_resolved_at'         => 'datetime',

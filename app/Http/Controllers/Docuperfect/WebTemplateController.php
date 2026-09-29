@@ -251,6 +251,8 @@ class WebTemplateController extends Controller
             'min_term_month'        => 'March',
             'min_term_year'         => '2028',
             'lease_end'             => '31 March 2028',
+            // .ai/specs/rental-property-tab.md §5, Part 4
+            'lease_type'            => 'Triple Net',
             'renewal_months'        => '24',
             'electricity_deposit'   => '3 000',
             'lessor_signed_at'      => 'Port Shepstone',

@@ -315,21 +315,43 @@ class RoleManagerController extends Controller
                     'agency_id'      => $agencyId,
                     'created_at'     => $now,
                     'updated_at'     => $now,
+                    // Explicit, not just absent-so-defaults-null: upsert()'s generated
+                    // ON DUPLICATE KEY UPDATE clause references VALUES(deleted_at), which
+                    // only exists if deleted_at is itself a column in the insert values.
+                    'deleted_at'     => null,
                 ];
             }
         }
 
         // Wrap delete+insert in a transaction so permissions are never lost.
         // Scoped to this agency so editing one agency's role never touches another's.
+        //
+        // 2026-09-22, Johan — forceDelete() here broke two things at once: the
+        // standing no-hard-deletes rule, and corex:sync-permissions
+        // --merge-defaults's own withTrashed() tombstone check (SyncPermissions.php),
+        // which was written correctly to respect a soft-deleted "deliberately
+        // revoked" row but had no tombstone to find, because this action never
+        // left one. A hard delete here meant an agency's own revoke of a
+        // role_defaults-granted permission was silently undone on the next
+        // deploy that ran --merge-defaults.
+        //
+        // delete() (soft) fixes both — EXCEPT a soft-deleted row still occupies
+        // role_perms_role_key_agency_unique (role, permission_key, agency_id;
+        // no deleted_at in the index, per SyncPermissions.php's own comment on
+        // that same constraint), so a plain insert() of a RE-granted permission
+        // would 1062 against its own tombstone. upsert() with 'deleted_at' in
+        // the update columns restores that exact row (and refreshes its scope)
+        // instead of colliding — re-granting through Role Manager still works.
+        // created_at is deliberately NOT in the update columns: a restored row
+        // keeps its original grant timestamp rather than looking freshly created.
         DB::transaction(function () use ($role, $rows, $agencyId) {
             RolePermission::where('role', $role)
                 ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
-                ->forceDelete();
+                ->delete();
 
             if (count($rows)) {
-                // Insert in chunks to stay within DB limits
                 foreach (array_chunk($rows, 500) as $chunk) {
-                    RolePermission::insert($chunk);
+                    RolePermission::upsert($chunk, ['role', 'permission_key', 'agency_id'], ['scope', 'updated_at', 'deleted_at']);
                 }
             }
         });
@@ -415,11 +437,15 @@ class RoleManagerController extends Controller
         $now   = now();
         $count = 0;
 
+        // 2026-09-22, Johan — same fix and same reasoning as savePermissions()
+        // above: forceDelete() here would destroy the tombstone savePermissions()
+        // now depends on, so a role copy could silently undo a target role's own
+        // deliberate revocations. delete()+upsert(), not forceDelete()+insert().
         DB::transaction(function () use ($targets, $sourcePerms, $now, $agencyId, &$count) {
             foreach ($targets as $target) {
                 RolePermission::where('role', $target)
                     ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
-                    ->forceDelete();
+                    ->delete();
 
                 $rows = $sourcePerms->map(fn($p) => [
                     'role'           => $target,
@@ -428,11 +454,12 @@ class RoleManagerController extends Controller
                     'agency_id'      => $agencyId,
                     'created_at'     => $now,
                     'updated_at'     => $now,
+                    'deleted_at'     => null,
                 ])->all();
 
                 if (count($rows)) {
                     foreach (array_chunk($rows, 500) as $chunk) {
-                        RolePermission::insert($chunk);
+                        RolePermission::upsert($chunk, ['role', 'permission_key', 'agency_id'], ['scope', 'updated_at', 'deleted_at']);
                     }
                 }
 
@@ -510,9 +537,18 @@ class RoleManagerController extends Controller
 
             // Clear anything the archived role was still carrying so the agent
             // baseline below is the whole permission set, not a merge onto it.
+            //
+            // 2026-09-22, Johan — same fix as savePermissions()/copyPermissions()
+            // above: soft delete, not forceDelete(), so a tombstone survives.
+            // Does NOT change the documented behaviour just above (the archived
+            // role's old grants are still never inherited — the reseed below
+            // always writes the CURRENT agent baseline, regardless of what this
+            // role held before archival); it only means the clearing step here
+            // is itself undoable/auditable rather than a hard delete, matching
+            // every other write path against this table.
             RolePermission::where('role', $role->name)
                 ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
-                ->forceDelete();
+                ->delete();
         } else {
             $role = Role::create($attributes);
         }
@@ -535,8 +571,15 @@ class RoleManagerController extends Controller
                 'agency_id'      => $agencyId,
                 'created_at'     => $now,
                 'updated_at'     => $now,
+                'deleted_at'     => null,
             ])->all();
-            RolePermission::insert($rows);
+            // upsert, not insert: for the $archived (revival) branch, the delete()
+            // just above leaves tombstoned rows sitting on this exact (role, key,
+            // agency) slot — a plain insert() would 1062 against them the moment
+            // an agent-baseline key matches one. Harmless for a genuinely new
+            // role (Role::create() branch): no prior rows exist to collide with,
+            // so this is a plain insert in that case either way.
+            RolePermission::upsert($rows, ['role', 'permission_key', 'agency_id'], ['scope', 'updated_at', 'deleted_at']);
         }
 
         Role::clearCache();

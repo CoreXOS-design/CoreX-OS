@@ -151,4 +151,33 @@ final class RentalApplicationTenantPropertyLinkTest extends TestCase
         $this->assertTrue($contact->properties()->wherePivot('role', 'tenant')->exists());
         $this->assertSame('let_out', $property->fresh()->status);
     }
+
+    /**
+     * Johan, QA1 walk, 2026-09-21 — "Im going from an approved tenant to
+     * linking them to a property etc. the search on application status is
+     * wrong. its displays the header and not the property address." This
+     * is the exact screen (RentalApplicationController::show() ->
+     * view-readonly.blade.php's "Link as tenant" section) — proves the
+     * already-linked property's own label is the address, not the
+     * listing's marketing title, and that the search endpoint it calls
+     * returns the same.
+     */
+    public function test_the_link_as_tenant_screen_shows_the_address_not_the_listing_title(): void
+    {
+        $property = Property::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->agent->id,
+            'title' => 'Modern family home with sea views', 'status' => 'active', 'property_type' => 'house',
+            'listing_type' => 'rental', 'suburb' => 'Ramsgate', 'city' => 'Margate', 'province' => 'KwaZulu-Natal',
+            'address' => '42 Marine Drive',
+        ]);
+        $contact = $this->contact('tenant5@example.co.za');
+        $app = $this->application($contact);
+        $app->update(['property_id' => $property->id]);
+
+        $response = $this->actingAs($this->agent)->get(route('corex.rental-applications.show', $app));
+
+        $response->assertOk();
+        $response->assertSee($property->buildDisplayAddress());
+        $response->assertDontSee('Modern family home with sea views');
+    }
 }

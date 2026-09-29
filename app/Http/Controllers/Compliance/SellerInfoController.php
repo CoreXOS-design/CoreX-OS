@@ -7,13 +7,18 @@ use App\Mail\Compliance\SellerInfoMail;
 use App\Models\Agency;
 use App\Models\Compliance\SellerInfoShareLink;
 use App\Models\Compliance\WhistleblowEmailLog;
+use App\Services\Compliance\ComplianceMailDispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class SellerInfoController extends Controller
 {
+    public function __construct(
+        private ComplianceMailDispatcher $mailDispatcher = new ComplianceMailDispatcher(),
+    ) {
+    }
+
     public function index()
     {
         return view('compliance.seller-info.index');
@@ -58,7 +63,7 @@ class SellerInfoController extends Controller
             $sellerName = $recipient['name'] ?: 'Valued Seller';
             $sellerEmail = $recipient['email'];
 
-            $mailable = new SellerInfoMail($agency, $request->tier, $sellerName, '');
+            $mailable = new SellerInfoMail($agency, $request->tier, $sellerName, '', $user);
 
             $renderedHtml = $mailable->render();
             $renderedText = strip_tags(str_replace(['<br>', '<br/>', '</p>', '</div>'], "\n", $renderedHtml));
@@ -70,10 +75,11 @@ class SellerInfoController extends Controller
             };
 
             try {
-                Mail::to($sellerEmail)->send($mailable);
+                $this->mailDispatcher->send($sellerEmail, $mailable);
 
                 WhistleblowEmailLog::create([
                     'complaint_id'    => null,
+                    'agency_id'       => $agency->id,
                     'sent_at'         => now(),
                     'email_type'      => 'seller_info_email',
                     'subject'         => $emailSubject,
@@ -88,6 +94,7 @@ class SellerInfoController extends Controller
             } catch (\Throwable $e) {
                 WhistleblowEmailLog::create([
                     'complaint_id'    => null,
+                    'agency_id'       => $agency->id,
                     'sent_at'         => now(),
                     'email_type'      => 'seller_info_email',
                     'subject'         => $emailSubject,
@@ -138,6 +145,7 @@ class SellerInfoController extends Controller
 
         WhistleblowEmailLog::create([
             'complaint_id'    => null,
+            'agency_id'       => $agency->id,
             'sent_at'         => now(),
             'email_type'      => 'seller_info_whatsapp_link',
             'subject'         => 'WhatsApp shareable link generated for ' . ($request->seller_name ?? 'seller'),

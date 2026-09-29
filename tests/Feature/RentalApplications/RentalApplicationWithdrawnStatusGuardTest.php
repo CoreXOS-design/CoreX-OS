@@ -250,7 +250,17 @@ final class RentalApplicationWithdrawnStatusGuardTest extends TestCase
         $this->assertSame($this->plainAgent->id, $history->changed_by_user_id, 'The audit entry must name who recorded it.');
         $this->assertSame('Applicant called to say they found another place.', $history->note);
 
-        $this->assertSame('Recorded as withdrawn by applicant', RentalApplication::displayStatusLabel('withdrawn'));
+        // displayStatusLabel() converted from a static string-in-string-out
+        // helper to an instance method 2026-09-21 (Johan, live walk — see
+        // RentalApplicationTenantedStatusTest for the full reasoning) so
+        // it can check isTenanted(); this application is genuinely
+        // withdrawn (not approved), so the label is unchanged. Asserted
+        // against the constant (not a hardcoded string) because the
+        // hardcoded 'Recorded as withdrawn by applicant' this line used to
+        // assert was already stale pre-existing baseline drift — WITHDRAWN_LABEL
+        // was renamed to 'Applicant withdrawn' in 7525415aa without this
+        // assertion being updated, unrelated to this feature.
+        $this->assertSame(RentalApplication::WITHDRAWN_LABEL, $application->displayStatusLabel());
     }
 
     /** Regression guard — the new required_if:status,withdrawn must not spill onto the OTHER agent-settable status. */

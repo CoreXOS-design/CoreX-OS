@@ -161,6 +161,58 @@
         </form>
     </div>
 
+    {{-- Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." Blank
+         reads as generic "Credit Bureau Consent" wording everywhere this
+         name is shown (the applicant form's heading and signature caption,
+         this screen's own field label and section heading, the PDF) —
+         correct both for an agency that hasn't set this yet and for one
+         that genuinely runs no bureau check at all. --}}
+    <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Credit Bureau</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Named in the applicant's consent wording and on the application PDF. Leave blank for
+            generic "Credit Bureau" wording — also correct if your agency doesn't use one.
+        </p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.credit-bureau') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Credit bureau name
+                </label>
+                <input type="text" name="credit_bureau_name" maxlength="100"
+                       value="{{ old('credit_bureau_name', $creditBureauName) }}"
+                       placeholder="e.g. TPN"
+                       class="corex-input text-sm" style="width: 220px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save Credit Bureau</button>
+        </form>
+    </div>
+
+    {{-- Johan, from his own live walk, 2026-09-21 — an approved application
+         linked to an active lease is a further state, not a new decision
+         competing with Approved. Shown identically on the applications
+         list tile, the application detail screen, and the contact record. --}}
+    <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Tenant Placed Label</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Shown once an approved application is linked to an active lease — on the applications list,
+            the application itself, and the contact record. Blank uses the default shown below.
+        </p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.tenanted-label') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Label
+                </label>
+                <input type="text" name="tenanted_label" maxlength="60"
+                       value="{{ old('tenanted_label', $tenantedLabel) }}"
+                       placeholder="{{ \App\Models\RentalApplicationQualifyingSetting::DEFAULT_TENANTED_LABEL }}"
+                       class="corex-input text-sm" style="width: 220px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save Label</button>
+        </form>
+    </div>
+
     {{-- Reopen/resubmit, 2026-09-08 — "every threshold, window and business
          rule an agency-configurable setting with a sensible default. Nothing
          hardcoded." A reopened application's applicant link expires after
@@ -331,6 +383,60 @@
         </form>
     </div>
 
+    {{-- AT-430 Part A, 2026-09-24 — Johan, via Sherry (single-person Cape
+         Town agency): today's flow always hands an application to a SECOND
+         person for authorisation. For a one-person agency that hand-off is
+         a screen she sends to herself. One step still requires the same
+         RO/CO tier as today (Settings → Reviewers/Override below) — this
+         setting removes a STEP, never a CHECK. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Application Approval</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Use one step if the same person handles and approves applications. Turn it on for
+            single-person agencies.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.approval-mode') }}">
+            @csrf
+            <div class="space-y-2 mb-3">
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="approval_mode" value="two_step" class="mt-0.5"
+                           @checked(old('approval_mode', $approvalMode) === 'two_step')>
+                    <span><strong>Two step</strong> — agent submits, authoriser approves.</span>
+                </label>
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="approval_mode" value="one_step" class="mt-0.5"
+                           @checked(old('approval_mode', $approvalMode) === 'one_step')>
+                    <span><strong>One step</strong> — the agent approves directly.</span>
+                </label>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
+    {{-- AT-430 §3.6 — Johan: "the checklist does not block approval by
+         default." Off by default: Sherry's checklist is a working aid, not
+         a gate, until an agency deliberately turns it into one. See
+         "Application checklist" in Settings for the checklist itself. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Application Checklist Gate</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The application checklist (Settings → Application checklist) is a working aid, not a
+            requirement, unless you turn this on.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.require-checklist-complete') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="require_checklist_complete" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="require_checklist_complete" value="1"
+                       @checked(old('require_checklist_complete', $requireChecklistComplete))>
+                Require the application checklist to be complete before approving
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{--
         Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
         ruled: every field on the applicant form gets its own compulsory
@@ -389,13 +495,214 @@
             @endforeach
 
             <p class="text-[11px] mb-3" style="color: var(--text-muted);">
-                Both signatures (Declaration and TPN Consent) are compulsory by default and can be unticked
+                Both signatures (Declaration and {{ \App\Models\RentalApplication::creditBureauConsentLabel($creditBureauName) }}) are compulsory by default and can be unticked
                 like any other field above — but a signature that IS provided must always be a real, drawn
                 signature; a blank or corrupted one is never accepted either way.
             </p>
 
             <button type="submit" class="corex-btn-primary text-xs">Save</button>
         </form>
+    </div>
+
+    {{--
+        .ai/specs/rental-application-field-config.md — SHOWN/HIDDEN, label
+        and help-text overrides, and within-section ordering. Johan,
+        2026-09-19: "everything is tick / untick for optional / compulsory"
+        closed the locked-fields question — nothing here is exempt either;
+        every field, including the two signatures, can be hidden the same
+        as any other. Grouped by FORM SECTION (matches show.blade.php's own
+        <section> boundaries) because ordering is scoped within a section,
+        never across one.
+    --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Field Display</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Untick anything you don't want on your application form at all — the applicant never sees a
+            field you've hidden here, and it is never asked for at submission either, whatever the
+            Compulsory Fields setting above says. Override a label or add a hint if your own wording fits
+            your process better. Position controls the order fields appear WITHIN their section below —
+            leave it blank to keep the default order; lower numbers show first.
+        </p>
+
+        @php
+            $fieldByKey = collect($fieldRegistry)->keyBy('key');
+        @endphp
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.field-display') }}">
+            @csrf
+            <input type="hidden" name="field_display_submitted" value="1">
+
+            @foreach($fieldSections as $sectionName => $sectionKeys)
+                <div class="mb-4 pb-3" style="border-bottom: 1px solid var(--border);">
+                    <p class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">{{ $sectionName }}</p>
+                    <div class="space-y-2">
+                        @foreach($sectionKeys as $key)
+                            @continue(! $fieldByKey->has($key))
+                            @php $field = $fieldByKey[$key]; @endphp
+                            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center text-xs">
+                                <label class="sm:col-span-4 flex items-center gap-2" style="color: var(--text-secondary);">
+                                    <input type="checkbox" name="shown_field_keys[]" value="{{ $key }}"
+                                           @checked(in_array($key, old('shown_field_keys', array_values(array_diff(collect($fieldRegistry)->pluck('key')->all(), $hiddenFieldKeys))), true))>
+                                    {{ $field['label'] }}
+                                </label>
+                                <input type="text" name="field_labels[{{ $key }}]"
+                                       value="{{ old('field_labels.' . $key, $fieldLabelOverrides[$key] ?? '') }}"
+                                       placeholder="Label override"
+                                       class="sm:col-span-3 corex-input text-xs">
+                                <input type="text" name="field_help_text[{{ $key }}]"
+                                       value="{{ old('field_help_text.' . $key, $fieldHelpTextOverrides[$key] ?? '') }}"
+                                       placeholder="Help text"
+                                       class="sm:col-span-4 corex-input text-xs">
+                                <input type="number" name="field_order[{{ $key }}]"
+                                       value="{{ old('field_order.' . $key, array_search($key, $fieldOrder, true) !== false ? array_search($key, $fieldOrder, true) : '') }}"
+                                       placeholder="Position"
+                                       class="sm:col-span-1 corex-input text-xs">
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endforeach
+
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
+    {{--
+        .ai/specs/rental-application-field-config.md §7, piece (c)(1) —
+        custom fields an agency defines itself, beyond what CoreX ships.
+        Definition only here — capture/consumption land in later pieces.
+        Retiring keeps an already-captured answer intact on whatever
+        application has one; it just stops offering the field to new ones.
+    --}}
+    <div id="custom-fields" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Custom Fields</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Questions of your own, beyond what CoreX ships.</p>
+
+        @php $activeCustomFieldIds = $activeCustomFields->pluck('id')->all(); @endphp
+
+        <div class="space-y-3 mb-4">
+            @forelse($activeCustomFields as $i => $customField)
+                <div x-data="{ type: {{ \Illuminate\Support\Js::from($customField->field_type) }} }" class="rounded-md p-2" style="border: 1px solid var(--border);">
+                    <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.update', $customField) }}" class="flex flex-wrap items-end gap-2">
+                        @csrf
+                        @method('PUT')
+                        <span class="flex flex-col" style="line-height: 1;">
+                            <button type="submit" form="cf-reorder-up-{{ $customField->id }}" @disabled($i === 0) title="Move up" class="text-xs" style="opacity: {{ $i === 0 ? '0.3' : '1' }};">&#9650;</button>
+                            <button type="submit" form="cf-reorder-down-{{ $customField->id }}" @disabled($i === count($activeCustomFieldIds) - 1) title="Move down" class="text-xs" style="opacity: {{ $i === count($activeCustomFieldIds) - 1 ? '0.3' : '1' }};">&#9660;</button>
+                        </span>
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Label</label>
+                            <input type="text" name="label" value="{{ old('label', $customField->label) }}" maxlength="150" required class="corex-input text-xs" style="width: 160px;">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Type</label>
+                            <select name="field_type" x-model="type" class="corex-input text-xs" style="width: 110px;">
+                                @foreach(\App\Models\RentalApplicationCustomField::FIELD_TYPES as $type)
+                                    <option value="{{ $type }}">{{ str_replace('_', ' ', ucfirst($type)) }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div x-show="type === 'choice_list'" x-cloak>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Options (comma-separated)</label>
+                            <input type="text" name="options_text" value="{{ old('options_text', $customField->options ? implode(', ', $customField->options) : '') }}" maxlength="1000" class="corex-input text-xs" style="width: 200px;">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Help text</label>
+                            <input type="text" name="help_text" value="{{ old('help_text', $customField->help_text) }}" maxlength="1000" class="corex-input text-xs" style="width: 200px;">
+                        </div>
+                        <label class="flex items-center gap-1 text-xs" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="required" value="1" @checked(old('required', $customField->required))>
+                            Compulsory
+                        </label>
+                        <label class="flex items-center gap-1 text-xs" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="shown" value="1" @checked(old('shown', $customField->shown))>
+                            Shown
+                        </label>
+                        <button type="submit" class="text-xs" style="color: var(--ds-blue, #2563eb);">Save</button>
+                    </form>
+                    @if($i > 0)
+                        @php $cfSwappedUp = $activeCustomFieldIds; [$cfSwappedUp[$i - 1], $cfSwappedUp[$i]] = [$cfSwappedUp[$i], $cfSwappedUp[$i - 1]]; @endphp
+                        <form id="cf-reorder-up-{{ $customField->id }}" method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.reorder') }}" style="display:none;">
+                            @csrf
+                            @foreach($cfSwappedUp as $orderedId)
+                                <input type="hidden" name="order[]" value="{{ $orderedId }}">
+                            @endforeach
+                        </form>
+                    @endif
+                    @if($i < count($activeCustomFieldIds) - 1)
+                        @php $cfSwappedDown = $activeCustomFieldIds; [$cfSwappedDown[$i], $cfSwappedDown[$i + 1]] = [$cfSwappedDown[$i + 1], $cfSwappedDown[$i]]; @endphp
+                        <form id="cf-reorder-down-{{ $customField->id }}" method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.reorder') }}" style="display:none;">
+                            @csrf
+                            @foreach($cfSwappedDown as $orderedId)
+                                <input type="hidden" name="order[]" value="{{ $orderedId }}">
+                            @endforeach
+                        </form>
+                    @endif
+                    <div class="text-[11px] mt-1" style="color: var(--text-muted);">
+                        {{ $customField->key }} &middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}
+                        <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.archive', $customField) }}" style="display:inline;" onsubmit="return confirm('Retire this custom field? Applications that already answered it keep that answer; it just won\'t be on new ones.');">
+                            @csrf
+                            <button type="submit" style="color: var(--text-muted); margin-left: 6px;">Retire</button>
+                        </form>
+                    </div>
+                </div>
+            @empty
+                <p class="text-xs" style="color: var(--text-muted);">No custom fields yet.</p>
+            @endforelse
+        </div>
+
+        <div class="pt-2 mb-4" style="border-top: 1px solid var(--border);" x-data="{ type: 'text' }">
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Add a custom field</h3>
+            <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.store') }}" class="flex flex-wrap items-end gap-2">
+                @csrf
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Label</label>
+                    <input type="text" name="label" value="{{ old('label') }}" maxlength="150" placeholder="e.g. Pet deposit" required class="corex-input text-xs" style="width: 160px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Type</label>
+                    <select name="field_type" x-model="type" class="corex-input text-xs" style="width: 110px;">
+                        @foreach(\App\Models\RentalApplicationCustomField::FIELD_TYPES as $type)
+                            <option value="{{ $type }}">{{ str_replace('_', ' ', ucfirst($type)) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div x-show="type === 'choice_list'" x-cloak>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Options (comma-separated)</label>
+                    <input type="text" name="options_text" value="{{ old('options_text') }}" maxlength="1000" placeholder="Small, Medium, Large" class="corex-input text-xs" style="width: 200px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Help text</label>
+                    <input type="text" name="help_text" value="{{ old('help_text') }}" maxlength="1000" class="corex-input text-xs" style="width: 200px;">
+                </div>
+                <label class="flex items-center gap-1 text-xs" style="color: var(--text-secondary);">
+                    <input type="checkbox" name="required" value="1" @checked(old('required'))>
+                    Compulsory
+                </label>
+                <button type="submit" class="corex-btn-primary text-xs">Add</button>
+            </form>
+        </div>
+
+        <div class="pt-2" style="border-top: 1px solid var(--border);">
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Retired</h3>
+            @if($retiredCustomFields->isEmpty())
+                <p class="text-xs" style="color: var(--text-muted);">Nothing retired.</p>
+            @else
+                <div class="space-y-1">
+                    @foreach($retiredCustomFields as $customField)
+                        <div class="flex items-center gap-2 text-xs" style="opacity: 0.7;">
+                            <span style="color: var(--text-secondary);">{{ $customField->label }}</span>
+                            <span style="color: var(--text-muted);">({{ str_replace('_', ' ', ucfirst($customField->field_type)) }})</span>
+                            <span style="color: var(--text-muted);">&middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}</span>
+                            <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.restore', $customField->id) }}">
+                                @csrf
+                                <button type="submit" style="color: var(--ds-blue, #2563eb);">Restore</button>
+                            </form>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
     </div>
 
     {{--

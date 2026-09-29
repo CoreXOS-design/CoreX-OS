@@ -14,9 +14,11 @@ use App\Models\RentalApplicationDeclineEmailSetting;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
+use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
 use App\Services\RentalApplications\RentalApplicationAuditService;
+use App\Services\RentalApplications\RentalApplicationChecklistService;
 use App\Services\RentalApplications\RentalApplicationNotifier;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -128,7 +130,22 @@ class RentalApplicationAuthorisationController extends Controller
             return ['tier' => 'co', 'is_override' => true];
         }
 
-        abort_unless($rentalApplication->isPendingAuthorisation(), 422, 'This application is not currently awaiting authorisation.');
+        // AT-430 Part A, 2026-09-24 — one-step approval. Johan, via Sherry
+        // (single-person Cape Town agency): "the same person handles and
+        // approves applications" — the hand-off (isPendingAuthorisation())
+        // is skipped entirely, not faked, so a one-step agency never writes
+        // a pending_authorisation-equivalent row it immediately overwrites.
+        // The RO/CO tier check above already establishes this user could
+        // have approved anyway (see this setting's own docblock on
+        // RentalApplicationQualifyingSetting::DEFAULT_APPROVAL_MODE) — this
+        // only widens WHEN they may decide, mirroring the exact same
+        // pre-hand-off statuses RentalApplicationReviewController::
+        // submitForApproval() itself accepts. Nothing below this gate
+        // (approve()/decline() themselves) branches on the mode.
+        $oneStepEligible = RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id) === 'one_step'
+            && in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true);
+
+        abort_unless($rentalApplication->isPendingAuthorisation() || $oneStepEligible, 422, 'This application is not currently awaiting authorisation.');
 
         return ['tier' => $isCO ? 'co' : 'ro', 'is_override' => false];
     }
@@ -330,9 +347,76 @@ class RentalApplicationAuthorisationController extends Controller
         // screen ahead of the decision being made.
         $declineReasonTemplates = \App\Models\RentalApplicationDeclineReasonTemplate::activeFor($agencyId);
 
+        // .ai/specs/rental-application-field-config.md — the shared review/
+        // authorisation template's "Submitted Application" summary resolves
+        // every row's label/order/visibility from this, unconditionally
+        // (review.blade.php:766). RentalApplicationReviewController computes
+        // it (its own show(), displayFieldConfig()) but this controller
+        // never did, so any authoriser opening an application 500'd on an
+        // undefined variable — the first thing Johan was going to click
+        // from his 21-item authorisation queue.
+        $fieldConfig = $rentalApplication->displayFieldConfig();
+
+        // AT-430 §3 — same class of gap this file already hit once for
+        // $fieldConfig above: the checklist panel is visible to BOTH the
+        // agent and the authoriser (spec §3.1, "there is no separate
+        // authoriser view") and the shared Blade template references these
+        // unconditionally in both Alpine components — cc6's own build only
+        // wired them into RentalApplicationReviewController::show(), so an
+        // authoriser opening an application would 500 on an undefined
+        // variable exactly like $fieldConfig did before. Mirrors that
+        // controller's block verbatim.
+        //
+        // AT-430 §3.2 amendment, 2026-09-25 — same reasoning again, same
+        // pair of controllers: ensureSnapshotFor() lazily backfills an
+        // application that predates this feature. Missing it here would
+        // have reproduced the exact $fieldConfig-class gap a third time —
+        // an authoriser seeing no checklist for an application the agent's
+        // own screen had already backfilled one for.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::ensureSnapshotFor($rentalApplication);
+        \App\Services\RentalApplications\RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
+        $checklistSections = \App\Models\RentalApplicationChecklistSection::where('rental_application_id', $rentalApplication->id)
+            ->with(['items.documents' => function ($q) {
+                $q->withTrashed()->orderBy('created_at');
+            }])
+            ->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->map(fn ($section) => [
+                'id' => $section->id,
+                'name' => $section->name,
+                'description' => $section->description,
+                'items' => $section->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'help_text' => $item->help_text,
+                    'note_required' => (bool) $item->note_required,
+                    'document_required' => (bool) $item->document_required,
+                    'is_derived' => (bool) $item->is_derived,
+                    'state' => $item->state,
+                    'note' => $item->note,
+                    // AT-430 Part E — the authoriser sees the SAME attachment
+                    // list the agent does (§3.1: "no separate authoriser
+                    // view"), read-only: no upload/remove URL template is
+                    // ever wired into rentalAuthorisationViewer(), so there
+                    // is nothing here for an authoriser's browser to act on
+                    // even though the same view_url is present (viewing an
+                    // already-filed document is not a scoping concern —
+                    // guardDocumentBelongsToApplication() covers it same as
+                    // every other document on this screen).
+                    'attachments' => $item->documents->whereNull('deleted_at')->map(fn (Document $d) => [
+                        'id' => $d->id,
+                        'name' => $d->original_name,
+                        'view_url' => route('corex.rental-applications.authorisation.documents.view', [$rentalApplication, $d]),
+                    ])->values(),
+                    'removed_attachments' => [],
+                ])->values(),
+            ])->values();
+        $panelPreferences = \App\Models\RentalReviewPanelPreference::stateFor($request->user()->id);
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates'
+            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates', 'fieldConfig',
+            'checklistSections', 'panelPreferences'
         ));
     }
 
@@ -344,14 +428,35 @@ class RentalApplicationAuthorisationController extends Controller
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
 
+        // AT-430 §3.6 — Johan: "the checklist does not block approval by
+        // default." Off (default) means nothing here changes at all. On
+        // means THIS action — approve only, never decline (§3.6: declining
+        // isn't a confidence claim the checklist needs to back up) — is
+        // blocked with a clear, named list of what's outstanding, never a
+        // bare "checklist incomplete." Applies identically whether reached
+        // via the two-step authoriser queue or the one-step direct-approve
+        // path (§2.2): same guardCanDecide() gate, same approve() body, so
+        // this can never branch on approval_mode. syncDerivedStates() is
+        // called explicitly here (not assumed already-fresh from a prior
+        // page load) so a derived lease-progress item can never read stale
+        // — cc6's own guidance on RentalApplicationChecklistService's
+        // ownership boundary.
+        RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
+        if (RentalApplicationQualifyingSetting::requireChecklistCompleteFor((int) $rentalApplication->agency_id)
+            && ! RentalApplicationChecklistService::isCompleteFor($rentalApplication)) {
+            $outstanding = RentalApplicationChecklistService::outstandingItemNames($rentalApplication);
+            abort(422, 'Complete the application checklist before approving — still outstanding: '
+                . implode(', ', $outstanding) . '.');
+        }
+
         // RA-02 (cc5 re-test, Round 8) — "the screen where an authoriser
         // APPROVES a tenant still rejects a comma in the rand amount."
         // Same sanitizer as every other money field on this feature: strip
         // thousand-separator commas, spaces, and a leading "R" prefix
         // before validation ever sees it.
         $request->merge(RentalApplication::sanitizeNumericInput(
-            $request->only(['approved_rental_amount']),
-            ['approved_rental_amount'],
+            $request->only(['approved_rental_amount', 'approved_deposit_amount']),
+            ['approved_rental_amount', 'approved_deposit_amount'],
         ));
 
         $validated = $request->validate([
@@ -359,11 +464,17 @@ class RentalApplicationAuthorisationController extends Controller
             // screen - tenant approved for x amount." Required — the whole
             // point of this outcome is that figure.
             'approved_rental_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            // Johan, 2026-09-22 (property 4283) — optional, same precedence
+            // role as approved_rental_amount: the tenant-link screen prefers
+            // this over the property's own deposit_amount when present, but
+            // most approvals will never set one, so it is never required.
+            'approved_deposit_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'reason' => $decision['is_override'] ? ['required', 'string', 'max:2000'] : ['nullable', 'string', 'max:2000'],
         ]);
 
         $fromStatus = $rentalApplication->status;
         $oldAmount = $rentalApplication->approved_rental_amount;
+        $oldDepositAmount = $rentalApplication->approved_deposit_amount;
 
         // AT-410d, 2026-09-16 — Johan's ruling: "yes, can become approved
         // subject to fica verification." Not a block, not a second status —
@@ -376,6 +487,7 @@ class RentalApplicationAuthorisationController extends Controller
 
         $rentalApplication->status = 'approved';
         $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
+        $rentalApplication->approved_deposit_amount = $validated['approved_deposit_amount'] ?? null;
         $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
         $rentalApplication->save();
 
@@ -390,10 +502,15 @@ class RentalApplicationAuthorisationController extends Controller
             user: $request->user(),
             isOverride: $decision['is_override'],
             reason: $validated['reason'] ?? null,
-            oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount],
-            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_subject_to_fica' => $isSubjectToFica],
+            oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount, 'approved_deposit_amount' => $oldDepositAmount],
+            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_deposit_amount' => $validated['approved_deposit_amount'] ?? null, 'approved_subject_to_fica' => $isSubjectToFica],
+            // AT-430 Part A — the mode IN EFFECT AT THE TIME OF THIS DECISION,
+            // read fresh and stored immutably on this row, so a later mode
+            // change never makes this history unreadable.
+            metadata: ['approval_mode' => RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id)],
             humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
                 . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
+                . (($validated['approved_deposit_amount'] ?? null) !== null ? ", deposit R" . number_format((float) $validated['approved_deposit_amount'], 2) : '')
                 . ($isSubjectToFica ? ', subject to FICA verification' : ''),
         );
 
@@ -497,6 +614,8 @@ class RentalApplicationAuthorisationController extends Controller
             reason: $validated['reason'] ?? null,
             newValues: ['status' => 'declined', 'decline_reason_template_id' => $template->id, 'decline_reason_template' => $template->reason],
             oldValues: ['status' => $fromStatus],
+            // AT-430 Part A — see approve()'s own comment on this same field.
+            metadata: ['approval_mode' => RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id)],
             humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined')
                 . " ({$decision['tier']}), reason template: {$template->reason}",
         );

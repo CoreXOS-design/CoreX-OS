@@ -31,6 +31,8 @@
         .cta-box .highlight { color: #ffffff; font-weight: 600; }
         .sources { background: #f1f5f9; border-radius: 6px; padding: 20px; margin-top: 28px; font-size: 12px; color: #475569; }
         .sources h4 { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+        .readmore { background: #f1f5f9; border-radius: 6px; padding: 20px; margin-top: 16px; font-size: 13px; color: #334155; }
+        .readmore h4 { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
         .disclaimer { font-size: 11px; color: #94a3b8; font-style: italic; margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; line-height: 1.6; }
         .footer { background: #f1f5f9; padding: 20px 32px; text-align: center; font-size: 12px; color: #64748b; }
         .footer a { color: #0d9488; }
@@ -65,8 +67,8 @@
 
 <div class="callout">
     <h4>Why this matters</h4>
-    <p>Without a written mandate, agents may dispute who is owed commission when your property sells. The case of <strong>Wakefields Real Estate v Attree</strong> (Supreme Court of Appeal, 2011) confirmed that sellers can be liable to pay TWO agencies even after paying one, because the first agent who "introduced" the buyer may still be the legal "effective cause" of the sale.</p>
-    <p class="case-ref">Source: ZASCA 160</p>
+    <p>Without a written mandate, agents may dispute who is owed commission when your property sells. The case of <strong><a href="https://www.saflii.org/za/cases/ZASCA/2011/161.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Wakefields Real Estate v Attree</a></strong> (Supreme Court of Appeal, 2011) confirmed that sellers can be liable to pay TWO agencies even after paying one, because the first agent who "introduced" the buyer may still be the legal "effective cause" of the sale.</p>
+    <p class="case-ref">Source: [2011] ZASCA 161</p>
 </div>
 
 <h3>2. FICA Verification</h3>
@@ -75,7 +77,7 @@
 <div class="callout">
     <h4>Why this matters to you</h4>
     <ul>
-        <li>South Africa was grey-listed by FATF in February 2023 for anti-money-laundering weakness</li>
+        <li>South Africa was grey-listed by the FATF in February 2023 and removed in October 2025; the stricter FICA checks introduced to get off the list remain in force</li>
         <li>Penalties for non-compliance: up to R10 million for natural persons, R50 million for businesses (FIC Act s.45C)</li>
         <li>If the agent does not FICA, your transaction may be FLAGGED as a suspicious transaction, even if you have done nothing wrong</li>
         <li>Conveyancers are PROHIBITED by law from paying commission to agents who do not hold a valid FFC at the time of the sale (Property Practitioners Act s.48)</li>
@@ -91,10 +93,11 @@
         <li>If no MDF is signed, the agreement is "interpreted as if no defects were disclosed" (Section 67 of the Act)</li>
         <li>This means the buyer has GROUNDS to claim against YOU later for any defect they discover</li>
         <li>The buyer has 3 years to claim damages, request a price reduction, or in serious cases, CANCEL the sale entirely</li>
-        <li>In <strong>Le Roux v Zietsman</strong> (Supreme Court of Appeal, 2023, case 330/2022), the SCA upheld that a seller who did not properly disclose a defective roof was liable for the buyer's full repair costs PLUS legal fees PLUS lost income</li>
+        <li>In <strong><a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#991b1b;text-decoration:underline;">Le Roux v Zietsman</a></strong> (Supreme Court of Appeal, 2023) the seller of a guesthouse told the buyers the roof had been repaired and no longer leaked. The court found he knowingly hid long-standing roof defects. His voetstoots clause did not protect him, and he had to pay R167,480 for roof repairs, R68,038 in lost income, plus legal costs. Lesson: disclose everything, in writing, up front.</li>
+        <li>In <strong><a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#991b1b;text-decoration:underline;">Chuma v Bondcor</a></strong> (High Court, Pretoria, 2023) the seller did not disclose a geological report showing a high risk of sinkholes. The court found the non-disclosure fraudulent and ordered the seller to repay the R600,000 purchase price plus interest, R37,000 in transfer costs, and legal costs.</li>
         <li>The "voetstoots" ("sold as-is") clause does NOT protect you if you knowingly hid a defect</li>
     </ul>
-    <p class="case-ref">Source: ZASCA 102</p>
+    <p class="case-ref">Sources: <a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#64748b;text-decoration:underline;">[2023] ZASCA 102</a> &bull; <a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#64748b;text-decoration:underline;">Chuma v Bondcor (2023)</a></p>
 </div>
 
 <hr class="section-divider">
@@ -105,7 +108,7 @@
 <p>If you are working with an agent who has not put paperwork in place, you face these real, court-tested risks:</p>
 
 <h3>Double Commission Claims</h3>
-<p>You could be required to pay commission to TWO agencies for the same sale. <strong>Daphne Chuma v Bondcor</strong> and other rulings establish that the "effective cause" of a sale is not always the agent who closed the deal. If an earlier agent introduced the buyer, they may have a valid claim to commission years later &mdash; even after you have already paid another agent.</p>
+<p>You could be required to pay commission to TWO agencies for the same sale. <strong><a href="https://www.saflii.org/za/cases/ZASCA/2011/161.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Wakefields Real Estate v Attree</a></strong> and other rulings establish that the "effective cause" of a sale is not always the agent who closed the deal. If an earlier agent introduced the buyer, they may have a valid claim to commission years later &mdash; even after you have already paid another agent.</p>
 
 <h3>Unrecoverable Commission Disputes</h3>
 <p>Without a written mandate setting out the commission rate, cancellation terms, and your rights, the agent can claim commission at industry rates (typically 3&ndash;8% of sale price). On a R3-million property, that is R90,000 to R240,000 you may end up paying twice.</p>
@@ -114,10 +117,10 @@
 <p>A properly drafted mandate and sale agreement protect you when a buyer pulls out. Without proper paperwork, you may have no basis to claim damages or retain deposits.</p>
 
 <h3>Court-Ordered Repairs After Sale</h3>
-<p>The <strong>Le Roux v Zietsman</strong> case (2023) showed that a seller without a proper MDF was ordered by the court to pay back the buyer's roof repair costs YEARS after the sale closed. The seller's voetstoots clause provided no protection because the disclosure form was inadequate.</p>
+<p>Sellers who hid defects have been ordered to pay years after the sale: see <strong><a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Le Roux v Zietsman</a></strong> and <strong><a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Chuma v Bondcor</a></strong> above.</p>
 
-<h3>Asset Freeze / Transaction Flagging Under FICA</h3>
-<p>South Africa was grey-listed by the international Financial Action Task Force (FATF) in February 2023. Regulators are now applying stricter scrutiny. <strong>ABSA Bank Ltd v Financial Intelligence Centre</strong> (2013) established that the courts will uphold FIC penalties &mdash; ABSA was fined R10 million. The Property Practitioners Regulatory Authority works with the FIC and may freeze suspicious transactions while investigating.</p>
+<h3>FICA Enforcement Risk</h3>
+<p>In 2014 the South African Reserve Bank fined ABSA R10 million under the FIC Act for customer-verification and reporting failures. South Africa was grey-listed by the FATF in February 2023 and only removed in October 2025 after tightening anti-money-laundering enforcement, including in property. Those stricter FICA checks remain in force.</p>
 
 <h3>Validity of Your Deed of Sale</h3>
 <p>If your agent does not hold a valid Fidelity Fund Certificate (FFC), Section 48(4) of the Property Practitioners Act states they must REPAY any commission they receive. Worse, if there are downstream issues with the sale, the absence of compliance documentation can be raised as evidence of an irregular transaction.</p>
@@ -160,8 +163,22 @@
     <p><strong>Property Practitioners Act 22 of 2019</strong> &mdash; Sections 47-48 (FFC), 49 (penalties), 67 (MDF), 71 (offences). theppra.org.za</p>
     <p><strong>Financial Intelligence Centre Act 38 of 2001</strong> &mdash; Section 21A (CDD), 45C (penalties). fic.gov.za</p>
     <p><strong>Consumer Protection Act 68 of 2008</strong> &mdash; Section 14 (fixed-term agreements).</p>
-    <p><strong>Court cases:</strong> Wakefields Real Estate v Attree (2011) ZASCA 160 &bull; Le Roux v Zietsman (2023) ZASCA 102 &bull; Daphne Chuma v Bondcor &bull; ABSA Bank v FIC (2013)</p>
+    <p><strong>Court cases:</strong> <a href="https://www.saflii.org/za/cases/ZASCA/2011/161.html" target="_blank" rel="noopener" style="color:#475569;text-decoration:underline;">Wakefields Real Estate v Attree (2011) ZASCA 161</a> &bull; <a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#475569;text-decoration:underline;">Le Roux v Zietsman (2023) ZASCA 102</a> &bull; <a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#475569;text-decoration:underline;">Chuma v Bondcor (2023)</a></p>
     <p>PPRA Register: <a href="https://theppra.org.za">theppra.org.za</a></p>
+</div>
+
+<div class="readmore">
+    <h4>Read more: real cases and expert articles</h4>
+    <ul style="margin:8px 0 0 20px; padding:0;">
+        <li style="margin-bottom:8px;"><a href="https://www.saflii.org/za/cases/ZASCA/2011/161.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Wakefields Real Estate v Attree (SCA 2011)</a> &mdash; sellers paid two agencies</li>
+        <li style="margin-bottom:8px;"><a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Le Roux v Zietsman (SCA 2023)</a> &mdash; hidden roof defects</li>
+        <li style="margin-bottom:8px;"><a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Chuma v Bondcor (High Court 2023)</a> &mdash; undisclosed sinkhole risk</li>
+        <li style="margin-bottom:8px;"><a href="https://www.iol.co.za/news/crime-and-courts/pretoria-property-owner-ordered-to-pay-back-over-r600000-after-he-knowingly-sold-land-with-high-risk-of-sinkhole-formation-dc0da740-adbd-4e9b-86d1-42ee0d86881e" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">News report on the Chuma case</a></li>
+        <li style="margin-bottom:8px;"><a href="https://www.miltons.law.za/property-dont-pay-double-commission/" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">"Property: Don't Pay Double Commission!"</a> (Miltons Matsemela)</li>
+        <li style="margin-bottom:8px;"><a href="https://www.benaters.com/news-and-insights/a-double-commission-claim-yes-sellers-beware" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">"A double commission claim? Yes, sellers beware"</a> (Benaters)</li>
+        <li style="margin-bottom:8px;"><a href="https://www.wylie.co.za/Articles/Read/1348/What-constitutes-the-effective-cause-of-the-sale-where-multiple-property-practitioners-(estate-agents)-are-involved-in-the-transaction" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Effective cause with multiple agents</a> (Shepstone &amp; Wylie)</li>
+        <li style="margin-bottom:0;"><a href="https://theppra.org.za/compliance-and-investigations/investigations/code-of-conduct/" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">PPRA Code of Conduct</a></li>
+    </ul>
 </div>
 
 <p class="disclaimer">This communication is for general information only and does not constitute legal advice. Property law is complex and fact-specific. For advice on your particular situation please consult a qualified conveyancer or attorney.</p>

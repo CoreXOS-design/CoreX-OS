@@ -1438,6 +1438,47 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-5" id="tab-rental">
             @include('corex.contacts._rental-applications-tab-body')
+
+            {{--
+                .ai/specs/rental-inventory.md §4 — reachable from where the
+                work happens (Johan, 2026-09-22). Read-only here: a contact
+                can be a tenant on more than one lease across properties, so
+                unlike the property/lease/inspection screens (one obvious
+                lease each) there is no single lease to attach a new
+                inventory to from this page — create stays on the property
+                or lease it actually belongs to.
+            --}}
+            @permission('rental_inventories.view')
+            @php
+                $__contactLeaseIds = \App\Models\LeaseTenant::where('contact_id', $contact->id)->pluck('lease_id');
+                $__contactInventories = $__contactLeaseIds->isNotEmpty()
+                    ? \App\Models\RentalInventory::whereIn('lease_id', $__contactLeaseIds)
+                        ->with('property')->orderByDesc('created_at')->get()
+                    : collect();
+                $__invStatusBadgeClass = fn ($status) => match ($status) {
+                    'completed' => 'ds-badge-success',
+                    'cancelled' => 'ds-badge-danger',
+                    'awaiting_signature' => 'ds-badge-info',
+                    default => 'ds-badge-muted',
+                };
+            @endphp
+            <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Inventories</h3>
+                @if($__contactInventories->isEmpty())
+                    <p class="text-xs" style="color: var(--text-muted);">No rental inventory on record for this contact.</p>
+                @else
+                    <div class="space-y-1">
+                        @foreach($__contactInventories as $inv)
+                            <div class="flex items-center justify-between text-xs py-1" style="border-bottom: 1px solid var(--border);">
+                                <span>{{ $inv->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
+                                <span class="ds-badge {{ $__invStatusBadgeClass($inv->status) }}">{{ ucfirst(str_replace('_', ' ', $inv->status)) }}</span>
+                                <a href="{{ route('corex.rental-inventories.show', $inv) }}" class="corex-btn-outline text-xs">View</a>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+            @endpermission
         </div>
 
         {{-- ════════════════════════════

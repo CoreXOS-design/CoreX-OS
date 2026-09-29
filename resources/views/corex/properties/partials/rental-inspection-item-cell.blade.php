@@ -1,0 +1,352 @@
+{{--
+    rental-inspection-item-cell.blade.php — the ONE way an item's
+    condition, notes and photos render, shared by BOTH cells of the
+    side-by-side comparison grid in rental-inspection-recording.blade.php
+    (predecessor/left, tail/right). Johan, 2026-09-23, property 5792:
+    "Left renders a condition as a coloured pill on the right of the
+    row... Right renders a 7-button grid... Same data, two completely
+    different visual languages." This partial is now the only place
+    either look exists — both cells render this exact same skeleton.
+    Read-only strips interactivity (disabled buttons, no upload/tag
+    controls, no autosave) but never changes layout, label positions,
+    photo strip position, or tile sizes: "Read-only means disabled
+    controls or a static rendering of the same component — it does
+    not mean a different component with a different look."
+
+    Required include vars:
+      $inspectionJs — a raw JS expression (NOT a quoted string). Its
+                 MEANING depends on $readOnly:
+                   readOnly = true  → an INSPECTION OBJECT expression
+                              ('chainPredecessor') — read directly via
+                              conditionForInspection()/
+                              itemPhotosForInspection(), which accept
+                              any plain inspection object and are
+                              null-safe (a null predecessor renders
+                              every item's cell as its own empty state,
+                              row by row — no separate "first in chain"
+                              special-case needed here).
+                   readOnly = false → a SECTION-TYPE expression, the
+                              SAME value rental-inspection-recording.
+                              blade.php's own $sectionJs resolves to
+                              ('tailSection()' in the chain caller) —
+                              read via the existing live/autosave
+                              methods (selectedConditionFor(),
+                              itemPhotosFor(), photoUploader(), etc.),
+                              UNCHANGED from before this partial
+                              existed. This is deliberate: the tail
+                              cell keeps using the already-proven
+                              upload/tag/autosave pipeline rather than
+                              a rewritten generic reader, so none of
+                              that pipeline's risk surface changes.
+      $readOnly     — PHP bool, compile-time. Governs ONLY which JS
+                 accessor family a value is read through and whether
+                 controls are interactive — never the HTML skeleton.
+
+    Assumes `item` and `group` are in scope from the caller's own
+    shared x-for (roomGroups() / group.items) — the SAME iteration
+    drives both cells, so item N is always item N on both sides by
+    construction, never by luck.
+--}}
+<div class="flex items-stretch gap-3" style="display:flex; align-items:stretch; min-height:0;">
+    <div class="flex-none space-y-1.5" style="flex:none;">
+        <div class="grid grid-cols-2 gap-1">
+            <template x-for="state in conditionStates" :key="state.key">
+@if($readOnly)
+                <button type="button" disabled
+                        class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
+                        :class="(conditionForInspection({{ $inspectionJs }}, item.id)?.condition === state.key)
+                            ? conditionSelectedClass(state.key)
+                            : 'rir-cond-btn-unselected-readonly'"
+                        x-text="state.label"></button>
+@else
+                <button type="button"
+                        :disabled="isObsBusy({{ $inspectionJs }}, item.id)"
+                        @click="onConditionTap({{ $inspectionJs }}, item, state.key)"
+                        class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
+                        :class="selectedConditionFor({{ $inspectionJs }}, item) === state.key
+                            ? conditionSelectedClass(state.key)
+                            : 'rir-cond-btn-unselected'"
+                        x-text="state.label"></button>
+@endif
+            </template>
+        </div>
+@if($readOnly)
+        <div x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
+             class="text-xs mt-0.5 rir-note-callout"
+             :class="'rir-note-callout-' + noteCalloutTone(conditionForInspection({{ $inspectionJs }}, item.id)?.condition)"
+             x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></div>
+@else
+        <input type="text"
+               x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"
+               x-model="obsField({{ $inspectionJs }}, item.id).notes"
+               @input="onNotesInput({{ $inspectionJs }}, item)"
+               placeholder="Notes (required)"
+               class="prop-input w-full">
+@endif
+    </div>
+
+    {{-- §27.1.2 — the global "Photos: shown/hidden" toggle wraps this whole
+         photo block (never just the room-level thumbnail-count control,
+         which is unchanged and still exists alongside this). Hiding it
+         reclaims the row for the condition-button block to its left.
+
+         BUG FIX, 2026-09-27 (Johan, property 5294 inspection 33 — 32 real
+         tagged photos, none visible). .rir-strip-row is `position:absolute;
+         height:100%` (rental-inspection-recording.blade.php) — an
+         absolutely-positioned-only child contributes NOTHING to its
+         containing block's own auto-height calculation, so this wrapper's
+         real height came ENTIRELY from being cross-axis-stretched by a
+         SIBLING (the condition-buttons column, via the outer `items-stretch`
+         row) or by the compare-grid's OTHER column. `min-height:0` on both
+         divs below explicitly removed the one thing that could have put a
+         floor under that: with no reliably-taller sibling in every layout
+         (confirmed collapsing on a freshly-seeded first-inspection fixture,
+         property 21034/inspection 34, same "in" type + no predecessor shape
+         as 5294/33), the strip silently collapsed to 0x0 and clipped every
+         tile — data was always fine, only the box was empty. `min-height`
+         is now `4rem` (64px, exactly `.rir-strip-tile`'s own height — read
+         from that class, not guessed) on both divs below — a real,
+         unconditional floor that never depends on stretch/siblings for
+         height, in EVERY layout: first inspection, compare-with-predecessor,
+         room-level strip, Photos shown. Never changed: tile size/position,
+         absolute positioning, overflow behaviour — this is a floor, not a
+         redesign. --}}
+    <div style="display:flex; align-items:stretch; flex:1; min-width:0; min-height:4rem;" x-show="photosVisible">
+        <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:4rem; position:relative;">
+            {{-- AT-433 Part A, 2026-09-26 — photo strip. Tiles come from
+                 stripTilesForInspection()/stripTilesFor() in show.blade.php,
+                 each { index, photo }: photo null means "shorter side"
+                 (renders the NO MATCH placeholder below), and both cells
+                 read the SAME shared count (stripPairCount()) so slot N is
+                 always slot N on both sides — the point of this screen.
+                 Pairing is POSITIONAL ONLY right now (tile.index is plain
+                 array position, not a real photo-match id) — see the
+                 stripPairCount() docblock in show.blade.php for exactly
+                 where Part B's real pair id replaces it, including the two
+                 :key bindings and the two x-text badges below. --}}
+@if($readOnly)
+            <div class="rir-strip-row">
+@else
+            {{-- AT-433 Part E, 2026-09-27 — drop a desktop file straight onto
+                 this item's strip to upload it, same as the add-tile's own
+                 file picker (onItemPhotosSelected() — one path, not a second
+                 one). Never .prevent unconditionally: stripDragOverTile()/
+                 stripDropOnTile() only call preventDefault() when
+                 dataTransfer.types actually contains 'Files', so a drag this
+                 screen doesn't own passes through completely untouched. That
+                 matters here specifically because cc6's own pairing drag
+                 (photoDraggedForPairing()/pairDropOnPredecessor(), read
+                 directly off QA1 before writing this) can pass a drag
+                 through this exact row on its way to the predecessor cell's
+                 own drop tiles — its own discipline is identical (never
+                 .prevent unless pairDragActive), so the two never fight over
+                 the same event. They don't even share a target element
+                 (pairing drops only on the read-only/predecessor side,
+                 above, one @if branch up) but this stays type-gated anyway
+                 rather than relying on that alone. Affordance reuses
+                 dragOverRoom's own dashed-outline convention
+                 (rental-inspection-recording.blade.php), applied to THIS
+                 row's own existing box — no new absolutely-positioned child,
+                 the exact bug class the add-tile/strip-overlap fix removed. --}}
+            <div class="rir-strip-row"
+                 :style="stripFileDragOverItemId === item.id ? 'outline:2px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);' : ''"
+                 @dragover="stripDragOverTile($event, item.id)"
+                 @dragleave="stripDragLeaveTile()"
+                 @drop="stripDropOnTile($event, {{ $inspectionJs }}, item)">
+@endif
+{{-- FIX, 2026-09-26 — the first draft of this block nested two sibling
+     <template x-if> tags (photo / NO MATCH) inside this <template x-for>.
+     x-for requires exactly ONE root element per iteration to clone, same
+     as x-if's own single-root rule above it — two sibling <template>
+     children broke that and rendered nothing. Fixed to one root
+     <div>/<button> per iteration, with x-show (not nested x-if) toggling
+     the photo-vs-placeholder content inside it. --}}
+@if($readOnly)
+                {{-- §24.6, AT-433 Part B — the predecessor tile is a drop
+                     target ONLY while a pairing drag is in progress (Johan's
+                     ruling: "no persistent affordance, no hover state,
+                     nothing on that cell when the agent is not dragging"),
+                     styled entirely within this tile's own stacking context
+                     — never a new absolutely-positioned sibling of
+                     .rir-strip-row (the exact overlap bug class the strip
+                     was just rebuilt to remove, see that class's own
+                     docblock in rental-inspection-recording.blade.php).
+                     pairDragOverTile()/pairDropOnPredecessor() never call
+                     preventDefault() unless pairDragActive is true, so an
+                     unrelated drag (a desktop file, say) over this exact
+                     tile behaves exactly as before this feature existed —
+                     not this round's concern (Johan, 2026-09-26). --}}
+                <template x-for="tile in stripTilesForInspection({{ $inspectionJs }}, item).slice(0, stripVisibleCount(item))" :key="tile.index">
+                    <div class="relative rounded-md rir-strip-tile"
+                         :class="[tile.photo ? '' : 'rir-strip-nomatch', (pairDragActive && tile.photo) ? 'rir-strip-pair-eligible' : '', (pairDragActive && tile.photo && pairDragOverId === tile.photo.id) ? 'rir-strip-pair-over' : '']"
+                         @dragover="pairDragOverTile($event, tile.photo)"
+                         @dragleave="pairDragOverId = null"
+                         @drop="pairDropOnPredecessor($event, tile.photo)">
+                        <span class="rir-strip-badge" x-text="tile.index + 1"></span>
+                        {{-- openCompareViewer(photo, insp) — on this
+                             (readOnly) branch $inspectionJs IS the
+                             inspection object already (chainPredecessor
+                             by default, see this file's own docblock),
+                             so it is passed straight through as insp. --}}
+                        <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
+                             data-qa="insp-tile-predecessor" :data-item-id="item.id"
+                             style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
+                             @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
+                        {{-- §41, 2026-09-29 — linked indicator; same
+                             openCompareViewer() call as the tile image
+                             itself, just a second, more discoverable
+                             affordance a link/unlink already happened here. --}}
+                        <span class="rir-strip-linked-badge" x-show="tile.photo && groupForPhoto(tile.photo.id)"
+                              title="Linked to a photo on the other side — click to compare"
+                              @click.stop="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})">&#128279;</span>
+                        <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
+                        {{-- §25, AT-433 Part C — the photo note, under the
+                             thumbnail, truncated to two lines. Keyed off
+                             tile.photo.note (the photo's OWN note, never row
+                             index or pairing position — see this partial's
+                             own note-cascade docblock in
+                             RentalInspectionPhotoNote.php for why the note
+                             survives being paired/unpaired/reordered).
+                             Gated on the room-level on/off switch — never on
+                             pairing or collapse state (Johan's ruling: every
+                             note renders for every photo that renders). --}}
+                        <div class="rir-strip-note" x-show="tile.photo && tile.photo.note && arePhotoNotesVisibleForRoom(group.room)" x-text="tile.photo?.note?.note"></div>
+                    </div>
+                </template>
+@else
+                <template x-for="tile in stripTilesFor({{ $inspectionJs }}, item).slice(0, stripVisibleCount(item))" :key="tile.index">
+                    {{-- §24.6, AT-433 Part B — drag this (current-inspection)
+                         photo onto its predecessor-side counterpart. Johan's
+                         own words: "drag it left onto the photo it
+                         matches" — this tile is the only ever DRAG SOURCE;
+                         the read-only cell above is the only ever DROP
+                         TARGET, never the reverse. Reuses
+                         photoUploader().dragStartSelection() exactly as the
+                         untagged tray already does for its own
+                         drag-onto-a-room gesture — see
+                         photoDraggedForPairing()'s own docblock in
+                         show.blade.php for why this is not a second drag
+                         mechanism. --}}
+                    {{-- §41, 2026-09-29 — this tile's own bottom-left/top-right/
+                         bottom-right corners are already Select/Back-to-room/
+                         Back-to-untagged (below), so the "linked" indicator here
+                         is a border outline on the tile itself rather than a
+                         fifth corner badge — selected still wins if both are
+                         somehow true (unlikely: a selected tile is mid-action,
+                         not settled either way). --}}
+                    <div class="relative rounded-md rir-strip-tile" :class="tile.photo ? '' : 'rir-strip-nomatch'"
+                         :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : (tile.photo && groupForPhoto(tile.photo.id) ? 'outline:2px solid #4FBE82;' : '')"
+                         :draggable="!!tile.photo"
+                         @dragstart="tile.photo && photoDraggedForPairing({{ $inspectionJs }}, tile.photo.id, $event)"
+                         @dragend="photoDragEndForPairing()">
+                        <span class="rir-strip-badge" x-text="tile.index + 1"></span>
+                        {{-- openCompareViewer(photo, insp) — on THIS
+                             (live) branch $inspectionJs is a section-type
+                             expression ('tailSection()' per this file's
+                             own docblock), not an inspection object, so it
+                             cannot be passed as insp here. This branch
+                             only ever renders the chain's tail, so
+                             chainTail (the same root-level property cc2's
+                             own implementation already reads via
+                             this.chainTail) is the correct inspection
+                             object. --}}
+                        <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
+                             data-qa="insp-tile-tail" :data-item-id="item.id"
+                             style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
+                             @click="tile.photo && openCompareViewer(tile.photo, chainTail)" alt="">
+                        <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
+                        <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).toggleSelected(tile.photo.id)"
+                                class="absolute bottom-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
+                                title="Select">&check;</button>
+                        <button type="button" x-show="tile.photo && group.room" @click.stop="photoUploader({{ $inspectionJs }}).tagPhoto(tile.photo.id, { property_room_id: group.room?.id })"
+                                class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
+                        <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).untagPhoto(tile.photo.id)"
+                                class="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to untagged">&#8657;</button>
+                        {{-- §25, AT-433 Part C — see the read-only branch's
+                             own comment above; pointer-events:none (the
+                             class itself) so this never intercepts the
+                             Select/Back-to-room/Back-to-untagged buttons it
+                             visually sits under. --}}
+                        <div class="rir-strip-note" x-show="tile.photo && tile.photo.note && arePhotoNotesVisibleForRoom(group.room)" x-text="tile.photo?.note?.note"></div>
+                    </div>
+                </template>
+@endif
+                {{-- Item 4, AT-433 Part A — beyond 4 slots, collapse the
+                     rest behind a count tile; clicking it (or the
+                     room-level control) expands every slot for this item
+                     on both sides. --}}
+                <template x-if="stripMoreCount(item) > 0">
+                    <button type="button" class="relative rounded-md rir-strip-tile rir-strip-more" @click="toggleItemStrip(item)"
+                            :title="'Show all ' + stripPairCount(item)">
+                        <span x-text="'+' + stripMoreCount(item)"></span>
+                    </button>
+                </template>
+@unless($readOnly)
+                {{-- AT-436, 2026-09-27 — a photo posts the moment it's
+                     picked (onItemPhotosSelected, show.blade.php); this tile
+                     means "uploading right now", never "waiting for you to
+                     do something else" (the staging model this replaced).
+                     pendingUploadTilesFor() reads photoUploader().uploadBatches
+                     directly — the one place upload state already lives
+                     (§20.13) — flattened to one entry per file, each still
+                     carrying its own batch's status/error. Rendered here so
+                     picking a file is never invisible — always shown, never
+                     collapsed behind "+N", and it has no server photo id yet
+                     so it takes no part in stripPairCount()'s
+                     predecessor/tail pairing either way. --}}
+                <template x-for="entry in pendingUploadTilesFor({{ $inspectionJs }}, item)" :key="entry.file._corexPreviewUrl">
+                    {{-- Johan's ruling, 2026-09-26 — a photo still uploading
+                         has no server id yet, so it cannot be paired:
+                         dragging it still works (the agent has no way to
+                         know in advance it will be refused), but
+                         pairDropOnPredecessor() in show.blade.php detects
+                         the id-less payload and shows the reason visibly
+                         rather than silently doing nothing. Passing `null`
+                         to dragStartSelection() (same reused function as the
+                         real-photo tile above) is what marks the drag this
+                         way — unchanged by AT-436, since the underlying
+                         reason (no id yet) is still exactly true. --}}
+                    <div class="relative rounded-md rir-strip-tile"
+                         draggable="true"
+                         @dragstart="photoDraggedForPairing({{ $inspectionJs }}, null, $event)"
+                         @dragend="photoDragEndForPairing()">
+                        <img :src="entry.file._corexPreviewUrl"
+                             :style="'display:block; width:100%; height:100%; object-fit:cover; opacity:' + (entry.batch.status === 'failed' ? '0.35' : '0.55') + ';'" alt="">
+                        <button type="button" x-show="entry.batch.status !== 'failed'" class="rir-strip-pending-label" disabled>PENDING</button>
+                        {{-- A failed upload must SAY so and offer a retry —
+                             it must never silently vanish. retryBatch()
+                             reuses the exact same batch entry (same files,
+                             same extraFields), so a retry is a genuine
+                             re-attempt of the SAME upload, not a new one. --}}
+                        <button type="button" x-show="entry.batch.status === 'failed'" class="rir-strip-pending-label rir-strip-pending-failed"
+                                @click.stop="photoUploader({{ $inspectionJs }}).retryBatch(entry.batch)"
+                                :title="entry.batch.error || 'Upload failed — tap to retry'">Retry</button>
+                    </div>
+                </template>
+                {{-- Add-tile — the strip's own last flex child now (see
+                     .rir-add-tile's own comment in rental-inspection-
+                     recording.blade.php for why this moved out of
+                     absolute positioning). No `left` to compute here.
+                     AT-436, 2026-09-27 — the tint/tooltip used to read
+                     obsField(...).photos (the staged-and-waiting queue);
+                     that queue no longer exists (a photo posts immediately),
+                     so this now reflects pendingUploadTilesFor() — genuinely
+                     uploading right now, not "saved once you get around to
+                     it". --}}
+                <label class="rounded-md cursor-pointer rir-add-tile"
+                       :style="pendingUploadTilesFor({{ $inspectionJs }}, item).length
+                            ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
+                            : 'background:var(--surface-2); color:var(--text-secondary);'"
+                       :title="pendingUploadTilesFor({{ $inspectionJs }}, item).length ? 'Uploading…' : 'Add photo(s)'">
+                    <span>&#128247;</span>
+                    <input type="file" data-qa="add-item-photo" accept="image/*" multiple class="hidden"
+                           @change="onItemPhotosSelected({{ $inspectionJs }}, item, $event.target.files); $event.target.value = null;">
+                </label>
+@endunless
+            </div>
+        </div>
+    </div>
+</div>

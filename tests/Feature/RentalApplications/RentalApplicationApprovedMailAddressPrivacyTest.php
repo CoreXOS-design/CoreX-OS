@@ -30,6 +30,19 @@ use Tests\TestCase;
  * string, so the test stays true as fixture data changes.
  *
  * Mail::fake() throughout -- nothing is ever actually sent.
+ *
+ * 2026-09-20 -- RentalApplicationApprovedMail implements ShouldQueue (since
+ * 9882d28ef, 2026-09-16, two days after this file was written). Both the
+ * real Mailer (Mailer::sendMailable()) and MailFake route a ->send() call on
+ * a ShouldQueue mailable into the QUEUED path, never the sent path -- this
+ * is genuine framework behaviour, not a test-only quirk, since production's
+ * own RentalApplicationMailer::sendApproved() also calls ->send() and relies
+ * on exactly this to avoid blocking the request on mail delivery. These
+ * assertions were assertSent() until 2026-09-20, which meant they could
+ * never pass again after 9882d28ef landed -- confirmed against
+ * vendor/laravel/framework's own MailFake::sendMail() and Mailer::
+ * sendMailable(), not assumed. assertQueued() is the correct check, matching
+ * this codebase's own precedent (see WebinarReminderTest).
  */
 final class RentalApplicationApprovedMailAddressPrivacyTest extends TestCase
 {
@@ -69,7 +82,7 @@ final class RentalApplicationApprovedMailAddressPrivacyTest extends TestCase
             new RentalApplicationApprovedMail($application, $properties, false, null)
         );
 
-        Mail::assertSent(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($propertyOne, $propertyTwo) {
+        Mail::assertQueued(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($propertyOne, $propertyTwo) {
             $body = $mail->render();
 
             foreach ([$propertyOne, $propertyTwo] as $property) {
@@ -129,7 +142,7 @@ final class RentalApplicationApprovedMailAddressPrivacyTest extends TestCase
             new RentalApplicationApprovedMail($application, $properties, false, null)
         );
 
-        Mail::assertSent(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($properties) {
+        Mail::assertQueued(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($properties) {
             $body = $mail->render();
 
             foreach ($properties as $property) {
@@ -164,7 +177,7 @@ final class RentalApplicationApprovedMailAddressPrivacyTest extends TestCase
             new RentalApplicationApprovedMail($application, $properties, true, 'https://example.test/fica')
         );
 
-        Mail::assertSent(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($property) {
+        Mail::assertQueued(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($property) {
             $subject = $mail->envelope()->subject;
 
             self::assertStringContainsString("You're approved, subject to FICA verification", $subject);
@@ -190,7 +203,7 @@ final class RentalApplicationApprovedMailAddressPrivacyTest extends TestCase
             new RentalApplicationApprovedMail($application, $properties, false, null)
         );
 
-        Mail::assertSent(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($property) {
+        Mail::assertQueued(RentalApplicationApprovedMail::class, function (RentalApplicationApprovedMail $mail) use ($property) {
             $subject = $mail->envelope()->subject;
 
             self::assertStringContainsString("Congratulations — you're approved to rent!", $subject);

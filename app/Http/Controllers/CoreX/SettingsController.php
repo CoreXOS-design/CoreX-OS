@@ -121,6 +121,11 @@ class SettingsController extends Controller
         $data['propConditionLevels'] = PropertySettingItem::group('condition_level')->get();
         // AT-402 — Rental tab's Furnished Status list.
         $data['propFurnishedStatuses'] = PropertySettingItem::group('furnished_status')->get();
+        // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
+        $data['propRentalPriceTypes'] = PropertySettingItem::group('rental_price_type')->get();
+        // .ai/specs/rental-property-tab.md §5, Part 4 — Lease Type, shared by the
+        // property screen and the lease screens.
+        $data['propLeaseTypes'] = PropertySettingItem::group('lease_type')->get();
 
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
@@ -379,7 +384,10 @@ class SettingsController extends Controller
     {
         $data = $request->validate([
             // AT-402 — furnished_status added; an agency-managed list, same as the others.
-            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level,furnished_status',
+            // .ai/specs/rental-property-tab.md §3/§5, Parts 3-4 — rental_price_type
+            // and lease_type added; both were missing from this whitelist, which
+            // would have rejected every "add new item" POST for either group.
+            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level,furnished_status,rental_price_type,lease_type',
             'name'           => 'required|string|max:100',
             'sort_order'     => 'nullable|integer|min:0',
             // title_type only meaningful on group='category'; for any other
@@ -449,8 +457,10 @@ class SettingsController extends Controller
         // AT-402 — furnished_status added; the settings view builds this
         // batch-toggle URL generically for every $propGroups entry, so a
         // group missing here would 404/error the button rather than the
-        // control never rendering.
-        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level', 'furnished_status'];
+        // control never rendering. .ai/specs/rental-property-tab.md §3/§5,
+        // Parts 3-4 — rental_price_type and lease_type added for the same
+        // reason; both were missing here, exactly the same gap.
+        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level', 'furnished_status', 'rental_price_type', 'lease_type'];
         if (! in_array($group, $allowed)) {
             return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('error', 'Invalid group.');
         }
@@ -1364,5 +1374,54 @@ class SettingsController extends Controller
 
         return redirect()->route('corex.settings', ['s' => 'whistleblow-settings'])
             ->with('success', 'Compliance reporting settings saved.');
+    }
+
+    /**
+     * PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md §6.7/§11.
+     * Phase F (v3, §4.6a) adds the three sample-picker sizes onto the same
+     * form/saver. Each is validated only when present in the request — the
+     * onboarding wizard step (§6.1) posts a SUBSET of this saver's fields,
+     * and treating an absent field as "clear to null" would silently wipe
+     * a value the wizard step never rendered.
+     */
+    public function savePpraInspectionPackSettings(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('ppra_inspection_pack.configure'), 403);
+
+        $sampleSizeFields = ['ppra_pack_sales_sample_size', 'ppra_pack_rental_sample_size', 'ppra_pack_mandate_sample_size'];
+        // Phase I — .ai/specs/ppra-inspection-pack.md §6.8e/§11.
+        $numericFields = array_merge($sampleSizeFields, ['ppra_mandate_register_red_threshold_pct', 'ppra_zip_max_files']);
+
+        $rules = ['financial_year_start_month' => 'required|integer|min:1|max:12'];
+        foreach ($sampleSizeFields as $field) {
+            if ($request->has($field)) {
+                $rules[$field] = 'required|integer|min:1|max:50';
+            }
+        }
+        if ($request->has('ppra_mandate_register_red_threshold_pct')) {
+            $rules['ppra_mandate_register_red_threshold_pct'] = 'required|integer|min:1|max:100';
+        }
+        if ($request->has('ppra_zip_max_files')) {
+            $rules['ppra_zip_max_files'] = 'required|integer|min:1|max:2000';
+        }
+
+        $data = $request->validate($rules);
+
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->agency_id);
+        if (!$agency) {
+            return redirect()->back()->with('error', 'Agency not found.');
+        }
+
+        $updates = ['financial_year_start_month' => $data['financial_year_start_month']];
+        foreach ($numericFields as $field) {
+            if (array_key_exists($field, $data)) {
+                $updates[$field] = $data[$field];
+            }
+        }
+
+        $agency->update($updates);
+
+        return redirect()->route('corex.settings', ['s' => 'ppra-inspection-pack-settings'])
+            ->with('success', 'PPRA Inspection Pack settings saved.');
     }
 }

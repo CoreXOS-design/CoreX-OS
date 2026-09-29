@@ -1,0 +1,431 @@
+@extends('layouts.corex')
+
+{{-- .ai/specs/rental-work-orders.md §3/§3.4 — the work order detail screen. --}}
+
+@php
+    $statusBadgeClass = match ($workOrder->status) {
+        'completed' => 'ds-badge-success',
+        'reported', 'ordered', 'in_progress' => 'ds-badge-info',
+        'cancelled' => 'ds-badge-danger',
+        default => 'ds-badge-muted',
+    };
+    $isOpen = !in_array($workOrder->status, ['completed', 'cancelled'], true);
+@endphp
+
+@section('content')
+<div class="p-6 max-w-3xl mx-auto space-y-4">
+    @if(session('success'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
+    @endif
+
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
+            <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span>
+            <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
+            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
+        </div>
+    </div>
+
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
+        <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
+            <div class="col-span-2"><span style="color: var(--text-muted);">Description:</span> {{ $workOrder->description }}</div>
+            <div><span style="color: var(--text-muted);">Tenancy:</span> {{ $workOrder->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
+            <div><span style="color: var(--text-muted);">Item:</span> {{ $workOrder->inspectionItem?->label ?? '—' }}</div>
+            <div><span style="color: var(--text-muted);">Trade:</span> {{ $workOrder->trade_type ? ucfirst($workOrder->trade_type) : '—' }}</div>
+            <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->supplier?->name ?? '—' }}</div>
+            <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->reported_by_type)) }}</div>
+            @if($workOrder->reportedFaultReport)
+                <div><span style="color: var(--text-muted);">From fault report:</span> <a href="{{ route('corex.rental-fault-reports.show', $workOrder->reported_fault_report_id) }}" class="underline">#{{ $workOrder->reported_fault_report_id }}</a></div>
+            @endif
+            <div><span style="color: var(--text-muted);">Reported at:</span> {{ $workOrder->reported_at?->format('Y-m-d H:i') }}</div>
+            @if($workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_NOT_REQUIRED)
+                <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($workOrder->owner_approval_status) }}</div>
+            @endif
+            @if($workOrder->ordered_at)
+                <div><span style="color: var(--text-muted);">Ordered:</span> {{ $workOrder->ordered_at->format('Y-m-d') }}</div>
+            @endif
+            @if($workOrder->completed_at)
+                <div><span style="color: var(--text-muted);">Completed:</span> {{ $workOrder->completed_at->format('Y-m-d') }}</div>
+                <div><span style="color: var(--text-muted);">Paid by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->paid_by)) }}</div>
+                @if($workOrder->cost_amount)
+                    <div><span style="color: var(--text-muted);">Cost:</span> R{{ number_format((float) $workOrder->cost_amount, 2) }}</div>
+                @endif
+            @endif
+        </div>
+
+        @permission('rental_work_orders.create')
+        @if($workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED)
+        <div x-show="!editing" class="pt-1">
+            <button type="button" @click="editing = true" class="corex-btn-outline text-xs">Edit</button>
+        </div>
+        <form x-show="editing" x-cloak method="POST" action="{{ route('corex.rental-work-orders.update', $workOrder) }}" class="space-y-3">
+            @csrf
+            @method('PUT')
+            <div>
+                <label class="text-xs font-medium">Title</label>
+                <input type="text" name="title" required maxlength="191" value="{{ old('title', $workOrder->title) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            </div>
+            <div>
+                <label class="text-xs font-medium">Description</label>
+                <textarea name="description" required rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('description', $workOrder->description) }}</textarea>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                <button type="button" @click="editing = false" class="corex-btn-outline text-xs">Cancel</button>
+            </div>
+        </form>
+        @endif
+        @endpermission
+
+        @if($workOrder->status === 'cancelled')
+            <p class="text-xs" style="color: var(--ds-crimson);">Cancelled {{ $workOrder->cancelled_at?->format('Y-m-d') }} by {{ $workOrder->cancelledByUser?->name }}: {{ $workOrder->cancel_reason }}</p>
+        @endif
+
+        <div class="flex gap-2 pt-2">
+            @permission('rental_work_orders.cancel')
+                @if($isOpen)
+                    <button type="button" onclick="document.getElementById('cancel-work-order-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel work order</button>
+                @endif
+            @endpermission
+            @permission('rental_work_orders.create')
+                @if($workOrder->isDeletable() && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED)
+                    <form method="POST" action="{{ route('corex.rental-work-orders.destroy', $workOrder) }}" onsubmit="return confirm('Archive this work order?');">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
+                    </form>
+                @endif
+            @endpermission
+        </div>
+
+        <form id="cancel-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.cancel', $workOrder) }}" class="hidden space-y-2 pt-2">
+            @csrf
+            <label class="text-xs font-medium">Reason for cancellation (required)</label>
+            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+        </form>
+    </div>
+
+    @if($isOpen)
+    {{-- §3.4c — the value the approval-limit gate rides on. Available
+         regardless of how this work order was raised — a quote prices the
+         repair; the approval question underneath it is separate. --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Quotes</h2>
+        <p class="text-xs" style="color: var(--text-muted);">No-approval threshold for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
+        @if($workOrder->quotes->isEmpty())
+            <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
+        @else
+            <ul class="space-y-2 text-sm">
+                @foreach($workOrder->quotes as $quote)
+                    <li class="flex items-center justify-between gap-2">
+                        <span>
+                            {{ $quote->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format((float) $quote->amount, 2) }}
+                            <span style="color: var(--text-muted);">({{ $quote->quote_date?->format('Y-m-d') }})</span>
+                            @if($quote->is_selected)
+                                <span class="ds-badge ds-badge-success">Selected</span>
+                            @endif
+                            @if($quote->document_storage_path)
+                                <a href="{{ route('corex.rental-work-orders.quotes.download', [$workOrder, $quote]) }}" class="underline text-xs">Document</a>
+                            @endif
+                            @if($quote->detail_text)
+                                <span class="text-xs" style="color: var(--text-muted);">— {{ $quote->detail_text }}</span>
+                            @endif
+                        </span>
+                        @permission('rental_work_orders.manage_quotes')
+                        <span class="flex items-center gap-2">
+                            @unless($quote->is_selected)
+                                <form method="POST" action="{{ route('corex.rental-work-orders.quotes.select', [$workOrder, $quote]) }}">
+                                    @csrf
+                                    <button type="submit" class="corex-btn-outline text-xs">Select</button>
+                                </form>
+                            @endunless
+                            <button type="button" onclick="document.getElementById('edit-quote-form-{{ $quote->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Edit</button>
+                            <form method="POST" action="{{ route('corex.rental-work-orders.quotes.destroy', [$workOrder, $quote]) }}" onsubmit="return confirm('Archive this quote?');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
+                            </form>
+                        </span>
+                        @endpermission
+                    </li>
+                    @permission('rental_work_orders.manage_quotes')
+                    <li id="edit-quote-form-{{ $quote->id }}" class="hidden">
+                        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.update', [$workOrder, $quote]) }}" enctype="multipart/form-data" class="space-y-2 pt-1">
+                            @csrf
+                            @method('PUT')
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="text-xs">Supplier</label><br>
+                                    <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
+                                            <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-xs">Amount (R)</label>
+                                    <input type="number" name="amount" required min="0" step="0.01" value="{{ $quote->amount }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                                </div>
+                                <div>
+                                    <label class="text-xs">Quote date</label>
+                                    <input type="date" name="quote_date" required value="{{ $quote->quote_date?->format('Y-m-d') }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                                </div>
+                                <div>
+                                    <label class="text-xs">Replace document (optional)</label>
+                                    <input type="file" name="document" accept=".pdf,image/*" class="w-full text-xs mt-1">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="text-xs">Details</label>
+                                    <textarea name="detail_text" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ $quote->detail_text }}</textarea>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                                <button type="button" onclick="document.getElementById('edit-quote-form-{{ $quote->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel</button>
+                            </div>
+                        </form>
+                    </li>
+                    @endpermission
+                @endforeach
+            </ul>
+        @endif
+        @permission('rental_work_orders.manage_quotes')
+        @if($archivedQuotes->isNotEmpty())
+            <button type="button" onclick="document.getElementById('archived-quotes').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedQuotes->count() }} archived quote(s)</button>
+            <ul id="archived-quotes" class="hidden space-y-1 text-sm pt-1">
+                @foreach($archivedQuotes as $archived)
+                    <li class="flex items-center justify-between gap-2">
+                        <span style="color: var(--text-muted);">{{ $archived->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format((float) $archived->amount, 2) }} ({{ $archived->quote_date?->format('Y-m-d') }})</span>
+                        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.restore', [$workOrder, $archived->id]) }}">
+                            @csrf
+                            <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                        </form>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 pt-2">
+            @csrf
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-xs">Supplier</label><br>
+                    <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                        <option value="">Select…</option>
+                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
+                            <option value="{{ $provider->id }}">{{ $provider->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs">Amount (R)</label>
+                    <input type="number" name="amount" required min="0" step="0.01" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs">Quote date</label>
+                    <input type="date" name="quote_date" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs">Document (optional)</label>
+                    <input type="file" name="document" accept=".pdf,image/*" class="w-full text-xs mt-1">
+                </div>
+                <div class="col-span-2">
+                    <label class="text-xs">Details (optional — required if no document attached)</label>
+                    <textarea name="detail_text" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);"></textarea>
+                </div>
+                <label class="flex items-center gap-2 text-xs col-span-2">
+                    <input type="checkbox" name="is_selected" value="1">
+                    Select this quote now
+                </label>
+            </div>
+            <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
+        </form>
+        @endpermission
+    </div>
+
+    {{-- §3.4a — only for a work order raised directly (no upstream fault
+         report already satisfied this). --}}
+    @if(!$workOrder->reported_fault_report_id)
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Owner approval</h2>
+        @if($workOrder->approvals->isNotEmpty())
+            {{-- 2026-09-22, Johan — an approval is otherwise an unanchored fact
+                 ("approved", nothing saying for what). quote_amount_at_decision
+                 shows what it was actually recorded against WHEN a snapshot
+                 exists; older rows (recorded before this column existed) have
+                 none, and correctly show nothing extra rather than implying a
+                 zero or an unknown amount. The "superseded" flag compares by
+                 id (quote_id_at_decision), never by amount/supplier text —
+                 two different quotes could coincidentally match on those. One
+                 line per approval, no separate section, per screen-space rule. --}}
+            @php($currentQuoteId = optional($workOrder->quotes->firstWhere('is_selected', true))->id)
+            <ul class="space-y-1 text-sm">
+                @foreach($workOrder->approvals as $approval)
+                    <li>
+                        {{ ucfirst($approval->decision) }}@if($approval->quote_amount_at_decision !== null) — R{{ number_format((float) $approval->quote_amount_at_decision, 2) }} ({{ $approval->quote_supplier_name_at_decision ?? 'Unknown supplier' }})@endif
+                        <span style="color: var(--text-muted);">({{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }}, {{ $approval->decided_at?->format('Y-m-d') }})</span>
+                        @if($approval->quote_id_at_decision !== null && $approval->quote_id_at_decision !== $currentQuoteId)
+                            <span style="color: var(--ds-crimson);">— superseded, a different quote is now selected</span>
+                        @endif
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+        @permission('rental_work_orders.record_approval')
+        <button type="button" onclick="document.getElementById('wo-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision</button>
+        <form id="wo-approval-form" method="POST" action="{{ route('corex.rental-work-orders.approval.store', $workOrder) }}" class="hidden space-y-3 pt-2">
+            @csrf
+            <div>
+                <label class="text-xs font-medium">Decision</label>
+                <select name="decision" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <option value="approved">Approved</option>
+                    <option value="declined">Declined</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-medium">Evidence</label>
+                <select name="evidence_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <option value="whatsapp">WhatsApp reply</option>
+                    <option value="email">Email</option>
+                    <option value="verbal_note">Verbal (undocumented)</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-medium">What the owner said</label>
+                <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
+        </form>
+        @endpermission
+    </div>
+    @endif
+
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Supplier</h2>
+        @permission('rental_work_orders.create')
+        <form method="POST" action="{{ route('corex.rental-work-orders.assign-supplier', $workOrder) }}" class="flex flex-wrap items-end gap-2">
+            @csrf
+            <div>
+                <label class="text-xs">Supplier</label><br>
+                <select name="agency_service_provider_id" required class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                    <option value="">Select…</option>
+                    @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
+                        <option value="{{ $provider->id }}" @selected($workOrder->agency_service_provider_id === $provider->id)>{{ $provider->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <button type="submit" class="corex-btn-outline text-xs">{{ $workOrder->agency_service_provider_id ? 'Change supplier' : 'Assign supplier' }}</button>
+        </form>
+        @endpermission
+
+        <div class="flex gap-2 pt-2">
+            @permission('rental_work_orders.create')
+                @if($workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED)
+                    <form method="POST" action="{{ route('corex.rental-work-orders.start-progress', $workOrder) }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs">Mark in progress</button>
+                    </form>
+                @endif
+            @endpermission
+            @permission('rental_work_orders.complete')
+                <button type="button" onclick="document.getElementById('complete-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Complete</button>
+            @endpermission
+        </div>
+
+        @permission('rental_work_orders.complete')
+        <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="hidden space-y-3 pt-2">
+            @csrf
+            <div>
+                <label class="text-xs font-medium">Paid by</label>
+                <select name="paid_by" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <option value="owner">Owner</option>
+                    <option value="tenant">Tenant</option>
+                    <option value="deposit_deduction">Deposit deduction (label only — §5.1a)</option>
+                    <option value="not_yet_paid">Not yet paid</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-medium">Cost (R, optional)</label>
+                <input type="number" name="cost_amount" step="0.01" min="0" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            </div>
+            <div>
+                <label class="text-xs font-medium">Completion notes</label>
+                <textarea name="completion_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+            </div>
+            @if($completionRequiresPhoto)
+                <p class="text-xs" style="color: var(--text-muted);">A "completed" photo is required below before this can be saved. Your agency has this switched on in settings.</p>
+            @else
+                <p class="text-xs" style="color: var(--text-muted);">A "completed" photo below is optional — add one if it's useful evidence, but not every repair has a meaningful photo to take.</p>
+            @endif
+            <button type="submit" class="corex-btn-primary text-xs">Mark complete</button>
+        </form>
+        @endpermission
+    </div>
+    @endif
+
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Photos</h2>
+        @if($workOrder->photos->isEmpty())
+            <p class="text-xs" style="color: var(--text-muted);">No photos yet.</p>
+        @else
+            <div class="grid grid-cols-4 gap-2">
+                @foreach($workOrder->photos as $photo)
+                    <div>
+                        <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
+                        <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}</span>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+        @permission('rental_work_orders.create')
+        <form method="POST" action="{{ route('corex.rental-work-orders.photos.store', $workOrder) }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
+            @csrf
+            <select name="photo_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <option value="reported">Reported (before)</option>
+                <option value="in_progress">In progress</option>
+                <option value="completed">Completed (after)</option>
+            </select>
+            <input type="file" name="photo" accept="image/*" required class="text-xs">
+            <button type="submit" class="corex-btn-outline text-xs">Upload photo</button>
+        </form>
+        @endpermission
+    </div>
+
+    {{-- Johan, 2026-09-22 — "who did what": a plain chronological history,
+         not a status badge on every row. RentalWorkOrder::history() merges
+         creation, every logged update, and every approval decision into one
+         timeline, oldest first. --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">History</h2>
+        <ul class="space-y-1 text-sm">
+            @foreach($workOrder->history() as $entry)
+                <li>
+                    <span style="color: var(--text-muted);">{{ $entry['at']->format('Y-m-d H:i') }}</span>
+                    —
+                    {{ $entry['action'] }}
+                    @if($entry['from'] || $entry['to'])
+                        ({{ $entry['from'] ?? '—' }} &rarr; {{ $entry['to'] ?? '—' }})
+                    @endif
+                    @if($entry['note'])
+                        — {{ $entry['note'] }}
+                    @endif
+                    @if($entry['actor'])
+                        <span style="color: var(--text-muted);">({{ $entry['actor'] }})</span>
+                    @endif
+                </li>
+            @endforeach
+        </ul>
+        @permission('rental_work_orders.create')
+        <form method="POST" action="{{ route('corex.rental-work-orders.notes.store', $workOrder) }}" class="flex items-end gap-2">
+            @csrf
+            <textarea name="note" required rows="1" placeholder="Add a note" class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+            <button type="submit" class="corex-btn-outline text-xs">Add</button>
+        </form>
+        @endpermission
+    </div>
+</div>
+@endsection
