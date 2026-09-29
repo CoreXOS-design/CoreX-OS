@@ -145,15 +145,32 @@ class PropertyObserver
             }
 
             // .ai/specs/other-agency-stock.md §7 — the ONE seam controlling who
-            // may change status TO or FROM other_agency_stock, enforced HERE
-            // (not just at the controller) because this is the one chokepoint
-            // every write path passes through (mobile API, imports, jobs,
-            // console, crafted requests). A console/job context with no
-            // authenticated user (auth()->user() === null) is a system actor
-            // and is not gated — this guard is about which HUMAN may make the
-            // change, not about background reconciliation work.
+            // may change status TO or FROM other_agency_stock via the NORMAL
+            // edit/API paths, enforced HERE (not just at the controller)
+            // because this is the one chokepoint every write path passes
+            // through (mobile API, imports, jobs, console, crafted requests).
+            // A console/job context with no authenticated user
+            // (auth()->user() === null) is a system actor and is not gated —
+            // this guard is about which HUMAN may make the change, not about
+            // background reconciliation work.
+            //
+            // 2026-09-29 QA1 real-browser proof — found live: importing via
+            // OtherAgencyStockImportService ALSO sets status to
+            // other_agency_stock, and without this exemption an ordinary
+            // agent (with no change_status grant) could never import at all —
+            // contradicting the feature's entire premise ("agents can use the
+            // Chrome extension to import ONE listing"). The import endpoint's
+            // own auth + required consent + host-validated payload ARE that
+            // action's authorisation; this permission is about changing an
+            // EXISTING property's status through the ordinary edit form/API,
+            // not about the dedicated, already-gated import action. The
+            // service signals "this write is the sanctioned import path" via
+            // the same allowOtherAgencyStockContentWrite flag the content
+            // lock already trusts (set only by OtherAgencyStockImportService
+            // and DownloadOtherAgencyStockGalleryJob).
             $actor = auth()->user();
-            if ($actor && ! \App\Services\Properties\OtherAgencyStockStatusGate::canChange($actor, $property, (string) $property->status)) {
+            if ($actor && ! $property->allowOtherAgencyStockContentWrite
+                && ! \App\Services\Properties\OtherAgencyStockStatusGate::canChange($actor, $property, (string) $property->status)) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'status' => 'You do not have permission to change Other Agency Stock status.',
                 ]);
