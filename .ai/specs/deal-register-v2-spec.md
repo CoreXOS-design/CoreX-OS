@@ -383,156 +383,25 @@ Spreadsheet tracking → visual pipeline + RAG. BM chasing agents → real-time 
 
 ---
 
-## 21. Duplicate-deal fix (2026-09-29) — #1826/#1827, "Villa Cordoba" captured twice from one click
+## 21. Duplicate-deal fix — SUPERSEDED, reverted from QA1 (2026-09-30)
 
-An agent (Falan) loaded ONE deal on live and got TWO identical rows in the
-Deal Register — same property, same parties, same price, sequential deal
-numbers. Read-only investigation (this same day) found: the "Save Deal"
-button had **no double-submit guard anywhere in CoreX** (not this screen
-specifically — nowhere, in any POST form, in the whole app), and `deal_no`
-(DR2, `deals` table) was allocated by reading `MAX(deal_no)` and adding 1
-with **no lock** — two near-simultaneous submits (a double-click, an
-Enter+click race, or a slow-connection retry) could each read the same max
-and each mint their own "next" number, producing two full, valid deal rows
-with sequential-looking numbers instead of a collision. `DealV2::reference`
-had the identical unlocked-allocation shape, backstopped only by a real
-unique index on `deals_v2.reference` that already existed (a race there
-would have thrown a raw DB error to the user, not silently duplicated — an
-ugly failure, not a duplicate one).
+The duplicate-deal fix originally written up in this section (global
+double-submit guard, an idempotency `create_token`, `AtomicSequenceService`
+race-safe numbering, a `unique(agency_id, deal_no)` DB index) shipped to
+QA1 on 2026-09-29 (`1da258128` → `2f640aa73f`) and was removed again the
+next day on Johan's instruction: Andre had independently fixed the same
+`#1826`/`#1827` duplicate-deal bug — see `41d60405d` on `origin/Staging`
+("fix(deals,pp): stop double-captured deals; sold listings come off
+Private Property") — and that is the fix being kept.
 
-### 21.1 Root cause, ranked
-
-1. **No client-side double-submit guard, anywhere in CoreX.** Neither
-   `resources/js/app.js` nor `resources/js/corex-api.js` had any generic
-   protection. `dr2/create.blade.php`'s "Save Deal" button was a plain
-   `<button type="submit">` with no `disabled` binding, no loading flag, no
-   `@click.once`. `deals-v2/create-form.blade.php`'s "Create Deal" button
-   sits **outside** its `<form>` entirely (HTML5 `form="dealForm"`
-   attribute) and was in the same state. (The DealV2 wizard,
-   `deals-v2/create.blade.php`, already had a correct `:disabled="submitting"`
-   guard — it was not part of this bug, but it also gained the idempotency
-   token below, since a token is a stronger, cause-agnostic guarantee than a
-   client-side flag.)
-2. **No server-side idempotency.** No request/idempotency token, no unique
-   constraint that would catch an accidental resubmission, no `firstOrCreate`.
-3. **`deal_no` allocation had no lock.** `Dr2DealRegisterController::store()`
-   read `MAX(deal_no)` (two raw queries, one per legacy `D-####`/plain-numeric
-   format) and added 1, entirely outside any row lock. `DealV2::generateReference()`
-   had the same shape (`MAX(reference)` + 1, no lock), but `deals_v2.reference`
-   already carried a real unique index, so a DealV2 race would 500, not
-   duplicate.
-4. **No DB-layer backstop on `deals.deal_no`.** `deals` had only a plain
-   (non-unique) index on `deal_no` — nothing at the database layer prevented
-   two rows in the same agency from carrying the same number, let alone two
-   *different* numbers for what was really one submission.
-
-### 21.2 Fix
-
-- **Global double-submit guard** — `resources/js/corex-form-guard.js`
-  (imported from `app.js`, so every page gets it for free). Listens for
-  `submit` on `document` in the bubble phase — deliberately *after* any
-  inline `@submit` handler on the form itself has already run, so
-  client-side validation that calls `preventDefault()` still wins and the
-  controls are left alone to be corrected and resubmitted. If the submit is
-  not prevented, every `button[type=submit]`/`input[type=submit]` belonging
-  to that `<form>` — **including one associated only via `form="id"`,
-  outside the element** — is disabled and its label swapped to "Saving…"
-  (`.corex-submit-locked` in `resources/css/corex.css`). A `pageshow`
-  listener re-enables on bfcache restore. Scoped to POST forms only
-  (`form.method === 'post'`); an explicit `data-corex-no-submit-guard`
-  opt-out exists for any form that legitimately needs it (none currently
-  use it).
-- **Idempotency token** — a hidden `create_token` (UUID, minted fresh per
-  page load / wizard init) on both DR2's create form and both DealV2 entry
-  points (`create-form.blade.php` and the wizard's `submitDeal()` payload).
-  `deals.create_token` and `deals_v2.create_token` (nullable, **unique**).
-  `Dr2DealRegisterController::store()` and `DealPipelineService::createDeal()`
-  both: check for an existing row with that token up front (fast path,
-  returns the deal already created instead of building a new one); if a
-  genuine race slips past that check, the unique index throws, and the
-  `QueryException` catch recovers by looking the deal up by token and
-  returning it, rather than surfacing a raw DB error.
-- **Race-safe numbering** — `App\Services\Sequencing\AtomicSequenceService`
-  (new, generic — not deal-specific, so any future feature needing a
-  race-safe consecutive number reuses it instead of inventing its own
-  read-max-then-increment). Same idiom as the pre-existing
-  `App\Services\Proforma\ProformaNumberService`: a `sequence_counters` table,
-  one row per named scope (`deal_no:agency:{id}`,
-  `deal_v2_reference:agency:{id}:year:{year}`), locked `FOR UPDATE` inside
-  the caller's own transaction and incremented. A second concurrent request
-  for the same scope now genuinely **blocks** on the row lock until the
-  first transaction commits or rolls back, instead of racing it — proven
-  with two independent DB connections in
-  `AtomicSequenceServiceTest::test_a_second_allocation_for_the_same_scope_blocks_while_the_first_transaction_is_open`,
-  not just asserted from the outcome.
-- **DB-layer backstop** — `unique(agency_id, deal_no)` added to `deals`.
-  (`deals_v2.reference` already had one — see 21.1.) The migration adding it
-  (`add_unique_index_to_deals_deal_no`) **self-checks for existing
-  duplicates first and aborts without touching data if any are found**,
-  reporting them; deduplicating real rows is not something a migration does
-  silently. **QA1 was checked clean (0 duplicates) during the investigation.
-  Live was never checked — no live DB access was available for this fix
-  (read-only investigation constraint) — so before this migration is ever
-  promoted toward live, it must be run there and its report (clean, or a
-  named list of duplicates) read before proceeding.**
-- **Backfill** — `sequence_counters` is seeded from the current `deals`/`deals_v2`
-  data so numbering continues exactly where the old logic left off. Seeded
-  including **soft-deleted** rows (`DB::table()`, not Eloquent, so
-  `SoftDeletingScope` doesn't hide them) — the old runtime `MAX()` query on
-  `deals` did *not* do this, a latent "a number can be reused after its deal
-  is archived" gap, closed as a side effect of replacing the mechanism it
-  lived in.
-
-### 21.3 The `portal-leads/poll` redirect anomaly (chased, not a separate bug)
-
-While reproducing the race with two genuinely concurrent raw POSTs against
-QA1 (bypassing the browser to force real concurrency), the second request
-came back with a 302 to an unrelated page,
-`/corex/real-estate/portal-leads/poll`, instead of a clean success or a
-visible error. `storage/logs/laravel.log` for that exact timestamp explained
-it directly: both requests' `Deal::create()` succeeded (two `DealCreated`
-events fired, agency_id=1, deal IDs 192 and 193), then the SECOND
-transaction deadlocked on its own `deal_user` pivot insert —
-`SQLSTATE[40001]: ... 1213 Deadlock found`, MySQL's own detector killing one
-of the two genuinely-concurrent transactions to break the cycle. That
-exception fell into `store()`'s existing generic `\Throwable` catch, which
-calls `back()` — and `back()`'s redirect target (Laravel's `url.previous`
-session key) resolved to whatever page the shared session had last
-legitimately been on, unrelated to this request. **Not a bug in the redirect
-itself** — `back()` behaving exactly as documented, on a request shape (two
-truly parallel POSTs sharing one session, via `fetch()`, not a real
-sequential double-click) more adversarial than what a real double-click
-produces. **It is, however, a real, separate hazard the investigation
-surfaced**: genuine concurrent writes to `deal_user` can deadlock.
-
-**Structurally prevented by 21.2, not fixed by chasing `back()`.** The
-`AtomicSequenceService` lock now serialises the whole `deal_no` allocation
-step — a second concurrent request blocks *before* either transaction
-reaches the `deal_user` insert, so the two transactions no longer race each
-other there at all. Deal 193's row itself was correctly rolled back by the
-deadlock (transactional integrity held; no orphaned row) — the only concern
-worth naming for the record is that `DealCreated`'s listeners appear to fire
-synchronously mid-transaction, before commit; if any current or future
-listener has a non-transactional side effect (an external call, a queued
-push), a rolled-back deal could still have caused it. Not reachable via this
-code path any more once serialised, so not fixed here — flagged for whoever
-next touches `DealCreated`'s dispatch, since it's a general hazard, not one
-specific to deal creation.
-
-### 21.4 Tests
-
-- `tests/Feature/Sequencing/AtomicSequenceServiceTest.php` — consecutive
-  allocation, independent scopes, a void never reuses a number, and the
-  two-connection lock-blocks proof.
-- `tests/Feature/Dr2/Dr2DuplicateCreationPreventionTest.php` /
-  `tests/Feature/DealV2/DealV2DuplicateCreationPreventionTest.php` — same
-  token twice → one deal; two different submissions → distinct consecutive
-  numbers; the unique index(es) hold even bypassing application code
-  entirely (`DB::table()->insert()` directly).
-
-### 21.5 Deploy note
-
-`resources/js/corex-form-guard.js` and the `corex.css` addition require
-`npm run build` (or `npm run dev` while iterating) before QA1's compiled
-assets reflect them — same gotcha as §20: QA1 serves pre-compiled assets,
-never live Tailwind/JS per request.
+**What actually happened to the code and schema**, for whoever reads this
+next: the application code (controllers, models, services, views, JS/CSS,
+tests) was reverted via `git revert` on `remove-dup-deal-fix-2026-09-29`.
+The five original migrations were deliberately **not** deleted (QA1 had
+already run them, and later migrations exist on top) — a new forward
+migration instead drops what they created (`sequence_counters`, the
+`create_token` columns, the `unique(agency_id, deal_no)` index), each
+guarded so it's a no-op wherever those objects don't exist. See that
+migration's own docblock for the exact objects and its `down()` (which
+restores them) if this ever needs to be re-applied instead of relying on
+Andre's fix.

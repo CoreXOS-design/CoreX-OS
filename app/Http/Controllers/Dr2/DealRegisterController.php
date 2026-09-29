@@ -17,7 +17,6 @@ use App\Services\ContactDuplicateService;
 use App\Services\DealMoneyLineRebuilder;
 use App\Services\Finance\RollupService;
 use App\Services\PermissionService;
-use App\Services\Sequencing\AtomicSequenceService;
 use App\Services\SlidingScaleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -393,42 +392,27 @@ class DealRegisterController extends Controller
         // The deal is never created half-right.
         $additionalProperties = $this->validateAdditionalPropertiesPayload($request);
 
-        // Idempotency (duplicate-deal fix, 2026-09-29 — #1826/#1827) — a
-        // one-time value the create form mints and posts as a hidden field.
-        // A resubmission carrying the SAME token (double-click, Enter+click,
-        // a network-level retry against a slow connection — exactly what
-        // produced the live duplicate) returns the deal already created for
-        // it instead of creating a second one. Checked up front for the
-        // common case; the create_token column's own unique index is the
-        // real race-safe backstop, recovered from in the catch block below.
-        $token = $request->input('create_token');
-        if ($token) {
-            $existing = Deal::where('create_token', $token)->first();
-            if ($existing) {
-                return redirect()->route('deals-dr2.index')
-                    ->with('status', "Deal {$existing->deal_no} already captured.");
-            }
-        }
-
         try {
-            return DB::transaction(function () use ($request, $additionalProperties, $token) {
+            return DB::transaction(function () use ($request, $additionalProperties) {
                 $deal = new Deal();
-                $deal->create_token = $token;
 
-                // NUMERIC DEAL NUMBERING (DR1 parity: legacy D-#### and plain
-                // numeric formats) — race-safe allocation (duplicate-deal fix,
-                // 2026-09-29). Previously read MAX(deal_no) and added 1 with
-                // no lock: two concurrent submits could both read the same
-                // max and each mint a "next" number nobody else had taken —
-                // exactly how one double-click produced two full deals,
-                // #1826 and #1827, with sequential-looking numbers instead of
-                // a collision. AtomicSequenceService locks a dedicated
-                // counter row FOR UPDATE inside this same transaction, so a
-                // second concurrent request blocks until the first commits
-                // (or rolls back) rather than racing it.
-                $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
-                $deal->deal_no = (string) app(AtomicSequenceService::class)
-                    ->next("deal_no:agency:{$agencyId}", 1001);
+                // NUMERIC DEAL NUMBERING — supports legacy D-#### and numeric formats (DR1 parity).
+                $maxNumericOnly = (int) Deal::query()
+                    ->whereRaw("deal_no NOT LIKE 'D-%'")
+                    ->whereRaw("deal_no REGEXP '^[0-9]+$'")
+                    ->max('deal_no');
+
+                $maxFromPrefixed = (int) Deal::query()
+                    ->selectRaw("MAX(CAST(SUBSTR(deal_no, 3) AS UNSIGNED)) as m")
+                    ->where('deal_no', 'like', 'D-%')
+                    ->value('m');
+
+                $maxNumeric = max($maxNumericOnly, $maxFromPrefixed, 0);
+                if ($maxNumeric <= 0) {
+                    $maxNumeric = 1000; // fresh/wiped DB starts at 1001 to match real-world file numbering
+                }
+
+                $deal->deal_no = (string) ($maxNumeric + 1);
 
                 $resp = $this->persistDeal($deal, $request, true);
                 if ($deal->exists) {
@@ -461,28 +445,6 @@ class DealRegisterController extends Controller
             // English refusal message travels unwrapped, never behind the
             // generic "Failed to save deal:" prefix below.
             return back()->withErrors(['property_id' => $e->getMessage()])->withInput();
-        } catch (\Illuminate\Database\QueryException $e) {
-            // A genuine race: another request committed the SAME create_token
-            // between the up-front check above and this transaction's own
-            // INSERT. The create_token unique index is what actually caught
-            // it — recover by returning the deal that won, instead of
-            // surfacing a raw DB error to a user who only double-clicked.
-            if ($token
-                && ((string) $e->getCode() === '23000' || str_contains($e->getMessage(), '1062'))
-                && str_contains($e->getMessage(), 'create_token')
-            ) {
-                $existing = Deal::where('create_token', $token)->first();
-                if ($existing) {
-                    return redirect()->route('deals-dr2.index')
-                        ->with('status', "Deal {$existing->deal_no} already captured.");
-                }
-            }
-            \Log::error('DR2 store() failed', [
-                'error' => $e->getMessage(),
-                'file'  => $e->getFile() . ':' . $e->getLine(),
-                'input' => $request->except(['_token']),
-            ]);
-            return back()->withErrors('Failed to save deal: ' . $e->getMessage())->withInput();
         } catch (\Throwable $e) {
             \Log::error('DR2 store() failed', [
                 'error' => $e->getMessage(),

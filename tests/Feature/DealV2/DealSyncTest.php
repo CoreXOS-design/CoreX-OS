@@ -136,7 +136,7 @@ final class DealSyncTest extends TestCase
 
         // DR2 twin first (no legacy link yet → its observer sync is a no-op).
         $v2 = DealV2::withoutGlobalScopes()->create([
-            'agency_id' => $agencyId, 'reference' => DealV2::generateReference($agencyId), 'deal_type' => 'bond',
+            'agency_id' => $agencyId, 'reference' => DealV2::generateReference(), 'deal_type' => 'bond',
             'status' => 'active', 'property_id' => $property->id, 'listing_agent_id' => $agent->id,
             'pipeline_template_id' => $template->id, 'purchase_price' => 1_500_000,
             'commission_amount' => 75_000, 'commission_vat' => 11_250, 'commission_status' => 'Not Paid',
