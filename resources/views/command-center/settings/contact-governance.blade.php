@@ -243,44 +243,17 @@
             </div>
         </div>
 
-        {{-- ═══════ CORE MATCHES — WORKING WINDOW (Johan's ruling 5) ═══════ --}}
-        <div class="corex-panel mb-6">
-            <div class="corex-panel-header">
-                <h3 class="corex-panel-title">Core Matches</h3>
-            </div>
-            <div class="corex-panel-body space-y-4">
-                <p class="text-xs" style="color:var(--text-muted);">How many days a buyer can go without a note, a message, a live link share, or "Last Contacted" being pressed before the Core Matches board shows them as gone quiet.</p>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Working window (days)</label>
-                        <input type="number" name="core_matches_working_window_days" value="{{ $settings->core_matches_working_window_days ?? \App\Models\AgencyContactSettings::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS }}" min="1" max="90"
-                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                    </div>
-                </div>
-
-                {{-- AT-Core-Matches (2026-09-29), Johan's ruling — Core Matches is an
-                     allow-list, not a blacklist: only the statuses ticked here are ever
-                     shown. Unticking everything is rejected server-side (an empty
-                     selection is never a valid state), so there's no "show nothing" trap. --}}
-                <div class="pt-3 border-t" style="border-color:var(--border);">
-                    <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">Statuses included in Core Matches</p>
-                    <p class="text-xs mb-2" style="color:var(--text-muted);">Which property statuses are ever shown as a Core Match. Any status not ticked here — drafts, withdrawn, sold, rented, under offer, pending, archived, and any status not in this list — is excluded, including one this agency defines later.</p>
-                    <div class="flex flex-wrap gap-4">
-                        @php
-                            $selectedCoreMatchStatuses = $settings->coreMatchesAllowedStatuses();
-                        @endphp
-                        @foreach($coreMatchStatusOptions as $statusOption)
-                            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
-                                <input type="checkbox" name="core_matches_allowed_statuses[]" value="{{ $statusOption }}"
-                                       {{ in_array($statusOption, $selectedCoreMatchStatuses, true) ? 'checked' : '' }}>
-                                {{ \Illuminate\Support\Str::headline($statusOption) }}
-                            </label>
-                        @endforeach
-                    </div>
-                </div>
-            </div>
-        </div>
+        {{-- ═══════ CORE MATCHES — moved to main Settings, 2026-09-29 (Johan) ═══════
+             Single stored setting (AgencyContactSettings.core_matches_working_window_days
+             / core_matches_allowed_statuses) — its one editable form now lives in main
+             Settings (Core Matches section); this stays a pointer only, never a second
+             copy of the form. See CoreXSettingsController::index() +
+             corex/settings.blade.php ('core-matches' section) and
+             ContactGovernanceController::updateCoreMatches(). --}}
+        <p class="text-xs mb-6" style="color:var(--text-muted);">
+            Core Matches working window and included statuses moved to
+            <a href="{{ url('/corex/settings?s=core-matches') }}" class="font-medium hover:underline" style="color: var(--brand-icon, #0ea5e9);">Settings → Core Matches</a>.
+        </p>
 
         {{-- ═══════ OUTREACH — NO-RESPONSE WINDOW (AT-81) ═══════ --}}
         <div class="corex-panel mb-6">

@@ -36,19 +36,11 @@ class ContactGovernanceController extends Controller
         $agencyId = $this->resolveAgencyId();
         $settings = AgencyContactSettings::forAgency($agencyId);
 
+        // Core Matches (working window + status allow-list) moved to main
+        // Settings, 2026-09-29 — this page links to it instead of rendering
+        // it; see updateCoreMatches() and corex/settings.blade.php.
         return view('command-center.settings.contact-governance', [
             'settings' => $settings,
-            // AT-Core-Matches (2026-09-29) — the pickable "known statuses" for
-            // the Core Matches allow-list multi-select: the code default
-            // (always offered, even before an agency has activated any of them
-            // as a property_status setting item) union this agency's own
-            // configured status vocabulary (Property::allowedStatuses() —
-            // system statuses + whatever this agency added).
-            'coreMatchStatusOptions' => collect(Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES)
-                ->merge(Property::allowedStatuses($agencyId ?: null))
-                ->unique()
-                ->values()
-                ->all(),
         ]);
     }
 
@@ -58,14 +50,6 @@ class ContactGovernanceController extends Controller
     public function updateContactGovernance(Request $request)
     {
         $agencyId = $this->resolveAgencyId();
-        // AT-Core-Matches (2026-09-29) — validate against the SAME known-status
-        // list the picker offers (code default ∪ this agency's vocabulary), so
-        // a crafted request can't smuggle in a status the UI never offered.
-        $knownStatuses = collect(Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES)
-            ->merge(Property::allowedStatuses($agencyId ?: null))
-            ->unique()
-            ->values()
-            ->all();
 
         $request->validate([
             'buyer_pipeline_default_scope' => 'required|in:own,branch,agency',
@@ -83,13 +67,6 @@ class ContactGovernanceController extends Controller
             'buyer_warm_days' => 'required|integer|min:1|max:365',
             'buyer_cold_days' => 'required|integer|min:1|max:365',
             'buyer_lost_days' => 'required|integer|min:1|max:730',
-            // AT-Core-Matches, Johan's ruling 5 — the Core Matches working window, never hardcoded.
-            'core_matches_working_window_days' => 'required|integer|min:1|max:90',
-            // AT-Core-Matches (2026-09-29) — an empty selection is explicitly
-            // not allowed (Johan): Core Matches showing NOTHING is never a
-            // valid configured state, only ever a bug.
-            'core_matches_allowed_statuses' => 'required|array|min:1',
-            'core_matches_allowed_statuses.*' => ['required', 'string', 'in:' . implode(',', $knownStatuses)],
             // AT-81 — no-response window before a pending outreach contact lapses.
             'outreach_no_response_days' => 'required|integer|min:1|max:365',
             'contact_retention_years' => 'required|integer|min:5|max:99',
@@ -98,7 +75,6 @@ class ContactGovernanceController extends Controller
         ]);
 
         $settings = AgencyContactSettings::forAgency($agencyId);
-        $previousStatuses = $settings->coreMatchesAllowedStatuses();
 
         $settings->update(array_merge(
             $request->only([
@@ -110,8 +86,6 @@ class ContactGovernanceController extends Controller
                 'buyer_warm_days',
                 'buyer_cold_days',
                 'buyer_lost_days',
-                'core_matches_working_window_days',
-                'core_matches_allowed_statuses',
                 'outreach_no_response_days',
                 'contact_retention_years',
                 'consent_retention_years',
@@ -123,6 +97,50 @@ class ContactGovernanceController extends Controller
                 'portal_lead_auto_seed_buyer'  => $request->boolean('portal_lead_auto_seed_buyer'),
             ],
         ));
+
+        return back()->with('success', 'Contact governance settings saved.');
+    }
+
+    /**
+     * Save Core Matches settings (working window + status allow-list).
+     *
+     * Moved out of the combined Contact Governance save, 2026-09-29 (Johan's
+     * direction) — Core Matches settings now live in main Settings (its own
+     * section/tab, corex/settings.blade.php, activeSection === 'core-matches'),
+     * with their own save action instead of riding the giant Contact
+     * Governance form. Same stored columns on the SAME AgencyContactSettings
+     * row as before — this is a relocation of the form, not a new setting or
+     * a second copy of it. Contact Governance now only links here.
+     */
+    public function updateCoreMatches(Request $request)
+    {
+        $agencyId = $this->resolveAgencyId();
+        // AT-Core-Matches (2026-09-29) — validate against the SAME known-status
+        // list the picker offers (code default ∪ this agency's vocabulary), so
+        // a crafted request can't smuggle in a status the UI never offered.
+        $knownStatuses = collect(Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES)
+            ->merge(Property::allowedStatuses($agencyId ?: null))
+            ->unique()
+            ->values()
+            ->all();
+
+        $request->validate([
+            // AT-Core-Matches, Johan's ruling 5 — the Core Matches working window, never hardcoded.
+            'core_matches_working_window_days' => 'required|integer|min:1|max:90',
+            // AT-Core-Matches (2026-09-29) — an empty selection is explicitly
+            // not allowed (Johan): Core Matches showing NOTHING is never a
+            // valid configured state, only ever a bug.
+            'core_matches_allowed_statuses' => 'required|array|min:1',
+            'core_matches_allowed_statuses.*' => ['required', 'string', 'in:' . implode(',', $knownStatuses)],
+        ]);
+
+        $settings = AgencyContactSettings::forAgency($agencyId);
+        $previousStatuses = $settings->coreMatchesAllowedStatuses();
+
+        $settings->update($request->only([
+            'core_matches_working_window_days',
+            'core_matches_allowed_statuses',
+        ]));
 
         // AT-Core-Matches (2026-09-29) — the allow-list changed, so this
         // agency's cached property_buyer_matches (pipeline counts/badges,
@@ -136,7 +154,8 @@ class ContactGovernanceController extends Controller
             RegenerateBuyerMatchesJob::dispatch($agencyId, null, true);
         }
 
-        return back()->with('success', 'Contact governance settings saved.');
+        return redirect()->route('corex.settings', ['s' => 'core-matches'])
+            ->with('success', 'Core Matches settings saved.');
     }
 
     /** Sort + lower-case a status list so two differently-ordered/cased lists compare equal. */
