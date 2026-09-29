@@ -6265,3 +6265,83 @@ all three signature images are genuinely embedded as raster objects in the PDF (
 four images total, three at 400×150 matching the real signature dimensions exactly, none of them
 served/streamed over HTTP at render time (base64-inlined, confirmed by inspecting the compiled Blade
 source — no `<img src="https://...">` for a signature anywhere in this file).
+---
+
+## 39. Compare viewer opens with the other side empty when the clicked photo has no auto-pair match (2026-09-29, Johan, property 5294)
+
+_Numbered §39 on Staging (its own last section is §38) — §40 on QA1, where this was built and landed first; QA1 had already independently gained its own §39 (“Wet-ink follow-up”) the same day via unrelated work not yet promoted to Staging. Same fix, same content, deliberately renumbered per branch so each branch's own spec stays internally sequential._
+
+Johan reported this on 5294 (read-only for this fix — never written to; reproduced instead against a
+throwaway fixture, per §35's own standing instruction): he had added real photos to BOTH the previous/old
+inspection side and the new/current inspection side of the same item. Clicking a photo opened the compare
+viewer, but it never showed the other side — an old photo opened showed only old, a new photo opened
+showed only new, in both directions, every time.
+
+### 39.1 Root cause
+
+`openCompareViewer(photo, insp)` (`show.blade.php`) only populates the OTHER side's `PhotoId` when the
+clicked photo already belongs to an auto-pair match group with a member on that side:
+
+```js
+if (otherInsp) {
+    const candidates = this.compareViewerGroupSideMembers(photo.id, otherInsp.id);
+    if (candidates.length) {
+        this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
+    }
+}
+```
+
+When a photo was uploaded to both sides but nobody ever ran auto-pair (or the auto-pair service found no
+confident match), `candidates` is empty — `otherSide + 'PhotoId'` is left `null`, and the other pane
+renders its "Nothing yet" empty state, even though that side has real photos of its own (visible in its
+own carousel strip underneath, which sources from `compareViewerPhotosForSide()` independent of pairing).
+This is the exact scenario Johan hit: two independently-uploaded, never-paired photos on the same item.
+
+A second, compounding gap in the same function: `compareViewerPhotosForSide()` sourced item-kind photos
+via `conditionForInspection(insp, itemId)`, which resolves only the item's SINGLE LATEST observation. Any
+item with 2+ observations this inspection (e.g. a corrected condition) had its earlier photos silently
+missing from the compare viewer's own rail/carousel, even though the strip tile that was clicked
+(`stripTilesForInspection()` / `stripTilesFor()`, both built on `itemPhotosForInspection()` /
+`itemPhotosFor()` — EVERY observation, never just the latest) showed them fine.
+
+### 39.2 The fix
+
+`openCompareViewer()` now falls back to that side's first real photo (`compareViewerPhotosForSide(otherSide)[0]`)
+when there is no auto-pair match — the same fallback `compareViewerSelectItem()` (the room/item-tab
+navigation handler used while the viewer is already open) already uses for its own initial load: prefer
+an exact match, but never leave a side with real photos showing nothing.
+
+`compareViewerPhotosForSide()`'s item-kind branch now reads `itemPhotosForInspection(insp, itemId)` (every
+observation) instead of `conditionForInspection(insp, itemId)` (latest observation only) — the same source
+the strip tiles and the predecessor side already used, now consistent on both sides.
+
+Neither change touches `pairedRows()`/`pairedStripRows()` (the strip's own pairing/ordering, unaffected)
+or the auto-pair service itself — this is purely which photo the compare viewer's OWN rails default to
+showing when nothing has been explicitly paired yet.
+
+### 39.3 Verified
+
+`php -l` clean on every changed file. `tests/Feature/RentalInspections/RentalInspectionChainTest.php`:
+26/28 pass; the 2 failures (`test_comparison_row_is_a_grid_container_with_predecessor_and_tail_cells_as_siblings`,
+`test_both_comparison_cells_open_the_shared_compare_viewer_on_photo_click`) are pre-existing, unrelated to
+this change — both assert against a stale CSS string / a stale `openCompareViewer()` call-shape signature
+from before an earlier refactor (their own docblocks reference "cc2" removing the standalone Compare
+section and changing the call signature); this fix never touches the `.rir-compare-row` markup or the
+`@click="...openCompareViewer(...)"` call-site arguments, only the function bodies.
+
+`scripts/rental-click-through.mjs` gained a new named check, **#27 — Compare viewer: opening a photo
+shows both sides**, run against a throwaway fixture (never 5294) with a real, servable photo on both the
+Ceiling item's predecessor and tail side (§39.4 below) — clicks the old-side tile, asserts BOTH panes
+render a real image (`naturalWidth`/`naturalHeight` > 0); clicks the new-side tile, asserts the same in
+reverse. Run BEFORE check #26 (Auto-pair) so the fixture's photos are still genuinely unpaired when this
+check exercises the fallback. Screenshots of both directions saved to the scratchpad for review.
+
+### 39.4 Fixture change — real, servable photos instead of a fake path
+
+`rental-inspection-click-through-fixture.php`'s Ceiling item photos used to be a bare `storage_path`
+string (`/gate-fixture/ceiling.jpg`) pointing at nothing on disk — fine for checks that only needed a
+photo ROW (auto-pair, the strip tiles), but check #27 asserts the `<img>` actually renders real pixels, so
+a 404'd src would fail regardless of whether the fix works. Both photos now route through the same
+`PropertyImageStorer::store()` every real upload uses, reusing the existing test JPEG
+(`tests/Fixtures/Images/huawei-orientation0.jpg`) already checked in for check #24's own real-upload
+proof — a genuine servable file each run, not a second fake path to keep in sync with reality.

@@ -5402,10 +5402,11 @@
                                 <template x-if="compareViewerCurrentPhoto('{{ $side }}')">
                                     <img :src="compareViewerCurrentPhoto('{{ $side }}').storage_path"
                                          :style="compareViewerZoomStyle('{{ $side }}')"
+                                         data-qa="cv-pane-img-{{ $side }}"
                                          class="w-full h-full object-contain block select-none" draggable="false" alt="">
                                 </template>
                                 <template x-if="!compareViewerCurrentPhoto('{{ $side }}')">
-                                    <div class="w-full h-full flex items-center justify-center compare-viewer-empty-pane">
+                                    <div class="w-full h-full flex items-center justify-center compare-viewer-empty-pane" data-qa="cv-pane-empty-{{ $side }}">
                                         <span class="text-xs">Nothing yet</span>
                                     </div>
                                 </template>
@@ -6224,6 +6225,27 @@
                         const candidates = this.compareViewerGroupSideMembers(photo.id, otherInsp.id);
                         if (candidates.length) {
                             this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
+                        } else {
+                            // §40, 2026-09-29 (Johan) — clicking a photo
+                            // opened the viewer but did not show the other
+                            // side, reproduced both directions. Old and new
+                            // sides both had real, independently-uploaded
+                            // photos, but the clicked photo was never run
+                            // through auto-pair, so it has no match-group
+                            // candidate on the other side. Leaving
+                            // otherSide's photoId null left that pane on the
+                            // empty placeholder even though its own carousel
+                            // strip (below, sourced from
+                            // compareViewerPhotosForSide() independent of
+                            // pairing) had real photos to show. Same
+                            // fallback compareViewerSelectItem() already
+                            // uses for its own initial load: prefer an exact
+                            // match, but default to that side's first real
+                            // photo rather than nothing.
+                            const fallback = this.compareViewerPhotosForSide(otherSide);
+                            if (fallback.length) {
+                                this.compareViewer[otherSide + 'PhotoId'] = fallback[0].id;
+                            }
                         }
                     }
                     this.compareViewerMobileSide = side;
@@ -6247,9 +6269,20 @@
                 compareViewerPhotosForSide(side) {
                     const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
                     if (!insp) return [];
+                    // §40, 2026-09-29 — item-kind used to read
+                    // conditionForInspection(), which resolves only the
+                    // item's SINGLE LATEST observation. Any item with 2+
+                    // observations this inspection (e.g. a corrected
+                    // condition) had earlier photos silently missing from
+                    // this rail even though the strip tile that was clicked
+                    // (stripTilesForInspection()/stripTilesFor(), both built
+                    // on itemPhotosForInspection()/itemPhotosFor() — EVERY
+                    // observation, not just the latest) showed them fine.
+                    // Same source both sides now use everywhere else in
+                    // this file for item photos.
                     const photos = this.compareViewer.kind === 'room'
                         ? this.roomPhotosForInspection(insp, this.compareViewer.roomId)
-                        : ((this.conditionForInspection(insp, this.compareViewer.itemId) || {}).photos || []);
+                        : this.itemPhotosForInspection(insp, this.compareViewer.itemId);
                     return (photos || []).filter(p => p && p.storage_path);
                 },
                 // §24.11, AT-433 Part B follow-up, 2026-09-27 — pairs first
