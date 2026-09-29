@@ -357,6 +357,23 @@ Route::prefix('v1/webinars')
     });
 
 // ════════════════════════════════════════════════════════════════
+// Other Agency Stock — Chrome extension import (.ai/specs/other-agency-stock.md §4)
+// Deliberately OUTSIDE the auth:sanctum group below: the extension's
+// popup-issued api_token authenticates via AuthenticatePortalCapture
+// (session OR Authorization: Bearer against users.api_token), the same
+// mechanism /portal-captures/ingest already uses — not a Sanctum PAT.
+// deny_assistant_property_write mirrors /prospecting/import (AT-267) — an
+// assistant may never bring a property onto the books by any path,
+// imported-from-another-agency included.
+// ════════════════════════════════════════════════════════════════
+Route::prefix('v1/other-agency-stock')->middleware(['auth.portal_capture', 'deny_assistant_property_write'])->group(function () {
+    Route::get('/consent-wording', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'consentWording'])
+        ->name('v1.other-agency-stock.consent-wording');
+    Route::post('/import', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'import'])
+        ->name('v1.other-agency-stock.import');
+});
+
+// ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
 // app_access: mobile "Delete my account" (Apple 5.1.1(v)) — rejects an
@@ -899,3 +916,4 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
     Route::get('/me/agent-qr', [\App\Http\Controllers\Api\V1\AgentQrController::class, 'mine'])
         ->name('legacy.me.agent-qr');
 });
+

@@ -235,6 +235,10 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        // .ai/specs/other-agency-stock.md §6 — which roles may see Other Agency
+        // Stock properties. null/[] = all roles (default, so rollout hides nothing).
+        'other_agency_stock_visible_roles',
+        'other_agency_stock_consent_wording',
         // AT-267 — Assistants. Ships OFF for every agency; also the resolver's first
         // check, so flipping it off gives every assistant zero permissions instantly.
         'assistants_enabled',
@@ -431,6 +435,7 @@ class Agency extends Model
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',
+        'other_agency_stock_visible_roles' => 'array',
         'assistants_enabled' => 'boolean',
         'one_email_enabled' => 'boolean', // AT-423 — set only by OneEmailSettingsController (not fillable)
         'assistant_fica_required_default' => 'boolean',

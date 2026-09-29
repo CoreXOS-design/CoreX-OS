@@ -817,6 +817,15 @@ return [
 
         // ── Diagnostics ──
         ['key' => 'view_photo_upload_report', 'label' => 'View Photo Upload Report',  'section' => 'system', 'type' => 'access', 'module' => 'diagnostics', 'sort_order' => 90],
+
+        // ── Other Agency Stock — .ai/specs/other-agency-stock.md §7 ──
+        // Gates OtherAgencyStockStatusGate::canChange() — changing a property's
+        // status TO or FROM other_agency_stock (import is via the Chrome
+        // extension's own auth, not this — this is the in-app status-change
+        // seam). Docblock on the gate: once Andre's "only authorised users can
+        // turn syndication on" setting lands, this key is expected to delegate
+        // to (or be replaced by) that instead.
+        ['key' => 'other_agency_stock.change_status', 'label' => 'Change Other Agency Stock Status', 'section' => 'properties', 'type' => 'action', 'module' => 'other_agency_stock', 'sort_order' => 1],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -891,6 +900,10 @@ return [
                 // can actually reach the screen the promote button lives on, matching
                 // the role's real-world need to review and take contested captures.
                 'deeds_capture.access', 'deeds_capture.promote',
+                // .ai/specs/other-agency-stock.md §7 — branch managers may change
+                // Other Agency Stock status; agents/assistants/viewers do not
+                // (fresh-install default; agencies can widen via Role Manager).
+                'other_agency_stock.change_status',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',

@@ -43,6 +43,8 @@
     pullPreview:  document.getElementById('statePullPreview'),
     pulling:      document.getElementById('statePulling'),
     pullComplete: document.getElementById('statePullComplete'),
+    oasPreview:   document.getElementById('stateOasPreview'),
+    oasComplete:  document.getElementById('stateOasComplete'),
   };
 
   const els = {
@@ -57,7 +59,25 @@
     choosePortalName:  document.getElementById('choosePortalName'),
     actionPullProperty:    document.getElementById('actionPullProperty'),
     actionCaptureListings: document.getElementById('actionCaptureListings'),
+    actionImportOas:   document.getElementById('actionImportOas'),
     actionHint:        document.getElementById('actionHint'),
+    // Other Agency Stock
+    backFromOas:       document.getElementById('backFromOas'),
+    oasThumb:          document.getElementById('oasThumb'),
+    oasTitle:          document.getElementById('oasTitle'),
+    oasPrice:          document.getElementById('oasPrice'),
+    oasAddress:        document.getElementById('oasAddress'),
+    oasFeatures:       document.getElementById('oasFeatures'),
+    oasImagesCount:    document.getElementById('oasImagesCount'),
+    oasAgency:         document.getElementById('oasAgency'),
+    oasConsentCheck:   document.getElementById('oasConsentCheck'),
+    oasConsentText:    document.getElementById('oasConsentText'),
+    oasImportBtn:      document.getElementById('oasImportBtn'),
+    oasMsg:            document.getElementById('oasMsg'),
+    oasCompleteTitle:  document.getElementById('oasCompleteTitle'),
+    oasCompleteDetail: document.getElementById('oasCompleteDetail'),
+    oasViewProperty:   document.getElementById('oasViewProperty'),
+    oasAnother:        document.getElementById('oasAnother'),
     // Ready (capture)
     backFromReady:     document.getElementById('backFromReady'),
     portalName:        document.getElementById('portalName'),
@@ -560,6 +580,280 @@
     }
   }
 
+  // ── Other Agency Stock — .ai/specs/other-agency-stock.md §5 ──────────
+  // Extraction runs via chrome.scripting.executeScript directly from the
+  // popup (not through a registered content script) so PP's read can use
+  // world:'MAIN' (the page's own already-parsed window.serverVariables) —
+  // content scripts always run ISOLATED and cannot see it.
+
+  let oasExtracted = null; // the built payload, set once extraction succeeds
+  let oasConsentWording = 'I confirm I have received permission from this agency to use their portal advert.';
+
+  function p24ExtractOasFn() {
+    // Runs ISOLATED-world in the P24 tab. Self-contained — no outer closures.
+    function getJsonLd() {
+      var scripts = document.querySelectorAll('script[type]');
+      for (var i = 0; i < scripts.length; i++) {
+        var t = (scripts[i].getAttribute('type') || '').toLowerCase();
+        // The type attribute can be HTML-entity-encoded (application/ld&#x2B;json).
+        if (t.indexOf('application/ld') !== 0 && t.indexOf('application/ld&') !== 0) continue;
+        try {
+          var data = JSON.parse(scripts[i].textContent);
+          var graph = data['@graph'] && Array.isArray(data['@graph']) ? data['@graph'] : [data];
+          for (var j = 0; j < graph.length; j++) {
+            if (graph[j]['@type'] === 'RealEstateListing' || graph[j]['@type'] === 'Product') return graph[j];
+          }
+        } catch (e) { /* skip */ }
+      }
+      return null;
+    }
+    function num(v) { var n = parseInt(String(v).replace(/[^\d]/g, ''), 10); return isNaN(n) ? null : n; }
+    function textOf(sel) { var el = document.querySelector(sel); return el ? el.textContent.trim() : null; }
+
+    var ld = getJsonLd() || {};
+    var about = ld.about || ld;
+    var offers = ld.offers || {};
+
+    var listingRef = null;
+    var m = (document.title || '').match(/P24-(\d+)/);
+    if (m) listingRef = m[1];
+    if (!listingRef) {
+      m = location.pathname.match(/\/(\d{5,12})(?:\/|$)/);
+      if (m) listingRef = m[1];
+    }
+
+    var galleryUrls = [];
+    var seen = {};
+    var imgEls = document.querySelectorAll('img[src*="images.prop24.com"]');
+    for (var k = 0; k < imgEls.length; k++) {
+      var src = imgEls[k].src;
+      var idm = src.match(/images\.prop24\.com\/(\d+)/);
+      if (idm && !seen[idm[1]]) { seen[idm[1]] = true; galleryUrls.push(src); }
+    }
+    // Fallback: scan the raw page HTML for the same URL pattern in case some
+    // gallery images are referenced from inline scripts rather than <img> tags.
+    if (galleryUrls.length === 0) {
+      var html = document.documentElement.outerHTML;
+      var re = /https:\/\/images\.prop24\.com\/\d+\/[A-Za-z0-9]+/g;
+      var mm;
+      while ((mm = re.exec(html)) !== null) {
+        var id2 = mm[0].match(/images\.prop24\.com\/(\d+)/)[1];
+        if (!seen[id2]) { seen[id2] = true; galleryUrls.push(mm[0]); }
+      }
+    }
+
+    var leadCtx = null;
+    try {
+      var scriptText = document.documentElement.outerHTML;
+      var lm = scriptText.match(/listingLeadFormContext\s*=\s*(\{[\s\S]*?\});/);
+      if (lm) leadCtx = JSON.parse(lm[1]);
+    } catch (e) { /* ignore */ }
+
+    var erfSize = null, floorSize = null, beds = null, baths = null, garages = null;
+    document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
+      var key = row.querySelector('.p24_propertyOverviewKey');
+      var val = row.querySelector('.p24_propertyOverviewResult .p24_info');
+      if (!key || !val) return;
+      var k2 = key.textContent.toLowerCase();
+      var v2 = num(val.textContent);
+      if (k2.indexOf('bedroom') !== -1) beds = v2;
+      else if (k2.indexOf('bathroom') !== -1) baths = v2;
+      else if (k2.indexOf('floor') !== -1) floorSize = v2;
+    });
+    var erfEl = document.querySelector('.js_sizeConversionsButton span');
+    if (erfEl) erfSize = num(erfEl.textContent);
+
+    var garageImg = document.querySelector('img[src*="icon_garage"]');
+    if (garageImg) {
+      var garageFeature = garageImg.closest('.p24_feature');
+      var amountEl = garageFeature ? garageFeature.querySelector('.p24_featureAmount') : null;
+      if (amountEl) garages = num(amountEl.textContent);
+    }
+
+    return {
+      portal: 'p24',
+      listing_ref: listingRef,
+      listing_url: location.href,
+      price: offers.priceSpecification ? num(offers.priceSpecification.price) : num(offers.price),
+      description: ld.description || null,
+      property_type: (about['@type'] && about['@type'] !== 'RealEstateListing') ? about['@type'] : null,
+      beds: beds, baths: baths, garages: garages,
+      size_m2: floorSize, erf_size_m2: erfSize,
+      suburb: (about.address && about.address.addressLocality) || null,
+      province: (about.address && about.address.addressRegion) || null,
+      photos: galleryUrls,
+      source_agency_name: leadCtx ? leadCtx.agencyName : null,
+      source_agent_name: leadCtx && leadCtx.primaryAgent ? leadCtx.primaryAgent.name : (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].name : null),
+      source_agent_profile_url: leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].profileURL : null,
+      date_posted: ld.datePosted || null,
+      _title: ld.name || textOf('h1'),
+    };
+  }
+
+  function ppExtractOasFn() {
+    // Runs MAIN-world in the PP tab — reads the page's OWN already-parsed
+    // window.serverVariables directly (never re-implements the page's own
+    // token/index de-obfuscation).
+    var sv = window.serverVariables || {};
+    var bp = sv.bundleParams || {};
+    var agencyInfo = bp.agencyInfo || null; // null = private seller — allowed, blank agency.
+    var contact = (bp.contactDetails || []).filter(function (c) { return c.contactType === 'Agent'; })[0] || (bp.contactDetails || [])[0] || null;
+
+    var m = location.pathname.match(/\/(T\d+)\/?$/i);
+
+    var photos = (bp.galleryPhotos || []).map(function (p) { return p.mediumUrl || (p.srcSet && p.srcSet[0]) || null; }).filter(Boolean);
+
+    var beds = null, baths = null, garages = null;
+    (bp.additionalProperty || []).forEach(function (p) {
+      var name = (p.name || '').toLowerCase();
+      var val = parseInt(p.value, 10);
+      if (isNaN(val)) return;
+      if (name.indexOf('bedroom') !== -1) beds = val;
+      else if (name.indexOf('bathroom') !== -1) baths = val;
+      else if (name.indexOf('garage') !== -1) garages = val;
+    });
+
+    var floorSize = null, erfSize = null;
+    document.querySelectorAll('.property-details__list-item').forEach(function (row) {
+      var label = row.querySelector('.property-details__name-value');
+      var value = row.querySelector('.property-details__value');
+      if (!label || !value) return;
+      var l = label.textContent.toLowerCase();
+      var v = parseInt(String(value.textContent).replace(/[^\d]/g, ''), 10);
+      if (isNaN(v)) return;
+      if (l.indexOf('floor size') !== -1) floorSize = v;
+      else if (l.indexOf('land size') !== -1) erfSize = v;
+    });
+
+    return {
+      portal: 'pp',
+      listing_ref: m ? m[1] : null,
+      listing_url: location.href,
+      price: bp.purchasePrice || null,
+      description: bp.description || null,
+      property_type: bp.propertyType || null,
+      beds: beds, baths: baths, garages: garages,
+      size_m2: floorSize, erf_size_m2: erfSize,
+      suburb: bp.suburbName || null,
+      latitude: bp.mapCoOrdinates ? bp.mapCoOrdinates.lat : null,
+      longitude: bp.mapCoOrdinates ? bp.mapCoOrdinates.lng : null,
+      photos: photos,
+      source_agency_name: agencyInfo ? agencyInfo.agencyName : null,
+      source_agent_name: contact ? (contact.name || null) : null,
+      source_agent_profile_url: contact && contact.agentPageUrl ? ('https://www.privateproperty.co.za' + contact.agentPageUrl) : null,
+      _title: bp.title || document.title,
+    };
+  }
+
+  async function initOasFlow() {
+    hideError();
+    showState('oasPreview');
+    els.oasTitle.textContent = 'Extracting...';
+    els.oasPrice.textContent = '';
+    els.oasAddress.textContent = '';
+    els.oasFeatures.innerHTML = '';
+    els.oasImagesCount.textContent = '';
+    els.oasAgency.textContent = '';
+    els.oasThumb.innerHTML = '';
+    els.oasImportBtn.disabled = true;
+    els.oasConsentCheck.checked = false;
+    els.oasMsg.textContent = '';
+
+    // Fetch this agency's consent wording so the checkbox never shows stale text.
+    try {
+      const wordingRes = await chrome.runtime.sendMessage({ action: 'oasConsentWording', apiUrl: settings.apiUrl, apiToken: settings.apiToken });
+      if (wordingRes && wordingRes.wording) oasConsentWording = wordingRes.wording;
+    } catch (e) { /* keep default */ }
+    els.oasConsentText.textContent = oasConsentWording;
+
+    try {
+      const isP24 = detectedPortal === 'p24';
+      const injection = await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        world: isP24 ? 'ISOLATED' : 'MAIN',
+        func: isP24 ? p24ExtractOasFn : ppExtractOasFn,
+      });
+      const data = injection && injection[0] ? injection[0].result : null;
+
+      if (!data || !data.listing_ref) {
+        showError('Could not find a listing reference on this page — make sure you are on a single listing detail page.');
+        showState('choose');
+        return;
+      }
+
+      oasExtracted = data;
+
+      els.oasTitle.textContent = data._title || 'Listing ' + data.listing_ref;
+      els.oasPrice.textContent = data.price ? 'R ' + Number(data.price).toLocaleString() : 'Price not found';
+      els.oasAddress.textContent = [data.suburb, data.province].filter(Boolean).join(', ') || 'Address not available';
+      const feats = [];
+      if (data.beds != null) feats.push('<span class="feat">' + data.beds + ' Bed</span>');
+      if (data.baths != null) feats.push('<span class="feat">' + data.baths + ' Bath</span>');
+      if (data.garages != null) feats.push('<span class="feat">' + data.garages + ' Garage</span>');
+      els.oasFeatures.innerHTML = feats.join('');
+      const photoCount = (data.photos || []).length;
+      els.oasImagesCount.textContent = photoCount + ' photo' + (photoCount !== 1 ? 's' : '') + ' will be imported';
+      els.oasAgency.textContent = data.source_agency_name ? ('Agency: ' + data.source_agency_name) : 'Agency not shown (private seller, or not on this page) — import will proceed with a blank agency.';
+      if (data.photos && data.photos[0]) {
+        const img = document.createElement('img');
+        img.src = data.photos[0];
+        els.oasThumb.appendChild(img);
+      }
+
+      els.oasImportBtn.disabled = !els.oasConsentCheck.checked;
+    } catch (err) {
+      showError('Failed to read this listing: ' + err.message);
+      showState('choose');
+    }
+  }
+
+  els.actionImportOas.addEventListener('click', () => {
+    if (!els.actionImportOas.disabled) initOasFlow();
+  });
+
+  els.backFromOas.addEventListener('click', () => {
+    showState('choose');
+  });
+
+  els.oasConsentCheck.addEventListener('change', () => {
+    els.oasImportBtn.disabled = !els.oasConsentCheck.checked;
+  });
+
+  els.oasImportBtn.addEventListener('click', async () => {
+    if (!oasExtracted || !els.oasConsentCheck.checked) return;
+    els.oasImportBtn.disabled = true;
+    els.oasMsg.textContent = 'Importing...';
+
+    const payload = Object.assign({}, oasExtracted, { consent: true });
+    delete payload._title;
+
+    try {
+      const res = await chrome.runtime.sendMessage({
+        action: 'importOtherAgencyStock',
+        apiUrl: settings.apiUrl,
+        apiToken: settings.apiToken,
+        payload: payload,
+      });
+
+      if (!res || !res.success) {
+        els.oasMsg.textContent = (res && res.message) || 'Import failed.';
+        els.oasImportBtn.disabled = false;
+        return;
+      }
+
+      els.oasCompleteDetail.textContent = (payload.photos || []).length + ' photos downloading in the background.';
+      els.oasViewProperty.href = res.url || '#';
+      showState('oasComplete');
+    } catch (err) {
+      els.oasMsg.textContent = 'Import failed: ' + err.message;
+      els.oasImportBtn.disabled = false;
+    }
+  });
+
+  els.oasAnother.addEventListener('click', () => {
+    showState('choose');
+  });
+
   let pullPoller = null;
   let pulledPropertyId = null;
   let pulledPropertyUrl = null;
@@ -816,16 +1110,19 @@
       // On a detail page — Pull Property is primary, Capture Listings disabled
       els.actionPullProperty.disabled = false;
       els.actionCaptureListings.disabled = true;
+      els.actionImportOas.disabled = false;
       els.actionHint.textContent = 'You\'re on a listing page — pull this property into CoreX';
     } else if (isSearch) {
       // On a search page — Capture Listings is available, Pull Property disabled
       els.actionPullProperty.disabled = true;
       els.actionCaptureListings.disabled = false;
+      els.actionImportOas.disabled = true;
       els.actionHint.textContent = 'You\'re on a search page — capture listings for prospecting';
     } else {
       // On some other portal page
       els.actionPullProperty.disabled = true;
       els.actionCaptureListings.disabled = true;
+      els.actionImportOas.disabled = true;
       els.actionHint.textContent = 'Navigate to a listing or search results page';
     }
 

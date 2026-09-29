@@ -56,6 +56,26 @@ class PrivatePropertySyndicationService
 
     public function submitListing(Property $property): array
     {
+        // .ai/specs/other-agency-stock.md §2 — defense in depth. The controller
+        // already refuses this via EnforcesMarketingReadiness; this service is
+        // the real chokepoint every PP submission path funnels through, so a
+        // queued job or any future caller that skips the controller is still
+        // refused here.
+        if ($property->isOtherAgencyStock()) {
+            $message = 'Blocked — this is Other Agency Stock (imported from another agency\'s listing) and can never be submitted to Private Property.';
+
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => $message,
+            ]);
+
+            Log::channel('private_property')->warning('PP submit blocked — Other Agency Stock', [
+                'property_id' => $property->id,
+            ]);
+
+            return ['success' => false, 'message' => $message];
+        }
+
         $this->client->forAgency($property->agency);
 
         // Never publish a SECOND advert for a property the portal already

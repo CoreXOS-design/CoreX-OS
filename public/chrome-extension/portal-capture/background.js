@@ -160,6 +160,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // .ai/specs/other-agency-stock.md §5 — Import as Other Agency Stock.
+  if (msg.action === 'oasConsentWording') {
+    handleOasConsentWording(msg.apiUrl, msg.apiToken)
+      .then(result => sendResponse(result))
+      .catch(() => sendResponse({ wording: null }));
+    return true;
+  }
+
+  if (msg.action === 'importOtherAgencyStock') {
+    handleImportOtherAgencyStock(msg.apiUrl, msg.apiToken, msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, message: err.message }));
+    return true;
+  }
+
   // CMA Info deeds capture — the ONE flow with no popup step (an on-page
   // button on cmainfo.co.za messages here directly), so unlike every other
   // handler above, apiUrl/apiToken are NOT relayed in msg — read them from
@@ -1088,6 +1103,56 @@ async function handlePullProperty(apiUrl, apiToken, property) {
   } catch (e) { /* ignore */ }
 
   return result;
+}
+
+// ── Other Agency Stock — .ai/specs/other-agency-stock.md §4/§5 ─────
+// Registered OUTSIDE the auth:sanctum group in routes/api.php — same
+// AuthenticatePortalCapture Bearer-token auth as /portal-captures/ingest,
+// deliberately not a Sanctum PAT (see that route's own docblock).
+async function handleOasConsentWording(apiUrl, apiToken) {
+  const url = apiUrl.replace(/\/+$/, '') + '/api/v1/other-agency-stock/consent-wording';
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + apiToken },
+  });
+  if (!response.ok) return { wording: null };
+  return await response.json();
+}
+
+async function handleImportOtherAgencyStock(apiUrl, apiToken, payload) {
+  const url = apiUrl.replace(/\/+$/, '') + '/api/v1/other-agency-stock/import';
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Accept':        'application/json',
+      'Authorization': 'Bearer ' + apiToken,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401) {
+      throw new Error('Invalid API token. Check your settings.');
+    }
+    if (response.status === 422) {
+      try {
+        const errors = JSON.parse(text);
+        const firstError = Object.values(errors.errors || {})[0];
+        throw new Error(firstError ? firstError[0] : 'Validation failed');
+      } catch (e) {
+        if (e.message && e.message.indexOf('Validation') === 0) throw e;
+        throw new Error('Validation failed: ' + text);
+      }
+    }
+    if (response.status === 403) {
+      throw new Error('You do not have permission to import Other Agency Stock.');
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  return await response.json();
 }
 
 // ── CMA Info deeds capture — send to CoreX ─────────────────

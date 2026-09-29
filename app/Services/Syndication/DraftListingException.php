@@ -32,6 +32,9 @@ class DraftListingException extends \Exception
 
     public function userMessage(): string
     {
+        if ($this->property->isOtherAgencyStock()) {
+            return "This property is Other Agency Stock — it belongs to another agency and can never be syndicated or advertised via {$this->portal}.";
+        }
         if ($this->property->isDraft()) {
             return "This property is still a draft — set its status to Active before publishing it to {$this->portal}.";
         }

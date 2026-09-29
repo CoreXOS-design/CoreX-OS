@@ -27,6 +27,15 @@ trait AuthorizesPropertyAccess
      */
     protected function authorizeProperty(Property $property, bool $forEdit = true): void
     {
+        // .ai/specs/other-agency-stock.md §6 — a role the agency hasn't opted
+        // into Other Agency Stock visibility gets a plain 404, same as any
+        // other not-found record; it never learns the property exists via a
+        // 403. Checked before the ordinary data-scope check below.
+        if ($property->isOtherAgencyStock()
+            && ! \App\Services\Properties\OtherAgencyStockVisibility::canSee(auth()->user())) {
+            abort(404);
+        }
+
         abort_unless($this->propertyAccessAllowed($property, $forEdit), 403);
     }
 

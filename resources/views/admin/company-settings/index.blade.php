@@ -914,6 +914,54 @@
                 </form>
             </div>
 
+            {{-- Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a --}}
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Other Agency Stock</h3>
+                <form method="POST" action="{{ route('corex.settings.other-agency-stock') }}"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf
+                    @method('PUT')
+
+                    <div>
+                        <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Who can see Other Agency Stock</div>
+                        <div class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                            Properties imported from another agency's Property24/Private Property listing. Leave every role
+                            ticked (or none) for "visible to everyone" — the default, so nothing disappears until you narrow it.
+                        </div>
+                        @php
+                            $oasRoles = \App\Models\Role::allRoles($agency->id);
+                            $oasSelected = $agency->other_agency_stock_visible_roles;
+                        @endphp
+                        {{-- Always present, even if every checkbox below is unticked — an HTML
+                             checkbox group sends NOTHING when empty, which would otherwise be
+                             indistinguishable from "this form was never submitted" and silently
+                             skip the save. --}}
+                        <input type="hidden" name="other_agency_stock_visible_roles_submitted" value="1">
+                        <div class="flex flex-wrap gap-3">
+                            @foreach($oasRoles as $oasRole)
+                                <label class="inline-flex items-center gap-1.5 text-xs" style="color:var(--text-secondary);">
+                                    <input type="checkbox" name="other_agency_stock_visible_roles[]" value="{{ $oasRole->name }}"
+                                           {{ (is_null($oasSelected) || in_array($oasRole->name, $oasSelected, true)) ? 'checked' : '' }}>
+                                    {{ $oasRole->label ?? ucwords(str_replace('_', ' ', $oasRole->name)) }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-sm font-semibold mb-1" style="color:var(--text-primary);">Import consent wording</div>
+                        <div class="text-xs leading-relaxed mb-2" style="color:var(--text-secondary);">
+                            Shown to the agent as a required checkbox before every import. Leave blank to use the default text.
+                        </div>
+                        <textarea name="other_agency_stock_consent_wording" rows="3" class="w-full text-xs p-2 rounded-md"
+                                  style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                  placeholder="{{ \App\Models\OtherAgencyStockConsent::DEFAULT_WORDING }}">{{ $agency->other_agency_stock_consent_wording }}</textarea>
+                    </div>
+
+                    <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-icon, #0ea5e9); color:#fff;">Save</button>
+                </form>
+            </div>
+
             {{-- AT-267 — Assistants. Sits beside Data Isolation because it is the same kind of
                  agency-wide switch: it changes who can see and do what, it ships OFF, and it can
                  be flipped freely with no data loss. This is the control the Assistants admin page

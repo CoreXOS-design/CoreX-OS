@@ -62,8 +62,50 @@
             <div class="action-desc">Capture search results for prospecting</div>
           </div>
         </button>
+        <button class="action-card" id="actionImportOas">
+          <div class="action-icon">O</div>
+          <div>
+            <div class="action-label">Import as Other Agency Stock</div>
+            <div class="action-desc">Share this listing with your buyers — never advertised</div>
+          </div>
+        </button>
       </div>
       <div class="action-hint" id="actionHint"></div>
+    </div>
+
+    <!-- State: Other Agency Stock preview + consent -->
+    <div class="state" id="stateOasPreview">
+      <button class="back-link" id="backFromOas">&larr; Back</button>
+      <div class="pull-preview">
+        <div class="pull-thumb" id="oasThumb"></div>
+        <div class="pull-details">
+          <div class="pull-title" id="oasTitle">Extracting...</div>
+          <div class="pull-price" id="oasPrice"></div>
+          <div class="pull-address" id="oasAddress"></div>
+          <div class="pull-features" id="oasFeatures"></div>
+          <div class="pull-images-count" id="oasImagesCount"></div>
+          <div class="pull-address" id="oasAgency"></div>
+        </div>
+      </div>
+      <div class="form-group" id="oasConsentWrap">
+        <label style="display:flex;align-items:flex-start;gap:6px;font-weight:normal;">
+          <input type="checkbox" id="oasConsentCheck" style="margin-top:2px;">
+          <span id="oasConsentText">I confirm I have received permission from this agency to use their portal advert.</span>
+        </label>
+      </div>
+      <button class="btn btn-primary" id="oasImportBtn" disabled>Import as Other Agency Stock</button>
+      <div id="oasMsg"></div>
+    </div>
+
+    <!-- State: Other Agency Stock import complete -->
+    <div class="state" id="stateOasComplete">
+      <div class="complete-icon">Complete</div>
+      <div class="complete-stats">
+        <div class="total" id="oasCompleteTitle">Imported</div>
+        <div class="breakdown" id="oasCompleteDetail">Photos downloading in the background.</div>
+      </div>
+      <a class="btn btn-primary" id="oasViewProperty" href="#" target="_blank">Open in CoreX</a>
+      <button class="btn btn-secondary" id="oasAnother">Back</button>
     </div>
 
     <!-- State: Ready to capture -->

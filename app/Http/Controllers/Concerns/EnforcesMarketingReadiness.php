@@ -28,9 +28,17 @@ trait EnforcesMarketingReadiness
      * pre-existing gap that had nothing to do with prospecting: withdrawn,
      * archived, cancelled, expired, etc. were never actually blocked from
      * syndication by this check either -- only literal 'draft' was.
+     *
+     * .ai/specs/other-agency-stock.md §2 — Other Agency Stock is deliberately
+     * ON-market (isOnMarket() is true for it, by design — it must stay
+     * eligible for Core Matches), so it needs its own explicit check here:
+     * isOnMarket() alone would let it straight through.
      */
     protected function enforceListingNotDraft(Property $property, string $portal = 'any website or portal'): void
     {
+        if ($property->isOtherAgencyStock()) {
+            throw new DraftListingException($property, $portal);
+        }
         if (! $property->isOnMarket()) {
             throw new DraftListingException($property, $portal);
         }
