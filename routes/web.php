@@ -2464,7 +2464,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ONLY the create-a-request POST lives here. Every review/approval route
     // (agent-approve, compliance-approve, refer-to-co, reject) and every wet-ink
     // route stays behind access_compliance in the group below, untouched.
-    // Spec: .ai/specs/contact-readiness-checks.md §6.
+    // Source: .ai/investigations/contact-property-quick-actions-2026-09-28.md §4.
+    // NOTE: there is NO spec for this change — the investigation records the
+    // finding and Johan's ruling, nothing more. A spec is still owed before
+    // anything is built on top of it (spec-first rule).
     Route::middleware(['permission:compliance.fica.send', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
     });

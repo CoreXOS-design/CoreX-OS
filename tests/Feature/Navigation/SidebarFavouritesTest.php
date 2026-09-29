@@ -309,8 +309,11 @@ final class SidebarFavouritesTest extends TestCase
 
         $this->assertSame(['Properties'], $live->pluck('label')->all(),
             'the stale pin is dropped from the panel, not rendered as a broken link');
-        $this->assertDatabaseHas('user_nav_favourites', ['nav_key' => 'p:/corex/a-page-that-was-removed'],
-            'the row survives — a page can come back, and we never hard-delete');
+        // The row survives — a page can come back, and we never hard-delete
+        // (non-negotiable #1). NOTE: assertDatabaseHas()'s third argument is the
+        // DB CONNECTION, not a failure message — passing a message there threw
+        // "Database connection [...] not configured" and the assertion never ran.
+        $this->assertDatabaseHas('user_nav_favourites', ['nav_key' => 'p:/corex/a-page-that-was-removed']);
     }
 
     public function test_the_favourites_tab_renders_on_my_profile(): void

@@ -130,17 +130,51 @@ class SyndicationApprovalService
     /**
      * ONE rule, used by the queue filter, every button, and every write
      * endpoint — so list visibility and write authority can never disagree.
+     *
+     * Called with NO property it answers "is this person an approver at all?"
+     * (the tile, the buttons). Called WITH one it answers "may they clear THIS
+     * listing?" — and that second answer is narrowed by the same membership
+     * tiers the queue renders with (spec §7.3), resolved through the one
+     * shared resolver PropertySyndicationApproval::approvalScopeFor().
+     *
+     * WHY THE SCOPE NARROWING IS NOT OPTIONAL: without it a branch-limited
+     * approver could POST /approve for a listing id in a branch the queue
+     * correctly hides from them, and it was accepted (HTTP 200, listing
+     * stamped). Authority must never be broader than visibility — CLAUDE.md
+     * non-negotiable #8: direct-URL access by id is BLOCKED, not just
+     * unlinked. Both halves now read the same rule, so they cannot drift.
      */
     public function canApprove(User $user, ?Property $property = null): bool
     {
-        if ($property !== null) {
-            // Cross-agency approval is never possible, whatever the roster says.
-            if ((int) $property->agency_id !== (int) $user->effectiveAgencyId()) {
-                return false;
-            }
+        if (! self::isChosenApprover($user) && ! self::isFallbackApprover($user)) {
+            return false;
         }
 
-        return self::isChosenApprover($user) || self::isFallbackApprover($user);
+        if ($property === null) {
+            return true;
+        }
+
+        // Cross-agency approval is never possible, whatever the roster says.
+        if ((int) $property->agency_id !== (int) $user->effectiveAgencyId()) {
+            return false;
+        }
+
+        // ONLY an explicit branch limit narrows an approver — deliberately not the
+        // 'own' tier. Being named on the roster IS the grant of authority, and a
+        // chosen approver is normally an ordinary agent (properties scope 'own')
+        // whose whole job is clearing OTHER agents' listings. Narrowing 'own' here
+        // would disable the feature for exactly the person it was built for.
+        // Same reading as approvalScopeFor()'s own docblock: "a chosen approver is
+        // agency-wide by definition… an explicit 'branch' scope still narrows them."
+        if (PropertySyndicationApproval::approvalScopeFor($user) !== 'branch') {
+            return true;
+        }
+
+        // Their branch only; NO branch resolvable ⇒ nothing (fail closed, never
+        // fail open — the same posture as scopeVisibleTo()).
+        return $property->branch_id !== null
+            && (int) $user->effectiveBranchId() > 0
+            && (int) $property->branch_id === (int) $user->effectiveBranchId();
     }
 
     // ── State for every UI surface ──────────────────────────────────────

@@ -12,6 +12,7 @@ use App\Models\Property;
 use App\Models\PropertySyndicationApproval;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\PermissionService;
 use App\Services\Syndication\SyndicationApprovalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -392,6 +393,91 @@ class SyndicationApprovalGateTest extends TestCase
         // The requesting agent is not on the roster — asking is not deciding.
         $this->postJson(route('corex.properties.syndication-approval.approve', $p))->assertStatus(403);
         $this->assertNull($p->fresh()->syndication_approved_at);
+    }
+
+    /**
+     * Spec §7.3 / acceptance test #15, second half: "…and cannot approve one."
+     *
+     * REGRESSION LOCK. canApprove() originally tested only agency + roster, with
+     * no branch narrowing, and approve/reject/revoke never ran the property scope
+     * guard at all — so a branch-limited approver POSTing an id from another
+     * branch got HTTP 200 and the listing was stamped, while the queue correctly
+     * hid that very row from them. Authority must never be wider than visibility
+     * (non-negotiable #8: blocked by id, not merely unlinked).
+     *
+     * Asserted through the HTTP endpoints on purpose: the scoping was already
+     * correct on the model scope and green in its own unit test, which is exactly
+     * why nothing caught this.
+     */
+    public function test_a_branch_limited_approver_cannot_decide_on_another_branchs_listing(): void
+    {
+        $otherBranch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Port Shepstone']);
+
+        // A CHOSEN approver the agency deliberately limited to one branch.
+        // branch_manager resolves to a 'branch' properties data scope, and is
+        // neither owner nor admin, so the standing fallback does not apply.
+        $branchApprover = User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'role' => 'branch_manager', 'email' => 'bm@coastal.test',
+        ]);
+        $this->switchGateOn([$branchApprover->id]);
+
+        $this->assertSame('branch', PermissionService::getDataScope($branchApprover, 'properties'),
+            'Fixture guard: this approver must really be branch-limited.');
+
+        $mine      = $this->compliantProperty();
+        $elsewhere = $this->compliantProperty(['branch_id' => $otherBranch->id]);
+
+        $this->postJson(route('corex.properties.syndication-approval.request', $mine))->assertOk();
+        $this->postJson(route('corex.properties.syndication-approval.request', $elsewhere))->assertOk();
+
+        $this->actingAs($branchApprover);
+
+        // Their own branch — they are the approver, so this must work.
+        $this->postJson(route('corex.properties.syndication-approval.approve', $mine))->assertOk();
+        $this->assertNotNull($mine->fresh()->syndication_approved_at);
+
+        // The other branch — refused on all three write endpoints, and the
+        // listing is never stamped.
+        $this->postJson(route('corex.properties.syndication-approval.approve', $elsewhere))->assertStatus(403);
+        $this->postJson(route('corex.properties.syndication-approval.reject', $elsewhere), ['reason' => 'no'])->assertStatus(403);
+        $this->postJson(route('corex.properties.syndication-approval.revoke', $elsewhere), ['reason' => 'no'])->assertStatus(403);
+
+        $this->assertNull($elsewhere->fresh()->syndication_approved_at,
+            'a listing in a branch the approver cannot see must never be stamped');
+    }
+
+    /**
+     * The BOUNDARY of the rule above, pinned so nobody "tightens" it later.
+     *
+     * A chosen approver is normally an ordinary agent, whose properties data
+     * scope is 'own'. Being named on the roster IS the grant — their authority
+     * is agency-wide, and clearing OTHER agents' listings is the entire job.
+     * ONLY an explicit branch limit narrows them. Narrowing the 'own' tier here
+     * would disable the feature for exactly the person it was built for.
+     */
+    public function test_the_roster_grants_agency_wide_authority_to_an_ordinary_agent_approver(): void
+    {
+        $colleague = User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'role' => 'agent', 'email' => 'colleague@coastal.test',
+        ]);
+
+        $this->switchGateOn();
+        $this->assertSame('own', PermissionService::getDataScope($this->approver, 'properties'),
+            'Fixture guard: the approver must really be own-scoped, not agency-wide.');
+
+        // The colleague's listing, requested by the colleague themselves.
+        $theirs = $this->compliantProperty(['agent_id' => $colleague->id]);
+        $this->actingAs($colleague)
+            ->postJson(route('corex.properties.syndication-approval.request', $theirs))
+            ->assertOk();
+
+        $this->actingAs($this->approver)
+            ->postJson(route('corex.properties.syndication-approval.approve', $theirs))
+            ->assertOk();
+
+        $this->assertNotNull($theirs->fresh()->syndication_approved_at);
     }
 
     public function test_an_approver_from_another_agency_cannot_reach_the_property(): void

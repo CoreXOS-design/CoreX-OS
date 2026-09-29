@@ -567,15 +567,36 @@ class SettingsController extends Controller
             }
 
             $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
-            $wasOn    = SyndicationApprovalService::isRequiredForAgency($agencyId);
+
+            // Configuring the gate is its own permission, checked HERE rather than
+            // on the route: this endpoint also saves the unrelated portal settings,
+            // which a wider set of people may change. Declaring the key and
+            // enforcing it nowhere would put a switch in Role Manager that does
+            // nothing (non-negotiable #5).
+            abort_unless(
+                auth()->user()?->hasPermission('properties.syndication.manage_approvers'),
+                403
+            );
+
+            // NEVER write these two keys globally. PerformanceSetting::set() with no
+            // agency writes an agency_id=NULL row, and because neither key starts
+            // with `company_`, ::get() treats that row as the fallback for EVERY
+            // agency — switching the gate on tenancy-wide with a foreign approver
+            // roster. effectiveAgencyId() returning null is a known live failure
+            // path, so this refuses rather than writing the landmine.
+            abort_if($agencyId <= 0, 403, 'No agency context — syndication approval cannot be configured.');
+
+            $wasOn = SyndicationApprovalService::isRequiredForAgency($agencyId);
 
             PerformanceSetting::set(
                 SyndicationApprovalService::SETTING_APPROVERS,
-                json_encode($approvers)
+                json_encode($approvers),
+                $agencyId
             );
             PerformanceSetting::set(
                 SyndicationApprovalService::SETTING_REQUIRED,
-                $wantsOn ? 1 : 0
+                $wantsOn ? 1 : 0,
+                $agencyId
             );
 
             // "Only new stock" (Johan, D8): the instant the switch goes off →

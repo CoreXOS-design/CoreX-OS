@@ -856,8 +856,9 @@ return [
                 'compliance.view', 'compliance.manage', 'fica.view', // AT-346: branch-scoped FICA list
                 // Sending a FICA request moved off access_compliance onto its own
                 // (previously dormant) key — see the agent block below and
-                // .ai/specs/contact-readiness-checks.md §6. Listed here so a BM
-                // keeps exactly the send ability they already had.
+                // .ai/investigations/contact-property-quick-actions-2026-09-28.md
+                // (no spec exists yet). Listed here so a BM keeps exactly the
+                // send ability they already had.
                 'compliance.fica.send',
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_communication_archive',
@@ -994,7 +995,8 @@ return [
                 // ONLY, never agent-approve / compliance-approve / refer-to-co. Creating a
                 // request lands on status 'draft', which Contact::ficaStatus() never counts
                 // as complete, so an agent cannot fabricate FICA compliance with it.
-                // Spec: .ai/specs/contact-readiness-checks.md §3.
+                // Source: .ai/investigations/contact-property-quick-actions-2026-09-28.md
+                // (investigation + Johan's ruling; no spec written yet).
                 'compliance.fica.send',
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
