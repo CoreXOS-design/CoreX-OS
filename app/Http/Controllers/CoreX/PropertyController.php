@@ -384,8 +384,18 @@ class PropertyController extends Controller
         // switched the feature on and the viewer may actually approve, so the
         // query never runs for anyone who would not see the tile.
         // .ai/specs/syndication-approval-gate.md §7.1
+        //
+        // Deliberately NOT a clone of $query, unlike every other tile. The list
+        // defaults to the "My Properties" agent filter, and an approver's queue
+        // is by definition OTHER people's listings — a cloned count read 0 while
+        // the queue itself held a waiting listing (caught in the browser
+        // walkthrough, 2026-09-29). The tile's click-through clears the agent
+        // filter (see $filterAgentIds above), so the count must be taken over
+        // the same breadth the click-through shows: the viewer's role scope,
+        // nothing narrower. This is a standing queue indicator, not a
+        // breakdown of the current view.
         $stats['awaitingApproval'] = ($syndicationApprovalOn && $canApproveSyndication)
-            ? (clone $query)
+            ? tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
                 ->whereNotNull('compliance_snapshot_at')
                 ->whereNull('syndication_approved_at')
                 ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
