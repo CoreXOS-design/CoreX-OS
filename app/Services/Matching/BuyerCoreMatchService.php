@@ -71,9 +71,21 @@ class BuyerCoreMatchService
     /**
      * Is this property a current Core Match for this buyer? True iff ANY active
      * countable wishlist scores it >= MIN_SCORE_TO_DISPLAY via the canonical scorer.
+     *
+     * AT-Core-Matches (2026-09-29) — score() itself is a pure numeric scorer
+     * and never checks status, so this method used to silently TRUST that
+     * whatever $property it was handed had already been status-filtered by
+     * the caller. A caller that skipped that step (or handed in a stale
+     * instance) could get a false "yes" for a withdrawn/draft/excluded
+     * property. Checked here directly now, so this method is correct on its
+     * own regardless of what the caller already did.
      */
     public function isCoreMatch(Contact $buyer, Property $property): bool
     {
+        if (! Property::isMatchableStatus($property->status, $property->agency_id)) {
+            return false;
+        }
+
         $matching = app(MatchingService::class);
 
         foreach ($this->activeCountableMatches($buyer) as $match) {

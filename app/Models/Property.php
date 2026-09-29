@@ -99,6 +99,14 @@ class Property extends Model
     public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
+     * AT-Core-Matches (2026-09-29) — the listing sold, but by ANOTHER agency
+     * (cc3's addition, landing separately). Reference this constant, never the
+     * literal 'other_agency_stock', so cc3's merge lines up with the Core
+     * Matches allow-list below without either side re-typing the slug.
+     */
+    public const STATUS_OTHER_AGENCY_STOCK = 'other_agency_stock';
+
+    /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
      * canonical definition of "active"/live stock for dashboards and filters.
      */
@@ -120,6 +128,14 @@ class Property extends Model
     }
 
     /**
+     * SUPERSEDED for matching purposes by CORE_MATCH_DEFAULT_ALLOWED_STATUSES /
+     * isMatchableStatus() below (AT-Core-Matches, 2026-09-29) — the switch from
+     * a blacklist to an allow-list means under_offer/pending/rented are simply
+     * absent from the allow-list rather than separately excluded from it. Left
+     * defined (unused by isMatchableStatus() now) as the historical record of
+     * which on-market statuses were matching-only exclusions, in case another
+     * consumer needs that narrower "spoken for" concept specifically.
+     *
      * Buyer-wishlist matching exclusion BEYOND plain off-market. An under-offer
      * property is still genuinely on-market for every other purpose in the app
      * (display, syndication, isOnMarket()) — it just must never be offered as a
@@ -142,52 +158,76 @@ class Property extends Model
     public const MATCHING_EXCLUDED_ON_MARKET_STATUSES = ['under_offer', 'pending', 'rented'];
 
     /**
-     * THE canonical single source for "should this property ever be offered as
-     * a buyer-wishlist match" — every matching code path (MatchingService,
-     * CoreMatchReasonClassifier, anything else that asks this question) must
-     * call this rather than maintain its own copy of the exclusion list.
+     * AT-Core-Matches (2026-09-29), Johan's ruling — Core Matches shows ONLY
+     * on-market stock, expired stock, and other-agency-sold stock. Everything
+     * else (drafts, withdrawn, sold, rented, under offer, pending, archived,
+     * prospecting, not_selling, and any status this list has never heard of)
+     * is excluded.
      *
-     * Found live on QA1, 2026-09-15 (Falan/Johan): 'prospecting' and
-     * 'not_selling' were being treated as matchable by MatchingService's own,
-     * separately-maintained exclusion list — 560 of 842 properties (66%) in
-     * the agency-wide matchable candidate pool were ingested-but-unmandated
-     * stock the agency doesn't hold the mandate on. Same defect class as the
-     * rental to_let gap: the matching engine's idea of which statuses are
-     * matchable was wrong and duplicated in more than one place. This method
-     * is the fix for the class, not the instance — it derives from
-     * OFF_MARKET_STATUSES (already correct) instead of re-listing it.
+     * This REPLACES the old blacklist (formerly matchingExcludedStatusList() /
+     * OFF_MARKET_STATUSES + MATCHING_EXCLUDED_ON_MARKET_STATUSES, below) with
+     * an allow-list. The distinction is not cosmetic: a blacklist fails OPEN —
+     * an agency-defined status this code had never heard of (e.g.
+     * 'available_immediately') matched by default, because it wasn't on the
+     * excluded list. An allow-list fails CLOSED — an unknown status is
+     * excluded by default, which is the point (Johan: "Unknown statuses are
+     * excluded by default").
+     *
+     * Agency-configurable via AgencyContactSettings::core_matches_allowed_statuses
+     * — see coreMatchAllowedStatuses() below. This constant is the CODE
+     * default an agency gets until it overrides the list, and the floor an
+     * empty/null setting falls back to.
+     */
+    public const CORE_MATCH_DEFAULT_ALLOWED_STATUSES = [
+        'active', 'for_sale', 'to_let', 'expired', self::STATUS_OTHER_AGENCY_STOCK,
+    ];
+
+    /**
+     * The agency's resolved Core Matches allow-list (lower-cased, trimmed,
+     * deduped). Reads AgencyContactSettings — READ-ONLY (forAgencyReadOnly),
+     * since this runs on public/unauthenticated paths too (the buyer's shared
+     * live link) where a GET must never insert a settings row. No $agencyId
+     * (a public/system context) resolves to the code default.
+     */
+    public static function coreMatchAllowedStatuses(?int $agencyId): array
+    {
+        $configured = $agencyId
+            ? \App\Models\AgencyContactSettings::coreMatchAllowedStatusesFor($agencyId)
+            : null;
+
+        $list = (is_array($configured) && ! empty($configured))
+            ? $configured
+            : self::CORE_MATCH_DEFAULT_ALLOWED_STATUSES;
+
+        return array_values(array_unique(array_map(
+            fn ($s) => strtolower(trim((string) $s)),
+            $list
+        )));
+    }
+
+    /**
+     * THE canonical single source for "should this property ever be offered as
+     * a buyer-wishlist match" (Core Matches, in every surface it appears —
+     * the board, the digest, the property-page tab, viewing packs, the
+     * public shared link). Every matching code path (MatchingService,
+     * CoreMatchReasonClassifier, BuyerCoreMatchService, anything else that
+     * asks this question) must call this rather than maintain its own copy.
+     *
+     * $agencyId makes this agency-aware (AT-Core-Matches) — omit it only from
+     * a context that genuinely has none (tests exercising the code default).
      *
      * NULL/blank status is matchable — an incomplete-but-live listing must
      * not be silently suppressed by a missing status value (existing rule,
-     * unchanged, both call sites already relied on this).
+     * unchanged, unrelated to which statuses are on the allow-list).
      */
-    public static function isMatchableStatus(?string $status): bool
+    public static function isMatchableStatus(?string $status, ?int $agencyId = null): bool
     {
         $s = strtolower(trim((string) $status));
         if ($s === '') {
             return true;
         }
-        if (static::isSoldByThirdPartyStatus($s)) {
-            return false;
-        }
 
-        return ! in_array($s, self::OFF_MARKET_STATUSES, true)
-            && ! in_array($s, self::MATCHING_EXCLUDED_ON_MARKET_STATUSES, true);
-    }
-
-    /**
-     * The exclusion list isMatchableStatus() enforces, as literals — for the
-     * few call sites that build raw SQL (`status NOT IN (...)`) rather than
-     * evaluating a hydrated model per row. Kept in lockstep with
-     * isMatchableStatus() by construction: both read the same two constants,
-     * neither re-lists the values.
-     */
-    public static function matchingExcludedStatusList(): array
-    {
-        return array_values(array_unique(array_merge(
-            self::OFF_MARKET_STATUSES,
-            self::MATCHING_EXCLUDED_ON_MARKET_STATUSES
-        )));
+        return in_array($s, self::coreMatchAllowedStatuses($agencyId), true);
     }
 
     /**
