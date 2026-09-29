@@ -6334,9 +6334,42 @@ shows both sides**, run against a throwaway fixture (never 5294) with a real, se
 Ceiling item's predecessor and tail side (§39.4 below) — clicks the old-side tile, asserts BOTH panes
 render a real image (`naturalWidth`/`naturalHeight` > 0); clicks the new-side tile, asserts the same in
 reverse. Run BEFORE check #26 (Auto-pair) so the fixture's photos are still genuinely unpaired when this
-check exercises the fallback. Screenshots of both directions saved to the scratchpad for review.
+check exercises the fallback.
 
-### 39.4 Fixture change — real, servable photos instead of a fake path
+**Run for real against the actually-deployed QA1 site** (Standard −1u), headless Chromium via Puppeteer
+(this repo's own established tool for every gate in this file — `rental-smoke.mjs`,
+`rental-click-through.mjs`, `verify-alpine-render.mjs` all use it; not a new Playwright/xvfb harness):
+both directions PASS — `clicked=300x200, other=300x200` opening from the old side, `clicked=300x200,
+other=300x200` opening from the new side, real `naturalWidth`/`naturalHeight` in both panes both times.
+Screenshots of both directions confirm it visually: the IN (old) and CURRENT (new) panes both show their
+own real photo, side by side, from either entry direction.
+
+While proving this, three real gaps surfaced in the shared Inspections-tab gate entry sequence — none of
+them product bugs, all fixed in the same push since they blocked every check in this section (#20-27) from
+a genuinely fresh session, not just #27:
+
+1. **The "Inspection" panel starts collapsed on every fresh page load** — `open: {}` has no default entry
+   for `open['inspection']`, and nothing but its own toggle ever sets one.
+   `rental-inspection-recording.blade.php` (mark-room-good, mark-room-na, toggle-photo-notes,
+   add-item-photo — checks #20-24) renders entirely inside that collapsed body. Added
+   `data-qa="toggle-inspection-panel"` and click it once, before any numbered check runs.
+2. **A genuinely fresh fixture user auto-opens the first-run "Working on a property" product tour**,
+   which sits on top of the tab bar and silently swallows the tab-switch click (no error — the click just
+   lands on the tour overlay). Dismissed via the tour's own `data-tour-close` control (AT-41 — overlay/X/
+   ESC close is deliberately disabled).
+3. `rental-inspection-recording.blade.php` **is included TWICE** (the active and completed `x-show`
+   branches — already documented in `RentalInspectionChainTest`'s own comments), so the new
+   `data-qa="insp-tile-*"` selectors legitimately match more than one DOM node. Check #27 walks all
+   matches via `$$()` + `boundingBox()` and acts on the first genuinely visible one, rather than
+   `$()`'s first-DOM-match (which could land on the hidden branch's copy).
+
+None of the three are specific to this bug fix — they are pre-existing gaps in the gate's own entry
+sequence, only surfaced because nothing had run checks #20-27 against a truly fresh session/user since
+the "Inspection" panel's collapsible wrapper and the onboarding tour were added. Fixed here because they
+directly blocked proving this fix; reported to the conductor as a standing finding for whoever next
+touches this section.
+
+### 39.4 Fixture changes — real, servable photos instead of a fake path; a direct `User::create()` instead of `User::factory()`
 
 `rental-inspection-click-through-fixture.php`'s Ceiling item photos used to be a bare `storage_path`
 string (`/gate-fixture/ceiling.jpg`) pointing at nothing on disk — fine for checks that only needed a
@@ -6345,3 +6378,13 @@ a 404'd src would fail regardless of whether the fix works. Both photos now rout
 `PropertyImageStorer::store()` every real upload uses, reusing the existing test JPEG
 (`tests/Fixtures/Images/huawei-orientation0.jpg`) already checked in for check #24's own real-upload
 proof — a genuine servable file each run, not a second fake path to keep in sync with reality.
+
+Separately: `User::factory()->create()` fatal'd on QA1 (`Call to undefined function
+Database\Factories\fake()`) — Laravel's own `fake()` helper is defined only `if
+(class_exists(\Faker\Factory::class))`, and `fakerphp/faker` is a `require-dev`-only package, absent from
+`/corex-qa1`'s `vendor/` (a `--no-dev`-style install). Pre-existing, environment-level, blocking every
+run of this fixture — **not introduced by this change** and **not fixed in the sibling
+`rental-click-through-fixture.php`** (the rental-applications gate's own identical fixture, a different
+feature, out of scope for this fix — reported to the conductor separately). Fixed here by building the
+`User` row directly with the same fields `UserFactory::definition()` sets, removing the `fake()`/Faker
+dependency from this one fixture entirely.
