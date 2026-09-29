@@ -1014,6 +1014,10 @@
                         </span>
                         @endif
                     @endif
+                    {{-- .ai/specs/other-agency-stock.md §9 — small portal-link icon on the card. --}}
+                    @if($property->isOtherAgencyStock() && $property->externalSource?->listing_url)
+                    <a href="{{ $property->externalSource->listing_url }}" target="_blank" rel="noopener noreferrer" class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="View on {{ $property->externalSource->portal === 'pp' ? 'Private Property' : 'Property24' }}" onclick="event.stopPropagation()">&#8599;</a>
+                    @endif
                     {{-- AT-422 — per property, not per page: a search on Properties also lists
                          imported off-market stock, and it must be tagged there too. --}}
                     @if($property->isImportedStock())
