@@ -375,6 +375,12 @@ return [
         ['key' => 'properties.archive',          'label' => 'Archive',                     'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 13],
         ['key' => 'properties.ad_templates.manage', 'label' => 'Manage Others\' Ad Templates', 'section' => 'properties',    'type' => 'action',  'module' => 'properties',       'sort_order' => 14],
         ['key' => 'properties.share',            'label' => 'Share Listing Link',          'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 15],
+        // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §6.2.
+        // This governs who may CONFIGURE the gate (the switch + the chosen-approver
+        // roster). Who may APPROVE is deliberately NOT a permission key: it is the
+        // agency's roster itself, resolved by SyndicationApprovalService::canApprove().
+        // Two lists of "who approves" would drift.
+        ['key' => 'properties.syndication.manage_approvers', 'label' => 'Configure Syndication Approval (switch + approvers)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 16],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -848,6 +854,11 @@ return [
                 'calculators.manage',
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
                 'compliance.view', 'compliance.manage', 'fica.view', // AT-346: branch-scoped FICA list
+                // Sending a FICA request moved off access_compliance onto its own
+                // (previously dormant) key — see the agent block below and
+                // .ai/specs/contact-readiness-checks.md §6. Listed here so a BM
+                // keeps exactly the send ability they already had.
+                'compliance.fica.send',
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_communication_archive',
                 'triage_communications', 'view_communication_flag_register',
@@ -977,6 +988,14 @@ return [
                 'triage_communications',
                 'communications.view', // AT-118 per-contact comms gate — own scope (via scope_defaults)
                 'fica.view', // AT-346 FICA list visibility — own scope for agents (via scope_defaults)
+                // Johan's ruling, 2026-09-28: an agent may SEND the FICA form to their
+                // own contact from the contact page. Approval is untouched and still
+                // belongs to the compliance officer — this key gates POST /compliance/fica
+                // ONLY, never agent-approve / compliance-approve / refer-to-co. Creating a
+                // request lands on status 'draft', which Contact::ficaStatus() never counts
+                // as complete, so an agent cannot fabricate FICA compliance with it.
+                // Spec: .ai/specs/contact-readiness-checks.md §3.
+                'compliance.fica.send',
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
                 'access_docuperfect_packs', 'access_clause_library',

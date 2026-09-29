@@ -845,6 +845,12 @@ class Property extends Model
         'p24_listing_last_synced_at'  => 'datetime',
         'compliance_snapshot_at'      => 'datetime',
         'compliance_snapshot_data'    => 'array',
+        // Layer 3 approval stamp — .ai/specs/syndication-approval-gate.md §4.1.
+        // Cast but DELIBERATELY NOT $fillable: the only writer is
+        // SyndicationApprovalService (forceFill), so no mass-assignment path —
+        // a form post, an import, an API payload — can ever stamp a listing as
+        // approved for syndication.
+        'syndication_approved_at'     => 'datetime',
         'compliance_evidence_flags'   => 'array',
         'first_marketed_at'           => 'datetime',
         'municipal_valuation'         => 'decimal:2',
@@ -911,6 +917,21 @@ class Property extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class)->withTrashed();
+    }
+
+    /**
+     * Layer 3 — who cleared this listing for syndication.
+     * .ai/specs/syndication-approval-gate.md §4.1
+     */
+    public function syndicationApprovedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'syndication_approved_by_user_id');
+    }
+
+    /** Layer 3 — the full request/decision trail, newest first. §4.2 */
+    public function syndicationApprovals(): HasMany
+    {
+        return $this->hasMany(PropertySyndicationApproval::class)->orderByDesc('id');
     }
 
     /** Build 3 — the property's recorded condition level (drives CMA

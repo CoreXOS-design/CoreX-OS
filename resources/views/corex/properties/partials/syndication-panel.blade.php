@@ -46,9 +46,28 @@
     // server-side by `deny_assistant_property_write`, so hiding them just removes a
     // button that would 403 — it never removes a capability the assistant had.
     $synReadOnly = (bool) auth()->user()?->is_assistant;
+
+    // Layer 3 — syndication approval state. Computed ONCE here and handed to
+    // both the banner and the lock wrapper below, so the panel can never
+    // disagree with itself. Inert (approved: true) unless the agency switched
+    // the feature on. .ai/specs/syndication-approval-gate.md §6.4
+    $synApprovalState = $synApprovalState
+        ?? app(\App\Services\Syndication\SyndicationApprovalService::class)->stateFor($property);
 @endphp
                 {{-- Step: main --}}
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
+
+                    {{-- Layer 3 — syndication approval. Renders NOTHING unless the
+                         agency switched it on, so every other agency's panel is
+                         byte-for-byte unchanged. .ai/specs/syndication-approval-gate.md §6.4 --}}
+                    @include('corex.properties.partials._syndication-approval-banner', ['property' => $property])
+
+                    {{-- While the listing is unapproved, the portal controls below are
+                         shown but inert, with the reason stated above — never a dead
+                         switch with no explanation. The server refuses these POSTs
+                         regardless (the three syndication controllers), so this is the
+                         courtesy layer, not the gate. --}}
+                    <div @if(! $synApprovalState->approved) class="opacity-50 pointer-events-none" aria-disabled="true" @endif>
 
                     @if($websiteKeys->isNotEmpty())
                     {{-- Website portals — one panel per agency website (API key). Mirrors the
@@ -792,6 +811,10 @@
                     {{-- Live preview — see the listing exactly as the public does.
                          In the panel itself so every caller gets it, not just the
                          property page's sidebar action. --}}
+                    </div>{{-- /layer-3 lock wrapper. Live preview stays OUTSIDE it: previewing
+                              a listing changes nothing and must stay available while it waits
+                              for approval — that is how an approver looks at it. --}}
+
                     <div class="pt-3" style="border-top:1px solid var(--border);">
                         <button type="button" @click.stop="synStep = 'preview'"
                                 class="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"

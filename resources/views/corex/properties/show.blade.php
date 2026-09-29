@@ -80,6 +80,20 @@
             $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
             $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
         }
+
+        // Layer 3 — syndication approval (.ai/specs/syndication-approval-gate.md §6.4).
+        // Computed ONCE here and shared with the syndication panel below (which
+        // reads $synApprovalState from scope), so the identity strip and the
+        // panel can never disagree. Silent unless the agency switched it on.
+        $synApprovalState = null;
+        $synApprovalCanApprove = false;
+        if (!$isNew) {
+            $synApprovalSvc = app(\App\Services\Syndication\SyndicationApprovalService::class);
+            $synApprovalState = $synApprovalSvc->stateFor($property);
+            $synApprovalCanApprove = auth()->user()
+                ? $synApprovalSvc->canApprove(auth()->user(), $property)
+                : false;
+        }
     @endphp
     <div class="prop-identity-strip flex-shrink-0 rounded-md px-3 py-2 flex items-center gap-3 flex-wrap"
          style="background:var(--surface); border:1px solid var(--border);">
@@ -155,6 +169,49 @@
                 Compliance Status
                 <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
             </button>
+
+            {{-- Layer 3 — the approval tag and the "Send for approval" button, right
+                 beside Compliance Status because that is the moment they matter:
+                 the button exists ONLY once compliance is done (Johan, spec D5).
+                 Renders nothing at all unless the agency switched the gate on.
+                 .ai/specs/syndication-approval-gate.md §5.2 / §6.4 --}}
+            @if($synApprovalState && ! $synApprovalState->isSilent())
+            <div class="flex items-center gap-2"
+                 x-data="syndicationApproval({
+                    propertyId: {{ (int) $property->id }},
+                    csrfToken: '{{ csrf_token() }}',
+                    badge: '{{ $synApprovalState->badge }}',
+                    urls: {
+                        request: '{{ route('corex.properties.syndication-approval.request', $property->id) }}',
+                        cancel:  '{{ route('corex.properties.syndication-approval.cancel', $property->id) }}',
+                        approve: '{{ route('corex.properties.syndication-approval.approve', $property->id) }}',
+                        reject:  '{{ route('corex.properties.syndication-approval.reject', $property->id) }}',
+                        revoke:  '{{ route('corex.properties.syndication-approval.revoke', $property->id) }}',
+                    },
+                 })">
+                @include('corex.properties.partials._syndication-approval-badge', ['approvalState' => $synApprovalState])
+
+                @unless(auth()->user()?->is_assistant)
+                    @if($synApprovalState->canRequest)
+                    <button type="button" @click="post(urls.request)" :disabled="loading"
+                            class="prop-action-btn prop-action-btn-neutral"
+                            title="Send this listing to your approver — they get an email straight away">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5"/></svg>
+                        <span x-text="loading ? 'Sending…' : 'Send for approval'">Send for approval</span>
+                    </button>
+                    @elseif($synApprovalCanApprove && $synApprovalState->badge === \App\Services\Syndication\SyndicationApprovalState::BADGE_AWAITING)
+                    <button type="button" @click="post(urls.approve)" :disabled="loading"
+                            class="prop-action-btn prop-action-btn-success"
+                            title="Approve this listing for syndication">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                        <span x-text="loading ? 'Approving…' : 'Approve'">Approve</span>
+                    </button>
+                    @endif
+                @endunless
+
+                <span class="text-[11px]" x-show="errorMsg" x-cloak style="color:var(--ds-crimson, #dc2626);" x-text="errorMsg"></span>
+            </div>
+            @endif
 
             <button type="submit" form="prop-update-form" data-prop-save data-tour="prop-save"
                     class="prop-action-btn prop-action-btn-success">

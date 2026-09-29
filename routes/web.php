@@ -2456,10 +2456,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         return redirect('/corex/settings?tab=user');
     })->name('compliance.officer.index')->middleware('permission:manage_compliance_officer');
 
+    // ── Sending a FICA request — its own gate, NOT access_compliance ──
+    // Johan's ruling, 2026-09-28: an agent may send the FICA form to their own
+    // contact straight from the contact page; the compliance officer still
+    // approves it. `compliance.fica.send` was already declared in
+    // config/corex-permissions.php and enforced nowhere — this activates it.
+    // ONLY the create-a-request POST lives here. Every review/approval route
+    // (agent-approve, compliance-approve, refer-to-co, reject) and every wet-ink
+    // route stays behind access_compliance in the group below, untouched.
+    // Spec: .ai/specs/contact-readiness-checks.md §6.
+    Route::middleware(['permission:compliance.fica.send', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
+    });
+
     Route::middleware(['permission:access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
-        Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
         Route::get('/wet-ink/create', [\App\Http\Controllers\Compliance\FicaController::class, 'createWetInk'])->name('wet-ink.create');
         Route::post('/wet-ink', [\App\Http\Controllers\Compliance\FicaController::class, 'storeWetInk'])->name('wet-ink.store');
         // AT-361 — contact's existing documents feed for the wet-ink link picker (before /{submission}).
@@ -4002,6 +4014,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/website-syndication/{apiKey}/activate',   [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'activate'])->name('website-syndication.activate');
         Route::post('/{property}/website-syndication/{apiKey}/deactivate', [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'deactivate'])->name('website-syndication.deactivate');
         Route::post('/{property}/website-syndication/{apiKey}/refresh',    [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'refresh'])->name('website-syndication.refresh');
+
+        // Syndication approval (layer 3) — .ai/specs/syndication-approval-gate.md §5/§6.2.
+        // Agent-side: send / cancel. Approver-side: approve / reject / revoke,
+        // each guarded by SyndicationApprovalService::canApprove() (the agency's
+        // chosen-approver roster + the owner/agency-admin fallback). There is no
+        // queue screen route — the Properties list filtered to
+        // ?filter=approval_pending IS the queue (spec D7).
+        Route::post('/{property}/syndication-approval/request', [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'request'])->name('syndication-approval.request');
+        Route::post('/{property}/syndication-approval/cancel',  [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'cancel'])->name('syndication-approval.cancel');
+        Route::post('/{property}/syndication-approval/approve', [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'approve'])->name('syndication-approval.approve');
+        Route::post('/{property}/syndication-approval/reject',  [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'reject'])->name('syndication-approval.reject');
+        Route::post('/{property}/syndication-approval/revoke',  [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'revoke'])->name('syndication-approval.revoke');
     });
 
     // AT-401 — Rentals → Properties. Deliberately the SAME controller action

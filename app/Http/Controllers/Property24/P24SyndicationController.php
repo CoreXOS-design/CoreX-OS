@@ -14,6 +14,10 @@ use Illuminate\Http\Request;
 class P24SyndicationController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    // Layer 3 — a chosen person must approve before this listing is syndicated.
+    // .ai/specs/syndication-approval-gate.md §6.3. Inert unless the agency
+    // switched it on.
+    use \App\Http\Controllers\Concerns\EnforcesSyndicationApproval;
 
     private Property24SyndicationService $syndicationService;
     private Property24ListingMapper $mapper;
@@ -39,7 +43,7 @@ class P24SyndicationController extends Controller
             ], 422);
         }
 
-        if ($nowEnabled) { $this->enforceListingNotDraft($property, 'Property24'); $this->enforceMarketingReadiness($property); }
+        if ($nowEnabled) { $this->enforceListingNotDraft($property, 'Property24'); $this->enforceMarketingReadiness($property); $this->enforceSyndicationApproval($property, 'Property24'); }
         $updateData = ['p24_syndication_enabled' => $nowEnabled];
 
         if ($nowEnabled && $property->p24_syndication_status === null) {
@@ -72,6 +76,7 @@ class P24SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Property24');
 
         // AT-369 — fail fast, before ever queuing the job. The service-layer
         // guard (Property24SyndicationService::submitListing) is the real
@@ -148,6 +153,7 @@ class P24SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Property24');
         $result = $this->syndicationService->reactivateListing($property);
         return response()->json(['success' => $result['success'], 'message' => $result['message'], 'p24_syndication_status' => $property->fresh()->p24_syndication_status], $result['success'] ? 200 : 422);
     }

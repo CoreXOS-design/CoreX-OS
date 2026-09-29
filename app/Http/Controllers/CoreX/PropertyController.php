@@ -55,6 +55,18 @@ class PropertyController extends Controller
         $agencySortMode  = $agency?->properties_sort_mode ?? 'created';
         $defaultSort     = $agencySortMode === 'status_priority' ? 'status_priority' : 'newest';
 
+        // Layer 3 — syndication approval (.ai/specs/syndication-approval-gate.md §7).
+        // Both flags are resolved ONCE here and govern the filter, the tile, the
+        // chip and the row badges. When the agency has not switched the feature
+        // on, every one of those is skipped entirely — no extra query, no extra
+        // markup, byte-for-byte today's list.
+        $syndicationApprovalOn   = \App\Services\Syndication\SyndicationApprovalService::isRequiredForAgency(
+            (int) ($user?->effectiveAgencyId() ?? 0)
+        );
+        $canApproveSyndication   = $syndicationApprovalOn
+            && $user
+            && app(\App\Services\Syndication\SyndicationApprovalService::class)->canApprove($user);
+
         // AT-401 — Rentals → Properties is the SAME controller action reached
         // by a second route, detected by NAME (never client-supplied — the
         // client cannot set request()->route()). Every self-referencing
@@ -112,6 +124,10 @@ class PropertyController extends Controller
         // ?agent_id and the compliance click-through ?filter=marketing_pending)
         $hasFilterParam = $request->has('agent_id')
             || $request->query('filter') === 'marketing_pending'
+            // Layer 3 — the approver's click-through from the tile or the email.
+            // Without this it counts as a "bare visit" and the saved-filter
+            // restore would redirect the approver straight back out of the queue.
+            || $request->query('filter') === 'approval_pending'
             || collect($FILTER_KEYS)->contains(fn ($k) => $request->has($k));
 
         // Bare visit + saved state → restore by redirecting to the canonical URL.
@@ -180,8 +196,11 @@ class PropertyController extends Controller
             } elseif ($request->has('agent_id')) {
                 $aid = (string) $request->query('agent_id', '');
                 $filterAgentIds = ($aid !== '' && ctype_digit($aid)) ? [$aid] : [];
-            } elseif ($request->query('filter') === 'marketing_pending') {
-                $filterAgentIds = [];   // compliance click-through ⇒ full scope
+            } elseif (in_array($request->query('filter'), ['marketing_pending', 'approval_pending'], true)) {
+                // Compliance / approval click-through ⇒ full scope. An approver
+                // looking at the queue must see EVERY agent's pending listing,
+                // not whichever agent filter their last visit left behind.
+                $filterAgentIds = [];
             } else {
                 // Explicit-filter request without an agent signal: keep what the
                 // session remembers, else default to the user's own listings.
@@ -308,6 +327,24 @@ class PropertyController extends Controller
             $query->whereNull('compliance_snapshot_at')->whereNotIn('status', Property::OFF_MARKET_STATUSES);
         }
 
+        // Layer 3 — "Awaiting approval". The approver's queue IS this list
+        // (spec D7 / §7.1): compliance-clear, not yet approved, and a request
+        // actually pending. Deliberately the same click-through shape as
+        // marketing_pending above, so it composes with every other filter,
+        // survives pagination, and is counted by the same single aggregate.
+        if ($marketingFilter === 'approval_pending' && $syndicationApprovalOn) {
+            $query->whereNotNull('compliance_snapshot_at')
+                ->whereNull('syndication_approved_at')
+                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->whereExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('property_syndication_approvals as psa')
+                        ->whereColumn('psa.property_id', 'properties.id')
+                        ->where('psa.status', \App\Models\PropertySyndicationApproval::STATUS_PENDING)
+                        ->whereNull('psa.deleted_at');
+                });
+        }
+
         if ($search !== '') {
             $query->searchAddress($search);
         }
@@ -342,6 +379,25 @@ class PropertyController extends Controller
             'rentedOut'  => (int) ($agg->rented_out ?? 0),
             'prospecting'=> (int) ($agg->prospecting ?? 0),
         ];
+
+        // Layer 3 — the "Awaiting approval" tile. Counted ONLY when the agency
+        // switched the feature on and the viewer may actually approve, so the
+        // query never runs for anyone who would not see the tile.
+        // .ai/specs/syndication-approval-gate.md §7.1
+        $stats['awaitingApproval'] = ($syndicationApprovalOn && $canApproveSyndication)
+            ? (clone $query)
+                ->whereNotNull('compliance_snapshot_at')
+                ->whereNull('syndication_approved_at')
+                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->whereExists(function ($sub) {
+                    $sub->select(DB::raw(1))
+                        ->from('property_syndication_approvals as psa')
+                        ->whereColumn('psa.property_id', 'properties.id')
+                        ->where('psa.status', \App\Models\PropertySyndicationApproval::STATUS_PENDING)
+                        ->whereNull('psa.deleted_at');
+                })
+                ->count()
+            : 0;
 
         // Sorting — whitelisted columns only
         $dir = strtolower($request->query('dir', 'desc')) === 'asc' ? 'asc' : 'desc';
@@ -530,11 +586,43 @@ class PropertyController extends Controller
         $currentSort = $sort;
         $currentDir = $dir;
 
+        // Layer 3 — the row badges. TWO queries for the whole page (not one per
+        // row): the ids on this page whose latest approval row is pending, and
+        // those whose latest is a rejection. Everything else the badge needs is
+        // already on the property (`syndication_approved_at`,
+        // `compliance_snapshot_at`). Skipped entirely when the feature is off.
+        // .ai/specs/syndication-approval-gate.md §7.1
+        $approvalPendingIds  = [];
+        $approvalRejectedIds = [];
+        if ($syndicationApprovalOn) {
+            $pageIds = collect($properties->items())->pluck('id')->all();
+
+            if (! empty($pageIds)) {
+                $latestPerProperty = DB::table('property_syndication_approvals')
+                    ->select('property_id', DB::raw('MAX(id) as latest_id'))
+                    ->whereIn('property_id', $pageIds)
+                    ->whereNull('deleted_at')
+                    ->groupBy('property_id');
+
+                $latest = DB::table('property_syndication_approvals as psa')
+                    ->joinSub($latestPerProperty, 'l', fn ($j) => $j->on('psa.id', '=', 'l.latest_id'))
+                    ->get(['psa.property_id', 'psa.status']);
+
+                $approvalPendingIds = $latest
+                    ->where('status', \App\Models\PropertySyndicationApproval::STATUS_PENDING)
+                    ->pluck('property_id')->map('intval')->all();
+                $approvalRejectedIds = $latest
+                    ->where('status', \App\Models\PropertySyndicationApproval::STATUS_REJECTED)
+                    ->pluck('property_id')->map('intval')->all();
+            }
+        }
+
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName'
+            'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
+            'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds'
         ));
     }
 

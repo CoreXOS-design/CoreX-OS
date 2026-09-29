@@ -16,6 +16,8 @@ use Illuminate\Http\Request;
 class SyndicationController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    // Layer 3 — .ai/specs/syndication-approval-gate.md §6.3.
+    use \App\Http\Controllers\Concerns\EnforcesSyndicationApproval;
 
     private PrivatePropertySyndicationService $syndicationService;
     private PrivatePropertyListingMapper $mapper;
@@ -41,6 +43,7 @@ class SyndicationController extends Controller
         if (!$wasEnabled) {
             $this->enforceListingNotDraft($property, 'Private Property');
             $this->enforceMarketingReadiness($property);
+            $this->enforceSyndicationApproval($property, 'Private Property');
         }
         $nowEnabled = !$wasEnabled;
 
@@ -82,6 +85,7 @@ class SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Private Property');
 
         if ($errorResponse = $this->validateAndSaveExclusiveDays($request, $property)) {
             return $errorResponse;
@@ -187,6 +191,7 @@ class SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Private Property');
 
         if ($errorResponse = $this->validateAndSaveExclusiveDays($request, $property)) {
             return $errorResponse;

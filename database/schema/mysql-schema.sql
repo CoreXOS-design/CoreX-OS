@@ -10677,6 +10677,8 @@ CREATE TABLE `properties` (
   `last_activity_at` datetime DEFAULT NULL,
   `compliance_snapshot_at` timestamp NULL DEFAULT NULL,
   `compliance_snapshot_data` json DEFAULT NULL,
+  `syndication_approved_at` timestamp NULL DEFAULT NULL,
+  `syndication_approved_by_user_id` bigint unsigned DEFAULT NULL,
   `compliance_evidence_flags` json DEFAULT NULL,
   `first_marketed_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -10708,13 +10710,16 @@ CREATE TABLE `properties` (
   KEY `properties_lightstone_id_index` (`lightstone_id`),
   KEY `idx_properties_agency_status_geo` (`agency_id`,`status`,`latitude`,`longitude`),
   KEY `properties_p24_imported_at_index` (`p24_imported_at`),
+  KEY `properties_syndication_approved_by_user_id_foreign` (`syndication_approved_by_user_id`),
+  KEY `properties_syndication_approved_at_index` (`syndication_approved_at`),
   CONSTRAINT `properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   CONSTRAINT `properties_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `properties_condition_level_fk` FOREIGN KEY (`condition_level_id`) REFERENCES `property_setting_items` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_p24_city_id_foreign` FOREIGN KEY (`p24_city_id`) REFERENCES `p24_cities` (`id`) ON DELETE SET NULL,
   CONSTRAINT `properties_p24_province_id_foreign` FOREIGN KEY (`p24_province_id`) REFERENCES `p24_provinces` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `properties_p24_suburb_id_foreign` FOREIGN KEY (`p24_suburb_id`) REFERENCES `p24_suburbs` (`id`) ON DELETE SET NULL
+  CONSTRAINT `properties_p24_suburb_id_foreign` FOREIGN KEY (`p24_suburb_id`) REFERENCES `p24_suburbs` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `properties_syndication_approved_by_user_id_foreign` FOREIGN KEY (`syndication_approved_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -11325,6 +11330,39 @@ CREATE TABLE `property_sold_records` (
   CONSTRAINT `property_sold_records_captured_by_user_id_foreign` FOREIGN KEY (`captured_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `property_sold_records_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
   CONSTRAINT `property_sold_records_verified_by_user_id_foreign` FOREIGN KEY (`verified_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `property_syndication_approvals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `property_syndication_approvals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `status` enum('pending','approved','rejected','withdrawn') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `requested_by_user_id` bigint unsigned NOT NULL,
+  `requested_at` timestamp NOT NULL,
+  `request_note` text COLLATE utf8mb4_unicode_ci,
+  `decided_by_user_id` bigint unsigned DEFAULT NULL,
+  `decided_at` timestamp NULL DEFAULT NULL,
+  `decision_note` text COLLATE utf8mb4_unicode_ci,
+  `notified_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `psa_agency_status_requested_idx` (`agency_id`,`status`,`requested_at`),
+  KEY `psa_property_latest_idx` (`property_id`,`id`),
+  KEY `property_syndication_approvals_requested_by_user_id_foreign` (`requested_by_user_id`),
+  KEY `property_syndication_approvals_decided_by_user_id_foreign` (`decided_by_user_id`),
+  KEY `property_syndication_approvals_agency_id_index` (`agency_id`),
+  KEY `property_syndication_approvals_branch_id_index` (`branch_id`),
+  KEY `property_syndication_approvals_property_id_index` (`property_id`),
+  CONSTRAINT `property_syndication_approvals_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `property_syndication_approvals_decided_by_user_id_foreign` FOREIGN KEY (`decided_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `property_syndication_approvals_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `property_syndication_approvals_requested_by_user_id_foreign` FOREIGN KEY (`requested_by_user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `property_take_requests`;
@@ -14667,6 +14705,24 @@ CREATE TABLE `user_managed_branches` (
   CONSTRAINT `user_managed_branches_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_nav_favourites`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_nav_favourites` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `nav_key` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `user_nav_favourites_user_id_nav_key_unique` (`user_id`,`nav_key`),
+  KEY `user_nav_favourites_user_id_sort_order_index` (`user_id`,`sort_order`),
+  CONSTRAINT `user_nav_favourites_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user_notification_preferences`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -14826,6 +14882,7 @@ CREATE TABLE `users` (
   `show_on_website` tinyint(1) NOT NULL DEFAULT '0',
   `exclude_from_p24` tinyint(1) NOT NULL DEFAULT '0',
   `daily_digest_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `nav_favourites_autoopen` tinyint(1) NOT NULL DEFAULT '0',
   `website_order` int unsigned DEFAULT NULL,
   `website_social_facebook` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `website_social_instagram` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -16660,3 +16717,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1349,'2026_09_21_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1350,'2026_09_21_000001_add_agency_id_to_rentals_table',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1351,'2026_09_21_000002_add_agency_id_to_tv_messages_table',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1352,'2026_09_21_000100_add_choose_and_link_to_p24_import_rows_action',258);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1353,'2026_09_26_000000_scrub_cross_agency_rental_agents',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1354,'2026_09_28_000000_create_user_nav_favourites_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1355,'2026_09_28_000001_add_nav_favourites_autoopen_to_users_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1356,'2026_09_28_100000_grant_compliance_fica_send_permission',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1357,'2026_09_29_110000_add_syndication_approval_to_properties',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1358,'2026_09_29_110100_create_property_syndication_approvals_table',259);

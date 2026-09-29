@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Property\GrandfatherSyndicatedStockJob;
+use App\Services\Syndication\SyndicationApprovalService;
 use App\Models\Agency;
 use App\Models\AgentSocialAccount;
 use App\Models\ContactSource;
@@ -141,6 +143,17 @@ class SettingsController extends Controller
         // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
         // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
         $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
+        // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §5.1.
+        // OFF by default: an agency that never turns it on sees no change anywhere.
+        $approvalAgencyId                  = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+        $data['syndicationApprovalRequired'] = SyndicationApprovalService::isRequiredForAgency($approvalAgencyId);
+        $data['syndicationApproverIds']      = SyndicationApprovalService::approverIdsFor($approvalAgencyId);
+        $data['syndicationApproverChoices']  = $approvalAgencyId > 0
+            ? User::where('agency_id', $approvalAgencyId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'email'])
+            : collect();
 
         // Feature Settings tab: Matches
         $data['matchesEnabled']            = (bool) PerformanceSetting::get('matches_enabled', 1);
@@ -520,6 +533,48 @@ class SettingsController extends Controller
 
         if ($request->has('pp_exclusive_days_max')) {
             PerformanceSetting::set('pp_exclusive_days_max', (int) $request->input('pp_exclusive_days_max'));
+        }
+
+        // ── Syndication Approval Gate (layer 3) ──────────────────────────
+        // .ai/specs/syndication-approval-gate.md §4.3 / §4.4.
+        // Saver-precondition guard: both keys are written ONLY when the posted
+        // form actually carried them, so a step that renders a subset of this
+        // form can never wipe the other agency's settings (parent spec §6.1).
+        if ($request->has('syndication_approval_required')) {
+            $wantsOn   = $request->boolean('syndication_approval_required');
+            $approvers = array_values(array_unique(array_map(
+                'intval',
+                (array) $request->input('syndication_approver_user_ids', [])
+            )));
+            $approvers = array_values(array_filter($approvers));
+
+            // HARD rule: the switch cannot be ON with nobody behind it —
+            // that is the one way this feature could stop an agency marketing
+            // anything at all.
+            if ($wantsOn && empty($approvers)) {
+                return redirect()
+                    ->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
+                    ->with('error', 'Choose at least one person who approves listings before you turn this on.');
+            }
+
+            $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+            $wasOn    = SyndicationApprovalService::isRequiredForAgency($agencyId);
+
+            PerformanceSetting::set(
+                SyndicationApprovalService::SETTING_APPROVERS,
+                json_encode($approvers)
+            );
+            PerformanceSetting::set(
+                SyndicationApprovalService::SETTING_REQUIRED,
+                $wantsOn ? 1 : 0
+            );
+
+            // "Only new stock" (Johan, D8): the instant the switch goes off →
+            // on, everything the agency already has out on a portal is stamped
+            // approved, so the approver never faces the back catalogue.
+            if ($wantsOn && ! $wasOn && $agencyId > 0) {
+                GrandfatherSyndicatedStockJob::dispatch($agencyId, (int) auth()->id());
+            }
         }
 
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');

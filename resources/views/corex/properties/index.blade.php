@@ -215,6 +215,9 @@
             // icon/color (Available = On Market's live-dot check, Rented Out
             // = Sold's checkmark-circle) — same concept, rental vocabulary.
             'Available'   => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
+            // Layer 3 — a clock face: this listing is WAITING on a person, which
+            // is a different idea from Draft's "unfinished" pencil.
+            'Awaiting approval' => '<circle cx="12" cy="12" r="9" fill="none"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5V12l3 1.75"/>',
             'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         ];
         $kpiColors = [
@@ -246,9 +249,26 @@
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
         ];
+
+        // Layer 3 — "Awaiting approval" (.ai/specs/syndication-approval-gate.md §7.1).
+        // Only for an agency that switched the gate on, and only for someone who
+        // can actually approve — for everyone else the tile does not exist.
+        // Unlike every other tile it filters on `filter=`, not `status=`, because
+        // approval is not a listing status (spec §2: the property's own status is
+        // never touched by this feature).
+        if (($syndicationApprovalOn ?? false) && ($canApproveSyndication ?? false)) {
+            $kpiTiles[] = [
+                'label'  => 'Awaiting approval',
+                'value'  => $stats['awaitingApproval'] ?? 0,
+                'filter' => 'approval_pending',
+                'param'  => 'filter',
+            ];
+        }
+
         $currentStatus = $status ?? '';
+        $currentFilter = request()->query('filter', '');
         $baseUrl = request()->url();
-        $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
+        $preserveParams = collect(request()->query())->except('status', 'filter', 'page')->toArray();
     @endphp
     {{-- AT-419 — these tiles (Total/On Market/Draft/Prospecting/Sold) describe
          the Properties page's own status mix; on Imported Stock most of them
@@ -256,14 +276,20 @@
          by definition) and "Sold" is only one of several statuses shown, so
          they're misleading rather than useful there. Andre, 2026-09-15. --}}
     @unless($importedStock ?? false)
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-3 {{ count($kpiTiles) > 5 ? 'lg:grid-cols-6' : 'lg:grid-cols-5' }} gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
-            $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
+            // Most tiles drive `status=`; the layer-3 approval tile drives
+            // `filter=` (approval is not a listing status). One loop, one param key.
+            $kpiParam = $kpi['param'] ?? 'status';
+            $kpiCurrent = $kpiParam === 'filter' ? $currentFilter : $currentStatus;
+
+            $isActive = ($kpi['filter'] === '' && $currentStatus === '' && $currentFilter === '')
+                || ($kpi['filter'] !== '' && $kpi['filter'] === $kpiCurrent);
             $isLive   = in_array($kpi['label'], ['On Market', 'Available'], true);
             $tileUrl = $kpi['filter'] === ''
                 ? $baseUrl . '?' . http_build_query($preserveParams)
-                : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
+                : $baseUrl . '?' . http_build_query(array_merge($preserveParams, [$kpiParam => $kpi['filter']]));
         @endphp
         <a href="{{ $tileUrl }}"
            class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"
@@ -783,7 +809,13 @@
             </svg>
             <span class="absolute -right-1 -bottom-1 inline-flex items-center justify-center w-7 h-7 rounded-full text-white font-bold" style="background:var(--brand-icon,#0ea5e9);box-shadow:0 2px 6px rgba(14,165,233,0.4);">+</span>
         </div>
-        @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
+        @if(request()->query('filter') === 'approval_pending')
+            {{-- Layer 3 — the approver's own empty state. The generic "no properties
+                 match these filters" would read as a mistake on the one screen whose
+                 empty state is good news. .ai/specs/syndication-approval-gate.md §7.2 --}}
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">Nothing waiting for your approval.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">When an agent finishes a listing's compliance and sends it for approval, it appears here — and you get an email.</p>
+        @elseif(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
             <h3 class="text-base font-semibold" style="color:var(--text-primary);">No {{ ($importedStock ?? false) ? 'imported stock' : 'properties' }} match these filters.</h3>
             <p class="text-sm mt-1" style="color:var(--text-muted);">{{ ($importedStock ?? false) ? 'Try clearing some filters.' : 'Try clearing some filters, or add a new listing.' }}</p>
         @elseif($importedStock ?? false)
@@ -903,6 +935,24 @@
                     </span>
                     @if($property->mandate_type)
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
+                    @endif
+                    {{-- Layer 3 — approval tag. Its OWN pill, never the status pill
+                         above: the property's status is what CoreX sends the portals
+                         and this feature never touches it (spec §2). --}}
+                    @if($syndicationApprovalOn ?? false)
+                        @php
+                            $apprBadge = $property->syndication_approved_at !== null ? 'approved'
+                                : (in_array((int) $property->id, $approvalPendingIds ?? [], true) ? 'awaiting'
+                                : (in_array((int) $property->id, $approvalRejectedIds ?? [], true) ? 'rejected'
+                                : ($property->compliance_snapshot_at !== null ? 'needs' : '')));
+                            $apprText = ['approved' => 'Approved', 'awaiting' => 'Awaiting approval', 'rejected' => 'Not approved', 'needs' => 'Needs approval'][$apprBadge] ?? '';
+                            $apprColour = ['approved' => '#34D399', 'awaiting' => '#fbbf24', 'rejected' => '#fca5a5', 'needs' => ''][$apprBadge] ?? '';
+                        @endphp
+                        @if($apprText)
+                        <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Syndication approval">
+                            <span @if($apprColour) style="color:{{ $apprColour }};" @endif>{{ $apprText }}</span>
+                        </span>
+                        @endif
                     @endif
                     {{-- AT-422 — per property, not per page: a search on Properties also lists
                          imported off-market stock, and it must be tagged there too. --}}
@@ -1197,6 +1247,26 @@
                         <div class="inline-flex flex-row gap-1.5 items-center">
                             <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
                             <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
+                            {{-- Layer 3 — approval tag, beside the status pill and never inside
+                                 it (spec §2: the status column is untouched by this feature). --}}
+                            @if($syndicationApprovalOn ?? false)
+                                @php
+                                    $rowAppr = $property->syndication_approved_at !== null ? 'approved'
+                                        : (in_array((int) $property->id, $approvalPendingIds ?? [], true) ? 'awaiting'
+                                        : (in_array((int) $property->id, $approvalRejectedIds ?? [], true) ? 'rejected'
+                                        : ($property->compliance_snapshot_at !== null ? 'needs' : '')));
+                                    $rowApprText = ['approved' => 'Approved', 'awaiting' => 'Awaiting approval', 'rejected' => 'Not approved', 'needs' => 'Needs approval'][$rowAppr] ?? '';
+                                    $rowApprStyle = [
+                                        'approved' => 'background:color-mix(in srgb, var(--ds-emerald, #10b981) 14%, transparent); color:var(--ds-emerald, #10b981); border:1px solid color-mix(in srgb, var(--ds-emerald, #10b981) 30%, transparent);',
+                                        'awaiting' => 'background:color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color:var(--ds-amber, #f59e0b); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent);',
+                                        'rejected' => 'background:color-mix(in srgb, var(--ds-crimson, #dc2626) 14%, transparent); color:var(--ds-crimson, #dc2626); border:1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);',
+                                        'needs'    => 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);',
+                                    ][$rowAppr] ?? '';
+                                @endphp
+                                @if($rowApprText)
+                                <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowApprStyle }}" title="Syndication approval">{{ $rowApprText }}</span>
+                                @endif
+                            @endif
                         </div>
                     </td>
                     @if($importedStock ?? false)

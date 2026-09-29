@@ -846,4 +846,58 @@ function syndicationRefreshAll() {
         },
     };
 }
+
+// ── Syndication approval (layer 3) ─────────────────────────────────────
+// .ai/specs/syndication-approval-gate.md §6.4. Backs the approval banner at
+// the top of the panel (partials/_syndication-approval-banner.blade.php).
+//
+// On success it RELOADS rather than patching state in JS: an approval
+// decision changes the whole panel (every portal control locks or unlocks,
+// the badge changes, the button set changes), and the banner is rendered
+// server-side from one DTO. Re-deriving all of that in the browser would be a
+// second implementation of the gate — exactly the drift this feature must not
+// have.
+function syndicationApproval(config) {
+    return {
+        propertyId: config.propertyId,
+        csrfToken: config.csrfToken,
+        badge: config.badge || '',
+        urls: config.urls || {},
+        open: false,
+        openReason: '',
+        note: '',
+        reason: '',
+        loading: false,
+        message: '',
+        errorMsg: '',
+        async post(url, fields = {}) {
+            if (this.loading || !url) return;
+            this.loading = true; this.errorMsg = ''; this.message = '';
+            const fd = new FormData();
+            fd.append('_token', this.csrfToken);
+            Object.entries(fields).forEach(([k, v]) => {
+                if (v !== null && v !== undefined && String(v).length) fd.append(k, v);
+            });
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                });
+                const j = await r.json().catch(() => ({}));
+                if (r.ok && j.success) {
+                    this.message = j.message || 'Done.';
+                    this.open = false; this.openReason = ''; this.note = ''; this.reason = '';
+                    setTimeout(() => window.location.reload(), 600);
+                } else {
+                    this.errorMsg = j.message || ('Request failed (HTTP ' + r.status + ')');
+                }
+            } catch (e) {
+                this.errorMsg = e.message || 'Network error';
+            } finally {
+                this.loading = false;
+            }
+        },
+    };
+}
 </script>
