@@ -4317,6 +4317,25 @@
                         <label class="prop-label">No-Approval Spend Threshold (R)</label>
                         <input type="number" name="rental_no_approval_spend_threshold" form="prop-update-form" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
+                    {{-- .ai/specs/rentals-faults-work-orders.md §3 — so a tenant's
+                         fault first-aid screen can tell them exactly where to look
+                         ("Your main water valve is at: <location>"). --}}
+                    <div>
+                        <label class="prop-label">Main Water Valve Location</label>
+                        <input type="text" name="rental_main_water_valve_location" form="prop-update-form" value="{{ old('rental_main_water_valve_location', $property->rental_main_water_valve_location) }}" placeholder="e.g. outside, left of the front door" maxlength="255" class="prop-input">
+                        @if($property->rental_main_water_valve_photo_path)
+                            <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-2 rounded-md max-h-32">
+                        @endif
+                        <input type="file" name="rental_main_water_valve_photo" form="prop-update-form" accept="image/*" class="mt-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="prop-label">DB Board Location</label>
+                        <input type="text" name="rental_db_board_location" form="prop-update-form" value="{{ old('rental_db_board_location', $property->rental_db_board_location) }}" placeholder="e.g. garage, back wall" maxlength="255" class="prop-input">
+                        @if($property->rental_db_board_photo_path)
+                            <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-2 rounded-md max-h-32">
+                        @endif
+                        <input type="file" name="rental_db_board_photo" form="prop-update-form" accept="image/*" class="mt-2 text-sm">
+                    </div>
                     {{-- AT-402 Part 4 — Furnished Status (agency-managed list,
                          Settings → Properties & Listings), move-in Availability
                          date (the existing occupation_date column — see the
@@ -4447,7 +4466,7 @@
                      validation, its own DB transaction, the same
                      authorizeProperty() OWN/BRANCH/AGENCY scoping every other
                      property write already uses. --}}
-                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" class="space-y-4">
+                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" enctype="multipart/form-data" class="space-y-4">
                     @csrf
                     @method('PUT')
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -4538,6 +4557,23 @@
                         <div>
                             <label class="prop-label">No-Approval Spend Threshold (R)</label>
                             <input type="number" name="rental_no_approval_spend_threshold" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        {{-- .ai/specs/rentals-faults-work-orders.md §3 --}}
+                        <div>
+                            <label class="prop-label">Main Water Valve Location</label>
+                            <input type="text" name="rental_main_water_valve_location" value="{{ old('rental_main_water_valve_location', $property->rental_main_water_valve_location) }}" placeholder="e.g. outside, left of the front door" maxlength="255" class="prop-input">
+                            @if($property->rental_main_water_valve_photo_path)
+                                <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-2 rounded-md max-h-32">
+                            @endif
+                            <input type="file" name="rental_main_water_valve_photo" accept="image/*" class="mt-2 text-sm">
+                        </div>
+                        <div>
+                            <label class="prop-label">DB Board Location</label>
+                            <input type="text" name="rental_db_board_location" value="{{ old('rental_db_board_location', $property->rental_db_board_location) }}" placeholder="e.g. garage, back wall" maxlength="255" class="prop-input">
+                            @if($property->rental_db_board_photo_path)
+                                <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-2 rounded-md max-h-32">
+                            @endif
+                            <input type="file" name="rental_db_board_photo" accept="image/*" class="mt-2 text-sm">
                         </div>
                         {{-- AT-402 Part 4 — Furnished Status (agency-managed
                              list), move-in Availability date (the existing

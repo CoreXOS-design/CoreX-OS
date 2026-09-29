@@ -751,6 +751,12 @@ class Property extends Model
         // (superseding the 2026-09-26 lease ruling). Null means "use the
         // agency default" (RentalWorkOrderSetting::thresholdFor()).
         'rental_no_approval_spend_threshold',
+        // .ai/specs/rentals-faults-work-orders.md §3 — so a tenant's fault
+        // first-aid screen can tell them exactly where to look.
+        'rental_main_water_valve_location',
+        'rental_main_water_valve_photo_path',
+        'rental_db_board_location',
+        'rental_db_board_photo_path',
         'city',
         'suburb',
         'suburb_normalised',

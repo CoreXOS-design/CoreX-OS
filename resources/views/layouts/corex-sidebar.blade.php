@@ -1104,6 +1104,12 @@
                      Removed intentionally — reached only from a property's own
                      Inventory link (properties/show.blade.php), never the sidebar. --}}
 
+                {{-- .ai/specs/rentals-faults-work-orders.md §2/§8.1 — the agency's fault
+                     catalogue. Same-day nav entry per non-negotiable #2. --}}
+                @permission('rental_fault_types.view')
+                <a href="{{ route('corex.rental-fault-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-types.*') ? 'active' : '' }}">Rental Fault Types</a>
+                @endpermission
+
                 {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
                      record (settled 2026-09-24/25), not a tab within work orders. Same-day
                      nav entry per non-negotiable #2. --}}

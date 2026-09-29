@@ -2658,6 +2658,12 @@ class PropertyController extends Controller
             // lease screen only ever reads through to this column. Null
             // (cleared) means "use the agency default."
             'rental_no_approval_spend_threshold' => 'nullable|numeric|min:0',
+            // .ai/specs/rentals-faults-work-orders.md §3 — so the tenant-facing
+            // fault first-aid screen can tell a tenant exactly where to look.
+            'rental_main_water_valve_location' => 'nullable|string|max:255',
+            'rental_main_water_valve_photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,heic,heif|max:10240',
+            'rental_db_board_location' => 'nullable|string|max:255',
+            'rental_db_board_photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,heic,heif|max:10240',
             // AT-402 Part 4 — Furnished Status / Availability / Utilities.
             // furnished_status: free-text-shaped but UI-constrained to the
             // agency's own PropertySettingItem list (group 'furnished_status')
@@ -2736,6 +2742,23 @@ class PropertyController extends Controller
 
         // FIX, 2026-09-22 (Johan) — see applyDepositDefault()'s own docblock.
         $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
+
+        // .ai/specs/rentals-faults-work-orders.md §3.1/§3.2 — the valve/DB-board
+        // photos are genuinely property-scoped (this specific property's own
+        // control point), so PropertyImageStorer fits here, unlike the
+        // fault-type catalogue images (RentalFaultTypeController, agency-level,
+        // no property to key to). A fresh upload replaces whichever path was
+        // already stored — no gallery, one photo per field.
+        if ($request->hasFile('rental_main_water_valve_photo')) {
+            $data['rental_main_water_valve_photo_path'] = app(\App\Services\Images\PropertyImageStorer::class)
+                ->store($request->file('rental_main_water_valve_photo'), $property->id);
+        }
+        unset($data['rental_main_water_valve_photo']);
+        if ($request->hasFile('rental_db_board_photo')) {
+            $data['rental_db_board_photo_path'] = app(\App\Services\Images\PropertyImageStorer::class)
+                ->store($request->file('rental_db_board_photo'), $property->id);
+        }
+        unset($data['rental_db_board_photo']);
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);

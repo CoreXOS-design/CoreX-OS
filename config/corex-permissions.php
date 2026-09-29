@@ -163,6 +163,13 @@ return [
         // §8 — the move-out comparison's disposition vocabulary (present/short/damaged/missing).
         ['key' => 'rental_inventories.manage_settings', 'label' => 'Manage Rental Inventory Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 3],
 
+        // ── Rental Fault Types catalogue (rentals-faults-work-orders.md §2, 2026-09-29) ──
+        ['key' => 'rental_fault_types.view',   'label' => 'View Rental Fault Types',        'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_types', 'sort_order' => 1],
+        // Covers create, edit, archive, restore, document upload — one key, per Johan's
+        // ruling (§14(3) of that spec): follow rental_work_orders.create/
+        // rental_fault_reports.create's own single-key shape, no archive/restore split.
+        ['key' => 'rental_fault_types.create', 'label' => 'Manage Rental Fault Types',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_types', 'sort_order' => 2],
+
         // ── Rental Fault Reports (rental-work-orders.md §3a, 2026-09-24/25) ──
         ['key' => 'rental_fault_reports.view',   'label' => 'View Rental Fault Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_reports', 'sort_order' => 1],
         ['key' => 'rental_fault_reports.create', 'label' => 'Report & Edit Faults',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 2],

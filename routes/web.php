@@ -3509,6 +3509,30 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.move-out-photos.store');
     });
 
+    // .ai/specs/rentals-faults-work-orders.md §2/§8.1 — the agency's own
+    // fault catalogue. Slice 1 build: full CRUD + documents.
+    Route::prefix('rental-fault-types')->middleware('permission:rental_fault_types.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'index'])->name('corex.rental-fault-types.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'create'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'store'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.store');
+        Route::get('/{rentalFaultType}/edit', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'edit'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.edit');
+        Route::put('/{rentalFaultType}', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'update'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.update');
+        Route::post('/{rentalFaultType}/archive', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'archive'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.archive');
+        Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'restore'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.restore');
+        Route::post('/{rentalFaultType}/documents', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'storeDocument'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.documents.store');
+        Route::delete('/{rentalFaultType}/documents/{document}', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'destroyDocument'])
+            ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.documents.destroy');
+        Route::get('/{rentalFaultType}/documents/{document}/download', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'downloadDocument'])
+            ->name('corex.rental-fault-types.documents.download');
+    });
+
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own
     // record (2026-09-24/25 amendments). Stage 1 build: the record itself,
     // reporting, edit-while-reported, cancel/archive/restore, photos.
