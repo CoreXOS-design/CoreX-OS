@@ -52,6 +52,14 @@ class SyncPpListingStatusJob implements ShouldQueue
             return;
         }
 
+        // .ai/specs/other-agency-stock.md §2 — belt-and-braces; this should be
+        // unreachable (Other Agency Stock never gets pp_syndication_enabled/
+        // pp_ref set), kept explicit so a manually-drifted flag can never push
+        // a status update for another agency's listing.
+        if ($property->isOtherAgencyStock()) {
+            return;
+        }
+
         $result = $syndication->syncStatus($property);
 
         if (! ($result['success'] ?? false)) {

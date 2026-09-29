@@ -138,8 +138,12 @@ class AdManagerController extends Controller
         // the pre-existing exclusion is preserved verbatim. That asymmetry in the
         // constants is a real gap, but widening OFF_MARKET_STATUSES moves KPI and
         // map numbers agency-wide — out of scope for AT-350, raised separately.
+        // .ai/specs/other-agency-stock.md §2 — Other Agency Stock is deliberately
+        // NOT in OFF_MARKET_STATUSES (it must stay on-market for Core Matches),
+        // so the ad picker needs its own explicit exclusion: we may never
+        // advertise a listing that isn't ours to advertise.
         $adDeadStatuses = array_values(array_unique(
-            array_merge(Property::OFF_MARKET_STATUSES, ['rented'])
+            array_merge(Property::OFF_MARKET_STATUSES, ['rented', Property::STATUS_OTHER_AGENCY_STOCK])
         ));
 
         $query = Property::with('agent:id,name')

@@ -44,6 +44,17 @@ class Property extends Model
     public bool $skipSyndicationAutomation = false;
 
     /**
+     * .ai/specs/other-agency-stock.md §8 — content lock bypass. Other Agency
+     * Stock's imported advert content (description, photos, price, features,
+     * sizes, address) is read-only in CoreX — PropertyObserver::saving()
+     * refuses a dirty save on any locked field while the property IS/WAS
+     * other_agency_stock. The ONLY legitimate writer of that content is a
+     * re-import (OtherAgencyStockImportService), which sets this flag true
+     * before saving. Never set anywhere else.
+     */
+    public bool $allowOtherAgencyStockContentWrite = false;
+
+    /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.
      * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
@@ -99,12 +110,57 @@ class Property extends Model
     public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
-     * AT-Core-Matches (2026-09-29) — the listing sold, but by ANOTHER agency
-     * (cc3's addition, landing separately). Reference this constant, never the
-     * literal 'other_agency_stock', so cc3's merge lines up with the Core
-     * Matches allow-list below without either side re-typing the slug.
+     * .ai/specs/other-agency-stock.md — a SINGLE listing imported (via the
+     * Chrome extension) from Property24/PrivateProperty that belongs to
+     * ANOTHER agency, not ours. Deliberately on-market (NEVER added to
+     * OFF_MARKET_STATUSES): it must stay eligible for Core Matches and
+     * viewing packs like any other property — that is the entire point of
+     * the feature (Johan: "Buyers see it in viewing packs like any other
+     * property"). What makes it different is enforced elsewhere, not by
+     * status classification: EnforcesMarketingReadiness::enforceListingNotDraft()
+     * and the explicit guards inside Property24SyndicationService,
+     * PrivatePropertySyndicationService, WebsiteSyndicationService and the
+     * Ad Manager picker all refuse it by name — we may never syndicate or
+     * advertise a listing that isn't ours to advertise. Visibility (who
+     * INTERNALLY may see it at all) is a separate, agency-configurable role
+     * setting — see OtherAgencyStockVisibility.
+     *
+     * Also the Core Matches allow-list's own literal (AT-Core-Matches,
+     * 2026-09-29, CORE_MATCH_DEFAULT_ALLOWED_STATUSES below) — reference
+     * this constant there, never the string, so the two builds never drift
+     * on the slug.
      */
     public const STATUS_OTHER_AGENCY_STOCK = 'other_agency_stock';
+
+    /** Instance check — true when this property is another agency's imported listing. */
+    public function isOtherAgencyStock(): bool
+    {
+        return $this->normalizedStatus() === self::STATUS_OTHER_AGENCY_STOCK;
+    }
+
+    /** Source-of-record metadata (portal, listing ref, listing agent/agency) — see PropertyExternalSource. */
+    public function externalSource(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(PropertyExternalSource::class);
+    }
+
+    /** Append-only unlock/request/decision/relock history — see OtherAgencyStockUnlock. */
+    public function otherAgencyStockUnlocks(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OtherAgencyStockUnlock::class);
+    }
+
+    /** Append-only consent evidence for each (re-)import — see OtherAgencyStockConsent. */
+    public function otherAgencyStockConsents(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OtherAgencyStockConsent::class);
+    }
+
+    /** Current unlock state ('locked'|'pending'|'unlocked') — see OtherAgencyStockUnlock::currentStateFor(). */
+    public function otherAgencyStockUnlockState(): array
+    {
+        return OtherAgencyStockUnlock::currentStateFor($this);
+    }
 
     /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
@@ -125,6 +181,26 @@ class Property extends Model
     public function isOnMarket(): bool
     {
         return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+    }
+
+    /**
+     * Hide Other Agency Stock rows from a viewer whose role the agency has
+     * not opted into that visibility (Property::STATUS_OTHER_AGENCY_STOCK
+     * stays a normal on-market status for every OTHER purpose — this is the
+     * one place its extra, agency-configurable role gate applies). $viewer
+     * defaults to the current auth()->user() so existing call sites don't
+     * need to pass one; a null/guest viewer (a buyer on a public share link
+     * or a viewing-pack PDF) is never gated — see
+     * App\Services\Properties\OtherAgencyStockVisibility.
+     */
+    public function scopeVisibleOtherAgencyStock($query, ?User $viewer = null)
+    {
+        $viewer = $viewer ?? auth()->user();
+        if (\App\Services\Properties\OtherAgencyStockVisibility::canSee($viewer)) {
+            return $query;
+        }
+
+        return $query->where('status', '!=', self::STATUS_OTHER_AGENCY_STOCK);
     }
 
     /**
@@ -1687,7 +1763,11 @@ class Property extends Model
             self::OFF_MARKET_STATUSES,
             self::CONCLUDED_STATUSES,
             self::INACTIVE_STATUSES,
-            ['active', 'for_sale', 'to_let', 'under_offer'],
+            // other_agency_stock must always be a valid write-side status for
+            // EVERY agency (not something an agency has to separately activate
+            // in Settings → Property Statuses) — the import endpoint writes it
+            // directly, same as active/for_sale/to_let/under_offer below.
+            ['active', 'for_sale', 'to_let', 'under_offer', self::STATUS_OTHER_AGENCY_STOCK],
         ))));
     }
 
@@ -1804,6 +1884,7 @@ class Property extends Model
             // the identical bug-class the [[normalizedStatus]] docblock above
             // describes (60 'Sold' rows badged For Sale).
             self::isSoldByThirdPartyStatus($status)          => 'Sold by 3rd Party',
+            $status === self::STATUS_OTHER_AGENCY_STOCK       => 'Other Agency Stock',
             in_array($status, ['sold', 'transferred'], true) => 'Sold',
             $status === 'under_offer'                        => 'Under Offer',
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which

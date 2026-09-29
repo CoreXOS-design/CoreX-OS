@@ -147,6 +147,15 @@ class Property24SyndicationService
 
     public function submitListing(Property $property): array
     {
+        // .ai/specs/other-agency-stock.md §2 — defense in depth. The controller
+        // layer already refuses this via EnforcesMarketingReadiness, but this
+        // service is the ONE real chokepoint every P24 submission path funnels
+        // through (AT-369) — a queued job, console command, or any future
+        // caller that skips the controller must still be refused here.
+        if ($blocked = $this->blockIfOtherAgencyStock($property)) {
+            return $blocked;
+        }
+
         // AT-369 — THE service-layer backstop. Every P24 submission path in the
         // app (controller, queued job, console commands, bulk command, and any
         // future caller) funnels through this method — so this single check is
@@ -182,6 +191,24 @@ class Property24SyndicationService
      * "submitting" to the UI must not leave the property stuck there) and logs
      * it. Returns null when the listing is clear to submit.
      */
+    private function blockIfOtherAgencyStock(Property $property): ?array
+    {
+        if (! $property->isOtherAgencyStock()) {
+            return null;
+        }
+
+        $message = 'Blocked — this is Other Agency Stock (imported from another agency\'s listing) and can never be submitted to Property24.';
+
+        $property->update([
+            'p24_syndication_status' => 'error',
+            'p24_last_error'         => $message,
+        ]);
+
+        $this->log('warning', "P24 submit blocked for property #{$property->id} — Other Agency Stock");
+
+        return ['success' => false, 'message' => $message];
+    }
+
     private function blockIfPpExclusive(Property $property): ?array
     {
         if (!$property->isPpExclusiveActive()) {
@@ -780,11 +807,19 @@ class Property24SyndicationService
         // several 15-minute ticks instead of one run trying (and failing) to do
         // all of it; total P24 call RATE is unchanged — still one call at a time,
         // sequential, same as before, just spread over more runs.
+        // .ai/specs/other-agency-stock.md §2 — belt-and-braces: an Other Agency
+        // Stock property should never carry p24_syndication_enabled/p24_ref in
+        // the first place (the import endpoint never sets them, and submitListing()
+        // refuses to set them), so this exclusion is normally a no-op — kept
+        // explicit anyway so a manually-drifted flag can never resurrect a
+        // nightly activation check against another agency's listing.
         $totalQualifying = Property::where('p24_syndication_enabled', true)
+            ->where('status', '!=', Property::STATUS_OTHER_AGENCY_STOCK)
             ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
             ->whereNotNull('p24_ref')->count();
 
         $properties = Property::where('p24_syndication_enabled', true)
+            ->where('status', '!=', Property::STATUS_OTHER_AGENCY_STOCK)
             ->whereIn('p24_syndication_status', ['submitted', 'pending', 'active'])
             ->whereNotNull('p24_ref')
             ->orderByRaw('p24_activation_last_checked_at IS NOT NULL, p24_activation_last_checked_at ASC')

@@ -167,6 +167,9 @@ Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::clas
 Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
     ->middleware('throttle:60,1')
     ->name('public.support');
+Route::get('/extension/privacy', [\App\Http\Controllers\Public\LegalController::class, 'extensionPrivacy'])
+    ->middleware('throttle:60,1')
+    ->name('public.extension-privacy');
 Route::get('/terms', [\App\Http\Controllers\Public\LegalController::class, 'terms'])
     ->middleware('throttle:60,1')
     ->name('public.terms');
@@ -3911,6 +3914,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
 
+    // Other Agency Stock — role visibility + consent wording (.ai/specs/other-agency-stock.md §6/§3a)
+    Route::put('/settings/agency/other-agency-stock', [CoreXSettingsController::class, 'updateOtherAgencyStock'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.other-agency-stock');
+
     // AI background removal (agent photos) toggle (Feature Settings → Properties tab) — ad-manager.md §15.2
     Route::put('/settings/agency/ad-bg-removal-api', [CoreXSettingsController::class, 'updateAdBgRemovalApiEnabled'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.ad-bg-removal-api');
@@ -4570,6 +4577,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/contacts/create-link', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'createAndLink'])->name('contacts.createAndLink');
         Route::put('/{property}/contacts/{contact}/role', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'updateRole'])->name('contacts.updateRole');
         Route::delete('/{property}/contacts/{contact}', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'unlink'])->name('contacts.unlink');
+        // Other Agency Stock — request/approve/decline/re-lock (.ai/specs/other-agency-stock.md §8a)
+        Route::post('/{property}/other-agency-stock/request-edit', [\App\Http\Controllers\CoreX\OtherAgencyStockUnlockController::class, 'request'])->name('other-agency-stock.request');
+        Route::post('/{property}/other-agency-stock/unlocks/{unlock}/decide', [\App\Http\Controllers\CoreX\OtherAgencyStockUnlockController::class, 'decide'])->name('other-agency-stock.decide');
+        Route::post('/{property}/other-agency-stock/relock', [\App\Http\Controllers\CoreX\OtherAgencyStockUnlockController::class, 'relock'])->name('other-agency-stock.relock');
         // Marketing
         Route::get('/{property}/marketing',              [\App\Http\Controllers\PropertyMarketingController::class, 'index'])->name('marketing.index');
         Route::post('/{property}/marketing/generate-copy', [\App\Http\Controllers\PropertyMarketingController::class, 'generateCopy'])->name('marketing.generateCopy');

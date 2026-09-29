@@ -1229,6 +1229,36 @@
             </div>
         </div>
 
+        {{-- Other Agency Stock — .ai/specs/other-agency-stock.md §9/§10. Lean by design: one line, no banners. --}}
+        @if(!$isNew && $property->isOtherAgencyStock())
+            @php
+                $oasSource = $property->externalSource;
+                $oasPortalLabel = $oasSource?->portal === 'pp' ? 'Private Property' : 'Property24';
+                $oasUnlockState = $property->otherAgencyStockUnlockState();
+                $oasCanAuthorise = \App\Services\Properties\OtherAgencyStockStatusGate::canAuthoriseAdvertEdit(auth()->user());
+                $oasIsAgent = (int) auth()->id() === (int) $property->agent_id;
+            @endphp
+            <div class="text-sm mt-2" style="color:var(--text-secondary);">
+                @if($oasSource?->listing_url)
+                    <a href="{{ $oasSource->listing_url }}" target="_blank" rel="noopener noreferrer" class="underline">View on {{ $oasPortalLabel }}</a>
+                    ·
+                @endif
+                @if($oasUnlockState['state'] === 'unlocked')
+                    Unlocked by {{ $oasUnlockState['row']?->decidedBy?->name ?? 'an authorised user' }}
+                    @if($oasCanAuthorise)
+                        <form method="POST" action="{{ route('corex.properties.other-agency-stock.relock', $property) }}" class="inline">@csrf<button type="submit" class="underline">Re-lock</button></form>
+                    @endif
+                @elseif($oasUnlockState['state'] === 'pending')
+                    Edit access requested — awaiting an authorised user
+                @else
+                    Locked — imported from {{ $oasPortalLabel }}
+                    @if($oasIsAgent && !$oasCanAuthorise)
+                        <form method="POST" action="{{ route('corex.properties.other-agency-stock.request', $property) }}" class="inline">@csrf<button type="submit" class="underline">Request edit access</button></form>
+                    @endif
+                @endif
+            </div>
+        @endif
+
     {{-- Syndication modal (triggered from sidebar Action stack) --}}
     @if(!$isNew)
             {{-- Centered modal --}}

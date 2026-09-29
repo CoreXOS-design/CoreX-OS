@@ -1048,6 +1048,48 @@ class SettingsController extends Controller
             ->with('success', "Split Branches turned {$state}.");
     }
 
+    // ── Other Agency Stock — visibility + consent wording (.ai/specs/other-agency-stock.md §6/§3a) ──
+
+    public function updateOtherAgencyStock(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_performance_settings'), 403);
+
+        $request->validate([
+            'other_agency_stock_visible_roles'   => ['nullable', 'array'],
+            'other_agency_stock_visible_roles.*' => ['string', 'max:50'],
+            'other_agency_stock_consent_wording' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $agency = ($id = auth()->user()?->effectiveAgencyId()) ? Agency::find($id) : null;
+        if (!$agency) {
+            return back()->with('error', 'No agency found.');
+        }
+
+        // other_agency_stock_visible_roles_submitted is a hidden marker field
+        // the form always sends — an unticked checkbox GROUP sends nothing at
+        // all, which would be indistinguishable from "this form was never
+        // submitted" if the guard checked the checkbox array's own presence.
+        if ($request->has('other_agency_stock_visible_roles_submitted')) {
+            $roles = array_values(array_filter((array) $request->input('other_agency_stock_visible_roles')));
+            // An agency choosing every role is functionally "all" — store null
+            // (the documented default) rather than a redundant full list, so
+            // OtherAgencyStockVisibility's fast-path stays the common case.
+            $allRoleNames = \App\Models\Role::allRoles($agency->id)->pluck('name')->all();
+            $isEffectivelyAll = empty(array_diff($allRoleNames, $roles));
+            $agency->update([
+                'other_agency_stock_visible_roles' => ($isEffectivelyAll || empty($roles)) ? null : $roles,
+            ]);
+        }
+
+        if ($request->has('other_agency_stock_consent_wording')) {
+            $agency->update([
+                'other_agency_stock_consent_wording' => trim((string) $request->input('other_agency_stock_consent_wording')) ?: null,
+            ]);
+        }
+
+        return back()->with('success', 'Other Agency Stock settings updated.');
+    }
+
     // ── AI background removal (agent photos) toggle — ad-manager.md §15.2 ──
 
     /**

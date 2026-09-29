@@ -155,7 +155,10 @@ class PropertyController extends Controller
         $query = Property::with([
             'agent', 'branch', 'secondAgent',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
-        ]);
+        ])
+            // .ai/specs/other-agency-stock.md §6 — hide Other Agency Stock from
+            // a viewer whose role the agency hasn't opted into seeing it.
+            ->visibleOtherAgencyStock($user);
 
         // AT-419 — the two pages partition every property between them: Imported
         // Stock gets P24-imported off-market rows, Properties gets everything

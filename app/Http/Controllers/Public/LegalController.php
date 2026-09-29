@@ -51,4 +51,18 @@ final class LegalController extends Controller
             'lastUpdated'  => 'August 2026',
         ]);
     }
+
+    /**
+     * Chrome Web Store listing requires a privacy-policy URL — see
+     * .ai/specs/chrome-web-store-listing.md. Covers the CoreX Chrome
+     * extension specifically (portal-capture), distinct from the platform-
+     * wide privacy() page above.
+     */
+    public function extensionPrivacy()
+    {
+        return view('public.legal.extension-privacy', [
+            'contactEmail' => self::CONTACT_EMAIL,
+            'lastUpdated'  => '29 September 2026',
+        ]);
+    }
 }

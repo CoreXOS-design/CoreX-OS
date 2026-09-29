@@ -143,6 +143,37 @@ class PropertyObserver
                     'status' => "Refusing to persist out-of-vocabulary property status '{$property->status}'.",
                 ]);
             }
+
+            // .ai/specs/other-agency-stock.md §7 — the ONE seam controlling who
+            // may change status TO or FROM other_agency_stock, enforced HERE
+            // (not just at the controller) because this is the one chokepoint
+            // every write path passes through (mobile API, imports, jobs,
+            // console, crafted requests). A console/job context with no
+            // authenticated user (auth()->user() === null) is a system actor
+            // and is not gated — this guard is about which HUMAN may make the
+            // change, not about background reconciliation work.
+            $actor = auth()->user();
+            if ($actor && ! \App\Services\Properties\OtherAgencyStockStatusGate::canChange($actor, $property, (string) $property->status)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'status' => 'You do not have permission to change Other Agency Stock status.',
+                ]);
+            }
+        }
+
+        // .ai/specs/other-agency-stock.md §8 — content lock. "The stock is
+        // used exactly as the advert is": once other_agency_stock, the
+        // imported advert content (description, photos, price, features,
+        // sizes, address) is read-only everywhere — property edit, gallery/
+        // photo endpoints, bulk edit, API — all funnel through this one save
+        // path, so this is the one chokepoint. Re-import is the only writer
+        // (it sets $property->allowOtherAgencyStockContentWrite = true).
+        $lockedFields = \App\Services\Properties\OtherAgencyStockContentLock::violatingFields($property);
+        if (! empty($lockedFields)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'other_agency_stock' => 'This property is Other Agency Stock — its imported advert content ('
+                    . implode(', ', $lockedFields)
+                    . ') is read-only. Re-import the listing to update it.',
+            ]);
         }
 
         // AT-321 — the app layer records this Eloquent write richly (saved()/
@@ -671,6 +702,16 @@ class PropertyObserver
         // not a real edit. The agent manages syndication after the import lands.
         if ($property->skipSyndicationAutomation
             || !$property->p24_syndication_enabled || !$property->p24_ref) {
+            return;
+        }
+
+        // .ai/specs/other-agency-stock.md §2 — belt-and-braces; this should be
+        // unreachable (Other Agency Stock never gets p24_syndication_enabled/
+        // p24_ref set), kept explicit because this block bypasses
+        // Property24SyndicationService entirely (AT-369) and calls
+        // Property24ApiClient directly — the one P24 status-push path that
+        // isn't already covered by submitListing()'s guard.
+        if ($property->isOtherAgencyStock()) {
             return;
         }
 

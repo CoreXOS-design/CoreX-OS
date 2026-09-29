@@ -390,6 +390,11 @@ class ViewingPackController extends Controller
         // is already bounded to the user's agency.
         $rows = Property::query()
             ->searchAddress($q)
+            // .ai/specs/other-agency-stock.md §6 — hide Other Agency Stock from
+            // this ad-hoc picker for a role the agency hasn't opted in. Does
+            // not affect what's already IN a pack (Johan: a buyer sees it like
+            // any other property) — this only gates the agent's own add-search.
+            ->visibleOtherAgencyStock()
             ->with('agent')
             ->latest()
             ->limit(12)

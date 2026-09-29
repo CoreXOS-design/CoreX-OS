@@ -31,6 +31,13 @@ class WebsiteSyndicationService
      */
     public function setEnabled(Property $property, AgencyApiKey $key, bool $enabled): PropertyWebsiteSyndication
     {
+        // .ai/specs/other-agency-stock.md §2 — defense in depth. Only refuses
+        // turning IT ON; disabling an already-enabled row must always be
+        // allowed (never trap a listing in a state nothing can undo).
+        if ($enabled && $property->isOtherAgencyStock()) {
+            throw new \App\Services\Syndication\DraftListingException($property, 'the website');
+        }
+
         $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
             ->firstOrNew([
                 'property_id'       => $property->id,
@@ -64,6 +71,12 @@ class WebsiteSyndicationService
      */
     public function resend(Property $property, AgencyApiKey $key): ?PropertyWebsiteSyndication
     {
+        // .ai/specs/other-agency-stock.md §2 — belt-and-braces; setEnabled()
+        // already refuses to turn this on in the first place.
+        if ($property->isOtherAgencyStock()) {
+            return null;
+        }
+
         $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
             ->where('property_id', $property->id)
             ->where('agency_api_key_id', $key->id)
@@ -98,7 +111,13 @@ class WebsiteSyndicationService
         // than the previous hand-written ['draft','sold','withdrawn'], which
         // pushed expired, cancelled, archived and transferred stock to agency
         // websites and would have pushed listings sold by another agency (AT-350).
-        return $this->bulkEnable($key, fn ($q) => $q->whereNotIn('status', Property::OFF_MARKET_STATUSES));
+        // .ai/specs/other-agency-stock.md §2 — Other Agency Stock is deliberately
+        // NOT in OFF_MARKET_STATUSES (it must stay on-market for Core Matches),
+        // so it needs its own explicit exclusion here — this bulk action never
+        // goes through EnforcesMarketingReadiness at all.
+        return $this->bulkEnable($key, fn ($q) => $q
+            ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+            ->where('status', '!=', Property::STATUS_OTHER_AGENCY_STOCK));
     }
 
     /**
