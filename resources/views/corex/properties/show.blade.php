@@ -5269,6 +5269,34 @@
                                 title="Pan and zoom linked across both panes">
                             <span x-text="compareViewer.zoomLocked ? 'Move together: On' : 'Move together: Off'"></span>
                         </button>
+                        {{-- §41, 2026-09-29, Johan — "where do we link photos?"
+                             The backend/JS (toggleCompareMatch(), compareViewerMatch(),
+                             compareViewerIsMatched()) already existed but had no button
+                             anywhere calling them — this is that button. Only shown
+                             once both panes have a real photo (nothing to link
+                             otherwise) and only while this inspection cycle isn't
+                             locked — the same completed/cancelled gate the server
+                             itself now enforces (assertPhotoMatchingUnlocked()),
+                             surfaced here so the control simply isn't there to click
+                             rather than clicking and getting a 409. --}}
+                        <template x-if="compareViewer.mode === 'compare' && compareViewer.leftPhotoId && compareViewer.rightPhotoId && !compareViewerMatchingLocked()">
+                            <div class="flex items-center gap-1">
+                                <template x-if="compareViewerIsMatched()">
+                                    <span class="flex items-center gap-1">
+                                        <span class="cv-pill cv-pill-good" data-qa="cv-link-badge">Linked</span>
+                                        <button type="button" @click="compareViewerMatch()" data-qa="cv-unlink-btn"
+                                                class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                                title="Unlink these two photos">Unlink</button>
+                                    </span>
+                                </template>
+                                <template x-if="!compareViewerIsMatched()">
+                                    <button type="button" @click="compareViewerMatch()" data-qa="cv-link-btn"
+                                            class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                            title="Pair the left and right photo as the same thing">Link these</button>
+                                </template>
+                            </div>
+                        </template>
+                        <span class="cv-pill" data-qa="cv-link-locked-note" x-show="compareViewer.mode === 'compare' && compareViewer.leftPhotoId && compareViewer.rightPhotoId && compareViewerMatchingLocked()" title="Photos can no longer be linked or unlinked once this inspection is completed or cancelled">Locked</span>
                         <button type="button" @click="closeCompareViewer()" aria-label="Close photo compare" class="cv-touch rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&times;</button>
                     </div>
                 </div>
@@ -5979,6 +6007,16 @@
                         if (res.ok) {
                             const data = await res.json();
                             this._applyGroupPatch(data.group || { id: group.id, members: [] }, [rightPhoto.id]);
+                        } else {
+                            // §41, 2026-09-29 — the compare-viewer Link/Unlink
+                            // button is the first caller of this function that
+                            // can hit the new completed/cancelled 409 without
+                            // the drag-drop path's own precondition (a
+                            // read-only tail cell has no drag source to begin
+                            // with) ruling it out first — surfaced the same
+                            // way pairDropOnPredecessor() already does.
+                            const data = await res.json().catch(() => ({}));
+                            this.error = data.message || 'Could not unlink those photos — please try again.';
                         }
                         return;
                     }
@@ -5989,6 +6027,9 @@
                     });
                     if (res.ok) {
                         this._applyGroupPatch(await res.json(), [leftPhoto.id, rightPhoto.id]);
+                    } else {
+                        const data = await res.json().catch(() => ({}));
+                        this.error = data.message || 'Could not link those photos — please try again.';
                     }
                 },
 
@@ -6404,6 +6445,14 @@
                 compareViewerIsMatched() {
                     if (!this.compareViewer.leftPhotoId || !this.compareViewer.rightPhotoId) return false;
                     return !!this.matchFor(this.compareViewer.leftPhotoId, this.compareViewer.rightPhotoId);
+                },
+                // §41, 2026-09-29 — same lock the server enforces
+                // (RentalInspectionRecordingController::assertPhotoMatchingUnlocked());
+                // checked here purely so the Link/Unlink control isn't shown
+                // at all once it would just 409 — never the source of truth,
+                // the server call above is.
+                compareViewerMatchingLocked() {
+                    return !!(this.chainTail && ['completed', 'cancelled'].includes(this.chainTail.status));
                 },
                 // ── Forensic zoom/pan (item 3/4, approved) ───────────────────
                 // Real continuous zoom+pan: wheel/pinch, drag to pan, PLUS

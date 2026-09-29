@@ -98,6 +98,19 @@
  *      and asserts BOTH panes render a real image (naturalWidth/Height > 0)
  *      each time, not just the clicked side. Screenshots saved to the
  *      scratchpad for a human to review.
+ *  28. Manual link/unlink (Johan, 2026-09-29 — "where do we link photos?
+ *      Either on the inspections screen or the photo screen?"). The
+ *      compare-viewer "Link these"/"Linked"+"Unlink" button, backed by
+ *      pre-existing but previously never-wired JS (toggleCompareMatch()/
+ *      compareViewerMatch()) and pre-existing backend endpoints
+ *      (storePhotoMatch()/destroyPhotoMatch()). Clicks the (still unpaired
+ *      — same Ceiling item, runs BEFORE #26) predecessor photo, asserts
+ *      "Link these" shows; clicks it, asserts "Linked"+"Unlink" show;
+ *      closes and REOPENS the viewer (proves the link persisted
+ *      server-side, not just client state) and asserts both panes still
+ *      render real images with the Linked badge present; clicks Unlink,
+ *      asserts it reverts to "Link these". Screenshots of all four states
+ *      saved to the scratchpad.
  *
  *  NOT covered (named so this stays an honest list, not a silent gap):
  *   - The document-highlighter's CREATE flow (drag a new highlight on the
@@ -841,6 +854,95 @@ async function main() {
         'clicked NEW (tail) photo', 'compare-viewer-new-clicked.png',
       );
       record(name, oldSide.ok && newSide.ok, [oldSide.detail, newSide.detail].join(' | '));
+    }
+
+    // 28 — Manual link/unlink: link -> reopen -> partner still shows -> unlink
+    // (Johan, 2026-09-29 — "where do we link photos?"). Run BEFORE #26
+    // (Auto-pair), same reason #27 does: the Ceiling item's predecessor/tail
+    // photos are still genuinely unpaired at this point in the run, which is
+    // the ONLY state that actually exercises the new Link button (once
+    // paired, "Linked"/"Unlink" is all there is to click).
+    {
+      const name = '28. Manual link/unlink — link, reopen, partner shows, unlink';
+      const ceilingId = inspFx.ceiling_item_id;
+      const firstVisible = async (selector) => {
+        const handles = await inspPage.$$(selector);
+        for (const h of handles) {
+          const box = await h.boundingBox();
+          if (box && box.width > 0 && box.height > 0) return h;
+        }
+        return null;
+      };
+      const visible = async (qa) => !!(await firstVisible(`[data-qa="${qa}"]`));
+      const dims = async (qa) => {
+        const img = await firstVisible(`[data-qa="${qa}"]`);
+        if (!img) return null;
+        return inspPage.evaluate((el) => ({ w: el.naturalWidth, h: el.naturalHeight }), img);
+      };
+
+      const steps = [];
+      const step = (ok, detail) => steps.push({ ok, detail });
+
+      const predTile = await firstVisible(`img[data-qa="insp-tile-predecessor"][data-item-id="${ceilingId}"]`);
+      if (!predTile) {
+        record(name, false, 'predecessor tile not found — cannot run this check');
+      } else {
+        await predTile.click();
+        await new Promise((r) => setTimeout(r, 600));
+
+        // Not linked yet: "Link these" visible, "Linked"/"Unlink" not.
+        const linkBtnBefore = await visible('cv-link-btn');
+        const linkedBadgeBefore = await visible('cv-link-badge');
+        step(linkBtnBefore && !linkedBadgeBefore, `before link: Link-these button=${linkBtnBefore}, Linked badge=${linkedBadgeBefore}`);
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-before.png' });
+
+        const linkBtn = await firstVisible('[data-qa="cv-link-btn"]');
+        if (linkBtn) {
+          await linkBtn.click();
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const linkedBadgeAfter = await visible('cv-link-badge');
+        const unlinkBtnAfter = await visible('cv-unlink-btn');
+        step(linkedBadgeAfter && unlinkBtnAfter, `after Link these clicked: Linked badge=${linkedBadgeAfter}, Unlink button=${unlinkBtnAfter}`);
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-after.png' });
+
+        // Close, then REOPEN — proves the link persisted server-side, not
+        // just client-side optimistic state.
+        await inspPage.keyboard.press('Escape');
+        await new Promise((r) => setTimeout(r, 400));
+        const predTileAgain = await firstVisible(`img[data-qa="insp-tile-predecessor"][data-item-id="${ceilingId}"]`);
+        if (predTileAgain) {
+          await predTileAgain.click();
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const leftDims = await dims('cv-pane-img-left');
+        const rightDims = await dims('cv-pane-img-right');
+        const linkedBadgeReopened = await visible('cv-link-badge');
+        step(
+          !!leftDims && leftDims.w > 0 && !!rightDims && rightDims.w > 0 && linkedBadgeReopened,
+          `reopened: left=${leftDims ? leftDims.w + 'x' + leftDims.h : 'none'}, right=${rightDims ? rightDims.w + 'x' + rightDims.h : 'none'}, Linked badge=${linkedBadgeReopened}`
+        );
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-reopened.png' });
+
+        // Unlink — reverts to "Link these".
+        const unlinkBtn = await firstVisible('[data-qa="cv-unlink-btn"]');
+        if (unlinkBtn) {
+          await unlinkBtn.click();
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        const linkBtnAfterUnlink = await visible('cv-link-btn');
+        const linkedBadgeAfterUnlink = await visible('cv-link-badge');
+        step(linkBtnAfterUnlink && !linkedBadgeAfterUnlink, `after Unlink clicked: Link-these button=${linkBtnAfterUnlink}, Linked badge=${linkedBadgeAfterUnlink}`);
+
+        await inspPage.screenshot({ path: '/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/manual-link-unlinked.png' });
+        await inspPage.keyboard.press('Escape');
+        await new Promise((r) => setTimeout(r, 300));
+
+        record(name, steps.every((s) => s.ok), steps.map((s) => s.detail).join(' | '));
+      }
     }
 
     // 26 — Auto-pair. Run first: nothing else on the Ceiling item (the only

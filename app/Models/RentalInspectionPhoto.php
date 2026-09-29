@@ -111,6 +111,22 @@ class RentalInspectionPhoto extends Model
     }
 
     /**
+     * §41, 2026-09-29 — the (room, item) identity two photos must share to
+     * be linked, manually or automatically: property_room_id plus the item
+     * this photo's own observation points at, if any. Same resolution
+     * RentalInspectionPhotoAutoPairService::keyFor() already used privately
+     * to decide which candidates are even OFFERED for auto-pair — shared
+     * here so RentalInspectionPhotoMatchGroup::linkPhotos() enforces the
+     * identical "same item, never a different one" rule against a MANUAL
+     * link too, instead of trusting the click/drag source to have picked
+     * correctly.
+     */
+    public function matchKey(): string
+    {
+        return $this->property_room_id . ':' . ($this->observation?->rental_inspection_item_id ?? 'none');
+    }
+
+    /**
      * Tag this photo to a room and, optionally, a specific item's
      * observation within that room. Supersedes whatever it was tagged to
      * before — a plain update, not a new row — so untagging is simply

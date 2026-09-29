@@ -157,6 +157,14 @@
     .rir-strip-row { position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; display:flex; flex-wrap:nowrap; align-items:flex-start; gap:6px; }
     .rir-strip-tile { flex:none; width:86px; height:64px; overflow:hidden; background:var(--surface-3); box-sizing:border-box; }
     .rir-strip-badge { position:absolute; top:2px; left:2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:rgba(0,0,0,0.65); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; z-index:1; pointer-events:none; }
+    /* §41, 2026-09-29 — a small, clickable indicator on a tile whose photo
+       already belongs to an active match group (manual OR auto-paired —
+       the same groupForPhoto() lookup, one indicator for both). Opposite
+       corner from .rir-strip-badge's index number so the two never
+       overlap; unlike that badge this one is NOT pointer-events:none — it
+       is its own second way (besides the tile image itself) to open the
+       compare viewer already anchored on this exact pair. */
+    .rir-strip-linked-badge { position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:8px; background:#4FBE82; color:#0B0E12; font-size:9px; font-weight:700; line-height:16px; text-align:center; z-index:1; cursor:pointer; }
     .rir-strip-nomatch { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px dashed var(--border); }
     .rir-strip-nomatch-label { font-size:8px; font-weight:700; letter-spacing:0.02em; color:var(--text-muted); text-align:center; line-height:1.2; padding:0 4px; }
     .rir-strip-more { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); font-size:0.75rem; font-weight:700; padding:0; cursor:pointer; }

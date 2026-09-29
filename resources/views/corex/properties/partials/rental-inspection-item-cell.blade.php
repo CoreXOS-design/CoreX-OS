@@ -192,6 +192,13 @@
                              data-qa="insp-tile-predecessor" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
                              @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
+                        {{-- §41, 2026-09-29 — linked indicator; same
+                             openCompareViewer() call as the tile image
+                             itself, just a second, more discoverable
+                             affordance a link/unlink already happened here. --}}
+                        <span class="rir-strip-linked-badge" x-show="tile.photo && groupForPhoto(tile.photo.id)"
+                              title="Linked to a photo on the other side — click to compare"
+                              @click.stop="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})">&#128279;</span>
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
                         {{-- §25, AT-433 Part C — the photo note, under the
                              thumbnail, truncated to two lines. Keyed off
@@ -220,8 +227,15 @@
                          photoDraggedForPairing()'s own docblock in
                          show.blade.php for why this is not a second drag
                          mechanism. --}}
+                    {{-- §41, 2026-09-29 — this tile's own bottom-left/top-right/
+                         bottom-right corners are already Select/Back-to-room/
+                         Back-to-untagged (below), so the "linked" indicator here
+                         is a border outline on the tile itself rather than a
+                         fifth corner badge — selected still wins if both are
+                         somehow true (unlikely: a selected tile is mid-action,
+                         not settled either way). --}}
                     <div class="relative rounded-md rir-strip-tile" :class="tile.photo ? '' : 'rir-strip-nomatch'"
-                         :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''"
+                         :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : (tile.photo && groupForPhoto(tile.photo.id) ? 'outline:2px solid #4FBE82;' : '')"
                          :draggable="!!tile.photo"
                          @dragstart="tile.photo && photoDraggedForPairing({{ $inspectionJs }}, tile.photo.id, $event)"
                          @dragend="photoDragEndForPairing()">
