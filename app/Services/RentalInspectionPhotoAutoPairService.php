@@ -82,14 +82,7 @@ class RentalInspectionPhotoAutoPairService
             ->with('observation')
             ->get()
             ->reject(fn (RentalInspectionPhoto $photo) => $this->everTouched($photo))
-            ->groupBy(fn (RentalInspectionPhoto $photo) => $this->keyFor($photo));
-    }
-
-    private function keyFor(RentalInspectionPhoto $photo): string
-    {
-        $itemId = $photo->observation?->rental_inspection_item_id;
-
-        return $photo->property_room_id . ':' . ($itemId ?? 'none');
+            ->groupBy(fn (RentalInspectionPhoto $photo) => $photo->matchKey());
     }
 
     /** Has this photo EVER belonged to a match, active or removed — not just "has no active group right now." */

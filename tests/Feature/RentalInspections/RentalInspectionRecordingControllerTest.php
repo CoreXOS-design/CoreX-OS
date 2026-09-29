@@ -1772,6 +1772,110 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             ->assertNotFound();
     }
 
+    // ── §41, 2026-09-29 — manual link/unlink: same-item requirement, the
+    //    completed/cancelled lock, auto-pair never overwriting a manual
+    //    link ────────────────────────────────────────────────────────────
+
+    private function makePhotoForItem(RentalInspection $inspection, RentalInspectionItem $item, PropertyRoom $room): RentalInspectionPhoto
+    {
+        $observation = RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
+        ]);
+
+        return RentalInspectionPhoto::create([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_observation_id' => $observation->id, 'property_room_id' => $room->id,
+            'storage_path' => '/fake/' . uniqid() . '.jpg', 'uploaded_by_user_id' => $this->agent->id,
+        ]);
+    }
+
+    public function test_matching_two_photos_tagged_to_the_same_item_is_allowed(): void
+    {
+        $room = $this->makeRoom();
+        $item = $this->makeItem();
+        $photoIn = $this->makePhotoForItem($this->makeInspection(RentalInspection::TYPE_IN), $item, $room);
+        $photoOut = $this->makePhotoForItem($this->makeInspection(RentalInspection::TYPE_OUT), $item, $room);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id' => $photoOut->id, 'anchor_photo_id' => $photoIn->id,
+        ])->assertStatus(201);
+    }
+
+    /** Johan, 2026-09-29 — "refuse links across different spaces/items unless it's the same item." */
+    public function test_matching_two_photos_tagged_to_different_items_is_rejected(): void
+    {
+        $room = $this->makeRoom();
+        $itemA = $this->makeItem();
+        $itemB = RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Ceiling', 'created_by_user_id' => $this->agent->id,
+        ]);
+        $photoIn = $this->makePhotoForItem($this->makeInspection(RentalInspection::TYPE_IN), $itemA, $room);
+        $photoOut = $this->makePhotoForItem($this->makeInspection(RentalInspection::TYPE_OUT), $itemB, $room);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id' => $photoOut->id, 'anchor_photo_id' => $photoIn->id,
+        ])->assertStatus(422);
+    }
+
+    /** chainTailFor() resolves photoOut's own inspection here — makeMatchablePair()'s two inspections share one lease, out is the later id, neither has a successor. */
+    public function test_matching_is_refused_once_the_current_inspection_is_completed(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $photoOut->inspection->forceFill(['status' => RentalInspection::STATUS_COMPLETED])->save();
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id' => $photoIn->id, 'anchor_photo_id' => $photoOut->id,
+        ])->assertStatus(409);
+    }
+
+    public function test_unmatching_is_refused_once_the_current_inspection_is_cancelled(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
+        $member = $group->members()->where('rental_inspection_photo_id', $photoOut->id)->first();
+        $photoOut->inspection->forceFill(['status' => RentalInspection::STATUS_CANCELLED])->save();
+
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $member]))
+            ->assertStatus(409);
+    }
+
+    /** Auto-pair must never overwrite a manual link (RentalInspectionPhotoAutoPairService::everTouched()). */
+    public function test_auto_pair_never_reconsiders_a_manually_linked_photo(): void
+    {
+        $room = $this->makeRoom();
+        $itemA = $this->makeItem();
+        $itemB = RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Walls', 'created_by_user_id' => $this->agent->id,
+        ]);
+        // startNext(), not two independent makeInspection() calls — auto-pair
+        // resolves its predecessor via $tail->previousInspection ?? inferredPredecessorFor(),
+        // and this test needs the REAL chain link (previous_inspection_id),
+        // not the type/date-ordering fallback.
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $photoInA = $this->makePhotoForItem($in, $itemA, $room);
+        $photoOutA = $this->makePhotoForItem($out, $itemA, $room);
+        $photoInB = $this->makePhotoForItem($in, $itemB, $room);
+        $photoOutB = $this->makePhotoForItem($out, $itemB, $room);
+
+        // Item A's pair is manually linked FIRST — the state auto-pair must never touch.
+        \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoOutA, $photoInA, $this->agent);
+        $manualGroupId = \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photoInA)->id;
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk();
+
+        $this->assertSame($manualGroupId, \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photoInA)->fresh()->id);
+        $this->assertNotNull(\App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photoInB));
+        $this->assertSame(
+            \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photoInB)->id,
+            \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photoOutB)->id
+        );
+    }
+
     public function test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();

@@ -1020,9 +1020,64 @@ class RentalInspectionRecordingController extends Controller
         abort_if((int) $anchor->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
         abort_if((int) $photo->rental_inspection_id === (int) $anchor->rental_inspection_id, 422, 'Photos on the same inspection cannot be matched to each other.');
 
-        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photo, $anchor, $request->user());
+        // §41, 2026-09-29, Johan — manual linking must respect the same
+        // completed/cancelled lock the rest of this inspection's recording
+        // surface already does (item-cell.blade.php's own readOnly branch
+        // once the tail completes). This endpoint has no Blade rendering to
+        // fall back on, so it is the one place that MUST check server-side
+        // — a client that still has the modal open (stale tab, or simply
+        // never reloaded) must not be able to re-pair evidence after the
+        // record is done.
+        $this->assertPhotoMatchingUnlocked($property, $photo, $anchor);
+
+        try {
+            $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photo, $anchor, $request->user());
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json($group->toComparePayload(), 201);
+    }
+
+    /**
+     * §41 — the one place BOTH storePhotoMatch() and destroyPhotoMatch()
+     * refuse once matching should no longer be touched. Two DIFFERENT
+     * checks, deliberately not symmetric:
+     *
+     * - CANCELLED is checked per-photo, directly off each photo's OWN
+     *   inspection — cancelling an inspection voids it outright, so none
+     *   of ITS OWN photos should ever be a valid match participant again,
+     *   regardless of which role (predecessor or tail) they'd otherwise
+     *   play. chainTailFor() cannot be used for this half: its own query
+     *   structurally EXCLUDES cancelled inspections from ever being
+     *   resolved as "the tail" (`where('status', '!=', CANCELLED)`), so a
+     *   check routed through chainTailFor() would silently stop firing the
+     *   moment the very inspection it needs to catch gets cancelled —
+     *   found by a real test failure while building this (a cancelled
+     *   inspection's own unmatch call returned 200, not 409, because
+     *   chainTailFor() had already moved on to treating the OTHER,
+     *   non-cancelled inspection as "the tail").
+     * - COMPLETED is checked via chainTailFor($property) — scoped to the
+     *   property's own CURRENT inspection only. The predecessor side of
+     *   any pair is, by definition, always already completed (that is how
+     *   it became a predecessor); checking "either photo's own inspection
+     *   is completed" would make matching permanently impossible. A
+     *   completed inspection is still real, valid comparison evidence
+     *   (unlike cancelled, which is void) — only the property's own
+     *   CURRENT cycle being done locks further linking against it.
+     */
+    private function assertPhotoMatchingUnlocked(Property $property, RentalInspectionPhoto ...$photos): void
+    {
+        foreach ($photos as $p) {
+            if ($p->inspection && $p->inspection->status === RentalInspection::STATUS_CANCELLED) {
+                abort(409, 'One of these photos belongs to a cancelled inspection — photos can no longer be linked or unlinked.');
+            }
+        }
+
+        $tail = RentalInspection::chainTailFor($property);
+        if ($tail && $tail->status === RentalInspection::STATUS_COMPLETED) {
+            abort(409, 'This inspection is completed — photos can no longer be linked or unlinked.');
+        }
     }
 
     /**
@@ -1035,6 +1090,15 @@ class RentalInspectionRecordingController extends Controller
     public function destroyPhotoMatch(Request $request, Property $property, \App\Models\RentalInspectionPhotoMatchGroupMember $member): JsonResponse
     {
         abort_if((int) $member->group?->property_id !== (int) $property->id, 404);
+
+        // §41 — same lock as storePhotoMatch() above; unlinking after the
+        // record is done is just as much a retroactive edit to the
+        // comparison as linking would be. Only the member's OWN photo is
+        // checked for the cancelled half — the one actually being removed;
+        // a larger group's other members, if any, are each still subject
+        // to this exact same check the next time THEY are individually
+        // touched.
+        $this->assertPhotoMatchingUnlocked($property, $member->photo);
 
         $groupId = $member->rental_inspection_photo_match_group_id;
         $member->removeAndMaybeArchiveGroup($request->user());

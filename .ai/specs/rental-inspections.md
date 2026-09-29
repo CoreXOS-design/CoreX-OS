@@ -6388,3 +6388,158 @@ run of this fixture — **not introduced by this change** and **not fixed in the
 feature, out of scope for this fix — reported to the conductor separately). Fixed here by building the
 `User` row directly with the same fields `UserFactory::definition()` sets, removing the `fake()`/Faker
 dependency from this one fixture entirely.
+
+---
+
+## 41. Manual photo linking — a button in the compare viewer, not just a drag gesture (2026-09-29, Johan)
+
+Johan's question that started this: *"where on the inspections do we link photos? Either on the
+inspections screen or the photo screen?"* Investigation found the honest answer was neither, in any
+discoverable way — see §41.1.
+
+### 41.1 What already existed (investigated first, file:line)
+
+The match-group data layer was already fully built and correct:
+
+- **Model/table** — `App\Models\RentalInspectionPhotoMatchGroup` (`app/Models/RentalInspectionPhotoMatchGroup.php`,
+  table `rental_inspection_photo_match_groups`) and `App\Models\RentalInspectionPhotoMatchGroupMember`
+  (`app/Models/RentalInspectionPhotoMatchGroupMember.php`, table
+  `rental_inspection_photo_match_group_members`) — a photo belongs to at most one active group; a group
+  auto-archives once it drops to ≤1 member. Both soft-deletable, migrations
+  `database/migrations/2026_10_03_100000_create_rental_inspection_photo_match_groups_table.php` and
+  `..._100100_create_rental_inspection_photo_match_group_members_table.php` (superseding the older
+  pairwise `rental_inspection_photo_matches` table, migrated forward by `..._100200_migrate_pairwise_
+  photo_matches_into_groups.php`).
+- **The one linking primitive** — `RentalInspectionPhotoMatchGroup::linkPhotos()`
+  (`app/Models/RentalInspectionPhotoMatchGroup.php:126-145`). **The one unlinking primitive** —
+  `RentalInspectionPhotoMatchGroupMember::removeAndMaybeArchiveGroup()`
+  (`app/Models/RentalInspectionPhotoMatchGroupMember.php:59-69`) — already a genuine soft action with a
+  full audit trail (`removed_by_user_id`, soft `delete()`, never hard-deleted, auto-archives the group);
+  **no change needed here.**
+- **Auto-pair service** — `App\Services\RentalInspectionPhotoAutoPairService::runFor()`
+  (`app/Services/RentalInspectionPhotoAutoPairService.php:43-61`) already refuses to touch a manually
+  matched photo: `everTouched()` (originally lines 96-101) checks `withTrashed()` for ANY match
+  membership ever, active or removed — a photo linked (or even linked-then-unlinked) once is permanently
+  excluded from future auto-pair consideration. **No change needed here** — proven with a new test
+  (§41.4).
+- **Manual endpoints — already existed, routes/web.php:4514-4522**:
+  `POST /corex/properties/{property}/rental-inspection-photo-matches` →
+  `RentalInspectionRecordingController::storePhotoMatch()` (line 1013 pre-this-build) — validated same
+  property (404) and refused same-inspection pairing (422), but had **no same-item/space validation at
+  all**. `DELETE .../rental-inspection-photo-matches/{member}` → `destroyPhotoMatch()` (line 1039 pre)
+  — same gap. `POST .../rental-inspection-photo-matches/auto-pair` → `autoPairPhotoMatches()` (line
+  1067 pre) — unchanged.
+- **Frontend — the actual gap, and the reason for Johan's question**: `toggleCompareMatch(leftPhoto,
+  rightPhoto)` (`show.blade.php:5997-6021` pre-this-build) — the link/unlink primitive — and
+  `compareViewerMatch()`/`compareViewerIsMatched()` (`show.blade.php:6426-6435` pre, docblock:
+  *"Match/unmatch straight from the viewer/carousel, without leaving it (item 6, approved)"*) **already
+  existed and were fully correct, but were never called from anywhere in the template** — confirmed by
+  grep: each function has exactly one definition and zero `@click`/`x-show`/`x-text` callers anywhere in
+  `show.blade.php`. Dead, unwired code. The **only** functioning manual-link UI before this build was
+  the drag-and-drop gesture on the inspections screen itself (`pairDropOnPredecessor()`/
+  `photoDraggedForPairing()`, `show.blade.php:5995-6066`, item-cell.blade.php's predecessor tile as drop
+  target) — a real mechanism, but not on the photo/compare screen, and not discoverable as a button —
+  exactly what Johan's question named.
+- **"Retag"/"Tag photo"** (`show.blade.php:5332` single mode, `:5463` compare mode,
+  `compareViewerOpenTagPanel()` at `:6567`) is a **different feature** — assigning ONE photo to a
+  room/item, not linking two photos together. Not touched.
+- **"Move together"** (`show.blade.php:5270` label, `compareViewerToggleLock()`) shares ONE pan/zoom
+  transform between both panes while comparing — a VIEWING convenience, separate from the match-group
+  DATA link. Navigating within a side's carousel (`compareViewerStep()`/`compareViewerSelectCarouselPhoto()`)
+  already reads through the same `compareViewerGroupSideMembers()` → `groupForPhoto()` → `this.photoMatches`
+  chain a manually-created link updates — **confirmed by reading, no code change needed**: a manually
+  linked pair already moves together under "Move together" and steps together under carousel navigation,
+  the exact same as an auto-paired one, because both are the same underlying data.
+
+### 41.2 What was built
+
+**Backend — same-item/space validation** (the one real gap in the shared linking primitive, so BOTH the
+new button AND the pre-existing drag gesture get it, not just one path):
+
+- `RentalInspectionPhoto::matchKey(): string` (new, `app/Models/RentalInspectionPhoto.php`) —
+  `property_room_id . ':' . (item id or 'none')`, the same identity `RentalInspectionPhotoAutoPairService`
+  already computed privately to decide which candidates are even OFFERED for auto-pair.
+  `RentalInspectionPhotoMatchGroup::linkPhotos()` now throws `InvalidArgumentException` when
+  `$clicked->matchKey() !== $anchor->matchKey()` — two untagged photos in the same room CAN still be
+  linked (both resolve to the same `'<room>:none'` key); a tagged photo and an untagged one, or two
+  different items, cannot. `RentalInspectionPhotoAutoPairService`'s own private `keyFor()` was refactored
+  to call this same new method — one identity computation, not two that could drift.
+- **Backend — the completed/cancelled lock**: `RentalInspectionRecordingController::
+  assertPhotoMatchingUnlocked(Property $property)` (new, private) — resolves `RentalInspection::
+  chainTailFor($property)` (same resolution `autoPairPhotoMatches()` already used) and aborts 409 once
+  that TAIL specifically is completed or cancelled. Checked the TAIL only, deliberately — the predecessor
+  side of any pair is, by definition, always already completed (that's how it became a predecessor), so
+  gating on "either photo's own inspection is locked" would make matching permanently impossible. Called
+  from both `storePhotoMatch()` and `destroyPhotoMatch()`. This endpoint has no Blade `@if($readOnly)`
+  branch to fall back on the way item-cell.blade.php's tile buttons do once their own tail completes, so
+  it is the one place server-side enforcement is the actual guard, not just belt-and-braces.
+- `storePhotoMatch()`'s call to `linkPhotos()` is now wrapped in `try/catch (\InvalidArgumentException $e)
+  → 422` — previously an uncaught self-match/item-mismatch exception would have reached the browser as a
+  raw 500 (BUILD_STANDARD §4).
+
+**Frontend — the compare-viewer button** (`show.blade.php`, top bar, next to "Move together"): shown only
+in compare mode, once both panes have a real photo, and only while `compareViewerMatchingLocked()` (new
+— mirrors the server's own tail-status check) is false. Not linked → **"Link these"** button. Linked → a
+green **"Linked"** pill plus an **"Unlink"** button. Both call the pre-existing `compareViewerMatch()` →
+`toggleCompareMatch()`, which now also surfaces the server's error message via `this.error` on a non-OK
+response (previously silent) — the new 409/422 failure modes need to be visible, not swallowed, the same
+way `pairDropOnPredecessor()`'s own errors already are.
+
+**Frontend — the inspection-screen indicator** (item-cell.blade.php): a small clickable green badge
+(🔗, class `.rir-strip-linked-badge`) on the **predecessor (read-only) tile**, opposite corner from the
+index-number badge (that side's corners were free); a green **outline**
+on the **tail (live) tile** instead of a badge — that side's four corners were already Select/
+Back-to-room/Back-to-untagged/index, so a fifth floating badge would have collided. Both read the same
+`groupForPhoto(tile.photo.id)` the compare viewer already uses. Clicking either the badge or the tile
+itself opens the compare viewer already anchored on that exact pair (`openCompareViewer()`, unchanged —
+already resolves the matched partner via the fix in §40).
+
+### 41.3 Deliberately not changed
+
+- The drag-and-drop mechanism itself — still there, still the tail-tile-drags-onto-predecessor-tile
+  gesture, now protected by the same same-item and lock checks since it shares `storePhotoMatch()`.
+- `compareViewerSelectCarouselPhoto()`/`compareViewerStep()` — confirmed already correct for manual
+  links (§41.1), not touched.
+- No frontend same-item check was added to the compare-viewer button specifically — structurally
+  unreachable: the compare viewer's own carousels are already scoped to one room/item at a time
+  (`compareViewerPhotosForSide()`), so `compareViewer.leftPhotoId`/`rightPhotoId` can never be two
+  different items in the first place. The drag-and-drop path (tiles from different items both visible on
+  a scrollable screen) genuinely could reach it before this build — that's why the check lives in the
+  shared backend primitive, not a frontend-only guard on one caller.
+
+### 41.4 Verified
+
+`php -l` clean on every changed file; `php artisan view:clear` clean (confirms the new Blade/Alpine
+markup compiles). New tests in `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php`:
+`test_matching_two_photos_tagged_to_the_same_item_is_allowed`,
+`test_matching_two_photos_tagged_to_different_items_is_rejected`,
+`test_matching_is_refused_once_the_current_inspection_is_completed`,
+`test_unmatching_is_refused_once_the_current_inspection_is_cancelled`,
+`test_auto_pair_never_reconsiders_a_manually_linked_photo` (the last one is new coverage for the
+`everTouched()` behaviour, which had zero PHPUnit coverage before this build — only ever exercised by the
+real-browser click-through gate). All 5 pass, plus all 8 pre-existing photo-match tests in the same file
+still pass unchanged — 13/13 on the full photo-matching subset (52 assertions).
+
+Building the cancelled-lock test caught a real bug in the first draft of `assertPhotoMatchingUnlocked()`:
+routing the cancelled check through `chainTailFor($property)` (same as completed) silently never fired,
+because `chainTailFor()`'s own query structurally EXCLUDES cancelled inspections from ever being resolved
+as "the tail" — the moment the inspection got cancelled, `chainTailFor()` just started resolving a
+DIFFERENT (non-cancelled) inspection as the tail instead, and the lock check found nothing wrong with
+that one. Fixed by checking cancelled directly off each of the two photos' own inspections instead (§41.2
+above reflects the corrected version) — found by the test failing (409 expected, got 200), not assumed.
+
+**Unrelated, pre-existing, confirmed not caused by this build** — 3 failures found running the full test
+file, none of them touching photo-matching:
+- `test_kind_item_adds_one_facet_to_an_existing_room_and_creates_no_new_room` and a neighbouring
+  "existing room" item-template test (lines 140/180) — expected item labels (`Ceiling`/`Walls`/`Floors`/
+  `Windows`/`Doors`) vs. a completely different 14-label set (`Aircon`/`Blinds`/`Carpet`/...). This diff's
+  own test-file change is a pure addition (104 insertions, 0 deletions, confirmed via `git diff --stat`)
+  — neither test was touched, and both are about room/item KIND templates, unrelated to photo matching.
+  Very likely the same class of seed/snapshot drift `RentalInventoryPartyRolesTest` §22.4 already
+  documents for `ContactType` rows — not investigated further here (out of scope), flagged to the
+  conductor.
+- `test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists` — asserts
+  `photo_matches` has 1 group after `linkPhotos()`, gets 0. **Confirmed pre-existing, not a regression**:
+  re-ran this exact test with every §41 code change (`app/`, `resources/`, `database/`) stashed out,
+  against the clean QA1 baseline — fails identically, same assertion, same line. Not investigated further
+  (out of scope for this build), flagged to the conductor.

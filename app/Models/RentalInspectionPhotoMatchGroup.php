@@ -129,6 +129,22 @@ class RentalInspectionPhotoMatchGroup extends Model
             throw new \InvalidArgumentException('A photo cannot be matched to itself.');
         }
 
+        // §41, 2026-09-29, Johan — "refuse links across different
+        // spaces/items unless it's the same item." Manual linking (the
+        // compare-viewer button, and the pre-existing drag-and-drop onto a
+        // predecessor tile) had no such check before this — only auto-pair
+        // was implicitly safe, because candidatesByKey() never even groups
+        // two different items together to offer as a pair. Same key,
+        // enforced here so EVERY caller of this one linking primitive gets
+        // the rule, not just the one that happened to be careful. An
+        // untagged photo's key is still well-defined (matchKey() falls
+        // back to 'none' for a null item) — two untagged photos in the
+        // same room CAN be linked; an untagged photo and a tagged one, or
+        // two different items, cannot.
+        if ($clicked->matchKey() !== $anchor->matchKey()) {
+            throw new \InvalidArgumentException('These photos are not the same space/item — they cannot be linked.');
+        }
+
         $group = self::forPhoto($anchor);
         if (! $group) {
             $group = self::create([
