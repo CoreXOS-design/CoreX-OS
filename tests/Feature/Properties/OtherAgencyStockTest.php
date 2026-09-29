@@ -395,4 +395,39 @@ class OtherAgencyStockTest extends TestCase
             'source_agent_name'  => 'Jane Agent',
         ], $overrides);
     }
+
+    /**
+     * 2026-09-29 URGENT FIX regression proof. Johan's real extension (v3.7.1)
+     * got "Invalid API token" on every OAS call while the SAME token worked
+     * for Pull Property — because this route family sat on auth.portal_capture
+     * (users.api_token) while Pull Property/healthCheck/logged-user all sit on
+     * auth:sanctum (a real personal_access_tokens row). This test goes through
+     * the real Sanctum bearer-token flow end to end — createToken() +
+     * Authorization: Bearer — exactly what the extension actually sends, not
+     * Sanctum::actingAs() (which bypasses the HTTP auth middleware entirely
+     * and would not have caught this bug).
+     */
+    public function test_consent_wording_and_import_authenticate_with_a_real_sanctum_extension_token(): void
+    {
+        Http::fake(['*' => Http::response('', 404)]);
+
+        $token = $this->agent->createToken('corex-extension')->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/other-agency-stock/consent-wording')
+            ->assertOk()
+            ->assertJsonStructure(['wording', 'version', 'agency_name']);
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/v1/other-agency-stock/import', $this->importPayload(['listing_ref' => 'T-AUTH-1']))
+            ->assertOk()
+            ->assertJson(['success' => true]);
+    }
+
+    public function test_import_rejects_a_bogus_bearer_token_the_same_way_pull_property_does(): void
+    {
+        $this->withHeader('Authorization', 'Bearer not-a-real-token')
+            ->postJson('/api/v1/other-agency-stock/import', $this->importPayload())
+            ->assertUnauthorized();
+    }
 }

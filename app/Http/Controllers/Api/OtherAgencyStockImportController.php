@@ -11,13 +11,16 @@ use Illuminate\Http\Request;
 
 /**
  * .ai/specs/other-agency-stock.md §4 — the Chrome extension's "Import as
- * Other Agency Stock" endpoint. Same auth as the existing portal-capture
- * ingest (AuthenticatePortalCapture: session OR Authorization: Bearer
- * {api_token}) — deliberately NOT the auth:sanctum group the rest of
- * routes/api.php's v1 surface uses, because the extension's popup-issued
- * api_token is checked against users.api_token, not a Sanctum personal
- * access token (see AuthenticatePortalCapture; same reasoning as why
- * /portal-captures/ingest lives outside that group too).
+ * Other Agency Stock" endpoint.
+ *
+ * 2026-09-29 URGENT FIX: this route family used to sit on
+ * auth.portal_capture (users.api_token) on the false assumption that was
+ * "the same mechanism" the rest of the extension uses. It is not — Pull
+ * Property, healthCheck and every other extension call authenticate via a
+ * real Sanctum personal access token, so this route now lives in the same
+ * auth:sanctum + app_access group as those (see routes/api.php) and takes
+ * the identical Authorization: Bearer {sanctum token} the extension already
+ * sends everywhere else.
  */
 class OtherAgencyStockImportController extends Controller
 {
@@ -27,7 +30,11 @@ class OtherAgencyStockImportController extends Controller
     /**
      * The consent wording currently in effect for the authenticated user's
      * agency — the extension fetches this before rendering the required
-     * checkbox, so it never shows stale/hardcoded text.
+     * checkbox, so it never shows stale/hardcoded text. Also returns the
+     * user's own agency name — 2026-09-29 Pomona incident (property
+     * #21094): "Pull as My Own Listing" now cross-checks this against the
+     * page's own listing agency before pulling, so an agent can't silently
+     * pull another agency's mandate into their own stock as a draft.
      */
     public function consentWording(Request $request): JsonResponse
     {
@@ -35,8 +42,9 @@ class OtherAgencyStockImportController extends Controller
         $agency = $user->effectiveAgencyId() ? Agency::find($user->effectiveAgencyId()) : null;
 
         return response()->json([
-            'wording' => $agency?->other_agency_stock_consent_wording ?: OtherAgencyStockConsent::DEFAULT_WORDING,
-            'version' => OtherAgencyStockConsent::WORDING_VERSION,
+            'wording'      => $agency?->other_agency_stock_consent_wording ?: OtherAgencyStockConsent::DEFAULT_WORDING,
+            'version'      => OtherAgencyStockConsent::WORDING_VERSION,
+            'agency_name'  => $agency?->name,
         ]);
     }
 
@@ -55,8 +63,25 @@ class OtherAgencyStockImportController extends Controller
             'consent'      => ['required', 'accepted'],
 
             'price'          => ['nullable', 'numeric', 'min:0'],
-            'property_type'  => ['required', 'string', 'max:100'],
+            // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-29 Pomona
+            // field-mapping fix. property_type is now OPTIONAL and, when
+            // absent, derived server-side by OtherAgencyStockFieldMapper
+            // from property_type_raw/property_type_label_hint — the exact
+            // string a caller sends here (if any) still wins outright, so
+            // this stays a valid explicit override, not a removed field.
+            'property_type'            => ['nullable', 'string', 'max:100'],
+            'property_type_raw'        => ['nullable', 'string', 'max:100'],
+            'property_type_label_hint' => ['nullable', 'string', 'max:100'],
+            // listing_type is now effectively required in practice (the
+            // extension always derives it from the URL), but stays
+            // 'nullable' at the validation layer — an absent value is a
+            // data-quality gap for the service to handle, not a 422.
             'listing_type'   => ['nullable', 'string', 'in:sale,rental'],
+            // P24's OWN external suburb id, straight off the listing URL —
+            // resolved server-side via P24LocationResolver::resolveByP24Id()
+            // into CoreX's internal p24_suburb_id/p24_city_id/p24_province_id
+            // chain (and the denormalised suburb/city/province/town text).
+            'p24_suburb_external_id' => ['nullable', 'integer'],
             'beds'           => ['nullable', 'integer', 'min:0', 'max:50'],
             'baths'          => ['nullable', 'integer', 'min:0', 'max:50'],
             'garages'        => ['nullable', 'integer', 'min:0', 'max:50'],
