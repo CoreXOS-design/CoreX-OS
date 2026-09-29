@@ -695,72 +695,58 @@
       if (lm) leadCtx = JSON.parse(lm[1]);
     } catch (e) { /* ignore */ }
 
-    function idFromP24Url(url) {
-      var m2 = (url || '').match(/images\.prop24\.com\/(\d+)/);
-      return m2 ? m2[1] : null;
-    }
-
-    // The bug this block fixes: every img[src*="images.prop24.com"] on the
-    // page is NOT the gallery — the agent's own profile photo and the
-    // agency's branding logo are ALSO served from images.prop24.com and
-    // rendered elsewhere on the same listing page, and a blanket collection
-    // silently pulls them in as if they were gallery photos (confirmed live,
-    // 2026-09-29 QA1 proof: 32 collected vs the page's own declared 30).
-    // Build an explicit exclusion set from every KNOWN non-gallery image on
-    // this page before collecting, rather than guessing a container class —
-    // .agentDetails[].imageURL / .primaryAgent.imageURL (agent photos) and
-    // offers.offeredBy.worksFor.logo (agency logo, JSON-LD) are the two
-    // confirmed sources; both are exact, not heuristic.
-    var excludeIds = {};
-    if (leadCtx) {
-      if (leadCtx.primaryAgent && leadCtx.primaryAgent.imageURL) {
-        var pid = idFromP24Url(leadCtx.primaryAgent.imageURL);
-        if (pid) excludeIds[pid] = true;
-      }
-      (leadCtx.agentDetails || []).forEach(function (a) {
-        var aid = idFromP24Url(a.imageURL);
-        if (aid) excludeIds[aid] = true;
-      });
-    }
+    // Informational only now (sequential-id download below never touches a
+    // photo URL list to filter) — still sent for display/consistency with
+    // the PP payload shape.
     var agencyLogoUrl = (offers.offeredBy && offers.offeredBy.worksFor && offers.offeredBy.worksFor.logo) || null;
-    var agencyLogoId = idFromP24Url(agencyLogoUrl);
-    if (agencyLogoId) excludeIds[agencyLogoId] = true;
 
-    // 2026-09-29 URGENT FIX #2 (Clayville, 117620040): P24 only renders a
-    // handful of <img> tags into the DOM at load — the rest of the gallery
-    // (confirmed live: page declares imageCount 12, DOM query alone found
-    // 3) sits in the SAME server-rendered HTML as inline script/JSON, not
-    // lazy-loaded. The old code only ran the raw-HTML regex scan when the
-    // DOM query found ZERO images, so on any listing where the DOM found
-    // SOME but not all, the rest were silently dropped. Always merge both
-    // sources — confirmed live this alone recovers all 12 with no browser
-    // interaction (scroll/click) needed.
-    var galleryUrls = [];
-    var seen = {};
-    var imgEls = document.querySelectorAll('img[src*="images.prop24.com"]');
-    for (var k = 0; k < imgEls.length; k++) {
-      var src = imgEls[k].src;
-      var idm = idFromP24Url(src);
-      if (idm && !seen[idm] && !excludeIds[idm]) { seen[idm] = true; galleryUrls.push(src); }
-    }
-    var html = document.documentElement.outerHTML;
-    var re = /https:\/\/images\.prop24\.com\/\d+\/[A-Za-z0-9]+/g;
-    var mm;
-    while ((mm = re.exec(html)) !== null) {
-      var id2 = idFromP24Url(mm[0]);
-      if (id2 && !seen[id2] && !excludeIds[id2]) { seen[id2] = true; galleryUrls.push(mm[0]); }
+    // 2026-09-30 URGENT FIX #3 (Norkem Park, property #21098): the DOM/regex
+    // photos[] collection above (agent/logo exclusion + gallery URL merge)
+    // is GONE. It over-collected once, under-collected once, and OAS
+    // imports still ended up with NO photos, because it built the URL list
+    // client-side and shipped it to a job (DownloadOtherAgencyStockGalleryJob)
+    // that was never wired up right. The Pull flow's own image mechanism has
+    // been proven live to work — same P24 gallery, same page. Reuse it
+    // exactly, verbatim from content-p24-detail.js's extractPropertyDetail():
+    // first image id + declared count, sequential IDs reconstructed and
+    // downloaded SERVER-SIDE (DownloadPortalPropertyImages) — never send a
+    // photo URL list from the client at all.
+    var firstImageId = null;
+    try {
+      var galleryImg = document.querySelector('.js_mainThreeImage img, .p24_printGalleryImage img');
+      if (galleryImg) {
+        var gsrc = galleryImg.getAttribute('src') || '';
+        var gmatch = gsrc.match(/images\.prop24\.com\/(\d+)/);
+        if (gmatch) firstImageId = parseInt(gmatch[1], 10);
+      }
+    } catch (e) { /* */ }
+    if (!firstImageId) {
+      try {
+        var ogImg = document.querySelector('meta[property="og:image"]');
+        if (ogImg) {
+          var ogMatch = ogImg.getAttribute('content').match(/images\.prop24\.com\/(\d+)/);
+          if (ogMatch) firstImageId = parseInt(ogMatch[1], 10);
+        }
+      } catch (e) { /* */ }
     }
 
-    // Validate against the page's OWN declared count (ListingViewDesktop's
-    // imageCount prop) — this is the number the sample listing's page script
-    // itself asserts the gallery holds (30), independent of however many
-    // <img> tags happen to be present. A mismatch doesn't block the import
-    // (a portal's own declared count is informational, not infallible) but
-    // is surfaced to the agent in the preview panel and left on the payload
-    // for the server-side audit log.
-    var expectedPhotoCount = null;
-    var icm = document.documentElement.outerHTML.match(/imageCount"?\s*:\s*(\d+)/);
-    if (icm) expectedPhotoCount = parseInt(icm[1], 10);
+    var imageCount = 0;
+    try {
+      var galleryEl = document.querySelector('.p24_gallery');
+      if (galleryEl) {
+        var countMatch = galleryEl.textContent.match(/(\d+)\s*image/i);
+        if (countMatch) imageCount = parseInt(countMatch[1], 10);
+      }
+    } catch (e) { /* */ }
+    if (!imageCount) {
+      try {
+        var bodyMatch = document.body.innerText.match(/(\d+)\s*image/i);
+        if (bodyMatch) imageCount = parseInt(bodyMatch[1], 10);
+      } catch (e) { /* */ }
+    }
+    if (!imageCount && firstImageId) {
+      imageCount = document.querySelectorAll('.js_mainThreeImage').length || 1;
+    }
 
     var erfSize = null, floorSize = null, beds = null, baths = null, garages = null;
     document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
@@ -856,19 +842,20 @@
       // chain) via P24LocationResolver::resolveByP24Id(). Authoritative
       // over the plain suburb/province text above when present.
       p24_suburb_external_id: p24SuburbExternalId,
-      photos: galleryUrls,
+      // 2026-09-30 URGENT FIX #3 — same signal, same field names
+      // PropertyPullController/DownloadPortalPropertyImages already accept;
+      // no photo URL list sent from the client at all any more.
+      first_image_id: firstImageId,
+      image_count: imageCount,
       source_agency_name: leadCtx ? leadCtx.agencyName : null,
       source_agent_name: leadCtx && leadCtx.primaryAgent ? leadCtx.primaryAgent.name : (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].name : null),
       source_agent_profile_url: leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].profileURL : null,
-      // Sent ONLY so the server can independently cross-check and strip these
-      // exact URLs out of `photos` too (defense in depth — never persisted,
-      // never shown as a listing photo).
       source_agent_image_url: (leadCtx && leadCtx.primaryAgent && leadCtx.primaryAgent.imageURL)
         || (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].imageURL : null) || null,
       source_agency_logo_url: agencyLogoUrl,
       date_posted: ld.datePosted || null,
       _title: ld.name || textOf('h1'),
-      _expected_photo_count: expectedPhotoCount,
+      _expected_photo_count: imageCount,
     };
   }
 
@@ -1000,16 +987,20 @@
       if (data.baths != null) feats.push('<span class="feat">' + data.baths + ' Bath</span>');
       if (data.garages != null) feats.push('<span class="feat">' + data.garages + ' Garage</span>');
       els.oasFeatures.innerHTML = feats.join('');
-      const photoCount = (data.photos || []).length;
-      let photoCountText = photoCount + ' photo' + (photoCount !== 1 ? 's' : '') + ' will be imported';
-      if (data._expected_photo_count != null && data._expected_photo_count !== photoCount) {
-        photoCountText += ' (the page declares ' + data._expected_photo_count + ' — check the gallery before importing)';
-      }
-      els.oasImagesCount.textContent = photoCountText;
+      // 2026-09-30 URGENT FIX #3 — P24 no longer sends a photos[] URL list
+      // (see p24ExtractOasFn); count/preview off image_count + first_image_id,
+      // the same signal Pull's own preview is built from. PP is unchanged —
+      // it still sends a real photos[] array (bp.galleryPhotos).
+      const isP24Photos = data.first_image_id != null;
+      const photoCount = isP24Photos ? (data.image_count || 0) : (data.photos || []).length;
+      els.oasImagesCount.textContent = photoCount + ' photo' + (photoCount !== 1 ? 's' : '') + ' will be imported';
       els.oasAgency.textContent = data.source_agency_name ? ('Agency: ' + data.source_agency_name) : 'Agency not shown (private seller, or not on this page) — import will proceed with a blank agency.';
-      if (data.photos && data.photos[0]) {
+      const thumbUrl = isP24Photos
+        ? (data.first_image_id ? 'https://images.prop24.com/' + data.first_image_id + '/Ensure1280x720' : null)
+        : (data.photos && data.photos[0] ? data.photos[0] : null);
+      if (thumbUrl) {
         const img = document.createElement('img');
-        img.src = data.photos[0];
+        img.src = thumbUrl;
         els.oasThumb.appendChild(img);
       }
 
@@ -1032,10 +1023,23 @@
     els.oasImportBtn.disabled = !els.oasConsentCheck.checked;
   });
 
-  els.oasImportBtn.addEventListener('click', async () => {
+  // 2026-09-30 URGENT FIX #3 (Norkem Park, property #21098): OAS import had
+  // NO photos. Reuses the Pull flow's own image mechanism end to end — same
+  // statePulling progress UI, same startImagePolling()/pull-status endpoint,
+  // same DownloadPortalPropertyImages job server-side. Only the completion
+  // screen differs (oasComplete, not pullComplete).
+  els.oasImportBtn.addEventListener('click', importOas);
+
+  async function importOas() {
     if (!oasExtracted || !els.oasConsentCheck.checked) return;
-    els.oasImportBtn.disabled = true;
-    els.oasMsg.textContent = 'Importing...';
+
+    hideError();
+    showState('pulling');
+    setPullStep('Create', 'active');
+    setPullStep('Images', 'pending');
+    document.getElementById('pullImagesTrack').style.display = 'none';
+    document.getElementById('pullImagesBar').style.width = '0%';
+    els.pullImagesDetail.textContent = '';
 
     const payload = Object.assign({}, oasExtracted, { consent: true });
     delete payload._title;
@@ -1050,19 +1054,44 @@
       });
 
       if (!res || !res.success) {
-        els.oasMsg.textContent = (res && res.message) || 'Import failed.';
-        els.oasImportBtn.disabled = false;
+        showError((res && res.message) || 'Import failed.');
+        showState('oasPreview');
         return;
       }
 
-      els.oasCompleteDetail.textContent = (payload.photos || []).length + ' photos downloading in the background.';
-      els.oasViewProperty.href = res.url || '#';
-      showState('oasComplete');
+      setPullStep('Create', 'done');
+      const oasPropertyId = res.property_id;
+      const oasImagesCount = res.images_count || 0;
+      const oasPropertyUrl = res.url || (settings.apiUrl.replace(/\/+$/, '') + '/corex/properties/' + res.property_id);
+
+      if (oasImagesCount > 0) {
+        setPullStep('Images', 'active');
+        document.getElementById('pullStepImagesText').textContent =
+          'Downloading ' + oasImagesCount + ' images...';
+        document.getElementById('pullImagesTrack').style.display = 'block';
+        startImagePolling(oasPropertyId, oasImagesCount, function (downloaded) {
+          showOasComplete(oasPropertyUrl, downloaded);
+        });
+      } else {
+        setPullStep('Images', 'done');
+        document.getElementById('pullStepImagesText').textContent = 'No images to download';
+        showOasComplete(oasPropertyUrl, 0);
+      }
     } catch (err) {
-      els.oasMsg.textContent = 'Import failed: ' + err.message;
-      els.oasImportBtn.disabled = false;
+      showError('Import failed: ' + err.message);
+      showState('oasPreview');
     }
-  });
+  }
+
+  function showOasComplete(url, downloadedCount) {
+    setTimeout(() => {
+      els.oasCompleteDetail.textContent = (oasExtracted && oasExtracted.listing_title)
+        ? oasExtracted.listing_title
+        : (downloadedCount + ' photo' + (downloadedCount !== 1 ? 's' : '') + ' imported.');
+      els.oasViewProperty.href = url || '#';
+      showState('oasComplete');
+    }, 800);
+  }
 
   els.oasAnother.addEventListener('click', () => {
     showState('choose');
@@ -1130,7 +1159,9 @@
         document.getElementById('pullStepImagesText').textContent =
           'Downloading ' + pullTotalImages + ' images...';
         document.getElementById('pullImagesTrack').style.display = 'block';
-        startPullImagePolling();
+        startImagePolling(pulledPropertyId, pullTotalImages, function () {
+          showPullComplete();
+        });
       } else {
         // No images — done immediately
         setPullStep('Images', 'done');
@@ -1144,9 +1175,15 @@
     }
   }
 
-  function startPullImagePolling() {
+  // 2026-09-30 URGENT FIX #3 — shared by the Pull flow AND the OAS import
+  // flow (see importOas() above): same pull-status endpoint, same progress
+  // DOM (pullImagesBar/pullStepImagesText/pullImagesDetail), same polling
+  // loop. Only what happens on completion differs, via onComplete().
+  function startImagePolling(propertyId, totalImages, onComplete) {
     stopPullImagePolling();
-    pullPoller = setInterval(pollPullImageStatus, 1500);
+    pullPoller = setInterval(function () {
+      pollImageStatus(propertyId, totalImages, onComplete);
+    }, 1500);
   }
 
   function stopPullImagePolling() {
@@ -1156,12 +1193,12 @@
     }
   }
 
-  async function pollPullImageStatus() {
-    if (!pulledPropertyId) return;
+  async function pollImageStatus(propertyId, totalImages, onComplete) {
+    if (!propertyId) return;
 
     try {
       const url = settings.apiUrl.replace(/\/+$/, '') +
-        '/api/properties/' + pulledPropertyId + '/pull-status';
+        '/api/properties/' + propertyId + '/pull-status';
 
       const response = await fetch(url, {
         headers: {
@@ -1174,7 +1211,7 @@
       const status = await response.json();
 
       const downloaded = status.downloaded || 0;
-      const total = status.total || pullTotalImages;
+      const total = status.total || totalImages;
       const failed = status.failed || 0;
       const pct = total > 0 ? Math.round((downloaded / total) * 100) : 0;
 
@@ -1190,7 +1227,7 @@
         document.getElementById('pullStepImagesText').textContent =
           downloaded + ' image' + (downloaded !== 1 ? 's' : '') + ' downloaded';
         document.getElementById('pullImagesBar').style.width = '100%';
-        showPullComplete();
+        onComplete(downloaded, failed);
       }
     } catch (e) {
       // Keep polling on error

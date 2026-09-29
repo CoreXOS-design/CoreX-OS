@@ -97,28 +97,14 @@ body {
   margin-bottom: 4px;
 }
 
-/* 2026-09-29 URGENT FIX #2 — the OAS consent checkbox sits inside a plain
-   .form-group (for the flex layout), but .form-group label above is tuned
-   for a short field caption ("API URL"), not a full sentence: 10px,
-   uppercase, 50%-opacity text. That's the "misaligned and all-caps"
-   consent checkbox Johan saw. Override with a normal sentence-case row. */
-#oasConsentWrap label {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: normal;
-  text-transform: none;
-  letter-spacing: normal;
-  color: rgba(255, 255, 255, 0.85);
-  margin-bottom: 0;
-  line-height: 1.4;
-}
-
-#oasConsentWrap input[type="checkbox"] {
-  margin-top: 2px;
-  flex-shrink: 0;
-}
+/* 2026-09-30 URGENT FIX #3 — the OAS consent checkbox (#oasConsentWrap in
+   popup.html) is INTENTIONALLY not a .form-group and carries no class of
+   its own: an earlier CSS override here still rendered wrong, because
+   .form-group label's uppercase/10px/dim-color rule only needs to NOT
+   match at all, not be out-fought property-by-property. The label/input/
+   span are fully inline-styled in the HTML — nothing in this stylesheet
+   should ever target #oasConsentWrap again. If you're tempted to add a
+   rule for it, don't; fix the inline style in popup.html instead. */
 
 .form-group input {
   width: 100%;
