@@ -6646,3 +6646,36 @@ file, none of them touching photo-matching:
   re-ran this exact test with every §41 code change (`app/`, `resources/`, `database/`) stashed out,
   against the clean QA1 baseline — fails identically, same assertion, same line. Not investigated further
   (out of scope for this build), flagged to the conductor.
+
+**A pre-existing spec-numbering collision, unrelated, flagged not fixed**: `app/Models/
+RentalInspectionSetting.php:396` carries its own `/** §41 — read-time-default resolver... */` comment,
+from commit `2fd77ff40` (2026-09-28, signed-document distribution — a different feature entirely). That
+commit's own §41 was never written as a real `## 41.` section in this spec file (checked: `## 41.` did
+not exist anywhere in the file before this build added it) — an orphaned code-comment reference to a
+spec section number that was reserved but never actually landed. This build's own §41 (the numbering
+this file's own last-section-before-this-build, §40, made the next sequential number) is a genuine
+content collision with that comment's REFERENCE, though not with any actual spec text (there was none to
+collide with). Not renumbered here — renumbering would touch a different module's code comments, outside
+this task's scope. Flagged to the conductor/cc3 for whoever owns that module next.
+
+**Real-browser proof, headless Chromium via Puppeteer** (this repo's own established tool, not a new
+Playwright/xvfb harness — same reasoning as §40's own verification): check #28 in
+`scripts/rental-click-through.mjs`, run against the real deployed QA1 site on a throwaway property
+(never 5294), full link → reopen → partner-shows → unlink sequence, **PASS**:
+`before link: Link-these button=true, Linked badge=false | after Link these clicked: Linked badge=true,
+Unlink button=true | reopened: left=300x200, right=300x200, Linked badge=true | after Unlink clicked:
+Link-these button=true, Linked badge=false`. Screenshots of all four states confirm it visually — the
+"Link these"/"Move together: On" pair in the top bar, then "Linked"/"Unlink" once clicked, both real
+photos still rendering (300×200 each) after closing and reopening the viewer (proving the link persisted
+server-side, not just client state).
+
+**A second real gap found while proving this, fixed in the fixture, not the product**:
+`RentalInspectionSetting::DEFAULT_AUTO_PAIR_PHOTOS_ENABLED = true` means the frontend auto-pairs an
+item's photos the FIRST time its comparison is viewed, for any agency with no explicit setting row —
+including this fixture's own brand-new throwaway agency. Check #28's own first attempt failed at its
+very first assertion (`Linked=true` before any click) because of this — genuinely correct, pre-existing,
+unrelated system behaviour, not a bug in this build. Fixed by having the fixture create its own
+`RentalInspectionSetting` row with `auto_pair_photos_enabled=false`, so checks #27/#28 (which both need
+the Ceiling item genuinely unpaired on first view) get a clean starting state; check #26 (the explicit
+Auto-pair button) is unaffected either way, per that setting's own docblock ("always runs on request
+regardless of this setting").
