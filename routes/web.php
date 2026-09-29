@@ -3535,6 +3535,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('corex.rental-fault-types.documents.download');
     });
 
+    // .ai/specs/rentals-faults-work-orders.md §3.2/§8.3 — the first-aid
+    // preview consumed by the fault-report create screen. Gated on
+    // rental_fault_reports.create (who actually reports a fault), not
+    // rental_fault_types.view — an agent capturing a report shouldn't need
+    // catalogue-management access just to see the safety steps.
+    Route::get('/rental-fault-types/{rentalFaultType}/first-aid', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'firstAid'])
+        ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-types.first-aid');
+
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own
     // record (2026-09-24/25 amendments). Stage 1 build: the record itself,
     // reporting, edit-while-reported, cancel/archive/restore, photos.

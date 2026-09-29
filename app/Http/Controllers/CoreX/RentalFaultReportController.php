@@ -182,6 +182,10 @@ class RentalFaultReportController extends Controller
             'property_id' => ['required', 'exists:properties,id'],
             'lease_id' => ['nullable', 'exists:leases,id'],
             'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            // .ai/specs/rentals-faults-work-orders.md §2.2 — optional; a
+            // report can still be free-text-only if nothing in the catalogue
+            // fits.
+            'rental_fault_type_id' => ['nullable', 'exists:rental_fault_types,id'],
             'reported_by_type' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::REPORTED_BY_TENANT,
                 RentalFaultReport::REPORTED_BY_AGENT_NOTICED,
@@ -222,7 +226,7 @@ class RentalFaultReportController extends Controller
     public function show(Request $request, RentalFaultReport $rentalFaultReport): View
     {
         $rentalFaultReport->load([
-            'property', 'lease.tenants.contact', 'inspectionItem',
+            'property', 'lease.tenants.contact', 'inspectionItem', 'faultType',
             // 'workOrder' — added in Stage 4 once App\Models\RentalWorkOrder
             // exists (see RentalFaultReport::workOrder()'s own note).
             'reportedByContact', 'reportedByUser', 'capturedByUser', 'cancelledByUser',
@@ -340,6 +344,9 @@ class RentalFaultReportController extends Controller
                 RentalFaultReport::OUTCOME_NOT_REPAIRED,
                 RentalFaultReport::OUTCOME_OWNER_DECLINED,
                 RentalFaultReport::OUTCOME_TENANT_LIABLE,
+                // .ai/specs/rentals-faults-work-orders.md §4.4 — still logged,
+                // for evidence, when the tenant's first-aid steps were enough.
+                RentalFaultReport::OUTCOME_RESOLVED_BY_FIRST_AID,
             ])],
             'outcome_note' => ['nullable', 'string'],
             'repaired_at' => ['nullable', 'date'],

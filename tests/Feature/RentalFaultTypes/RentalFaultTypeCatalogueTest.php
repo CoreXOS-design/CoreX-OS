@@ -83,8 +83,16 @@ final class RentalFaultTypeCatalogueTest extends TestCase
         $electrical = RentalFaultType::where('name', 'Power tripping / no power')->firstOrFail();
         $geyser = RentalFaultType::where('name', 'Geyser')->firstOrFail();
 
+        // The underlying rule (§13(4)/§2.1): never instruct past switching a
+        // breaker. "switching only" was this suite's own original phrasing
+        // check — updated 2026-09-29 (Johan's QA1 fold-in) once Power
+        // tripping's wording changed to describe the actual breaker
+        // procedure directly rather than using that literal phrase; Geyser's
+        // wording is unchanged and still uses it.
+        $this->assertStringContainsString('circuit breakers', strtolower($electrical->first_aid_steps));
+        $this->assertStringContainsString('switching only', strtolower($geyser->first_aid_steps));
+
         foreach ([$electrical, $geyser] as $faultType) {
-            $this->assertStringContainsString('switching only', strtolower($faultType->first_aid_steps));
             $this->assertStringNotContainsString('open the board', strtolower($faultType->first_aid_steps));
             $this->assertStringNotContainsString('remove the cover', strtolower($faultType->first_aid_steps));
         }

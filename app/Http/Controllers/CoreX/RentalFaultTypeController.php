@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\Property;
 use App\Models\RentalFaultType;
 use App\Models\RentalFaultTypeDocument;
+use App\Services\Rentals\RentalFaultTypeService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +21,40 @@ use Illuminate\View\View;
  */
 class RentalFaultTypeController extends Controller
 {
+    /**
+     * .ai/specs/rentals-faults-work-orders.md §3.2/§8.3 — "they see its
+     * first-aid steps BEFORE submitting." Rendered against the specific
+     * property so {{main_water_valve_location}}/{{db_board_location}}
+     * resolve to that property's own recorded values.
+     *
+     * Reused, not agent-screen-specific — Johan's own reminder, 2026-09-29:
+     * this is the ONE first-aid endpoint. Slice 5's tenant-facing
+     * ClientUser route (§7.2) calls this exact shape of response (or a
+     * thin client-authed wrapper around the same RentalFaultTypeService
+     * call) — never a second rendering path built for the tenant screen.
+     */
+    public function firstAid(Request $request, RentalFaultType $rentalFaultType, RentalFaultTypeService $service): JsonResponse
+    {
+        $property = Property::findOrFail($request->query('property_id'));
+        abort_unless($rentalFaultType->agency_id === $property->agency_id, 404);
+
+        return response()->json([
+            'name' => $rentalFaultType->name,
+            'urgency' => $rentalFaultType->urgency,
+            'first_aid_steps' => $service->renderFirstAidSteps($rentalFaultType, $property),
+            // Johan, 2026-09-29 (QA1 review) — the property's own recorded
+            // valve/DB-board photo shown alongside the steps, not just the
+            // location text.
+            'main_water_valve_photo_url' => $property->rental_main_water_valve_photo_path,
+            'db_board_photo_url' => $property->rental_db_board_photo_path,
+            'documents' => $rentalFaultType->documents->map(fn ($d) => [
+                'type' => $d->document_type,
+                'caption' => $d->caption,
+                'url' => $d->external_url ?? route('corex.rental-fault-types.documents.download', [$rentalFaultType, $d]),
+            ]),
+        ]);
+    }
+
     public function index(Request $request): View
     {
         $query = RentalFaultType::query();

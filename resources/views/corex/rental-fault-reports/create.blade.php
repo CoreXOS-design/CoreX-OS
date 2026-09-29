@@ -109,6 +109,59 @@
             </select>
         </div>
 
+        {{-- .ai/specs/rentals-faults-work-orders.md §2.2/§3.2/§4.3a — the
+             catalogue picker; picking one shows its first-aid steps (property-
+             specific) BEFORE the rest of the form can be filled in. Optional —
+             a report can still be free-text-only if nothing in the list fits. --}}
+        @if($property)
+        <div x-data="faultTypePicker({{ $property->id }})">
+            <label class="text-xs font-medium">Fault type (optional)</label>
+            <select name="rental_fault_type_id" x-model="selectedId" @change="loadFirstAid()" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <option value="">— Not in the list / skip —</option>
+                @foreach(\App\Models\RentalFaultType::where('is_active', true)->orderBy('sort_order')->get() as $ft)
+                    <option value="{{ $ft->id }}">{{ $ft->name }}{{ $ft->category ? ' ('.$ft->category.')' : '' }}</option>
+                @endforeach
+            </select>
+            <div x-show="firstAid" x-cloak class="mt-2 rounded-md p-3 text-sm space-y-2" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid var(--ds-amber);">
+                <p class="font-semibold" x-text="firstAid?.name"></p>
+                {{-- Text is rendered via x-text (auto-escaped, never raw HTML) —
+                     safe by construction for today's plain-text authoring;
+                     whitespace-pre-line preserves the agency's own line breaks. --}}
+                <p class="whitespace-pre-line" x-text="firstAid?.first_aid_steps"></p>
+
+                {{-- .ai/specs/rentals-faults-work-orders.md §3.1 — the property's
+                     own recorded valve/DB-board photo, shown alongside the
+                     steps, per Johan's QA1 review. --}}
+                <template x-if="firstAid?.main_water_valve_photo_url">
+                    <img :src="firstAid.main_water_valve_photo_url" alt="Main water valve" class="rounded-md max-h-40">
+                </template>
+                <template x-if="firstAid?.db_board_photo_url">
+                    <img :src="firstAid.db_board_photo_url" alt="DB board" class="rounded-md max-h-40">
+                </template>
+
+                {{-- §2's own uploaded documents/images/video — the agency's own
+                     attachments per fault type. --}}
+                <template x-if="firstAid?.documents?.length">
+                    <ul class="space-y-1">
+                        <template x-for="doc in firstAid.documents" :key="doc.url">
+                            <li>
+                                <template x-if="doc.type === 'image'">
+                                    <img :src="doc.url" :alt="doc.caption || firstAid.name" class="rounded-md max-h-40">
+                                </template>
+                                <template x-if="doc.type === 'video_link'">
+                                    <a :href="doc.url" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #2563eb);" x-text="doc.caption || 'Watch video'"></a>
+                                </template>
+                                <template x-if="doc.type === 'pdf' || doc.type === 'document'">
+                                    <a :href="doc.url" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #2563eb);" x-text="doc.caption || 'View document'"></a>
+                                </template>
+                            </li>
+                        </template>
+                    </ul>
+                </template>
+            </div>
+        </div>
+        @endif
+
         <div>
             <label class="text-xs font-medium">Title</label>
             <input type="text" name="title" required maxlength="191" placeholder="e.g. Geyser burst — upstairs bathroom" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
@@ -175,6 +228,19 @@ function faultReportContactPicker(searchUrl, knownContactsByType) {
         clearSelection() {
             this.selected = null;
             this.searching = true;
+        },
+    };
+}
+
+function faultTypePicker(propertyId) {
+    return {
+        selectedId: '',
+        firstAid: null,
+        async loadFirstAid() {
+            if (!this.selectedId) { this.firstAid = null; return; }
+            const url = `/corex/rental-fault-types/${this.selectedId}/first-aid?property_id=${propertyId}`;
+            const res = await fetch(url, { headers: { Accept: 'application/json' } });
+            this.firstAid = res.ok ? await res.json() : null;
         },
     };
 }

@@ -43,16 +43,17 @@ class RentalFaultType extends Model
             'name' => 'Burst pipe / water leak',
             'category' => 'Plumbing',
             'urgency' => self::URGENCY_EMERGENCY,
-            'first_aid_steps' => 'Close the main water valve. Turn off any electrical appliances near '
-                . 'the water — do not touch them if already wet.',
+            'first_aid_steps' => 'Your main water valve is at: {{main_water_valve_location}}. Close it '
+                . 'now. Turn off any electrical appliances near the water — do not touch them if already '
+                . 'wet.',
         ],
         [
             'name' => 'Power tripping / no power',
             'category' => 'Electrical',
             'urgency' => self::URGENCY_URGENT,
-            'first_aid_steps' => 'Switch circuits back on one at a time, at the DB board, to find the '
-                . 'tripping section — switching only, never opening the board. Unplug all appliances on '
-                . 'that section, then try again.',
+            'first_aid_steps' => 'Your DB board is at: {{db_board_location}}. Switch all circuit breakers '
+                . 'off, then on one at a time to find the section that trips. Unplug every appliance on '
+                . 'that section and try again. If it still trips, leave it off and log the fault.',
         ],
         [
             'name' => 'Geyser',

@@ -21,6 +21,9 @@
         <div>
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</span>
+            @if($faultReport->faultType)
+                <span class="ds-badge ds-badge-muted">{{ $faultReport->faultType->name }}</span>
+            @endif
             <span class="text-xs">
                 @if($faultReport->property)
                     <a href="{{ route('corex.properties.show', $faultReport->property->id) }}" style="color:var(--brand-icon,#2563eb);">{{ $faultReport->property->buildDisplayAddress() }}</a>
@@ -247,13 +250,16 @@
                     <option value="not_repaired">Not repaired</option>
                     <option value="owner_declined">Owner declined</option>
                     <option value="tenant_liable">Tenant liable</option>
+                    {{-- .ai/specs/rentals-faults-work-orders.md §4.4 — still logged, for
+                         evidence, when the tenant's first-aid steps were enough. --}}
+                    <option value="resolved_by_first_aid">Resolved by first aid (no repair needed)</option>
                 </select>
             </div>
             <div x-show="outcome === 'repaired' || outcome === 'repaired_partially'" x-cloak>
                 <label class="text-xs font-medium">Date repaired</label>
                 <input type="date" name="repaired_at" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
             </div>
-            <div x-show="outcome !== '' && outcome !== 'repaired'" x-cloak>
+            <div x-show="outcome !== '' && outcome !== 'repaired' && outcome !== 'resolved_by_first_aid'" x-cloak>
                 <label class="text-xs font-medium">Note</label>
                 <textarea name="outcome_note" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
             </div>

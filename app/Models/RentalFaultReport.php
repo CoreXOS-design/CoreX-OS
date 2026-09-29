@@ -59,6 +59,12 @@ class RentalFaultReport extends Model
     public const OUTCOME_NOT_REPAIRED = 'not_repaired';
     public const OUTCOME_OWNER_DECLINED = 'owner_declined';
     public const OUTCOME_TENANT_LIABLE = 'tenant_liable';
+    /**
+     * .ai/specs/rentals-faults-work-orders.md §4.4 — a tenant who follows the
+     * first-aid steps and doesn't need further action still submits, so it's
+     * logged as evidence even though nothing was repaired by a supplier.
+     */
+    public const OUTCOME_RESOLVED_BY_FIRST_AID = 'resolved_by_first_aid';
 
     protected $fillable = [
         'agency_id',
@@ -66,6 +72,7 @@ class RentalFaultReport extends Model
         'property_id',
         'lease_id',
         'rental_inspection_item_id',
+        'rental_fault_type_id',
         'reported_inspection_observation_id',
         'rental_work_order_id',
         'reported_by_type',
@@ -115,6 +122,12 @@ class RentalFaultReport extends Model
     public function inspectionItem(): BelongsTo
     {
         return $this->belongsTo(RentalInspectionItem::class, 'rental_inspection_item_id');
+    }
+
+    /** §2.2 — the catalogue entry the reporter picked, if any. */
+    public function faultType(): BelongsTo
+    {
+        return $this->belongsTo(RentalFaultType::class, 'rental_fault_type_id');
     }
 
     public function reportedInspectionObservation(): BelongsTo
@@ -391,11 +404,18 @@ class RentalFaultReport extends Model
         $note = $attributes['outcome_note'] ?? null;
         $repairedAt = $attributes['repaired_at'] ?? null;
 
-        if ($outcome !== self::OUTCOME_REPAIRED && empty($note)) {
-            throw new \InvalidArgumentException('outcome_note is required unless the outcome is "repaired".');
+        // §4.4 — self-explanatory in a way not_repaired/tenant_liable are not;
+        // no note required, same treatment 'repaired' itself already gets.
+        if (!in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_RESOLVED_BY_FIRST_AID], true) && empty($note)) {
+            throw new \InvalidArgumentException('outcome_note is required unless the outcome is "repaired" or "resolved_by_first_aid".');
         }
         if (in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true) && empty($repairedAt)) {
             throw new \InvalidArgumentException('repaired_at is required when the outcome is repaired or repaired_partially — Johan\'s own words: "the important part is capturing if and when the repairs were carried out."');
+        }
+        // §4.4 — the tenant IS reporting that it's already fixed; the
+        // submission moment is the repair moment unless told otherwise.
+        if ($outcome === self::OUTCOME_RESOLVED_BY_FIRST_AID && empty($repairedAt)) {
+            $repairedAt = now();
         }
 
         $this->forceFill([
