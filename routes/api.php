@@ -358,20 +358,24 @@ Route::prefix('v1/webinars')
 
 // ════════════════════════════════════════════════════════════════
 // Other Agency Stock — Chrome extension import (.ai/specs/other-agency-stock.md §4)
-// Deliberately OUTSIDE the auth:sanctum group below: the extension's
-// popup-issued api_token authenticates via AuthenticatePortalCapture
-// (session OR Authorization: Bearer against users.api_token), the same
-// mechanism /portal-captures/ingest already uses — not a Sanctum PAT.
-// deny_assistant_property_write mirrors /prospecting/import (AT-267) — an
-// assistant may never bring a property onto the books by any path,
-// imported-from-another-agency included.
+//
+// 2026-09-29 URGENT FIX — found live: this was WRONGLY built on
+// auth.portal_capture (checks users.api_token, a separate hashed column)
+// on the assumption that was "the same mechanism" the extension's other
+// calls use. It is NOT. Pull Property / healthCheck / logged-user all sit
+// inside the auth:sanctum group below and authenticate via a REAL Sanctum
+// personal access token (confirmed live: user 22 has an active
+// personal_access_tokens row named "corex-extension", last_used_at
+// matching the exact minute of his working Pull-Property calls) — a
+// completely different credential from users.api_token. The extension
+// sends the SAME bearer token to every endpoint; this route family
+// rejected the only token it actually has ("Invalid API token" — every
+// single time, confirmed via nginx access log + Johan's screenshots).
+// Moved inside auth:sanctum + app_access to match every other route the
+// extension successfully calls. deny_assistant_property_write mirrors
+// /prospecting/import (AT-267) — an assistant may never bring a property
+// onto the books by any path, imported-from-another-agency included.
 // ════════════════════════════════════════════════════════════════
-Route::prefix('v1/other-agency-stock')->middleware(['auth.portal_capture', 'deny_assistant_property_write'])->group(function () {
-    Route::get('/consent-wording', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'consentWording'])
-        ->name('v1.other-agency-stock.consent-wording');
-    Route::post('/import', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'import'])
-        ->name('v1.other-agency-stock.import');
-});
 
 // ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
@@ -386,6 +390,16 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
     // Canonical /api/v1/* surface
     // ─────────────────────────────────────────────────────────────
     Route::prefix('v1')->group(function () {
+
+        // Other Agency Stock — Chrome extension import (see the
+        // 2026-09-29 URGENT FIX comment above this group for why this
+        // lives here and not on auth.portal_capture).
+        Route::middleware('deny_assistant_property_write')->group(function () {
+            Route::get('/other-agency-stock/consent-wording', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'consentWording'])
+                ->name('v1.other-agency-stock.consent-wording');
+            Route::post('/other-agency-stock/import', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'import'])
+                ->name('v1.other-agency-stock.import');
+        });
 
         // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
         Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
