@@ -71,7 +71,24 @@ if (isset($opts['create'])) {
 
     $agency = Agency::create(['name' => 'Inspection Gate Co', 'slug' => $stamp]);
     $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch A']);
-    $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'name' => 'Gate Agent']);
+    // 2026-09-29 — User::factory()->create() calls UserFactory::definition(),
+    // which calls the global fake() helper. fake() is defined by Laravel's
+    // OWN Foundation/helpers.php only `if (class_exists(\Faker\Factory::class))`
+    // — and fakerphp/faker is a require-dev-only package, absent from
+    // /corex-qa1's vendor/ (a --no-dev-style install). Pre-existing,
+    // environment-level gap, not something this fixture introduced — the
+    // SIBLING rental-click-through-fixture.php hits the identical error via
+    // the identical factory call and is reported separately, out of scope
+    // for this file. Fixed HERE by building the row directly (the same
+    // fields UserFactory::definition() sets) instead of depending on a
+    // dev-only package this checkout may or may not have installed.
+    $agent = User::create([
+        'agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'name' => 'Gate Agent',
+        'email' => 'gate-agent-' . $stamp . '@inspection-gate.invalid',
+        'email_verified_at' => now(), 'first_login_at' => now(),
+        'password' => \Illuminate\Support\Facades\Hash::make('password'),
+        'remember_token' => \Illuminate\Support\Str::random(10),
+    ]);
 
     $property = Property::forceCreate([
         'agency_id' => $agency->id, 'agent_id' => $agent->id, 'branch_id' => $branch->id,
