@@ -6391,13 +6391,13 @@ dependency from this one fixture entirely.
 
 ---
 
-## 41. Manual photo linking — a button in the compare viewer, not just a drag gesture (2026-09-29, Johan)
+## 40. Manual photo linking — a button in the compare viewer, not just a drag gesture (2026-09-29, Johan)
 
 Johan's question that started this: *"where on the inspections do we link photos? Either on the
 inspections screen or the photo screen?"* Investigation found the honest answer was neither, in any
-discoverable way — see §41.1.
+discoverable way — see §40.1.
 
-### 41.1 What already existed (investigated first, file:line)
+### 40.1 What already existed (investigated first, file:line)
 
 The match-group data layer was already fully built and correct:
 
@@ -6421,7 +6421,7 @@ The match-group data layer was already fully built and correct:
   matched photo: `everTouched()` (originally lines 96-101) checks `withTrashed()` for ANY match
   membership ever, active or removed — a photo linked (or even linked-then-unlinked) once is permanently
   excluded from future auto-pair consideration. **No change needed here** — proven with a new test
-  (§41.4).
+  (§40.4).
 - **Manual endpoints — already existed, routes/web.php:4514-4522**:
   `POST /corex/properties/{property}/rental-inspection-photo-matches` →
   `RentalInspectionRecordingController::storePhotoMatch()` (line 1013 pre-this-build) — validated same
@@ -6451,7 +6451,7 @@ The match-group data layer was already fully built and correct:
   linked pair already moves together under "Move together" and steps together under carousel navigation,
   the exact same as an auto-paired one, because both are the same underlying data.
 
-### 41.2 What was built
+### 40.2 What was built
 
 **Backend — same-item/space validation** (the one real gap in the shared linking primitive, so BOTH the
 new button AND the pre-existing drag gesture get it, not just one path):
@@ -6494,12 +6494,12 @@ Back-to-room/Back-to-untagged/index, so a fifth floating badge would have collid
 itself opens the compare viewer already anchored on that exact pair (`openCompareViewer()`, unchanged —
 already resolves the matched partner via the fix in §40).
 
-### 41.3 Deliberately not changed
+### 40.3 Deliberately not changed
 
 - The drag-and-drop mechanism itself — still there, still the tail-tile-drags-onto-predecessor-tile
   gesture, now protected by the same same-item and lock checks since it shares `storePhotoMatch()`.
 - `compareViewerSelectCarouselPhoto()`/`compareViewerStep()` — confirmed already correct for manual
-  links (§41.1), not touched.
+  links (§40.1), not touched.
 - No frontend same-item check was added to the compare-viewer button specifically — structurally
   unreachable: the compare viewer's own carousels are already scoped to one room/item at a time
   (`compareViewerPhotosForSide()`), so `compareViewer.leftPhotoId`/`rightPhotoId` can never be two
@@ -6507,7 +6507,7 @@ already resolves the matched partner via the fix in §40).
   a scrollable screen) genuinely could reach it before this build — that's why the check lives in the
   shared backend primitive, not a frontend-only guard on one caller.
 
-### 41.4 Verified
+### 40.4 Verified
 
 `php -l` clean on every changed file; `php artisan view:clear` clean (confirms the new Blade/Alpine
 markup compiles). New tests in `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php`:
@@ -6525,7 +6525,7 @@ routing the cancelled check through `chainTailFor($property)` (same as completed
 because `chainTailFor()`'s own query structurally EXCLUDES cancelled inspections from ever being resolved
 as "the tail" — the moment the inspection got cancelled, `chainTailFor()` just started resolving a
 DIFFERENT (non-cancelled) inspection as the tail instead, and the lock check found nothing wrong with
-that one. Fixed by checking cancelled directly off each of the two photos' own inspections instead (§41.2
+that one. Fixed by checking cancelled directly off each of the two photos' own inspections instead (§40.2
 above reflects the corrected version) — found by the test failing (409 expected, got 200), not assumed.
 
 **Unrelated, pre-existing, confirmed not caused by this build** — 3 failures found running the full test
@@ -6544,16 +6544,17 @@ file, none of them touching photo-matching:
   against the clean QA1 baseline — fails identically, same assertion, same line. Not investigated further
   (out of scope for this build), flagged to the conductor.
 
-**A pre-existing spec-numbering collision, unrelated, flagged not fixed**: `app/Models/
+**A pre-existing, unrelated finding, flagged not fixed**: `app/Models/
 RentalInspectionSetting.php:396` carries its own `/** §41 — read-time-default resolver... */` comment,
 from commit `2fd77ff40` (2026-09-28, signed-document distribution — a different feature entirely). That
-commit's own §41 was never written as a real `## 41.` section in this spec file (checked: `## 41.` did
-not exist anywhere in the file before this build added it) — an orphaned code-comment reference to a
-spec section number that was reserved but never actually landed. This build's own §41 (the numbering
-this file's own last-section-before-this-build, §40, made the next sequential number) is a genuine
-content collision with that comment's REFERENCE, though not with any actual spec text (there was none to
-collide with). Not renumbered here — renumbering would touch a different module's code comments, outside
-this task's scope. Flagged to the conductor/cc3 for whoever owns that module next.
+commit's own §41 was never written as a real `## 41.` section in any branch's spec file (checked: no
+`## 41.` section existed anywhere before this build) — an orphaned code-comment reference to a spec
+section number that was reserved but never actually landed. (On QA1, where this section landed first,
+its own next-sequential number genuinely was §41, so the two briefly collided there by number; on this
+branch the same content is §40 instead, per this branch's own numbering — the collision was purely a
+QA1-numbering artifact, not something to chase here.) Not renumbered — renumbering would touch a
+different module's code comments, outside this task's scope. Flagged to the conductor/cc3 for whoever
+owns that module next.
 
 **Real-browser proof, headless Chromium via Puppeteer** (this repo's own established tool, not a new
 Playwright/xvfb harness — same reasoning as §40's own verification): check #28 in
