@@ -155,8 +155,10 @@ class SendMatchDigests extends Command
             $property = $properties->get($row->property_id);
 
             // Off-market / deleted re-check at send time — never email a stale match.
+            // AT-Core-Matches (2026-09-29) — agency-aware allow-list, same predicate
+            // the matcher uses everywhere else.
             if (!$property || $property->deleted_at
-                || !MatchingService::isMatchableStatus($property->status)) {
+                || !MatchingService::isMatchableStatus($property->status, $property->agency_id)) {
                 continue;
             }
 

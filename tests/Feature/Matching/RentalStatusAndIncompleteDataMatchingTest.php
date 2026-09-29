@@ -143,13 +143,35 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
         );
     }
 
-    public function test_an_agency_defined_status_is_not_silently_dropped(): void
+    public function test_an_agency_defined_status_not_on_the_allow_list_is_excluded(): void
     {
-        // The input-space rule: a status this class has never heard of must
-        // fail OPEN, not delete live stock without a word.
-        $property = $this->rental(['status' => 'available_immediately']);
+        // AT-Core-Matches (2026-09-29), Johan's ruling — REVERSES this test's
+        // former assertion. Core Matches moved from a blacklist (fails OPEN —
+        // an unknown status matched by default) to an allow-list (fails
+        // CLOSED — an unknown status is excluded by default). A status this
+        // class has never heard of is now exactly the case that must NOT
+        // match, unless an agency explicitly adds it to its own configured
+        // list (AgencyContactSettings::core_matches_allowed_statuses).
+        //
+        // withoutEvents(): PropertyObserver's OWN, separate, unrelated
+        // write-side vocabulary guard (AT-307, PropertyObserver.php:139-145)
+        // refuses to PERSIST a status outside this agency's vocabulary at
+        // all — a real bug-class guard for a real user/API/import write, but
+        // orthogonal to this test's actual question (does the MATCHER treat
+        // an unlisted status as excluded), and it would block this fixture
+        // from ever existing to test against. Bypassed here, for this
+        // fixture only, exactly like a status already sitting in the
+        // database from before that guard existed would (that data is real
+        // and the matcher must still handle it correctly). external_id and
+        // branch_id are supplied explicitly because withoutEvents() also
+        // skips the creating-event that normally auto-fills both.
+        $property = Property::withoutEvents(fn () => $this->rental([
+            'status' => 'available_immediately',
+            'external_id' => (string) \Illuminate\Support\Str::uuid(),
+            'branch_id' => $this->agent->branch_id,
+        ]));
 
-        $this->assertContains($property->id, $this->resolve($this->wishlist())->pluck('id')->all());
+        $this->assertNotContains($property->id, $this->resolve($this->wishlist())->pluck('id')->all());
     }
 
     public function test_a_rental_match_never_surfaces_a_listing_on_a_sale_status(): void
@@ -164,12 +186,23 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
 
     public function test_off_market_statuses_are_derived_from_the_property_model(): void
     {
-        foreach (Property::OFF_MARKET_STATUSES as $status) {
+        // AT-Core-Matches (2026-09-29), Johan's ruling — 'expired' carved out
+        // of this loop: it is off-market on the Property model (still true,
+        // untouched) but is now DELIBERATELY on the Core Matches allow-list
+        // (Johan: "only active + expired + other agency stock"). Every OTHER
+        // off-market status stays non-matchable, unchanged.
+        foreach (array_diff(Property::OFF_MARKET_STATUSES, ['expired']) as $status) {
             $this->assertFalse(
                 MatchingService::isMatchableStatus($status),
                 "{$status} is off-market on the Property model and must be non-matchable here too"
             );
         }
+    }
+
+    public function test_expired_is_off_market_but_matchable_core_matches_specific_exception(): void
+    {
+        $this->assertContains('expired', Property::OFF_MARKET_STATUSES, 'expired must stay off-market for every OTHER consumer (display, syndication)');
+        $this->assertTrue(MatchingService::isMatchableStatus('expired'), 'but Core Matches specifically shows expired stock, per Johan\'s ruling');
     }
 
     public function test_prospecting_stock_is_never_offered_to_a_buyer(): void

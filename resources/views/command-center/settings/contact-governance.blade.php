@@ -258,6 +258,27 @@
                                class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
                     </div>
                 </div>
+
+                {{-- AT-Core-Matches (2026-09-29), Johan's ruling — Core Matches is an
+                     allow-list, not a blacklist: only the statuses ticked here are ever
+                     shown. Unticking everything is rejected server-side (an empty
+                     selection is never a valid state), so there's no "show nothing" trap. --}}
+                <div class="pt-3 border-t" style="border-color:var(--border);">
+                    <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">Statuses included in Core Matches</p>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">Which property statuses are ever shown as a Core Match. Any status not ticked here — drafts, withdrawn, sold, rented, under offer, pending, archived, and any status not in this list — is excluded, including one this agency defines later.</p>
+                    <div class="flex flex-wrap gap-4">
+                        @php
+                            $selectedCoreMatchStatuses = $settings->coreMatchesAllowedStatuses();
+                        @endphp
+                        @foreach($coreMatchStatusOptions as $statusOption)
+                            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                <input type="checkbox" name="core_matches_allowed_statuses[]" value="{{ $statusOption }}"
+                                       {{ in_array($statusOption, $selectedCoreMatchStatuses, true) ? 'checked' : '' }}>
+                                {{ \Illuminate\Support\Str::headline($statusOption) }}
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
             </div>
         </div>
 

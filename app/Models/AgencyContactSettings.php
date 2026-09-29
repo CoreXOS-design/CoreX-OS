@@ -30,6 +30,10 @@ class AgencyContactSettings extends Model
         // AT-Core-Matches, Johan's ruling 5 — "the working window is an
         // agency SETTING, default 7 days, never hardcoded."
         'core_matches_working_window_days',
+        // AT-Core-Matches (2026-09-29), Johan's ruling — the property statuses
+        // Core Matches shows. JSON array of status slugs; null/empty = the
+        // code default (Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES).
+        'core_matches_allowed_statuses',
         // AT-81 — days a contact may sit PENDING (consent-request sent, no reply)
         // before being lapsed to a no_response opt-out.
         'outreach_no_response_days',
@@ -67,6 +71,7 @@ class AgencyContactSettings extends Model
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
         'core_matches_working_window_days' => 'integer',
+        'core_matches_allowed_statuses' => 'array',
         'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
@@ -135,6 +140,9 @@ class AgencyContactSettings extends Model
 
     /** Per-request cache of the resolved min-countable bar, keyed by agency id. */
     protected static array $minCountableCache = [];
+
+    /** Per-request cache of the resolved Core Matches allowed-status list, keyed by agency id. */
+    protected static array $coreMatchAllowedStatusesCache = [];
 
     /**
      * Get settings for an agency, creating defaults if none exist.
@@ -224,6 +232,42 @@ class AgencyContactSettings extends Model
     {
         $v = (int) ($this->core_matches_working_window_days ?? self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS);
         return max(1, min(90, $v));
+    }
+
+    /**
+     * AT-Core-Matches (2026-09-29) — the resolved Core Matches allow-list for
+     * this agency (NULL/empty column → Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES).
+     * Always a non-empty array — an empty selection is rejected at validation
+     * time (ContactGovernanceController), so a stored empty array here would
+     * mean a bug elsewhere, not a legitimate "show nothing" state; falling
+     * back to the default is the safe read in that case too.
+     *
+     * @return string[]
+     */
+    public function coreMatchesAllowedStatuses(): array
+    {
+        $val = $this->core_matches_allowed_statuses;
+        return (is_array($val) && !empty($val)) ? $val : \App\Models\Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES;
+    }
+
+    /**
+     * Cached agency lookup of the Core Matches allow-list — mirrors
+     * minCountableFor()'s pattern exactly (read-only, since this is reached
+     * from the public shared-match link via Property::coreMatchAllowedStatuses()
+     * → CoreMatchReasonClassifier, where a GET must never insert a settings row).
+     *
+     * @return string[]
+     */
+    public static function coreMatchAllowedStatusesFor(int $agencyId): array
+    {
+        return self::$coreMatchAllowedStatusesCache[$agencyId]
+            ??= self::forAgencyReadOnly($agencyId)->coreMatchesAllowedStatuses();
+    }
+
+    /** Clear the per-request Core Matches allow-list cache (used after a settings change / in tests). */
+    public static function clearCoreMatchAllowedStatusesCache(): void
+    {
+        self::$coreMatchAllowedStatusesCache = [];
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */

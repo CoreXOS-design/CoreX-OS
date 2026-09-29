@@ -57,12 +57,13 @@ class CoreMatchReasonClassifier
      * Fixed 2026-09-15 — this used to be its own private copy of
      * MatchingService's exclusion list, missing 'prospecting'/'not_selling'
      * the exact same way that copy was. Now points at the one canonical
-     * definition (Property::matchingExcludedStatusList()) instead of
-     * maintaining a third copy — the whole point of the fix ("define
-     * MATCHABLE once, in one place"). wentBackOnMarket() below reads
-     * "non-matchable -> matchable" from this same list, so a property
-     * un-sticking from under_offer/pending now also correctly reads as
-     * "back on market" for a buyer it wasn't available to before.
+     * definition (Property::isMatchableStatus(), AT-Core-Matches 2026-09-29:
+     * an agency-aware allow-list, formerly matchingExcludedStatusList()'s
+     * blacklist) instead of maintaining a third copy — the whole point of
+     * the fix ("define MATCHABLE once, in one place"). wentBackOnMarket()
+     * below reads "not allowed -> allowed" from this same predicate, so a
+     * property un-sticking from a non-allow-listed status now also correctly
+     * reads as "back on market" for a buyer it wasn't available to before.
      */
 
     public function __construct(protected CoreMatchShareHistoryService $history)
@@ -103,7 +104,7 @@ class CoreMatchReasonClassifier
             return ['reason' => self::REASON_REDUCED, 'meta' => $reduced];
         }
 
-        if ($this->wentBackOnMarket($property, $lastSharedAt)) {
+        if ($this->wentBackOnMarket($property, $match, $lastSharedAt)) {
             return ['reason' => self::REASON_BACK_ON_MARKET, 'meta' => []];
         }
 
@@ -152,23 +153,27 @@ class CoreMatchReasonClassifier
     }
 
     /** A status audit row showing a move OUT of a non-matchable status, at/after the last share. */
-    private function wentBackOnMarket(Property $property, Carbon $lastSharedAt): bool
+    private function wentBackOnMarket(Property $property, ContactMatch $match, Carbon $lastSharedAt): bool
     {
+        $agencyId = $match->agency_id;
+
         return PropertyAuditLog::forProperty($property->id)
             ->where('created_at', '>=', $lastSharedAt)
             ->where(function ($q) {
                 $q->where('event_type', 'price_changed')->orWhere('event_type', 'property_updated');
             })
             ->get(['old_values', 'new_values'])
-            ->contains(function ($row) {
-                $old = strtolower(trim((string) ($row->old_values['status'] ?? '')));
-                $new = strtolower(trim((string) ($row->new_values['status'] ?? '')));
+            ->contains(function ($row) use ($agencyId) {
+                $old = (string) ($row->old_values['status'] ?? '');
+                $new = (string) ($row->new_values['status'] ?? '');
 
-                $excluded = Property::matchingExcludedStatusList();
-
-                return $old !== '' && $new !== ''
-                    && in_array($old, $excluded, true)
-                    && !in_array($new, $excluded, true);
+                // AT-Core-Matches (2026-09-29) — allow-list, not blacklist: "back
+                // on market" now reads as "wasn't allowed, now is", the exact
+                // inverse of the old membership test, same predicate the rest
+                // of the matcher uses (Property::isMatchableStatus()).
+                return trim($old) !== '' && trim($new) !== ''
+                    && !Property::isMatchableStatus($old, $agencyId)
+                    && Property::isMatchableStatus($new, $agencyId);
             });
     }
 }
