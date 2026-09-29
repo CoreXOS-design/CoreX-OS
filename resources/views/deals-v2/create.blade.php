@@ -449,6 +449,13 @@
             toast: false,
             toastMessage: '',
             submitting: false,
+            // Idempotency (duplicate-deal fix, 2026-09-29) — minted once per
+            // page load; see dr2/create.blade.php's hidden field for the
+            // full reasoning. This wizard already guards submitDeal() with
+            // :disabled="submitting", but the token is the real server-side
+            // backstop against a resubmission from any cause (not just a
+            // click race), same as every other create path.
+            createToken: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2),
 
             // Step 1: Property
             propertySearch: '',
@@ -650,6 +657,7 @@
                     contacts: this.contacts.map(c => ({ contact_id: c.contact_id, role: c.role })),
                     agents: agents,
                     step_overrides: this.stepOverrides,
+                    create_token: this.createToken,
                 };
 
                 try {
