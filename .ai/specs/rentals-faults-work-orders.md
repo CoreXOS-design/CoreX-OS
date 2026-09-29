@@ -218,10 +218,19 @@ built into the seeder itself, not left to editorial discretion alone:**
 (§1.1's own "each agency can add, edit" — unchanged, this content is a starting point, not a locked
 text).
 
+**Corrected, 2026-09-29 — Johan's QA1 review of Slice 1: the seeded defaults must actually USE the
+placeholders, not just describe the action in the abstract.** Burst pipe and Power tripping rewritten
+below to name `{{main_water_valve_location}}`/`{{db_board_location}}` directly, per Johan's exact
+wording. A missing location renders a clean standalone fallback sentence
+(`RentalFaultTypeService::renderFirstAidSteps()`, §3.2), never a raw `{{token}}` or a broken "is at: ."
+clause — the whole "Your main water valve is at: {{token}}." lead-in is swapped for the fallback
+sentence, with a bare-token defensive substitution as a second line of defence if an agency's own
+customised wording no longer matches that lead-in shape.
+
 | name | category | urgency | first_aid_steps (summary, safety line omitted here for brevity — see rule 1 above; full rich text reviewed by the conductor before build) |
 |---|---|---|---|
-| Burst pipe / water leak | Plumbing | emergency | Close the main water valve (property-specific location, §3.2). Turn off any electrical appliances near the water — do not touch them if already wet. |
-| Power tripping / no power | Electrical | urgent | Switch circuits back on one at a time, at the DB board, to find the tripping section (§1.2's own example, verbatim) — switching only, never opening the board. Unplug all appliances on that section, retry. |
+| Burst pipe / water leak | Plumbing | emergency | Your main water valve is at: `{{main_water_valve_location}}`. Close it now. Turn off any electrical appliances near the water — do not touch them if already wet. |
+| Power tripping / no power | Electrical | urgent | Your DB board is at: `{{db_board_location}}`. Switch all circuit breakers off, then on one at a time to find the section that trips. Unplug every appliance on that section and try again. If it still trips, leave it off and log the fault. |
 | Geyser | Plumbing | urgent | Switch off the geyser's isolator switch at the DB board (switching only). Do not touch a leaking geyser element. |
 | Blocked drain / toilet | Plumbing | routine | Stop using the affected drain/toilet. Do not pour chemicals down it before the agency's plumber has seen it. |
 | Gate / garage motor | Security | routine | Operate the gate/garage manually if a manual release exists; do not force the motor. |
