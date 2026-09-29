@@ -213,10 +213,17 @@ class MatchingService
      * as Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES. Method kept here
      * (not called directly) so every existing caller of
      * MatchingService::isMatchableStatus() continues to work unchanged.
+     *
+     * AT-Core-Matches (2026-09-29) — Property::isMatchableStatus() itself
+     * switched from a blacklist to an agency-configurable allow-list (Johan's
+     * ruling: Core Matches shows ONLY active/expired/other-agency-sold
+     * stock). This wrapper's own signature grew the same optional $agencyId
+     * so every caller here (candidatesForProperty(), matchesForProperty())
+     * stays agency-aware; $agencyId omitted resolves to the code default.
      */
-    public static function isMatchableStatus(?string $status): bool
+    public static function isMatchableStatus(?string $status, ?int $agencyId = null): bool
     {
-        return Property::isMatchableStatus($status);
+        return Property::isMatchableStatus($status, $agencyId);
     }
 
     /**
@@ -225,7 +232,7 @@ class MatchingService
      */
     public function candidatesForProperty(Property $property): Collection
     {
-        if (!$property->id || !self::isMatchableStatus($property->status)) {
+        if (!$property->id || !self::isMatchableStatus($property->status, $property->agency_id)) {
             return collect();
         }
 
@@ -245,7 +252,7 @@ class MatchingService
      */
     public function matchesForProperty(Property $property): Collection
     {
-        if (!self::isMatchableStatus($property->status)) {
+        if (!self::isMatchableStatus($property->status, $property->agency_id)) {
             return collect();
         }
 
@@ -292,14 +299,17 @@ class MatchingService
         }
 
         $relaxed = $overrides['relaxed'] ?? true;
+        // AT-Core-Matches (2026-09-29) — allow-list, not blacklist. Case-
+        // insensitive (statuses are stored mixed-case) and NULL-tolerant (an
+        // incomplete-but-live listing stays matchable) — mirrors
+        // Property::isMatchableStatus() in SQL. Agency-aware: resolves this
+        // match's own agency's configured list, or the code default.
+        $allowedStatuses = Property::coreMatchAllowedStatuses($match->agency_id);
         $query = Property::query()
-            // Off-market listings never surface. Case-insensitive (statuses are
-            // stored mixed-case) and NULL-tolerant (an incomplete-but-live
-            // listing stays matchable) — mirrors isMatchableStatus() in SQL.
-            ->where(function (Builder $sub) {
+            ->where(function (Builder $sub) use ($allowedStatuses) {
                 $sub->whereNull('status')
-                    ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . collect(Property::matchingExcludedStatusList())->map(fn ($s) => "'$s'")->implode(',')
+                    ->orWhereRaw('LOWER(TRIM(status)) IN ('
+                        . collect($allowedStatuses)->map(fn ($s) => "'" . addslashes($s) . "'")->implode(',')
                         . ')');
             });
 
@@ -553,11 +563,14 @@ class MatchingService
      */
     public function matchableCandidatePool(?int $agencyId): Collection
     {
+        // AT-Core-Matches (2026-09-29) — allow-list, not blacklist. See
+        // propertiesForMatch()'s identical clause above for the rationale.
+        $allowedStatuses = Property::coreMatchAllowedStatuses($agencyId);
         $query = Property::query()
-            ->where(function (Builder $sub) {
+            ->where(function (Builder $sub) use ($allowedStatuses) {
                 $sub->whereNull('status')
-                    ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . collect(Property::matchingExcludedStatusList())->map(fn ($s) => "'$s'")->implode(',')
+                    ->orWhereRaw('LOWER(TRIM(status)) IN ('
+                        . collect($allowedStatuses)->map(fn ($s) => "'" . addslashes($s) . "'")->implode(',')
                         . ')');
             });
         if ($agencyId) {

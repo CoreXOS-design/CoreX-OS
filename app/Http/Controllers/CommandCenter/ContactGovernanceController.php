@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\CommandCenter;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RegenerateBuyerMatchesJob;
 use App\Models\AgencyContactSettings;
 use App\Models\AgencyLeaveVisibilityMatrix;
+use App\Models\Property;
 use Illuminate\Http\Request;
 
 class ContactGovernanceController extends Controller
@@ -36,6 +38,17 @@ class ContactGovernanceController extends Controller
 
         return view('command-center.settings.contact-governance', [
             'settings' => $settings,
+            // AT-Core-Matches (2026-09-29) — the pickable "known statuses" for
+            // the Core Matches allow-list multi-select: the code default
+            // (always offered, even before an agency has activated any of them
+            // as a property_status setting item) union this agency's own
+            // configured status vocabulary (Property::allowedStatuses() —
+            // system statuses + whatever this agency added).
+            'coreMatchStatusOptions' => collect(Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES)
+                ->merge(Property::allowedStatuses($agencyId ?: null))
+                ->unique()
+                ->values()
+                ->all(),
         ]);
     }
 
@@ -44,6 +57,16 @@ class ContactGovernanceController extends Controller
      */
     public function updateContactGovernance(Request $request)
     {
+        $agencyId = $this->resolveAgencyId();
+        // AT-Core-Matches (2026-09-29) — validate against the SAME known-status
+        // list the picker offers (code default ∪ this agency's vocabulary), so
+        // a crafted request can't smuggle in a status the UI never offered.
+        $knownStatuses = collect(Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES)
+            ->merge(Property::allowedStatuses($agencyId ?: null))
+            ->unique()
+            ->values()
+            ->all();
+
         $request->validate([
             'buyer_pipeline_default_scope' => 'required|in:own,branch,agency',
             'buyer_kanban_column_limit' => 'required|integer|min:10|max:500',
@@ -62,6 +85,11 @@ class ContactGovernanceController extends Controller
             'buyer_lost_days' => 'required|integer|min:1|max:730',
             // AT-Core-Matches, Johan's ruling 5 — the Core Matches working window, never hardcoded.
             'core_matches_working_window_days' => 'required|integer|min:1|max:90',
+            // AT-Core-Matches (2026-09-29) — an empty selection is explicitly
+            // not allowed (Johan): Core Matches showing NOTHING is never a
+            // valid configured state, only ever a bug.
+            'core_matches_allowed_statuses' => 'required|array|min:1',
+            'core_matches_allowed_statuses.*' => ['required', 'string', 'in:' . implode(',', $knownStatuses)],
             // AT-81 — no-response window before a pending outreach contact lapses.
             'outreach_no_response_days' => 'required|integer|min:1|max:365',
             'contact_retention_years' => 'required|integer|min:5|max:99',
@@ -69,8 +97,8 @@ class ContactGovernanceController extends Controller
             'access_log_retention_years' => 'required|integer|min:5|max:99',
         ]);
 
-        $agencyId = $this->resolveAgencyId();
         $settings = AgencyContactSettings::forAgency($agencyId);
+        $previousStatuses = $settings->coreMatchesAllowedStatuses();
 
         $settings->update(array_merge(
             $request->only([
@@ -83,6 +111,7 @@ class ContactGovernanceController extends Controller
                 'buyer_cold_days',
                 'buyer_lost_days',
                 'core_matches_working_window_days',
+                'core_matches_allowed_statuses',
                 'outreach_no_response_days',
                 'contact_retention_years',
                 'consent_retention_years',
@@ -95,7 +124,27 @@ class ContactGovernanceController extends Controller
             ],
         ));
 
+        // AT-Core-Matches (2026-09-29) — the allow-list changed, so this
+        // agency's cached property_buyer_matches (pipeline counts/badges,
+        // AT-108) is stale until rebuilt: rows for a now-excluded status must
+        // drop, and rows for a newly-included status must appear. Queued
+        // (ShouldQueue) — RegenerateBuyerMatchesJob is the existing rebuild
+        // path (truncate=true, agency-scoped), not a new mechanism.
+        $newStatuses = $settings->fresh()->coreMatchesAllowedStatuses();
+        if ($agencyId > 0 && $this->normalizedStatusList($previousStatuses) !== $this->normalizedStatusList($newStatuses)) {
+            AgencyContactSettings::clearCoreMatchAllowedStatusesCache();
+            RegenerateBuyerMatchesJob::dispatch($agencyId, null, true);
+        }
+
         return back()->with('success', 'Contact governance settings saved.');
+    }
+
+    /** Sort + lower-case a status list so two differently-ordered/cased lists compare equal. */
+    private function normalizedStatusList(array $statuses): array
+    {
+        $normalized = array_values(array_unique(array_map(fn ($s) => strtolower(trim((string) $s)), $statuses)));
+        sort($normalized);
+        return $normalized;
     }
 
     /**
