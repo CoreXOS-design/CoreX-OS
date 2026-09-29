@@ -102,6 +102,16 @@ class AgencySetupWizardController extends Controller
     private function stepData(string $step, Agency $agency): array
     {
         return match ($step) {
+            // Syndication Approval (.ai/specs/syndication-approval-gate.md §9) needs
+            // a LIVE list of this agency's own people to choose an approver from —
+            // the one thing a static `select` option map cannot express, and the
+            // reason this step gained the `user_multiselect` control type.
+            'capabilities' => [
+                'agencyUsers' => \App\Models\User::where('agency_id', $agency->id)
+                    ->where('is_active', true)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email']),
+            ],
             'commission' => [
                 'commission' => \App\Models\CommissionSetting::forAgency($agency->id),
             ],
@@ -425,6 +435,18 @@ class AgencySetupWizardController extends Controller
             $key = $control['key'];
             $values[$key] = match ($control['source'] ?? 'agency') {
                 'perf'      => PerformanceSetting::get($key, $control['default'] ?? null),
+                // A PerformanceSetting whose value is a JSON list (the
+                // `user_multiselect` control type needs an array of ids back,
+                // not the raw JSON string it is stored as).
+                'perf_json' => (function () use ($key, $control) {
+                    $raw = PerformanceSetting::get($key, null);
+                    if (is_array($raw)) {
+                        return $raw;
+                    }
+                    $decoded = is_string($raw) ? json_decode($raw, true) : null;
+
+                    return is_array($decoded) ? $decoded : ($control['default'] ?? []);
+                })(),
                 // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),

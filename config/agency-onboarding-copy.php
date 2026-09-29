@@ -186,6 +186,22 @@ return [
              'label' => 'Maximum PP exclusive days',
              'explain' => 'Private Property lets a sole mandate go exclusive to PP for a chosen number of days, during which no other portal may carry the listing. This is the ceiling an agent can choose from — nothing is ever exclusive unless an agent explicitly opts in on that listing. Private Property\'s own hard limit is 92 days.',
              'affects' => 'The maximum number of days offered on the exclusivity opt-in when an agent ticks it on a sole mandate sale listing.'],
+
+            // Syndication Approval — the third layer after compliance.
+            // .ai/specs/syndication-approval-gate.md §9. The two controls are a
+            // PAIR: the switch cannot be saved on with an empty roster, and the
+            // saver throws a ValidationException (never a redirect) so this step
+            // re-renders with the error instead of silently not saving.
+            ['key' => 'syndication_approval_required', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
+             'heading' => 'Approval before a listing goes out',
+             'label' => 'Require approval before a listing is syndicated',
+             'explain' => 'When this is on, a listing that has passed compliance still cannot be sent to Property24, Private Property or your website until a person you choose has approved it. Anything already out on a portal is approved automatically the day you switch this on, so nobody has to work through your back catalogue.',
+             'affects' => 'When compliance is done your agents get a "Send for approval" button instead of the portal switches; the people you pick are emailed for every listing and get an "Awaiting approval" filter on the Properties list.'],
+
+            ['key' => 'syndication_approver_user_ids', 'source' => 'perf_json', 'type' => 'user_multiselect', 'default' => [],
+             'label' => 'Who approves',
+             'explain' => 'Everyone you tick is emailed when a listing is sent for approval, and any one of them can approve it. Pick more than one so a listing never waits on somebody who is away.',
+             'affects' => 'Who receives the approval emails and who can release a listing to the portals. If the switch is off, this does nothing.'],
         ],
     ],
 

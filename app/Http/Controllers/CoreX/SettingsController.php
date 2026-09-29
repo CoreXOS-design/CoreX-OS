@@ -551,10 +551,19 @@ class SettingsController extends Controller
             // HARD rule: the switch cannot be ON with nobody behind it —
             // that is the one way this feature could stop an agency marketing
             // anything at all.
+            //
+            // A thrown ValidationException, NOT a redirect-with-error. The
+            // Agency Setup Wizard reuses this saver and IGNORES a saver's
+            // return value (AgencySetupWizardController::save() only reacts to
+            // ValidationException and a 403) — a redirect would be swallowed,
+            // the step marked complete, and the setting silently not saved.
+            // That is precisely the failure agency-onboarding-setup.md §6.1
+            // exists to prevent. Thrown, it re-renders the step with the error
+            // against the field on BOTH callers.
             if ($wantsOn && empty($approvers)) {
-                return redirect()
-                    ->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
-                    ->with('error', 'Choose at least one person who approves listings before you turn this on.');
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'syndication_approver_user_ids' => 'Choose at least one person who approves listings before you turn this on.',
+                ]);
             }
 
             $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);

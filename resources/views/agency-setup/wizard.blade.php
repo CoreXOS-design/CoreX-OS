@@ -124,6 +124,35 @@
                                 <option value="{{ $ov }}" @selected((string) $val === (string) $ov)>{{ $ol }}</option>
                             @endforeach
                         </select>
+                    @elseif ($type === 'user_multiselect')
+                        {{-- Pick one or more of THIS agency's own people. The static
+                             `select` option map above cannot express a live per-agency
+                             list, which is why this type exists (spec:
+                             syndication-approval-gate.md §9).
+
+                             Posts `key[]`. The empty hidden companion is what makes
+                             "everyone un-ticked" arrive as an EMPTY ARRAY rather than
+                             as nothing at all — without it, un-ticking the last person
+                             would post no field, $request->has() would be false, and
+                             the saver would leave the old roster in place while the
+                             screen showed none. That is the §6.1 failure in reverse. --}}
+                        @php $selected = array_map('strval', (array) ($val ?? [])); @endphp
+                        <input type="hidden" name="{{ $key }}[]" value="">
+                        <div class="mt-2 rounded-md divide-y" style="border:1px solid var(--border,#e5e7eb);">
+                            @forelse (($agencyUsers ?? collect()) as $u)
+                                <label class="flex items-center gap-2.5 px-3 py-2 cursor-pointer">
+                                    <input type="checkbox" name="{{ $key }}[]" value="{{ $u->id }}"
+                                           @checked(in_array((string) $u->id, $selected, true))
+                                           style="accent-color: var(--brand-button, #0ea5e9);">
+                                    <span class="text-sm" style="color:var(--text-primary,#0f172a);">{{ $u->name }}</span>
+                                    <span class="text-xs" style="color:var(--text-muted,#94a3b8);">{{ $u->email }}</span>
+                                </label>
+                            @empty
+                                <p class="px-3 py-2 text-xs" style="color:var(--text-muted,#94a3b8);">
+                                    You haven't added anyone yet. Add your team first, then come back and choose.
+                                </p>
+                            @endforelse
+                        </div>
                     @endif
 
                     @error($key)

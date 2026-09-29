@@ -1,6 +1,9 @@
 # Syndication Approval Gate — the third layer
 
 > Status: **DRAFT — pending approval.** Drafted 2026-09-29 (QA2 lane).
+> Revision 4, 2026-09-29 — Johan ruled the switch DOES belong in the Agency Setup Wizard. Built:
+> a new `user_multiselect` control type, a `perf_json` value source, and the saver refusal changed
+> from a redirect to a thrown ValidationException (the wizard swallows return values). §9.1.
 > Revision 3, 2026-09-29 — Johan closed the day-one-stock question: **only new stock needs
 > approval** (D8, §2 + §4.4). No open questions remain; this spec is ready to build on his go.
 > Revision 2, 2026-09-29 — Johan's second pass added the email, the *Send for approval* button,
@@ -490,26 +493,58 @@ is **already** registered as a saver on that step, and because the step posts a 
 saver's fields, the boolean write is guarded with `$request->has()` so saving this step can never
 wipe `syndication_pp_enabled` / `syndication_p24_enabled` (the exact failure §6.1 exists to prevent).
 
-### 9.1 Deliberately NOT in the wizard — PENDING JOHAN'S RULING (§10a point 3)
+### 9.1 RULED: it IS in the wizard (Johan, 2026-09-29)
 
-**Status: built everywhere EXCEPT the wizard, awaiting Johan's decision.** Two concrete reasons,
-both structural rather than convenience:
+Revision 3 left this out and asked the question. **Johan's answer: put it in the wizard.** Built
+in revision 4, which required two real additions rather than a copy-only change.
 
-1. **The wizard has no control type that can express the approver picker.** Its vocabulary is
-   `toggle | number | text | textarea | select`, and `select` takes a STATIC option map baked into
-   `config/agency-onboarding-copy.php`. "Who approves" is a live, per-agency list of that agency's
-   users — it cannot be a static map.
-2. **A brand-new agency has nobody to choose yet.** Onboarding runs before the team exists; the
-   agency admin is often the only user in the system at that moment.
+#### 9.1.1 A new wizard control type: `user_multiselect`
 
-Shipping the toggle ALONE would be worse than omitting it: the saver refuses to store the switch
-ON with an empty roster (§4.3), so the wizard step would appear to save and silently not — the
-precise silent-failure class §6.1 of the parent spec exists to prevent.
+The wizard's vocabulary was `toggle | number | text | textarea | select`, and `select` takes a
+**static** option map baked into `config/agency-onboarding-copy.php`. "Who approves" is a **live,
+per-agency list of that agency's own users**, which no static map can express — that gap is the
+whole reason this was deferred. So the wizard gains one new control type, kept generic rather than
+special-cased to this feature:
 
-**The ask for Johan (business):** should a brand-new agency be walked through this at setup time
-at all, or is it correctly a decision they make from Settings once they have a team? If he wants
-it in the wizard, the honest build is a new `user_multiselect` control type in the wizard's
-vocabulary — a real addition to the wizard, specced and built on its own, not smuggled in here.
+- **Renderer** — `resources/views/agency-setup/wizard.blade.php`. Ticklist of the agency's active
+  users, posting `key[]`.
+- **Options** — `AgencySetupWizardController::stepData()` supplies `$agencyUsers` for the
+  `capabilities` step: `agency_id = <this agency>`, `is_active = true`, ordered by name. Another
+  agency's people can never appear (asserted).
+- **Value resolution** — a new `perf_json` source in `currentValues()`, for a `PerformanceSetting`
+  whose value is a JSON list. Generic: any future JSON-valued setting can use it.
+- **The empty companion** — the renderer emits `<input type="hidden" name="key[]" value="">`.
+  Without it, un-ticking the last person posts NO field at all, `$request->has()` is false, and the
+  saver leaves the old roster in place while the screen shows none — §6.1's failure in reverse. The
+  saver filters the empty element out (`array_filter` after `intval`).
+
+#### 9.1.2 The refusal had to become a ValidationException
+
+`AgencySetupWizardController::save()` **ignores a saver's return value** — it reacts only to a
+thrown `ValidationException` (and absorbs a 403). §4.3's rule (the switch cannot be saved ON with
+an empty roster) was originally a `redirect()->with('error')`. In the wizard that would have been
+**swallowed whole**: the step marked complete, the setting silently never written — exactly the
+failure §6.1 of the parent spec exists to prevent, and exactly why revision 3 said shipping the
+toggle alone would be worse than omitting it.
+
+`updateSyndicationPortals` now **throws** `ValidationException` against
+`syndication_approver_user_ids`. Both callers improve: the wizard re-renders the step with the
+error on the field, and the settings page shows a field-level error instead of a page-level flash.
+
+**Read this before adding any control to a wizard step:** a saver that refuses by returning
+anything at all is a saver the wizard cannot refuse with. It must throw.
+
+#### 9.1.3 Copy is position-neutral
+
+The step renders two controls per row on a wide screen and stacks them on a narrow one, so the
+copy says "the people you pick", never "below" — which would be wrong on desktop and right on
+mobile.
+
+Coverage: `tests/Feature/Onboarding/SyndicationApprovalWizardTest.php` (7 tests) — the control
+renders with this agency's people only, inactive people are excluded, the pair saves, switching on
+with nobody chosen is refused *as a validation error*, the roster can be emptied when the switch is
+off, the step does not wipe the sibling portal switches (§6.1), and the settings page refuses
+identically (one saver, one rule, no drift).
 
 ---
 

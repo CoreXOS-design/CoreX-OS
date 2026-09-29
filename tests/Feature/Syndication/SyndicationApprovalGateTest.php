@@ -510,12 +510,15 @@ class SyndicationApprovalGateTest extends TestCase
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin',
         ]);
 
+        // A VALIDATION error, not a flash: the Agency Setup Wizard reuses this
+        // saver and ignores return values, so the refusal has to be something
+        // that bubbles. See SyndicationApprovalWizardTest.
         $this->actingAs($admin)
             ->post(route('corex.settings.syndication-portals'), [
                 'syndication_approval_required' => 1,
                 'syndication_approver_user_ids' => [],
             ])
-            ->assertSessionHas('error');
+            ->assertSessionHasErrors('syndication_approver_user_ids');
 
         $this->assertFalse(SyndicationApprovalService::isRequiredForAgency($this->agency->id));
     }
