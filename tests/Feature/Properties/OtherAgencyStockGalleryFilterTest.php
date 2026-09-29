@@ -3,6 +3,7 @@
 namespace Tests\Feature\Properties;
 
 use App\Jobs\DownloadOtherAgencyStockGalleryJob;
+use App\Jobs\DownloadPortalPropertyImages;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\User;
@@ -133,5 +134,62 @@ class OtherAgencyStockGalleryFilterTest extends TestCase
 
             return true;
         });
+    }
+
+    /**
+     * 2026-09-30 URGENT FIX #3 (Norkem Park, property #21098): OAS import
+     * had NO photos in practice — the extension's client-collected photos[]
+     * URL array reliably ended up empty/wrong. The Pull flow's own image
+     * mechanism (P24's sequential image-id pattern, proven live) is reused
+     * exactly, not reimplemented: when the payload carries
+     * first_image_id/image_count (the SAME signal
+     * PropertyPullController::pullFromPortal() already accepts),
+     * OtherAgencyStockImportService must dispatch the SAME
+     * DownloadPortalPropertyImages job Pull uses — never the URL-array job.
+     */
+    public function test_p24_first_image_id_and_image_count_dispatch_the_same_job_pull_uses(): void
+    {
+        Queue::fake();
+
+        $payload = [
+            'portal' => 'p24', 'listing_ref' => '117424272',
+            'listing_url' => 'https://www.property24.com/for-sale/norkem-park/kempton-park/gauteng/1344/117424272',
+            'consent' => true, 'price' => 795000, 'property_type' => 'House', 'suburb' => 'Norkem Park',
+            'first_image_id' => 400000001,
+            'image_count' => 14,
+            // Even though these are sent (harmless, still useful for
+            // display/audit), they must NOT be used for gallery download —
+            // first_image_id/image_count wins outright for P24.
+            'photos' => ['https://images.prop24.com/999999999/Ensure960x540'],
+        ];
+
+        app(OtherAgencyStockImportService::class)->import($payload, $this->agent);
+
+        Queue::assertPushed(DownloadPortalPropertyImages::class, function (DownloadPortalPropertyImages $job) {
+            $this->assertSame(400000001, $job->firstImageId);
+            $this->assertSame(14, $job->imageCount);
+
+            return true;
+        });
+        Queue::assertNotPushed(DownloadOtherAgencyStockGalleryJob::class);
+    }
+
+    public function test_pp_import_still_uses_the_url_array_job_no_p24_sequential_id(): void
+    {
+        Queue::fake();
+
+        $galleryUrls = ['https://images.pp.co.za/listing/1/photo1/1024/682/contain/jpegorpng'];
+
+        $payload = [
+            'portal' => 'pp', 'listing_ref' => 'T1',
+            'listing_url' => 'https://www.privateproperty.co.za/for-sale/x/T1',
+            'consent' => true, 'price' => 1000000, 'property_type' => 'House', 'suburb' => 'Testville',
+            'photos' => $galleryUrls,
+        ];
+
+        app(OtherAgencyStockImportService::class)->import($payload, $this->agent);
+
+        Queue::assertNotPushed(DownloadPortalPropertyImages::class);
+        Queue::assertPushed(DownloadOtherAgencyStockGalleryJob::class);
     }
 }

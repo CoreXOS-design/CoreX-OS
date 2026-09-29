@@ -123,6 +123,14 @@ class OtherAgencyStockImportController extends Controller
 
             'photos'         => ['nullable', 'array', 'max:200'],
             'photos.*'       => ['url', 'max:2048'],
+            // 2026-09-30 URGENT FIX #3 (Norkem Park, property #21098): P24's
+            // own sequential image-id pattern, the SAME signal
+            // PropertyPullController already accepts — the Pull flow's photos
+            // worked; OAS's client-collected photos[] URL array didn't.
+            // Reusing this instead of reimplementing collection.
+            'first_image_id' => ['nullable', 'integer'],
+            'image_count'    => ['nullable', 'integer', 'min:0', 'max:500'],
+            'region'         => ['nullable', 'string', 'max:100'],
 
             'source_agency_name'       => ['nullable', 'string', 'max:255'],
             'source_agent_name'        => ['nullable', 'string', 'max:255'],
@@ -151,10 +159,16 @@ class OtherAgencyStockImportController extends Controller
 
         $property = $service->import($validated, $request->user());
 
+        // Same response shape PropertyPullController returns — the popup's
+        // image-download polling (pull-status) is shared code and reads
+        // images_count from here exactly like the Pull flow.
+        $imagesCount = (int) ($validated['image_count'] ?? count($validated['photos'] ?? []));
+
         return response()->json([
-            'success'     => true,
-            'property_id' => $property->id,
-            'url'         => url('/corex/properties/' . $property->id),
+            'success'      => true,
+            'property_id'  => $property->id,
+            'url'          => url('/corex/properties/' . $property->id),
+            'images_count' => $imagesCount,
         ]);
     }
 

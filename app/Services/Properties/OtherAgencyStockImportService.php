@@ -3,6 +3,7 @@
 namespace App\Services\Properties;
 
 use App\Jobs\DownloadOtherAgencyStockGalleryJob;
+use App\Jobs\DownloadPortalPropertyImages;
 use App\Models\OtherAgencyStockConsent;
 use App\Models\OtherAgencyStockUnlock;
 use App\Models\Property;
@@ -10,6 +11,7 @@ use App\Models\PropertyExternalSource;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 /**
  * .ai/specs/other-agency-stock.md §3/§4 — import (or re-import) ONE
@@ -106,9 +108,18 @@ class OtherAgencyStockImportService
                 'p24_city_id'     => $p24Suburb['p24_city_id'] ?? $property->p24_city_id ?? null,
                 'p24_province_id' => $p24Suburb['p24_province_id'] ?? $property->p24_province_id ?? null,
                 'address'       => $data['address'] ?? null,
+                'region'        => $data['region'] ?? $property->region ?? null,
                 'latitude'      => $data['latitude'] ?? null,
                 'longitude'     => $data['longitude'] ?? null,
                 'title'         => $this->deriveTitle($data) ?: ($property->title ?? 'Other Agency Stock listing'), // title is NOT NULL
+                // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-30 field-parity
+                // fix: PropertyPullController sets excerpt + listed_date on every
+                // pull; OAS import silently never had either. Same Str::limit
+                // pattern as the pull path. listed_date only stamped on the
+                // FIRST import — a reimport must not keep resetting "days on
+                // market" to today.
+                'excerpt'       => ! empty($data['description']) ? Str::limit(strip_tags($data['description']), 300) : ($property->excerpt ?? null),
+                'listed_date'   => $property->listed_date ?? now()->toDateString(),
                 'features_json' => ! empty($data['features']) ? array_values($data['features']) : ($property->features_json ?? null),
             ])->save();
 
@@ -158,12 +169,29 @@ class OtherAgencyStockImportService
                 ]);
             }
 
-            $photos = $this->filterKnownNonGalleryPhotos($data['photos'] ?? [], $data, $property->id);
-            if (! empty($photos)) {
-                // DownloadOtherAgencyStockGalleryJob uses saveQuietly() — it never
-                // touches the content lock at all (no need for the transient
-                // allowOtherAgencyStockContentWrite bypass on this async path).
-                DownloadOtherAgencyStockGalleryJob::dispatch($property->id, $photos);
+            // 2026-09-30 URGENT FIX #3 (Norkem Park, property #21098): OAS
+            // import had NO photos — the Pull flow's images worked because it
+            // dispatches DownloadPortalPropertyImages (P24's own sequential
+            // image-id pattern: firstImageId..firstImageId+count-1, HTTP-pooled,
+            // content-hash deduped). OAS instead sent a client-collected
+            // photos[] URL array to a DIFFERENT job. Reuse the exact same
+            // mechanism Pull already proved works, don't reimplement: P24
+            // dispatches the SAME DownloadPortalPropertyImages job Pull uses,
+            // driven by the SAME first_image_id/image_count signal
+            // content-p24-detail.js already extracts. PP has no P24 sequential
+            // id scheme, so it keeps sending a real photos[] URL array —
+            // DownloadOtherAgencyStockGalleryJob (+ the agent/logo filter
+            // below) stays, PP-only.
+            if (! empty($data['first_image_id']) && ! empty($data['image_count'])) {
+                DownloadPortalPropertyImages::dispatch($property->id, (int) $data['first_image_id'], (int) $data['image_count']);
+            } else {
+                $photos = $this->filterKnownNonGalleryPhotos($data['photos'] ?? [], $data, $property->id);
+                if (! empty($photos)) {
+                    // DownloadOtherAgencyStockGalleryJob uses saveQuietly() — it never
+                    // touches the content lock at all (no need for the transient
+                    // allowOtherAgencyStockContentWrite bypass on this async path).
+                    DownloadOtherAgencyStockGalleryJob::dispatch($property->id, $photos);
+                }
             }
 
             return $property->fresh();
