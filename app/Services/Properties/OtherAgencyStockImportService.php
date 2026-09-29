@@ -83,7 +83,10 @@ class OtherAgencyStockImportService
                 'listing_type'  => $data['listing_type'] ?? $property->listing_type ?? 'sale',
                 'property_type' => $typeMap['property_type'] ?? $property->property_type ?? 'house',
                 'category'      => $typeMap['category'] ?? $property->category ?? null,
-                'price'         => $data['price'] ?? null,
+                // NOT NULL, same reasoning as beds/baths/garages below — a
+                // POA/"price on application" listing has no numeric price
+                // to send and must not 500 the import over it.
+                'price'         => $data['price'] ?? 0,
                 // beds/baths/garages are NOT NULL (DB default 0, but an explicit
                 // NULL in the INSERT still violates it — Eloquent always sends the
                 // key when it's in $fillable and was set, default or not).
