@@ -70,6 +70,19 @@ if (isset($opts['create'])) {
     $stamp = 'insp-clickthrough-' . date('YmdHis') . '-' . substr(uniqid(), -5);
 
     $agency = Agency::create(['name' => 'Inspection Gate Co', 'slug' => $stamp]);
+    // §41, 2026-09-29 — RentalInspectionSetting::DEFAULT_AUTO_PAIR_PHOTOS_ENABLED
+    // is true, so with no setting row for this brand-new throwaway agency,
+    // the frontend auto-pairs the Ceiling item's photos the FIRST time its
+    // comparison is viewed — before check #26 (Auto-pair, the explicit
+    // button) or check #28 (manual link) ever click anything. Found live:
+    // check #28's own "before link" step saw Linked=true on first open.
+    // #26's own explicit button is unaffected by this setting either way
+    // (its own docblock: "always runs on request regardless of this
+    // setting"), so disabling the automatic-on-load trigger here changes
+    // nothing about what #26 proves — only removes an unrelated variable
+    // from #27/#28, which both need the Ceiling item genuinely unpaired
+    // when the compare viewer first opens.
+    \App\Models\RentalInspectionSetting::create(['agency_id' => $agency->id, 'auto_pair_photos_enabled' => false]);
     $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch A']);
     // 2026-09-29 — User::factory()->create() calls UserFactory::definition(),
     // which calls the global fake() helper. fake() is defined by Laravel's
