@@ -147,6 +147,14 @@
                     $can('command_center.settings')
                         ? ['key'=>'command-center', 'label'=>'Command Center Rules', 'type'=>'section', 'keywords'=>'expectations reminders automation rules document event classes thresholds']
                         : null,
+                    // Findability fix, 2026-09-29 — Johan couldn't find the Core Matches
+                    // status allow-list (it lives on Contact Governance, not here). This
+                    // is a POINTER only (type=>'link'): the setting itself stays on
+                    // command-center/settings/contact-governance.blade.php, never
+                    // duplicated inline on this page.
+                    $can('command_center.settings')
+                        ? ['key'=>'contact-governance', 'label'=>'Contact Governance', 'type'=>'link', 'href'=>route('command-center.settings.contact-governance') . '#core-matches-status-settings', 'keywords'=>'core match core matches statuses status allow-list allowlist which statuses shown included working window gone quiet contact governance retention outreach']
+                        : null,
                     $can('prospecting_setup.manage')
                         ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'section', 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting buyer match tiers']
                         : null,

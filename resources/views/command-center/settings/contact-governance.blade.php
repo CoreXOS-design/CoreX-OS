@@ -244,7 +244,11 @@
         </div>
 
         {{-- ═══════ CORE MATCHES — WORKING WINDOW (Johan's ruling 5) ═══════ --}}
-        <div class="corex-panel mb-6">
+        {{-- Findability fix, 2026-09-29 — id is the anchor target for the Core
+             Matches screen's own settings/gear link and the main Settings
+             search index (corex/settings.blade.php's 'contact-governance'
+             item). Do not rename without updating both. --}}
+        <div class="corex-panel mb-6" id="core-matches-status-settings">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Core Matches</h3>
             </div>
@@ -265,7 +269,7 @@
                      selection is never a valid state), so there's no "show nothing" trap. --}}
                 <div class="pt-3 border-t" style="border-color:var(--border);">
                     <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">Statuses included in Core Matches</p>
-                    <p class="text-xs mb-2" style="color:var(--text-muted);">Which property statuses are ever shown as a Core Match. Any status not ticked here — drafts, withdrawn, sold, rented, under offer, pending, archived, and any status not in this list — is excluded, including one this agency defines later.</p>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">Only ticked statuses ever appear as a Core Match — everything else, including any status added later, is excluded.</p>
                     <div class="flex flex-wrap gap-4">
                         @php
                             $selectedCoreMatchStatuses = $settings->coreMatchesAllowedStatuses();
