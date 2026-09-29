@@ -839,7 +839,15 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download Extension
                 </a>
-                <a href="{{ asset('downloads/portal-capture-extension.zip') }}" class="corex-btn-outline" download>Portal Capture Extension</a>
+                {{-- 2026-09-29 investigation (property #21094) — this second link
+                     pointed at the STATIC public/downloads/portal-capture-extension.zip,
+                     which is never regenerated (found stale at v3.4.5, dated Aug 24,
+                     while the button above already correctly points at
+                     corex.extension.download — ProfileController::downloadExtension,
+                     which rebuilds the zip from the live source on every request). Two
+                     buttons offering two different extension versions on the same page
+                     was a real distribution risk; removed rather than fixed, since the
+                     correct one already existed right beside it. --}}
             </div>
         </div>
         @endif

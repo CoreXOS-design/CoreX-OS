@@ -46,13 +46,43 @@ class OtherAgencyStockImportService
             // this mirrors that same resolution defensively).
             $agentId = $actor->isAssistant() ? ($actor->assignedAgent()?->id ?? $actor->id) : $actor->id;
 
+            // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-29 Pomona
+            // field-mapping fix. property_type/category: an explicit
+            // $data['property_type'] (a hand-built payload, or a future
+            // caller) always wins outright; otherwise derive both from the
+            // portal's raw signals via the one shared mapper — never guess
+            // ad hoc here, and never leave every Core-Match-relevant field
+            // silently unset the way the old pull-from-portal path did.
+            $typeMap = ($data['property_type'] ?? null)
+                ? ['property_type' => $data['property_type'], 'category' => null]
+                : \App\Services\Properties\OtherAgencyStockFieldMapper::mapPropertyType(
+                    $data['portal'],
+                    $data['property_type_raw'] ?? null,
+                    $data['property_type_label_hint'] ?? null,
+                );
+
+            // Suburb/city/province/P24 location ids: P24's own external
+            // suburb id (off the URL) is authoritative when present —
+            // resolves the SAME p24_suburb_id/p24_city_id/p24_province_id
+            // chain the manual property forms use (AppliesP24Location),
+            // so this property is indistinguishable from a manually-linked
+            // one for every P24-location-aware feature (maps, suburb
+            // reports, etc.), not just Core Matches. Falls back to the
+            // plain suburb/city/province text the payload already carries
+            // (PP has no P24 suburb id at all) when there's nothing to
+            // resolve.
+            $p24Suburb = \App\Services\Properties\OtherAgencyStockFieldMapper::resolveP24Location(
+                $data['p24_suburb_external_id'] ?? null
+            );
+
             $property->fill([
                 'agency_id'     => $agencyId,
                 'agent_id'      => $agentId,
                 'branch_id'     => $property->branch_id ?? $actor->branch_id,
                 'status'        => Property::STATUS_OTHER_AGENCY_STOCK,
                 'listing_type'  => $data['listing_type'] ?? $property->listing_type ?? 'sale',
-                'property_type' => $data['property_type'] ?? $property->property_type ?? 'house',
+                'property_type' => $typeMap['property_type'] ?? $property->property_type ?? 'house',
+                'category'      => $typeMap['category'] ?? $property->category ?? null,
                 'price'         => $data['price'] ?? null,
                 // beds/baths/garages are NOT NULL (DB default 0, but an explicit
                 // NULL in the INSERT still violates it — Eloquent always sends the
@@ -65,9 +95,13 @@ class OtherAgencyStockImportService
                 'description'   => $data['description'] ?? null,
                 'street_number' => $data['street_number'] ?? null,
                 'street_name'   => $data['street_name'] ?? null,
-                'suburb'        => $data['suburb'] ?? null,
-                'city'          => $data['city'] ?? null,
-                'province'      => $data['province'] ?? null,
+                'suburb'        => $p24Suburb['suburb'] ?? $data['suburb'] ?? null,
+                'city'          => $p24Suburb['city'] ?? $data['city'] ?? null,
+                'province'      => $p24Suburb['province'] ?? $data['province'] ?? null,
+                'town'          => $p24Suburb['town'] ?? $property->town ?? null,
+                'p24_suburb_id'   => $p24Suburb['p24_suburb_id'] ?? $property->p24_suburb_id ?? null,
+                'p24_city_id'     => $p24Suburb['p24_city_id'] ?? $property->p24_city_id ?? null,
+                'p24_province_id' => $p24Suburb['p24_province_id'] ?? $property->p24_province_id ?? null,
                 'address'       => $data['address'] ?? null,
                 'latitude'      => $data['latitude'] ?? null,
                 'longitude'     => $data['longitude'] ?? null,
@@ -191,6 +225,16 @@ class OtherAgencyStockImportService
 
     private function deriveTitle(array $data): ?string
     {
+        // 2026-09-29 URGENT FIX #2 (Clayville, property #21095): the
+        // listing's own real title (P24 JSON-LD name / PP page title) wins
+        // outright when the extension sends it. street_number/street_name
+        // are almost never present on a scraped-from-another-agency
+        // listing, so the old address-parts fallback silently collapsed to
+        // a bare suburb name ("Clayville") whenever they were empty.
+        if (! empty($data['listing_title'])) {
+            return $data['listing_title'];
+        }
+
         $parts = array_filter([$data['street_number'] ?? null, $data['street_name'] ?? null, $data['suburb'] ?? null]);
 
         return $parts ? implode(' ', $parts) : ($data['address'] ?? null);

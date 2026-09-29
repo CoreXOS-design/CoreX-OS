@@ -97,6 +97,29 @@ body {
   margin-bottom: 4px;
 }
 
+/* 2026-09-29 URGENT FIX #2 — the OAS consent checkbox sits inside a plain
+   .form-group (for the flex layout), but .form-group label above is tuned
+   for a short field caption ("API URL"), not a full sentence: 10px,
+   uppercase, 50%-opacity text. That's the "misaligned and all-caps"
+   consent checkbox Johan saw. Override with a normal sentence-case row. */
+#oasConsentWrap label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+#oasConsentWrap input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
 .form-group input {
   width: 100%;
   padding: 8px 12px;

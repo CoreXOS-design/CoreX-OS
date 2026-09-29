@@ -3206,6 +3206,21 @@
                                             @php $val = strtolower(str_replace(' ','_',$item->name)); @endphp
                                             <option value="{{ $val }}" {{ $stCurrent === $val ? 'selected' : '' }}>{{ $item->name }}</option>
                                         @endforeach
+                                        {{-- .ai/specs/other-agency-stock.md §7/§10 — other_agency_stock is a SYSTEM
+                                             status (Property::systemStatuses()), deliberately never an agency-
+                                             configurable property_status item, so it never appears in the loop
+                                             above (and never should — Settings → Property Status is for statuses
+                                             an agency defines for its OWN lifecycle). Offered here as an explicit
+                                             extra option ONLY to a user OtherAgencyStockStatusGate already permits
+                                             to change to/from it — PropertyObserver::saving() independently
+                                             re-enforces this on submit regardless of what the dropdown renders, so
+                                             this gate is a UX courtesy (don't show a choice that will 422), not the
+                                             real security boundary. Not the normal way to create Other Agency
+                                             Stock (that's the Chrome extension's consent-gated import) — this
+                                             exists for an authorised user to correct/reclassify an existing row. --}}
+                                        @if(\App\Services\Properties\OtherAgencyStockStatusGate::canAuthoriseAdvertEdit(auth()->user()) && $stCurrent !== 'other_agency_stock')
+                                            <option value="other_agency_stock">Other Agency Stock</option>
+                                        @endif
                                     </select>
                                 </div>
                                 <div>
