@@ -47,14 +47,15 @@
                     </svg>
                 </a>
                 @endpermission
-                {{-- Findability fix, 2026-09-29 — Johan couldn't find "which statuses
-                     are included in Core Matches" (it's on Contact Governance, not
-                     the gear above, which opens the unrelated WhatsApp/message
-                     settings). Same permission as the setting itself
-                     (command_center.settings, per the route's own middleware) — only
-                     users who can actually edit it see the link. --}}
+                {{-- Findability fix, 2026-09-29 (Johan, revised) — Johan couldn't find
+                     "which statuses are included in Core Matches" (the gear above opens
+                     the unrelated WhatsApp/message settings). Setting now lives in main
+                     Settings' own Core Matches section (moved off Contact Governance).
+                     Same permission as the setting itself (command_center.settings, per
+                     the route's own middleware) — only users who can actually edit it
+                     see the link. --}}
                 @permission('command_center.settings')
-                <a href="{{ route('command-center.settings.contact-governance') }}#core-matches-status-settings"
+                <a href="{{ url('/corex/settings?s=core-matches') }}"
                    title="Which statuses are shown in Core Matches" aria-label="Which statuses are shown in Core Matches"
                    class="inline-flex items-center justify-center rounded-md text-white transition-colors"
                    style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
