@@ -735,11 +735,43 @@ async function main() {
     ]);
     await inspPage.goto(`${BASE_URL}/corex/properties/${inspFx.property_id}`, { waitUntil: 'networkidle0', timeout: 25000 });
     await new Promise((r) => setTimeout(r, 800));
+    // 2026-09-29 — a genuinely fresh fixture user (first ever page view,
+    // empty localStorage in this fresh Puppeteer page — unlike a real
+    // agent's browser, which has long since dismissed this) auto-opens the
+    // "Working on a property" product tour (layouts/partials/tour-
+    // engine.blade.php) on THIS exact page. It sits on top of the tab bar
+    // and swallows the click below silently (no error — the click just
+    // lands on the tour overlay instead of the tab), which then cascades
+    // into every check in this section finding its target elements with a
+    // zero-size bounding box (still on the wrong tab). Dismissed the same
+    // way a human would: the tour's own explicit "Close tour" control
+    // (data-tour-close — AT-41, overlay/X/ESC close is deliberately
+    // disabled, so this is the only dismissal path). No-op (0ms) if the
+    // tour isn't showing.
+    const tourClose = await inspPage.$('[data-tour-close]');
+    if (tourClose) {
+      await tourClose.click();
+      await new Promise((r) => setTimeout(r, 300));
+    }
     // The Inspections tab is not the default tab on the property page —
     // every control this section checks lives behind it. Real selector,
     // checked directly (show.blade.php's tab bar), not guessed:
     // data-prop-tab="{{ $tab['key'] }}" on each tab button.
     await inspPage.click('[data-prop-tab="inspections"]');
+    await new Promise((r) => setTimeout(r, 500));
+    // 2026-09-29 — the "Inspection" panel (show.blade.php's own
+    // open['inspection'] flag) starts collapsed on every fresh page load —
+    // `open: {}` has no default entry for it, and nothing anywhere sets one
+    // except this toggle's own @click. Every control checks #20-24 target
+    // (mark-room-good, mark-room-na, toggle-photo-notes, add-item-photo)
+    // lives inside rental-inspection-recording.blade.php, which is rendered
+    // INSIDE that collapsed body (x-show="open['inspection']") — a
+    // display:none element has no bounding box, so Puppeteer's own
+    // elementHandle.click() throws "Node is either not clickable" on all of
+    // them from a genuinely fresh session, not just check #27. Opened here,
+    // once, before any numbered check in this section runs — same fix,
+    // shared entry point, not five separate patches.
+    await inspPage.click('[data-qa="toggle-inspection-panel"]');
     await new Promise((r) => setTimeout(r, 500));
 
     // 27 — Compare viewer: opening a photo shows the OTHER side too (Johan,
@@ -758,14 +790,28 @@ async function main() {
     {
       const name = '27. Compare viewer — opening a photo shows both sides';
       const ceilingId = inspFx.ceiling_item_id;
+      // rental-inspection-recording.blade.php includes item-cell.blade.php
+      // TWICE (the active and completed x-show branches — see this file's
+      // own RentalInspectionChainTest coverage of that same fact), so a
+      // data-qa/data-item-id selector legitimately matches more than one
+      // DOM node — only one of which sits inside the currently-visible
+      // branch. querySelectorAll + boundingBox, not $()'s first-match.
+      const firstVisible = async (selector) => {
+        const handles = await inspPage.$$(selector);
+        for (const h of handles) {
+          const box = await h.boundingBox();
+          if (box && box.width > 0 && box.height > 0) return h;
+        }
+        return null;
+      };
       const dims = async (qa) => {
-        const img = await inspPage.$(`[data-qa="${qa}"]`);
+        const img = await firstVisible(`[data-qa="${qa}"]`);
         if (!img) return null;
         return inspPage.evaluate((el) => ({ w: el.naturalWidth, h: el.naturalHeight }), img);
       };
       const clickAndCheck = async (clickSelector, clickedQa, otherQa, label, screenshotName) => {
-        const handle = await inspPage.$(clickSelector);
-        if (!handle) return { ok: false, detail: `${label}: selector not found: ${clickSelector}` };
+        const handle = await firstVisible(clickSelector);
+        if (!handle) return { ok: false, detail: `${label}: no VISIBLE element matched: ${clickSelector}` };
         await handle.click();
         await new Promise((r) => setTimeout(r, 600));
         const clickedDims = await dims(clickedQa);

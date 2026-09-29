@@ -5004,7 +5004,7 @@
                          own line. Below 1024px, wrapping is allowed exactly as
                          before. --}}
                     <div class="flex items-center gap-2 flex-wrap lg:flex-nowrap" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <button type="button" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle('inspection')" style="border-bottom:0; width:auto; flex:1 1 auto; min-width:0; padding-top:0.375rem; padding-bottom:0.375rem;">
+                        <button type="button" data-qa="toggle-inspection-panel" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle('inspection')" style="border-bottom:0; width:auto; flex:1 1 auto; min-width:0; padding-top:0.375rem; padding-bottom:0.375rem;">
                             <h3 class="prop-section-heading">
                                 <span class="prop-section-heading-text">Inspection</span>
                                 {{-- Same "never the coerced literal undefined" fix
