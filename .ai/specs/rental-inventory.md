@@ -2873,3 +2873,203 @@ contract, never proving a human can actually click the button that calls it. Sta
 recurring: "A PHPUnit test cannot see a disabled button — it does not run a browser." Verified on
 throwaway fixtures only (properties 21068-21074, inventories 18-23, inspection 38, agency 1, user 365)
 — property 5294 never touched.
+
+---
+
+## 22. Party roles — settings-driven labels, a real SELLER role, and the sale/rental split (2026-09-29, Johan)
+
+Johan's own words started this: *"I hope in inventory we did not hard code signatures to landlord and
+tenant. Sales work for this as well."* Investigation confirmed the worry — role words were hardcoded in
+several places, and a sale property's owner signed under `party_role='landlord'`, the rental word,
+because §15 only ever fixed the DISPLAY label (`$ownerPartyLabel`), never the stored role or the
+downstream logic gated on it (`outstandingSignatories()`, `capture()`'s validation). Three rulings
+landed together, in order.
+
+### 22.1 Labels — ONE resolver, reading the real Contact Types settings screen
+
+Johan pointed to the actual source (checked live in Chrome): `/corex/settings?s=feature-contacts` →
+"Contact Types" tab, backed by `App\Models\ContactType` (table `contact_types`, read/written by
+`App\Http\Controllers\CoreX\ContactTypeController::store()`/`update()`). The four signing roles
+(lessor/lessee/seller/buyer) are fixed in count and in `esign_role`, but an agency can add its OWN named
+type under a given `esign_role` — e.g. the live `'Tenant'` row (`esign_role=lessee`), distinct from the
+canonical `'Lessee'` row.
+
+**`App\Services\PartyRoleLabel::for(?int $agencyId, string $roleKey): string`** is the ONE place every
+inventory-facing surface reads a role's display word from — internal keys
+(`RentalInventorySignature::PARTY_TENANT`/`PARTY_LANDLORD`/`PARTY_SELLER`/`PARTY_AGENT`) never change,
+only the label. Maps `landlord→lessor`, `tenant→lessee`, `seller→seller`, `buyer→buyer`, looks up the
+matching `ContactType` row, returns its `name`. `agent` has no `ContactType` (a CoreX `User`, not a
+`Contact`) and stays the fixed word `'Agent'`.
+
+**Deterministic pick when two rows share an `esign_role`** (Johan's own named case — Agency 1 carries
+both `'Tenant'` and `'Lessee'` for `esign_role=lessee`): the STRICTLY CANONICAL row (`name ===
+ContactType::CANONICAL[$esignRole]`) wins, else the lowest `sort_order` among the rest. Chosen because
+the canonical row is the one every e-sign flow's own 1:1 role mapping already depends on
+(`ContactType::isLocked()`). **Consequence, stated plainly rather than left implicit**: on Agency 1's
+current data this means inventory now displays "Lessor"/"Lessee" (the canonical names), NOT the
+colloquial "Landlord"/"Tenant" wording, because no row named "Landlord" exists and the canonical
+`'Lessee'` row wins over the custom `'Tenant'` row. If HFC wants "Tenant"/"Landlord" wording specifically,
+that is a change on the Contact Types settings screen (rename/deactivate a canonical row, or adjust
+sort_order so a differently-named row wins), not in this resolver — the resolver is now correctly
+settings-driven; it does not choose which word an agency prefers.
+
+**`agencyId` accepted, unused**: `ContactType` has no `agency_id` column — the 6 base parents are global
+(the "Contact Types" screen's own note: *"the four signing roles are fixed"*). The parameter is wired
+through every call site regardless, so the day this becomes genuinely per-agency, only `PartyRoleLabel`'s
+internals change.
+
+**Party CONTACT resolution — deliberately NOT switched to ContactType, flagged instead of silently
+changed.** Johan asked to resolve the party contacts themselves via ContactType `esign_role` too, instead
+of `contact_property.role`. Investigated: `Property::sellerOwnerContact()` (`Property.php:1040`) resolves
+via the `contact_property` pivot's own free-text `role` column (`'seller'|'owner'|'landlord'|'lessor'`) —
+a genuinely separate vocabulary from `ContactType.esign_role`, confirmed by `Contact::rentalRoleLabels()`
+'s own docblock: *"most landlords are linked via the property pivot, never actually assigned the
+Lessor/Landlord type."* Switching contact RESOLUTION (not just the label) to ContactType-only would
+silently stop resolving the owner for the majority of real properties, which have never been tagged.
+`sellerOwnerContact()`/`LeaseTenant` are UNCHANGED in this build for that reason — labels are
+settings-driven (22.1 above); WHO counts as the owner/tenant contact is still the existing pivot/lease
+mechanism. A genuine cutover is a larger, riskier change than this task, and is Johan's call once he's
+seen this trade-off, not something to make silently.
+
+### 22.2 A real SELLER role — sale = seller + agent only, never a buyer at this stage
+
+`RentalInventorySignature::PARTY_SELLER = 'seller'` added alongside the existing three. New
+`RentalInventory::ownerPartyRole(): string` is the ONE place that decides which of `PARTY_SELLER`/
+`PARTY_LANDLORD` applies: **`'seller'` only when `lease_id` is null AND `property.listing_type ===
+'sale'`; `'landlord'` for every other case** — a lease-attached rental inventory, OR a property-level
+inventory on a RENTAL property currently between tenancies (also `lease_id` null, but still a rental,
+just vacant — §15's own distinction, now enforced in code, not just narrated). `outstandingSignatories()`,
+`markCompleted()`'s error messages, `signatureSummaryRows()`, and `distributionRecipients()` all read
+through this one method instead of the old `$inventory->lease_id ? 'landlord' : 'seller'` ternary, which
+was wrong for exactly the vacant-rental case.
+
+`RentalInventorySignature::capture()` now refuses a `party_role` that doesn't match
+`$inventory->ownerPartyRole()` outright (`InvalidArgumentException`) — a sale inventory's owner cannot be
+recorded as `'landlord'`, and vice versa, even if a stale client sends it. Ruling: **"It completes and is
+filed at mandate stage, long before a buyer exists. Seller signs as the SELLER role for real, not as
+'landlord' relabelled."** — a sale inventory's `outstandingSignatories()` now requires ONLY the seller (no
+tenant loop ever matches — `LeaseTenant::where('lease_id', null)` is naturally empty) + the agent, exactly
+mirroring the rental shape of tenant(s) + landlord + agent.
+
+**Data migration** `2026_10_06_090000_relabel_sale_inventory_landlord_signatures_to_seller` — every
+EXISTING `rental_inventory_signatures` row with `party_role='landlord'`, `rental_inventories.lease_id
+IS NULL`, and `properties.listing_type='sale'` is relabelled to `'seller'`. Deliberately scoped to sale
+properties only — a vacant rental property's own `lease_id IS NULL` row stays `'landlord'`, correctly.
+Idempotent (a second run matches zero rows), logs the relabelled count, `down()` is a deliberate no-op
+(there is no "original" value worth restoring — `'seller'` is the correct value for these rows).
+
+### 22.3 Rental regression — proven, not assumed
+
+`RentalInventoryPartyRolesTest::test_rental_inventory_still_requires_tenant_and_landlord` runs the FULL
+rental flow (tenant + landlord + agent capture → `markCompleted()`) end to end against the new code path
+and asserts it completes exactly as before. A second test
+(`test_rental_inventory_rejects_a_seller_role_signature`) proves the new role-mismatch guard doesn't leak
+the other way — a rental inventory refuses a `'seller'`-role signature outright.
+
+### 22.4 Found while building this, out of scope, flagged not fixed
+
+`database/schema/mysql-schema.sql`'s baked-in migrations ledger now marks
+`2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps` as "already applied" — so a
+fresh `RefreshDatabase` test bootstrap SKIPS it and gets ZERO of the 6 base `ContactType` parents
+(Seller/Buyer/Lessor/Lessee/Owner/Other). This is the EXACT AT-392 class of gap that migration's own
+docblock predicted would recur once the snapshot was regenerated again — confirmed by a real test
+failure while building `RentalInventoryPartyRolesTest` (expected `'Lessor'`, got the `ucfirst()` fallback
+`'Landlord'` because the row simply didn't exist). Worked around LOCALLY in this test's own `setUp()`
+(seeds the 6 parents directly, same convention `DocumentType` rows already use in sibling tests) — the
+snapshot itself is untouched, since regenerating it is shared infra outside this task's scope. Any OTHER
+test anywhere in the suite that depends on these 6 rows existing via that migration has the same latent
+gap.
+
+---
+
+## 23. Viewing Pack eligibility — the completed inventory is now a selectable document (2026-09-29, Johan)
+
+Johan: *"the inventory should be one of the documents an agent can select for a viewing pack."* The
+Viewing Pack feature already exists in full (`app/Models/ViewingPack*.php`,
+`app/Http/Controllers/CommandCenter/ViewingPackController.php`, `.ai/specs/viewing-pack.md`) — an agent
+picks properties for a buyer's viewing day, then per-property picks eligible attached documents to
+bundle. Eligibility is `document_types.buyer_pack_eligible` (+ per-agency override), resolved by
+`AgencyComplianceDocTypeService::isBuyerPackEligible()`, and
+`ViewingPackDocumentService::eligibleDocumentsFor()` filters on `$document->documentType?->slug` — so a
+`Document` row with no `document_type_id` is structurally invisible to it, regardless of the catalogue
+flag.
+
+**Root cause found**: every inventory Document filed via `fileAndMaybeEmailReport()` (the completed
+report) had `document_type_id = NULL` — only the WET-INK SCAN filing path
+(`fileInventoryWetInkScan()`) already stamped one, to the pre-existing `inventory_list` catalogue slug
+(no new slug needed — reused, not invented).
+
+**Fix**:
+- `RentalInventoryRecordingController::stampInventoryListDocumentType()` — new shared private helper
+  (extracted from `fileInventoryWetInkScan()`'s own inline logic, now called from BOTH filing paths) —
+  sets `document_type_id` to the `inventory_list` type on a freshly-filed Document that doesn't already
+  have one. Idempotent by construction (`fileToProperty()` itself is idempotent; the helper no-ops if
+  already typed).
+- Migration `2026_10_06_090100_mark_inventory_list_buyer_pack_eligible` flips the EXISTING
+  `document_types.buyer_pack_eligible` catalogue default for slug `inventory_list` to `true` (was
+  `false` — never buyer-eligible before this ruling). Per-agency overrides, if any exist, are untouched.
+- Migration `2026_10_06_090200_backfill_inventory_document_type_id` — every already-filed
+  `documents` row with `source_type IN ('rental_inventory_report', 'rental_inventory_signature_wet_ink')`
+  and `document_type_id IS NULL` gets typed. Idempotent, logs the backfilled count.
+
+**Proven** — `RentalInventoryViewingPackDocumentTypeTest`: completing a sale inventory via the real HTTP
+endpoint results in a filed Document carrying `document_type_id = inventory_list`'s id; the backfill
+migration types a pre-existing untyped row the same way. Full `tests/Feature/RentalInventory/` directory
+re-run clean (110 passed, 342 assertions) after this and the §22 changes together — no regressions.
+
+---
+
+## 24. Buyer acceptance — a separate, later, optional signature (2026-09-29, Johan)
+
+Johan's ruling: *"once a buyer exists, the agent can send the completed inventory to the buyer for a
+'signature of acceptance' of what they get in the sale. This must NOT reopen or edit the completed
+record. It is a separate acceptance signature that sits alongside it, on screen or wet-ink. Buyer is
+resolved from the deal / accepted offer on that property."*
+
+**New table/model — `rental_inventory_buyer_acceptances` / `RentalInventoryBuyerAcceptance`.**
+Deliberately separate from `RentalInventorySignature`: that model's whole shape
+(`outstandingSignatories()`, the completion gate) is about who must sign BEFORE an inventory can
+complete. Buyer acceptance is additive and optional — no code path in this feature ever calls
+`RentalInventory::assertEditable()`. Two capture methods only, per Johan's own words ("on screen or
+wet-ink") — no refusal disposition, no `awaiting_wet_ink` tracking marker; this is not a gate anything
+blocks on. No DB-level unique constraint on `(rental_inventory_id, buyer_contact_id)` — a correction is
+soft-delete + a fresh row (non-negotiable #1), and MySQL's unique indexes would block that pattern
+(soft-deleted rows still count); "at most one LIVE row per buyer" is enforced in `capture()` instead,
+same discipline `RentalInventorySignature::capture()` already uses.
+
+**The one gate — `RentalInventory::buyerAcceptanceOfferedFor(): bool`**: `status === completed && lease_id
+=== null && property.listing_type === 'sale' && property.purchasingDeal() !== null`. Buyer resolution
+reuses `Property::purchasingDeal()`/`->buyers()` AS-IS (Granted/Registered only — "an offer is not a
+purchase," that method's own docblock) — no new resolver needed, it already implemented exactly this.
+`RentalInventory::eligibleBuyerContacts()` / `outstandingBuyerAcceptances()` read through this one gate.
+
+**Two surfaces, deliberately separate**:
+- **Agent side** — `RentalInventoryBuyerAcceptanceController::send()` (its own controller, not
+  `RentalInventoryRecordingController`, so the "never touches `assertEditable()`" boundary is structural,
+  not a convention to remember). Emails the buyer their own public share link (generated if none is live
+  yet), reusing the existing `SignedDocumentDistributionMail` directly — no new Mailable, no forced
+  `SignedDocumentDistributable` contract for a party the inventory itself doesn't require a signature
+  from. `SignedDocumentDistributionService::sendGenericMail()` — new, small — extracts the SAME
+  `TEST_RECIPIENT`-safety-rail + per-mailbox-with-fallback `dispatch()` for a Mailable outside that
+  contract, so the mail-safety rail can never drift between the two send paths. `show.blade.php` gained a
+  "Buyer acceptance" panel (shown only when `buyerAcceptanceOfferedFor()`), listing already-accepted
+  buyers (read-only, with their signature/scan) and outstanding ones (a "Send for acceptance" button) —
+  no signing UI here; the buyer signs on THEIR OWN device.
+- **Buyer side** — `RentalInventoryPublicController::storeBuyerAcceptance()`, a new POST on the EXISTING
+  public/token-gated inventory page (no new token, no new page — the same `public_token` that already
+  gates read access). `public/show.blade.php` gained a signing block per outstanding buyer: "Sign on
+  screen" (a `SignaturePad` canvas, same library/version as the agent-side pages) or "Upload signed scan"
+  (a file upload) — both submit to the same endpoint. A `csrf-token` meta tag was added to this
+  previously-bare public page (Laravel starts a session, and its CSRF token, for every visitor regardless
+  of login state — this route sits in the `web` middleware group like every other route in this file).
+  The submitted `buyer_contact_id` is checked against BOTH the inventory's own `eligibleBuyerContacts()`
+  AND (since the controller reads the Contact via `withoutGlobalScopes()`, same as `findByPublicToken()`
+  itself) an explicit `agency_id` match, so the parameter can never be used to probe another agency's
+  contact record now that scoping is bypassed.
+
+**Proven** — `RentalInventoryBuyerAcceptanceTest` (10 tests): not offered without a committed deal;
+offered once one exists; capturing an on-screen acceptance leaves the inventory's own `status` untouched;
+a non-buyer contact is refused; a second capture for the same buyer is refused; both public-endpoint
+capture methods (on-screen JSON + wet-ink multipart) work end to end through the real HTTP route; an
+invalid token 404s; the agent-side send endpoint emails the buyer and generates a public link on demand;
+sending is refused outright when acceptance isn't offered yet.

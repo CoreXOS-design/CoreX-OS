@@ -288,6 +288,7 @@ class RentalInventoryRecordingController extends Controller
             'party_role' => ['required', 'string', 'in:' . implode(',', [
                 RentalInventorySignature::PARTY_TENANT,
                 RentalInventorySignature::PARTY_LANDLORD,
+                RentalInventorySignature::PARTY_SELLER,
                 RentalInventorySignature::PARTY_AGENT,
             ])],
             'disposition' => ['required', 'string', 'in:' . implode(',', [
@@ -392,7 +393,8 @@ class RentalInventoryRecordingController extends Controller
         SignedDocumentDistributionService $distributionService,
     ): void {
         try {
-            $pdfBytes = $this->wetInkScanAsPdfBytes($file, $rentalInventory->property?->buildDisplayAddress() ?? '', ucfirst($signature->party_role) . ' — wet-ink signature');
+            $partyLabel = \App\Services\PartyRoleLabel::for($rentalInventory->agency_id, $signature->party_role);
+            $pdfBytes = $this->wetInkScanAsPdfBytes($file, $rentalInventory->property?->buildDisplayAddress() ?? '', $partyLabel . ' — wet-ink signature');
 
             $adapter = new FileableDocumentAdapter(
                 $rentalInventory->property,
@@ -401,19 +403,34 @@ class RentalInventoryRecordingController extends Controller
             );
             $filename = "wet-ink-{$signature->party_role}-{$signature->id}.pdf";
             $document = $distributionService->fileToProperty($adapter, $pdfBytes, $filename);
-
-            if ($document && ! $document->document_type_id) {
-                $typeId = DocumentType::withTrashed()->where('slug', 'inventory_list')->value('id');
-                if ($typeId) {
-                    $document->forceFill(['document_type_id' => $typeId])->save();
-                }
-            }
+            $this->stampInventoryListDocumentType($document);
         } catch (\Throwable $e) {
             Log::warning('Rental inventory wet-ink scan filing failed', [
                 'inventory_id' => $rentalInventory->id,
                 'signature_id' => $signature->id,
                 'error' => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * Johan, 2026-09-29 — makes a filed inventory Document (the completed
+     * report AND a wet-ink scan alike) selectable in the Viewing Pack
+     * (App\Services\ViewingPack\ViewingPackDocumentService::eligibleDocumentsFor()
+     * filters on `documentType->slug`, so an untyped Document is invisible
+     * to it no matter what `document_types.buyer_pack_eligible` says).
+     * Never overwrites an already-typed document — `fileToProperty()` is
+     * idempotent and may return an existing row from an earlier call.
+     */
+    private function stampInventoryListDocumentType(?\App\Models\Document $document): void
+    {
+        if (! $document || $document->document_type_id) {
+            return;
+        }
+
+        $typeId = DocumentType::withTrashed()->where('slug', 'inventory_list')->value('id');
+        if ($typeId) {
+            $document->forceFill(['document_type_id' => $typeId])->save();
         }
     }
 
@@ -522,7 +539,8 @@ class RentalInventoryRecordingController extends Controller
         $pdfBytes = $pdf->output();
         $filename = $pdfService->filenameFor($rentalInventory);
 
-        $distributionService->fileToProperty($rentalInventory, $pdfBytes, $filename);
+        $document = $distributionService->fileToProperty($rentalInventory, $pdfBytes, $filename);
+        $this->stampInventoryListDocumentType($document);
 
         if ($autoOnly && ! \App\Models\RentalInventorySetting::autoSendReportEnabledFor($rentalInventory->agency_id)) {
             return [];

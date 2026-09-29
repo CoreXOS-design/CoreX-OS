@@ -120,6 +120,49 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         return $this->hasMany(RentalInventorySignature::class);
     }
 
+    /** §24 ruling — the buyer's own separate acceptance record(s). Never gates markCompleted(). */
+    public function buyerAcceptances(): HasMany
+    {
+        return $this->hasMany(RentalInventoryBuyerAcceptance::class);
+    }
+
+    /**
+     * §24 ruling (Johan, 2026-09-29) — buyer acceptance is offered ONLY
+     * once: the inventory is completed, it is a sale property-level record
+     * (never a lease-attached rental one — a tenant is never a "buyer"),
+     * AND the property has a COMMITTED deal (Property::purchasingDeal(),
+     * Granted/Registered only — an active offer alone does not count, same
+     * "an offer is not a purchase" honesty that method's own docblock
+     * states). This is the ONE gate every buyer-acceptance surface reads.
+     */
+    public function buyerAcceptanceOfferedFor(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED
+            && $this->lease_id === null
+            && $this->property?->listing_type === 'sale'
+            && $this->property->purchasingDeal() !== null;
+    }
+
+    /** Every buyer on the property's current committed deal — empty when buyerAcceptanceOfferedFor() is false. */
+    public function eligibleBuyerContacts(): \Illuminate\Support\Collection
+    {
+        if (! $this->buyerAcceptanceOfferedFor()) {
+            return collect();
+        }
+
+        return $this->property->purchasingDeal()->buyers()->get();
+    }
+
+    /** Every eligible buyer who has NOT yet recorded their acceptance. */
+    public function outstandingBuyerAcceptances(): \Illuminate\Support\Collection
+    {
+        $acceptedContactIds = $this->buyerAcceptances()->pluck('buyer_contact_id');
+
+        return $this->eligibleBuyerContacts()
+            ->reject(fn (Contact $buyer) => $acceptedContactIds->contains($buyer->id))
+            ->values();
+    }
+
     public function photos(): HasMany
     {
         return $this->hasMany(RentalInventoryPhoto::class);
@@ -289,16 +332,37 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         });
     }
 
-    /** Every tenant on the lease, plus the landlord if resolvable, who does NOT yet have a live disposition. */
+    /**
+     * §22 ruling (Johan, 2026-09-29) — the owner's real signing role: SELLER
+     * for a property-level (no lease) inventory on a FOR-SALE property
+     * ("it completes and is filed at mandate stage, long before a buyer
+     * exists"); LANDLORD for every other case — a lease-attached rental
+     * inventory, or a property-level inventory on a RENTAL property
+     * currently between tenancies (still a rental, just vacant; §15's own
+     * distinction). Internal key only, never a display word — see
+     * PartyRoleLabel::for() for the label.
+     */
+    public function ownerPartyRole(): string
+    {
+        if ($this->lease_id === null && $this->property?->listing_type === 'sale') {
+            return RentalInventorySignature::PARTY_SELLER;
+        }
+
+        return RentalInventorySignature::PARTY_LANDLORD;
+    }
+
+    /** Every tenant on the lease, plus the owner (landlord or seller, §18) if resolvable, who does NOT yet have a live disposition. */
     public function outstandingSignatories(): \Illuminate\Support\Collection
     {
+        $ownerRole = $this->ownerPartyRole();
+
         // Conductor brief 2026-09-29 — a superseded wet-ink row (a corrected
         // wrong upload, or the awaiting_wet_ink row a real upload just
         // resolved) must not count as "this party is accounted for"; its
         // replacement is the live disposition. Same filter
         // RentalInspection::outstandingSignatories() already applies.
         $existing = $this->signatures()
-            ->whereIn('party_role', [RentalInventorySignature::PARTY_TENANT, RentalInventorySignature::PARTY_LANDLORD])
+            ->whereIn('party_role', [RentalInventorySignature::PARTY_TENANT, RentalInventorySignature::PARTY_LANDLORD, RentalInventorySignature::PARTY_SELLER])
             ->whereNull('superseded_at')
             ->get(['party_role', 'party_contact_id']);
 
@@ -313,11 +377,11 @@ class RentalInventory extends Model implements SignedDocumentDistributable
             }
         }
 
-        $landlordContactId = $this->property?->sellerOwnerContact()?->id;
-        if ($landlordContactId) {
-            $already = $existing->contains(fn ($s) => $s->party_role === RentalInventorySignature::PARTY_LANDLORD);
+        $ownerContactId = $this->property?->sellerOwnerContact()?->id;
+        if ($ownerContactId) {
+            $already = $existing->contains(fn ($s) => $s->party_role === $ownerRole);
             if (! $already) {
-                $outstanding->push(['party_role' => RentalInventorySignature::PARTY_LANDLORD, 'party_contact_id' => $landlordContactId]);
+                $outstanding->push(['party_role' => $ownerRole, 'party_contact_id' => $ownerContactId]);
             }
         }
 
@@ -372,7 +436,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
 
         foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
             $rows[] = [
-                'role' => 'Tenant',
+                'role' => \App\Services\PartyRoleLabel::for($this->agency_id, RentalInventorySignature::PARTY_TENANT),
                 'name' => $leaseTenant->contact?->full_name,
                 'signature' => $liveSignatureFor(RentalInventorySignature::PARTY_TENANT, $leaseTenant->contact_id),
                 'not_required' => false,
@@ -380,16 +444,16 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         }
 
         $owner = $this->property?->sellerOwnerContact();
-        $ownerRole = $this->lease_id ? 'Landlord' : 'Seller';
+        $ownerRole = $this->ownerPartyRole();
         $rows[] = [
-            'role' => $ownerRole,
+            'role' => \App\Services\PartyRoleLabel::for($this->agency_id, $ownerRole),
             'name' => $owner?->full_name,
-            'signature' => $owner ? $liveSignatureFor(RentalInventorySignature::PARTY_LANDLORD, $owner->id) : null,
+            'signature' => $owner ? $liveSignatureFor($ownerRole, $owner->id) : null,
             'not_required' => ! $owner,
         ];
 
         $rows[] = [
-            'role' => 'Agent',
+            'role' => \App\Services\PartyRoleLabel::for($this->agency_id, RentalInventorySignature::PARTY_AGENT),
             'name' => $this->createdBy?->name,
             'signature' => $liveSignatureFor(RentalInventorySignature::PARTY_AGENT),
             'not_required' => false,
@@ -459,7 +523,8 @@ class RentalInventory extends Model implements SignedDocumentDistributable
                 $name = Contact::find($first['party_contact_id'])?->full_name ?? 'A tenant';
                 throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
             }
-            throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
+            $ownerLabel = lcfirst(\App\Services\PartyRoleLabel::for($this->agency_id, $first['party_role']));
+            throw new \LogicException("Cannot complete: the {$ownerLabel} has neither signed nor been marked as refusing.");
         }
 
         // Conductor brief 2026-09-29 — a party marked "sent for a paper
@@ -472,7 +537,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         if ($awaiting = $this->firstAwaitingWetInkSignatory()) {
             $name = $awaiting->party_role === RentalInventorySignature::PARTY_TENANT
                 ? (Contact::find($awaiting->party_contact_id)?->full_name ?? 'A tenant')
-                : 'The landlord';
+                : 'The ' . lcfirst(\App\Services\PartyRoleLabel::for($this->agency_id, $awaiting->party_role));
             throw new \LogicException("Cannot complete: {$name} is still awaiting a paper signature — upload the signed scan (or mark them as refused) before completing.");
         }
         if (! $this->hasAgentSignature()) {
@@ -570,10 +635,9 @@ class RentalInventory extends Model implements SignedDocumentDistributable
      * lease-attached inventory — empty for a property-level one, §15) plus
      * the property's owner (Property::sellerOwnerContact(), the SAME
      * resolver outstandingSignatories() above already uses). The owner's
-     * role reads 'landlord' for a lease-attached inventory and 'seller' for
-     * a property-level one — same distinction §15's `$ownerPartyLabel`
-     * display fix already drew on the show page, carried here rather than
-     * re-decided. A party with no email on file is silently excluded.
+     * `role` is the internal key from ownerPartyRole() (§22 ruling) — never
+     * a display word; this array feeds logging/data, not rendered text. A
+     * party with no email on file is silently excluded.
      *
      * @return array<int, array{contact_id: int|null, name: string, email: string, role: string}>
      */
@@ -599,7 +663,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
                 'contact_id' => $owner->id,
                 'name' => $owner->full_name,
                 'email' => $owner->email,
-                'role' => $this->lease_id ? 'landlord' : 'seller',
+                'role' => $this->ownerPartyRole(),
             ];
         }
 

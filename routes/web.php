@@ -3493,6 +3493,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.attach');
         Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'detachLinePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.detach');
+
+        // §24 ruling (Johan, 2026-09-29) — the agent's half of buyer
+        // acceptance: emailing an eligible buyer their own signing link.
+        // Never touches assertEditable() — see the controller's own
+        // docblock for why this is deliberately its own controller.
+        Route::post('/{rentalInventory}/buyer-acceptances/{contact}/send', [\App\Http\Controllers\CoreX\RentalInventoryBuyerAcceptanceController::class, 'send'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.buyer-acceptances.send');
         // §14 — the move-out (current) side's own photo evidence, from the
         // comparison screen. Uploads AND tags to this line in ONE request.
         Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineMoveOutPhoto'])
@@ -5793,6 +5800,11 @@ Route::prefix('rental-inspection-report')->group(function () {
 Route::prefix('rental-inventory-report')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\RentalInventoryPublicController::class, 'show'])
         ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.show');
+    // §24 ruling — the buyer's own capture (on-screen or wet-ink), no
+    // CoreX login. Same throttle as the read path — this is still an
+    // unauthenticated write endpoint, token-gated only.
+    Route::post('/{token}/buyer-acceptance', [\App\Http\Controllers\RentalInventoryPublicController::class, 'storeBuyerAcceptance'])
+        ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.buyer-acceptance.store');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

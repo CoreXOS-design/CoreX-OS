@@ -193,6 +193,32 @@ class SignedDocumentDistributionService
     }
 
     /**
+     * §24 ruling (2026-09-29) — a generic per-mailbox-with-fallback send for
+     * a Mailable that is NOT part of the SignedDocumentDistributable
+     * contract (Inventory's buyer-acceptance request: there is no
+     * `distributionRecipients()` row for a buyer — they are not a party the
+     * inventory itself requires a signature from). SAME TEST_RECIPIENT
+     * safety rail and SAME dispatch() as every other send this class makes
+     * — reused, not duplicated, so that rail can never drift. Deliberately
+     * writes no SignedDocumentDistributionLog row — that log is specific to
+     * a document's own primary distribution history.
+     *
+     * @return array{status:string, message_id:?string, error:?string}
+     */
+    public function sendGenericMail(string $toEmail, BaseSignatureMail $mail, ?User $agent = null): array
+    {
+        $testOverride = ! app()->environment('production');
+        $resolvedTo = $testOverride ? self::TEST_RECIPIENT : $toEmail;
+
+        $mail->fromAgent($agent);
+        if ($agent?->outward_email) {
+            $mail->cc($testOverride ? self::TEST_RECIPIENT : $agent->outward_email);
+        }
+
+        return $this->dispatch($resolvedTo, $mail);
+    }
+
+    /**
      * The actual send — copied from SignatureService::dispatchSigningMail()
      * (AT-395), the proven per-mailbox-with-fallback pattern, adapted to
      * return a result array instead of throwing, since this caller sends

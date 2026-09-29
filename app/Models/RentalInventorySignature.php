@@ -25,6 +25,8 @@ class RentalInventorySignature extends Model
 
     public const PARTY_TENANT = 'tenant';
     public const PARTY_LANDLORD = 'landlord';
+    /** §22 ruling (Johan, 2026-09-29) — the owner's real role on a sale property-level inventory. See RentalInventory::ownerPartyRole(). */
+    public const PARTY_SELLER = 'seller';
     public const PARTY_AGENT = 'agent';
 
     public const DISPOSITION_SIGNED = 'signed';
@@ -95,7 +97,7 @@ class RentalInventorySignature extends Model
     /** Same invariant set as RentalInspectionSignature::capture() — see that method's own docblock. */
     public static function capture(RentalInventory $inventory, string $partyRole, string $disposition, array $attributes = []): self
     {
-        if (! in_array($partyRole, [self::PARTY_TENANT, self::PARTY_LANDLORD, self::PARTY_AGENT], true)) {
+        if (! in_array($partyRole, [self::PARTY_TENANT, self::PARTY_LANDLORD, self::PARTY_SELLER, self::PARTY_AGENT], true)) {
             throw new \InvalidArgumentException("Unknown party_role: {$partyRole}");
         }
         if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_REFUSED, self::DISPOSITION_WET_INK, self::DISPOSITION_AWAITING_WET_INK], true)) {
@@ -138,10 +140,17 @@ class RentalInventorySignature extends Model
                 if (! $isLeaseTenant) {
                     throw new \InvalidArgumentException('party_contact_id is not a tenant on this inventory\'s own lease.');
                 }
-            } else { // landlord
-                $landlordContactId = $inventory->property?->sellerOwnerContact()?->id;
-                if (! $landlordContactId || (int) $landlordContactId !== (int) $contactId) {
-                    throw new \InvalidArgumentException('party_contact_id does not match this property\'s resolved landlord contact.');
+            } else { // landlord or seller — the property's one owner-side party
+                if ($partyRole !== $inventory->ownerPartyRole()) {
+                    // §22 ruling — a sale inventory's owner signs as SELLER,
+                    // never LANDLORD, and vice versa for a rental one; this
+                    // stops the wrong role being recorded even if a stale
+                    // client sends it.
+                    throw new \InvalidArgumentException("party_role '{$partyRole}' does not match this inventory's resolved owner role ('{$inventory->ownerPartyRole()}').");
+                }
+                $ownerContactId = $inventory->property?->sellerOwnerContact()?->id;
+                if (! $ownerContactId || (int) $ownerContactId !== (int) $contactId) {
+                    throw new \InvalidArgumentException('party_contact_id does not match this property\'s resolved owner contact.');
                 }
             }
 

@@ -28,12 +28,16 @@
     $linesByRoomId = $inventory->lines->groupBy('property_room_id');
     $legacyLineGroups = $linesByRoomId->get(null, collect())->groupBy('room_label');
     $markedEmptyRoomIds = $inventory->roomMarks->pluck('property_room_id')->flip();
-    // §0a/§15 — a property-level inventory (no lease) is most commonly a
-    // sale, so the owner-side party reads as "Seller" rather than
-    // "Landlord" there; a lease-attached inventory is unchanged. The
-    // underlying party_role stored on RentalInventorySignature stays
-    // 'landlord' either way (§5) — this is a display label only.
-    $ownerPartyLabel = $inventory->lease_id ? 'Landlord' : 'Seller';
+    // §22 ruling (Johan, 2026-09-29) — the owner's real internal role
+    // (RentalInventory::ownerPartyRole(): 'seller' for a sale property-level
+    // inventory, 'landlord' otherwise) drives BOTH the party_role sent to
+    // the server (every Alpine call below keyed on $ownerPartyRole, never a
+    // hardcoded 'landlord' string) and the display word, read through the
+    // ONE PartyRoleLabel resolver — see that class's own docblock for why.
+    $ownerPartyRole = $inventory->ownerPartyRole();
+    $ownerPartyLabel = \App\Services\PartyRoleLabel::for($inventory->agency_id, $ownerPartyRole);
+    $tenantPartyLabel = \App\Services\PartyRoleLabel::for($inventory->agency_id, \App\Models\RentalInventorySignature::PARTY_TENANT);
+    $agentPartyLabel = \App\Services\PartyRoleLabel::for($inventory->agency_id, \App\Models\RentalInventorySignature::PARTY_AGENT);
 @endphp
 
 @section('content')
@@ -138,7 +142,7 @@
     <div class="rounded-md p-4 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
         <div><span style="color: var(--text-muted);">{{ $ownerPartyLabel }}:</span> {{ optional($inventory->property?->sellerOwnerContact())->full_name ?? '—' }}</div>
         @foreach($inventory->lease?->tenants ?? [] as $idx => $tenant)
-            <div><span style="color: var(--text-muted);">Tenant {{ $idx + 1 }}:</span> {{ $tenant->contact?->full_name ?? '—' }}</div>
+            <div><span style="color: var(--text-muted);">{{ $tenantPartyLabel }} {{ $idx + 1 }}:</span> {{ $tenant->contact?->full_name ?? '—' }}</div>
         @endforeach
         <div><span style="color: var(--text-muted);">Inspection done by:</span> {{ $inventory->createdBy?->name ?? '—' }}</div>
     </div>
@@ -240,9 +244,9 @@
                 // page and the signed PDF (recordedByUser is eager-loaded
                 // alongside partyContact by the controller already).
                 $partyLabel = match($signature->party_role) {
-                    'agent' => 'Agent' . ($signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : ''),
-                    'landlord' => $ownerPartyLabel . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
-                    default => 'Tenant' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                    'agent' => $agentPartyLabel . ($signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : ''),
+                    $ownerPartyRole => $ownerPartyLabel . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                    default => $tenantPartyLabel . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
                 };
                 $reasonLabel = collect($refusalReasonPresets)->firstWhere('key', $signature->refusal_reason_preset)['label'] ?? $signature->refusal_reason_preset;
                 // §16 (inspections) parity — a wet-ink upload may still be
@@ -359,51 +363,51 @@
             @endforeach
 
             @if($landlordContact = $inventory->property?->sellerOwnerContact())
-                <template x-if="needsAction('landlord', {{ $landlordContact->id }})">
+                <template x-if="needsAction('{{ $ownerPartyRole }}', {{ $landlordContact->id }})">
                     <div class="py-1.5" style="border-bottom:1px solid var(--border);">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-sm">{{ $landlordContact->full_name }} ({{ $ownerPartyLabel }})</span>
-                            <template x-if="isAwaitingWetInk('landlord', {{ $landlordContact->id }})">
+                            <template x-if="isAwaitingWetInk('{{ $ownerPartyRole }}', {{ $landlordContact->id }})">
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Awaiting paper signature</span>
-                                    <button type="button" @click="openWetInkFor('landlord_{{ $landlordContact->id }}', dispositionFor('landlord', {{ $landlordContact->id }}).id)" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Upload scan</button>
+                                    <button type="button" @click="openWetInkFor('{{ $ownerPartyRole }}_{{ $landlordContact->id }}', dispositionFor('{{ $ownerPartyRole }}', {{ $landlordContact->id }}).id)" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Upload scan</button>
                                 </div>
                             </template>
-                            <template x-if="!isAwaitingWetInk('landlord', {{ $landlordContact->id }})">
+                            <template x-if="!isAwaitingWetInk('{{ $ownerPartyRole }}', {{ $landlordContact->id }})">
                                 <div class="flex items-center gap-2">
-                                    <button type="button" @click="openSigningFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
-                                    <button type="button" @click="openWetInkFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Wet ink</button>
-                                    <button type="button" @click="sendForWetInkFor('landlord', {{ $landlordContact->id }})" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Send for wet-ink</button>
-                                    <button type="button" @click="openRefusalFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
+                                    <button type="button" @click="openSigningFor('{{ $ownerPartyRole }}_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
+                                    <button type="button" @click="openWetInkFor('{{ $ownerPartyRole }}_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Wet ink</button>
+                                    <button type="button" @click="sendForWetInkFor('{{ $ownerPartyRole }}', {{ $landlordContact->id }})" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Send for wet-ink</button>
+                                    <button type="button" @click="openRefusalFor('{{ $ownerPartyRole }}_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
                                 </div>
                             </template>
                         </div>
-                        <template x-if="activeSigningKey === 'landlord_{{ $landlordContact->id }}'">
+                        <template x-if="activeSigningKey === '{{ $ownerPartyRole }}_{{ $landlordContact->id }}'">
                             <div class="space-y-2 pt-2">
-                                <canvas x-init="$nextTick(() => initSignaturePadFor('landlord_{{ $landlordContact->id }}', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
+                                <canvas x-init="$nextTick(() => initSignaturePadFor('{{ $ownerPartyRole }}_{{ $landlordContact->id }}', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
                                 <div class="flex items-center gap-2">
-                                    <button type="button" @click="clearSignatureFor('landlord_{{ $landlordContact->id }}')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
-                                    <button type="button" @click="saveSignatureFor('landlord', {{ $landlordContact->id }})" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
+                                    <button type="button" @click="clearSignatureFor('{{ $ownerPartyRole }}_{{ $landlordContact->id }}')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
+                                    <button type="button" @click="saveSignatureFor('{{ $ownerPartyRole }}', {{ $landlordContact->id }})" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
                                 </div>
                             </div>
                         </template>
-                        <template x-if="activeRefusalKey === 'landlord_{{ $landlordContact->id }}'">
+                        <template x-if="activeRefusalKey === '{{ $ownerPartyRole }}_{{ $landlordContact->id }}'">
                             <div class="space-y-2 pt-2">
-                                <select x-model="refusalField('landlord_{{ $landlordContact->id }}').preset" class="prop-input w-full">
+                                <select x-model="refusalField('{{ $ownerPartyRole }}_{{ $landlordContact->id }}').preset" class="prop-input w-full">
                                     <option value="">Select a reason…</option>
                                     @foreach($refusalReasonPresets as $preset)<option value="{{ $preset['key'] }}">{{ $preset['label'] }}</option>@endforeach
                                 </select>
-                                <input type="text" x-show="refusalField('landlord_{{ $landlordContact->id }}').preset === 'other'" x-model="refusalField('landlord_{{ $landlordContact->id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
-                                <button type="button" @click="saveRefusalFor('landlord', {{ $landlordContact->id }})" :disabled="!refusalField('landlord_{{ $landlordContact->id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
+                                <input type="text" x-show="refusalField('{{ $ownerPartyRole }}_{{ $landlordContact->id }}').preset === 'other'" x-model="refusalField('{{ $ownerPartyRole }}_{{ $landlordContact->id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
+                                <button type="button" @click="saveRefusalFor('{{ $ownerPartyRole }}', {{ $landlordContact->id }})" :disabled="!refusalField('{{ $ownerPartyRole }}_{{ $landlordContact->id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
                             </div>
                         </template>
-                        <template x-if="activeWetInkKey === 'landlord_{{ $landlordContact->id }}'">
-                            @include('corex.rental-inventories.partials._wetink-form', ['key' => "'landlord_{$landlordContact->id}'"])
+                        <template x-if="activeWetInkKey === '{{ $ownerPartyRole }}_{{ $landlordContact->id }}'">
+                            @include('corex.rental-inventories.partials._wetink-form', ['key' => "'{$ownerPartyRole}_{$landlordContact->id}'"])
                         </template>
                     </div>
                 </template>
             @else
-                <p class="text-xs" style="color: var(--text-muted);">Landlord: not linked to this property — nothing to sign.</p>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $ownerPartyLabel }}: not linked to this property — nothing to sign.</p>
             @endif
 
             <template x-if="!dispositionFor('agent', null)">
@@ -448,6 +452,50 @@
         @endpermission
     </div>
 
+    {{-- §24 ruling (Johan, 2026-09-29) — buyer acceptance: offered ONLY
+         once a committed deal exists on this sale property. A genuinely
+         separate step from the signatures above — never gates or reopens
+         the completed record above. The buyer signs on THEIR OWN device
+         via their public link (rental-inventories.public.show), never
+         here — this panel only sends that link and shows status. --}}
+    @if($inventory->buyerAcceptanceOfferedFor())
+    <div class="rounded-md p-4 space-y-3" x-data="rentalInventoryBuyerAcceptances({{ $inventory->id }})" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Buyer acceptance</h2>
+        <p class="text-xs" style="color: var(--text-muted);">Optional — a signature of acceptance from the buyer(s) on the accepted offer, for what they get in the sale.</p>
+
+        @foreach($inventory->buyerAcceptances as $acceptance)
+            <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center justify-between gap-3">
+                    <span>{{ $acceptance->buyerContact?->full_name ?? 'Buyer' }}</span>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $acceptance->accepted_at?->format('Y-m-d H:i') }}</span>
+                </div>
+                <div class="mt-1.5">
+                    <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">
+                        {{ $acceptance->disposition === 'wet_ink' ? 'Signed on paper — scan on file' : 'Signed' }}
+                    </span>
+                    @if($acceptance->party_signature_path)
+                        <div class="mt-1"><img src="{{ $acceptance->party_signature_path }}" alt="Buyer signature" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></div>
+                    @elseif($acceptance->wet_ink_upload_path)
+                        <div class="mt-1"><a href="{{ $acceptance->wet_ink_upload_path }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan</a></div>
+                    @endif
+                </div>
+            </div>
+        @endforeach
+
+        @permission('rental_inventories.create')
+        @foreach($inventory->outstandingBuyerAcceptances() as $buyer)
+            <div class="flex items-center justify-between gap-3 py-1.5" style="border-bottom:1px solid var(--border);">
+                <span class="text-sm">{{ $buyer->full_name }}{{ $buyer->email ? '' : ' (no email on file)' }}</span>
+                <button type="button" @click="send({{ $buyer->id }})" :disabled="sending === {{ $buyer->id }}"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);"
+                        x-text="sentTo.includes({{ $buyer->id }}) ? 'Sent' : (sending === {{ $buyer->id }} ? 'Sending…' : 'Send for acceptance')"></button>
+            </div>
+        @endforeach
+        <p x-show="error" x-text="error" class="text-xs" style="color:#ef4444;"></p>
+        @endpermission
+    </div>
+    @endif
+
     @permission('rental_inventories.create')
     @if(!in_array($inventory->status, ['completed', 'cancelled']))
     <form method="POST" action="{{ route('corex.rental-inventories.cancel', $inventory) }}" onsubmit="return confirm('Cancel this inventory?');" class="pt-2">
@@ -483,6 +531,10 @@ function rentalInventoryShow(inventoryId) {
         csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
         baseUrl: `/corex/rental-inventories/${inventoryId}`,
         signatures: @json($signaturesForJs),
+        // §22 ruling — the owner's real internal role ('seller' or
+        // 'landlord', RentalInventory::ownerPartyRole()), never hardcoded:
+        // every call below keys on this instead of a literal 'landlord'.
+        ownerPartyRole: {{ Js::from($ownerPartyRole) }},
         landlordContactId: {{ $inventory->property?->sellerOwnerContact()?->id ?? 'null' }},
         tenantContactIds: @json(($inventory->lease?->tenants ?? collect())->pluck('contact_id')),
 
@@ -545,7 +597,7 @@ function rentalInventoryShow(inventoryId) {
         get allRequiredPartiesDispositioned() {
             const isResolved = (role, id) => { const s = this.dispositionFor(role, id); return !!s && s.disposition !== 'awaiting_wet_ink'; };
             const tenantsOk = this.tenantContactIds.every(id => isResolved('tenant', id));
-            const landlordOk = !this.landlordContactId || isResolved('landlord', this.landlordContactId);
+            const landlordOk = !this.landlordContactId || isResolved(this.ownerPartyRole, this.landlordContactId);
             return tenantsOk && landlordOk;
         },
         tenantName(contactId, fallback) { return fallback; },
@@ -696,6 +748,33 @@ function rentalInventoryShow(inventoryId) {
                 }
                 window.location.reload();
             } catch (e) { this.lifecycleError = e.message; }
+        },
+    };
+}
+
+// §24 ruling — standalone, deliberately not part of rentalInventoryShow()
+// above: this only ever sends an email, it never touches signatures,
+// completion state, or anything assertEditable() guards.
+function rentalInventoryBuyerAcceptances(inventoryId) {
+    return {
+        csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+        baseUrl: `/corex/rental-inventories/${inventoryId}`,
+        sending: null,
+        sentTo: [],
+        error: '',
+        async send(contactId) {
+            this.error = '';
+            this.sending = contactId;
+            try {
+                const res = await fetch(`${this.baseUrl}/buyer-acceptances/${contactId}/send`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { throw new Error(data.message || `Request failed (${res.status}).`); }
+                this.sentTo.push(contactId);
+            } catch (e) { this.error = e.message; }
+            finally { this.sending = null; }
         },
     };
 }
