@@ -29,6 +29,7 @@ class DealV2 extends Model
         'agency_id',
         'legacy_deal_id', // WS1 — DR1↔DR2 link (deals.id of the mirrored DR1 twin)
         'reference',
+        'create_token', // idempotency token — see AtomicSequenceService / DealPipelineService::createDeal()
         'deal_type',
         'status',
         'property_id',
@@ -378,24 +379,25 @@ class DealV2 extends Model
         return $this->stepInstances()->where('status', 'overdue');
     }
 
-    public static function generateReference(): string
+    /**
+     * Race-safe allocation (duplicate-deal fix, 2026-09-29). Previously read
+     * MAX(reference) and added 1 with no lock — two concurrent creates could
+     * both read the same max and each mint a "next" reference nobody else
+     * had taken (the `reference` column's own unique index would then throw
+     * a raw duplicate-key error on whichever request committed second,
+     * rather than silently succeeding, but that's still a crash a user
+     * would see, not a graceful outcome). MUST be called from inside the
+     * caller's own DB::transaction() — see AtomicSequenceService.
+     */
+    public static function generateReference(int $agencyId): string
     {
         $year = now()->format('Y');
         $prefix = "DL-{$year}-";
 
-        $latest = static::withTrashed()
-            ->where('reference', 'like', $prefix . '%')
-            ->orderBy('reference', 'desc')
-            ->value('reference');
+        $next = app(\App\Services\Sequencing\AtomicSequenceService::class)
+            ->next("deal_v2_reference:agency:{$agencyId}:year:{$year}");
 
-        if ($latest) {
-            $lastNumber = (int) substr($latest, strlen($prefix));
-            $next = $lastNumber + 1;
-        } else {
-            $next = 1;
-        }
-
-        return $prefix . str_pad($next, 5, '0', STR_PAD_LEFT);
+        return $prefix . str_pad((string) $next, 5, '0', STR_PAD_LEFT);
     }
 
     // ── Calendar event links (M2.2) ──

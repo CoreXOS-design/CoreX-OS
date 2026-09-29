@@ -279,6 +279,10 @@ class DealV2Controller extends Controller
             'commission_amount' => ['nullable', 'numeric', 'min:0'],
             'commission_vat' => ['nullable', 'numeric', 'min:0'],
             'offer_date' => ['required', 'date'],
+            // Idempotency (duplicate-deal fix, 2026-09-29) — a one-time value
+            // the create form mints and posts as a hidden field. See
+            // DealPipelineService::createDeal().
+            'create_token' => ['nullable', 'string', 'max:64'],
             // (AT-192 d) explicit branch selection — accepted here, then resolved
             // against the capturer's effective branch below (no Branch::first()).
             'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
@@ -390,6 +394,7 @@ class DealV2Controller extends Controller
         }
         $data['branch_id'] = $resolvedBranchId;
         $data['created_by_id'] = auth()->id();
+        $data['agency_id'] = (int) $agencyId;
 
         $deal = $this->pipelineService->createDeal($data);
 

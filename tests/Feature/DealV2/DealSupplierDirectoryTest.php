@@ -134,7 +134,7 @@ final class DealSupplierDirectoryTest extends TestCase
         ]);
 
         return DealV2::withoutGlobalScopes()->create([
-            'agency_id' => $agencyId, 'reference' => DealV2::generateReference(), 'deal_type' => 'bond',
+            'agency_id' => $agencyId, 'reference' => DealV2::generateReference($agencyId), 'deal_type' => 'bond',
             'status' => 'active', 'property_id' => $property->id, 'listing_agent_id' => $agent->id,
             'pipeline_template_id' => $template->id, 'purchase_price' => 1_000_000,
             'commission_amount' => 50_000, 'commission_vat' => 7_500, 'offer_date' => '2026-03-01',

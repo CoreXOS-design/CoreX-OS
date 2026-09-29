@@ -16,14 +16,55 @@ class DealPipelineService
 {
     /**
      * Create a new deal with all step instances from the template.
+     *
+     * Idempotency (duplicate-deal fix, 2026-09-29): $data['create_token'], a
+     * one-time value the create form mints and posts as a hidden field. A
+     * resubmission carrying the SAME token (double-click, Enter+click, a
+     * network-level retry) returns the deal already created for it instead
+     * of creating a second one. Checked up front for the common case (avoids
+     * doing the full step-instance build for a submission we're about to
+     * discard) AND recovered from inside the transaction's own catch — the
+     * create_token column's unique index is the actual race-safe backstop;
+     * the up-front check is just the fast path when there's no genuine race.
      */
     public function createDeal(array $data): DealV2
     {
-        return DB::transaction(function () use ($data) {
-            $reference = DealV2::generateReference();
+        $token = $data['create_token'] ?? null;
+
+        if ($token) {
+            $existing = DealV2::where('create_token', $token)->first();
+            if ($existing) {
+                return $existing->fresh(['stepInstances', 'contacts', 'agents', 'property']);
+            }
+        }
+
+        try {
+            return $this->createDealTransaction($data, $token);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($token && $this->isDuplicateCreateToken($e)) {
+                $existing = DealV2::where('create_token', $token)->first();
+                if ($existing) {
+                    return $existing->fresh(['stepInstances', 'contacts', 'agents', 'property']);
+                }
+            }
+            throw $e;
+        }
+    }
+
+    private function isDuplicateCreateToken(\Illuminate\Database\QueryException $e): bool
+    {
+        return ((string) $e->getCode() === '23000' || str_contains($e->getMessage(), '1062'))
+            && str_contains($e->getMessage(), 'create_token');
+    }
+
+    private function createDealTransaction(array $data, ?string $token): DealV2
+    {
+        return DB::transaction(function () use ($data, $token) {
+            $reference = DealV2::generateReference((int) $data['agency_id']);
 
             $deal = DealV2::create([
                 'reference' => $reference,
+                'create_token' => $token,
                 'deal_type' => $data['deal_type'],
                 'status' => 'active',
                 'property_id' => $data['property_id'],

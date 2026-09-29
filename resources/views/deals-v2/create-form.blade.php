@@ -52,6 +52,9 @@
 
     <form id="dealForm" method="POST" action="{{ route('deals-v2.store') }}" class="space-y-6" @submit="beforeSubmit($event)">
         @csrf
+        {{-- Idempotency (duplicate-deal fix, 2026-09-29): see dr2/create.blade.php's
+             identical hidden field for the full reasoning. --}}
+        <input type="hidden" name="create_token" value="{{ \Illuminate\Support\Str::uuid() }}">
 
         {{-- SECTION 1: Property & Deal Type --}}
         <div class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface);">

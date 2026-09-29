@@ -138,7 +138,7 @@ final class DealV2TwinBackfillTest extends TestCase
             'branch_id' => null, 'is_default' => true, 'is_active' => true, 'created_by_id' => $this->agent->id,
         ]);
         $native = DealV2::withoutGlobalScopes()->create([
-            'agency_id' => $this->agencyId, 'reference' => DealV2::generateReference(), 'deal_type' => 'bond',
+            'agency_id' => $this->agencyId, 'reference' => DealV2::generateReference($this->agencyId), 'deal_type' => 'bond',
             'status' => 'active', 'property_id' => $property->id, 'listing_agent_id' => $this->agent->id,
             'pipeline_template_id' => $template->id, 'purchase_price' => 1_500_000,
             'commission_amount' => 75_000, 'commission_vat' => 11_250, 'commission_status' => 'Not Paid',
