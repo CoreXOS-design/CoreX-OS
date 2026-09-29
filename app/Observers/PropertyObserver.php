@@ -611,10 +611,8 @@ class PropertyObserver
                     \App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::dispatch(
                         $property,
                         removeFromWebsite: $this->isWebsiteRemovalStatus((string) $property->status),
-                        // AT-282 — a sold status change keeps the listing on PP as 'Sold' (parity), so the
-                        // PP de-list is skipped for sold here; SyncPpListingStatusJob (dispatched above)
-                        // pushes 'Sold'. Withdrawn/expired/etc. still de-list PP; mandate-expiry still removes.
-                        keepPpForSold: true,
+                        // No keepPpForSold (2026-09-29): PP never applies a 'Sold' status, so a sold
+                        // listing is de-listed from PP like any other off-market one.
                         // Property #6099 (2026-08-18) — a sold status change keeps the listing on P24 as
                         // 'Sold' too (pushed synchronously below, in this same save). Without this, the
                         // queued job's P24 step raced that push with a hard 'Withdrawn' and instantly
