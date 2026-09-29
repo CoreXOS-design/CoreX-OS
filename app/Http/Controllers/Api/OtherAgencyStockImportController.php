@@ -78,6 +78,10 @@ class OtherAgencyStockImportController extends Controller
             // is not enough (Johan). 'accepted' requires literally true/"yes"/1.
             'consent'      => ['required', 'accepted'],
 
+            // 2026-09-29 URGENT FIX #2 (Clayville) — the listing's real
+            // title (P24 JSON-LD name / PP bundleParams.title), so
+            // deriveTitle() stops falling back to a bare suburb name.
+            'listing_title'  => ['nullable', 'string', 'max:255'],
             'price'          => ['nullable', 'numeric', 'min:0'],
             // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-29 Pomona
             // field-mapping fix. property_type is now OPTIONAL and, when

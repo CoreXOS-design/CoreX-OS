@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\DownloadPortalPropertyImages;
 use App\Models\Property;
+use App\Services\Properties\OtherAgencyStockFieldMapper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -43,10 +44,35 @@ class PropertyPullController extends Controller
             'agent_name'      => 'nullable|string|max:100',
             'agency_name'   => 'nullable|string|max:100',
             'source'        => 'nullable|string|max:10',
+
+            // 2026-09-29 Pomona fix (property #21094 investigation) — this
+            // path left listing_type/category/P24 location ids unset on
+            // EVERY pull, own-stock or not; not just Other Agency Stock.
+            // One shared mapper (OtherAgencyStockFieldMapper) now resolves
+            // these for both import paths — never two copies of the same
+            // logic to drift apart again.
+            'listing_type'            => 'nullable|string|in:sale,rental',
+            'property_type_raw'       => 'nullable|string|max:100',
+            'property_type_label_hint' => 'nullable|string|max:100',
+            'p24_suburb_external_id'  => 'nullable|integer',
         ]);
 
         /** @var \App\Models\User $user */
         $user = $request->user();
+
+        // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-29 Pomona fix.
+        // An explicit property_type (a hand-built payload, or a legacy
+        // caller) still wins outright; otherwise derive property_type +
+        // category from the portal's raw signals via the shared mapper.
+        $typeMap = !empty($data['property_type'])
+            ? ['property_type' => $data['property_type'], 'category' => null]
+            : OtherAgencyStockFieldMapper::mapPropertyType(
+                $data['source'] ?? 'p24',
+                $data['property_type_raw'] ?? null,
+                $data['property_type_label_hint'] ?? null,
+            );
+
+        $p24Location = OtherAgencyStockFieldMapper::resolveP24Location($data['p24_suburb_external_id'] ?? null);
 
         // Build the property data array
         $propertyData = [
@@ -55,15 +81,22 @@ class PropertyPullController extends Controller
             'excerpt'        => !empty($data['description']) ? Str::limit(strip_tags($data['description']), 300) : null,
             'price'          => $data['price'] ?? 0,
             'address'        => $data['address'] ?? null,
-            'suburb'         => $data['suburb'] ?? '',
-            'city'           => $data['city'] ?? null,
+            'suburb'         => $p24Location['suburb'] ?? $data['suburb'] ?? '',
+            'city'           => $p24Location['city'] ?? $data['city'] ?? null,
             'region'         => $data['region'] ?? null,
+            'province'       => $p24Location['province'] ?? null,
+            'town'           => $p24Location['town'] ?? null,
+            'p24_suburb_id'  => $p24Location['p24_suburb_id'] ?? null,
+            'p24_city_id'    => $p24Location['p24_city_id'] ?? null,
+            'p24_province_id' => $p24Location['p24_province_id'] ?? null,
+            'listing_type'   => $data['listing_type'] ?? null,
             'beds'           => $data['beds'] ?? 0,
             'baths'          => $data['baths'] ?? 0,
             'garages'        => $data['garages'] ?? 0,
             'size_m2'        => $data['size_m2'] ?? null,
             'erf_size_m2'    => $data['erf_size_m2'] ?? null,
-            'property_type'  => $data['property_type'] ?? 'House',
+            'property_type'  => $typeMap['property_type'] ?? 'House',
+            'category'       => $typeMap['category'] ?? null,
             'features_json'  => $data['features'] ?? [],
         ];
 

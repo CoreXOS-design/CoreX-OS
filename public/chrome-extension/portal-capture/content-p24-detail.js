@@ -361,6 +361,18 @@
       erf_size_m2: null, size_m2: null, property_type: null,
       features: [], images: [],
       agent_name: null, agency_name: null, source: 'p24',
+      // 2026-09-29 Pomona fix (property #21094) — "Pull Property" left
+      // listing_type/category/P24 location ids unset on every pull, not
+      // just Other Agency Stock imports. These raw signals feed the SAME
+      // OtherAgencyStockFieldMapper both import paths now share — see
+      // PropertyPullController::pullFromPortal().
+      listing_type: /^\/to-rent\//i.test(window.location.pathname) ? 'rental' : 'sale',
+      property_type_raw: null,
+      property_type_label_hint: null,
+      p24_suburb_external_id: (function () {
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        return (parts.length >= 5 && /^\d+$/.test(parts[4])) ? parseInt(parts[4], 10) : null;
+      })(),
     };
 
     // 1. JSON-LD
@@ -388,7 +400,11 @@
           property.region = about.address.addressRegion || null;
           property.city = about.address.addressLocality || null;
         }
-        if (about['@type'] && about['@type'] !== 'RealEstateListing') property.property_type = about['@type'];
+        if (about['@type'] && about['@type'] !== 'RealEstateListing') {
+          property.property_type = about['@type'];
+          property.property_type_raw = about['@type'];
+        }
+        if (about.description) property.property_type_label_hint = about.description;
       }
 
       if (jsonLd.url) property.portal_url = jsonLd.url;
@@ -495,7 +511,13 @@
 
     if (!property.property_type && property.title) {
       const tl = property.title.toLowerCase();
-      for (const pt of PROPERTY_TYPES) { if (tl.includes(pt)) { property.property_type = pt.charAt(0).toUpperCase() + pt.slice(1); break; } }
+      for (const pt of PROPERTY_TYPES) {
+        if (tl.includes(pt)) {
+          property.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
+          if (!property.property_type_raw) property.property_type_raw = property.property_type;
+          break;
+        }
+      }
     }
 
     // 4. Features list

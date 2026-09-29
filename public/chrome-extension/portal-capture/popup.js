@@ -107,6 +107,7 @@
     pullAddress:       document.getElementById('pullAddress'),
     pullFeatures:      document.getElementById('pullFeatures'),
     pullImagesCount:   document.getElementById('pullImagesCount'),
+    actionOwnershipWarning: document.getElementById('actionOwnershipWarning'),
     pullBtn:           document.getElementById('pullBtn'),
     // Pulling (image progress)
     pullImagesDetail:  document.getElementById('pullImagesDetail'),
@@ -127,6 +128,16 @@
     duplicateCancel:   document.getElementById('duplicateCancel'),
   };
 
+  // 2026-09-29 Johan's ruling: the single-listing "Pull as My Own Listing"
+  // action is hidden — "Import as Other Agency Stock" is the only
+  // single-listing P24/PP action for now. Code stays intact (not deleted)
+  // so this is a one-line flip to restore, not a rebuild. Bulk MIC import
+  // is a completely separate flow and is untouched by this flag.
+  const PULL_PROPERTY_ACTION_ENABLED = false;
+  if (!PULL_PROPERTY_ACTION_ENABLED && els.actionPullProperty) {
+    els.actionPullProperty.style.display = 'none';
+  }
+
   // ── State ──────────────────────────────────────────────────
   let currentState   = null;
   let previousState  = null;
@@ -137,8 +148,24 @@
   let tabUrl         = null;
   let detectedPortal = null;
   let settings       = { apiUrl: '', apiToken: '' };
+  let cachedPropertyDetailTabId = null;
 
   // ── Helpers ────────────────────────────────────────────────
+
+  // 2026-09-29 Pomona incident — property #21094: visually make the
+  // correct choice obvious, not just enabled/disabled. $primary gets the
+  // highlighted style; $secondary is demoted (still fully clickable —
+  // never actually blocked, an agent's own judgement still wins).
+  function highlightAction(primaryEl, secondaryEl) {
+    primaryEl.style.borderColor = '#0ea5e9';
+    primaryEl.style.boxShadow = '0 0 0 1px #0ea5e9';
+    primaryEl.style.order = '-1';
+    secondaryEl.style.opacity = '0.6';
+    secondaryEl.style.borderColor = '';
+    secondaryEl.style.boxShadow = 'none';
+    secondaryEl.style.order = '';
+  }
+
   function showState(name) {
     previousState = currentState;
     currentState  = name;
@@ -530,6 +557,7 @@
     els.pullFeatures.innerHTML = '';
     els.pullImagesCount.textContent = '';
     els.pullThumb.innerHTML = '';
+    els.actionOwnershipWarning.style.display = 'none';
     els.pullBtn.disabled = true;
 
     try {
@@ -542,6 +570,29 @@
       }
 
       propertyData = result.property;
+
+      // 2026-09-29 Pomona incident — property #21094: an agent used this
+      // action ("Pull as My Own Listing") on a listing that belonged to a
+      // DIFFERENT agency, which silently created a plain draft with none
+      // of Other Agency Stock's consent, source-tracking or field mapping.
+      // Cross-check the page's own listing agency (already extracted by
+      // the existing content script — no new page read needed) against
+      // this user's OWN CoreX agency; a mismatch is a strong signal they
+      // meant "Import as Other Agency Stock" instead. Never blocks the
+      // pull outright (agency names can legitimately differ by spelling/
+      // trading name) — surfaces a clear warning and lets the agent decide.
+      try {
+        const ctxRes = await chrome.runtime.sendMessage({ action: 'oasConsentWording', apiUrl: settings.apiUrl, apiToken: settings.apiToken });
+        const ownAgency = (ctxRes && ctxRes.agency_name) ? ctxRes.agency_name.trim().toLowerCase() : null;
+        const listingAgency = propertyData.agency_name ? String(propertyData.agency_name).trim().toLowerCase() : null;
+        if (ownAgency && listingAgency && ownAgency !== listingAgency) {
+          els.actionOwnershipWarning.textContent = 'This listing is advertised by "' + propertyData.agency_name
+            + '", not your own agency. If it is NOT your agency\'s mandate, go back and use "Import as Other Agency Stock" instead.';
+          els.actionOwnershipWarning.style.display = 'block';
+        } else {
+          els.actionOwnershipWarning.style.display = 'none';
+        }
+      } catch (e) { /* best-effort — never block the pull on this check failing */ }
 
       // Fill preview
       els.pullTitle.textContent = propertyData.title || 'Untitled Property';
@@ -622,6 +673,21 @@
       if (m) listingRef = m[1];
     }
 
+    // .ai/specs/other-agency-stock.md §5 — 2026-09-29 Pomona field-mapping
+    // fix. P24's own URL shape is /for-sale/{suburb}/{city}/{province}/
+    // {p24_suburb_id}/{listing_id} (to-rent for rentals) — sale-vs-rent and
+    // P24's OWN external suburb id are both sitting right there, confirmed
+    // live against 117485980 (/for-sale/pomona/kempton-park/gauteng/1350/
+    // 117485980 -> sale, suburb id 1350). The server resolves this id via
+    // P24LocationResolver::resolveByP24Id() — the extension sends the raw
+    // signal only, never guesses suburb/city/province text itself.
+    var listingType = /^\/to-rent\//i.test(location.pathname) ? 'rental' : 'sale';
+    var p24SuburbExternalId = null;
+    var pathParts = location.pathname.split('/').filter(Boolean);
+    if (pathParts.length >= 5 && /^\d+$/.test(pathParts[4])) {
+      p24SuburbExternalId = parseInt(pathParts[4], 10);
+    }
+
     var leadCtx = null;
     try {
       var scriptText = document.documentElement.outerHTML;
@@ -660,6 +726,15 @@
     var agencyLogoId = idFromP24Url(agencyLogoUrl);
     if (agencyLogoId) excludeIds[agencyLogoId] = true;
 
+    // 2026-09-29 URGENT FIX #2 (Clayville, 117620040): P24 only renders a
+    // handful of <img> tags into the DOM at load — the rest of the gallery
+    // (confirmed live: page declares imageCount 12, DOM query alone found
+    // 3) sits in the SAME server-rendered HTML as inline script/JSON, not
+    // lazy-loaded. The old code only ran the raw-HTML regex scan when the
+    // DOM query found ZERO images, so on any listing where the DOM found
+    // SOME but not all, the rest were silently dropped. Always merge both
+    // sources — confirmed live this alone recovers all 12 with no browser
+    // interaction (scroll/click) needed.
     var galleryUrls = [];
     var seen = {};
     var imgEls = document.querySelectorAll('img[src*="images.prop24.com"]');
@@ -668,16 +743,12 @@
       var idm = idFromP24Url(src);
       if (idm && !seen[idm] && !excludeIds[idm]) { seen[idm] = true; galleryUrls.push(src); }
     }
-    // Fallback: scan the raw page HTML for the same URL pattern in case some
-    // gallery images are referenced from inline scripts rather than <img> tags.
-    if (galleryUrls.length === 0) {
-      var html = document.documentElement.outerHTML;
-      var re = /https:\/\/images\.prop24\.com\/\d+\/[A-Za-z0-9]+/g;
-      var mm;
-      while ((mm = re.exec(html)) !== null) {
-        var id2 = idFromP24Url(mm[0]);
-        if (id2 && !seen[id2] && !excludeIds[id2]) { seen[id2] = true; galleryUrls.push(mm[0]); }
-      }
+    var html = document.documentElement.outerHTML;
+    var re = /https:\/\/images\.prop24\.com\/\d+\/[A-Za-z0-9]+/g;
+    var mm;
+    while ((mm = re.exec(html)) !== null) {
+      var id2 = idFromP24Url(mm[0]);
+      if (id2 && !seen[id2] && !excludeIds[id2]) { seen[id2] = true; galleryUrls.push(mm[0]); }
     }
 
     // Validate against the page's OWN declared count (ListingViewDesktop's
@@ -712,17 +783,79 @@
       if (amountEl) garages = num(amountEl.textContent);
     }
 
+    // 2026-09-29 URGENT FIX #2 (Clayville): ld.description is P24's JSON-LD
+    // headline ("Stunning 2 Bedroom House In Clayville Ext 45" — one line,
+    // not the listing body). Ported from content-p24-detail.js's proven
+    // multi-strategy extraction (DOM selectors -> meta description ->
+    // longest paragraph) so OAS imports get the same full description the
+    // old Pull Property path already gets, falling back to ld.description
+    // only if every DOM strategy comes up empty.
+    var fullDescription = null;
+    var descSelectors = [
+      '.p24_description', '.p24_listingDetail .js_readMore', '[itemprop="description"]',
+      '.js_expandedText', '.p24_expandedText', '[class*="listing-description"]',
+      '[class*="listingDescription"]', '[class*="property-description"]', '.p24_content .p24_excerpt',
+    ];
+    for (var ds = 0; ds < descSelectors.length; ds++) {
+      try {
+        var descEl = document.querySelector(descSelectors[ds]);
+        if (descEl && descEl.textContent.trim().length > 20) {
+          fullDescription = descEl.textContent.trim().substring(0, 5000);
+          break;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    if (!fullDescription) {
+      try {
+        var descMeta = document.querySelector('meta[name="description"]') || document.querySelector('meta[property="og:description"]');
+        if (descMeta) {
+          var descContent = descMeta.getAttribute('content');
+          if (descContent && descContent.length > 20) fullDescription = descContent.trim();
+        }
+      } catch (e) { /* ignore */ }
+    }
+    if (!fullDescription) {
+      try {
+        var paragraphs = document.querySelectorAll('p, div[class*="description"], div[class*="Description"]');
+        var longest = '';
+        paragraphs.forEach(function (p) {
+          var t = p.textContent.trim();
+          if (t.length > longest.length && t.length > 50 && t.length < 10000) longest = t;
+        });
+        if (longest.length > 50) fullDescription = longest.substring(0, 5000);
+      } catch (e) { /* ignore */ }
+    }
+
     return {
       portal: 'p24',
       listing_ref: listingRef,
       listing_url: location.href,
       price: offers.priceSpecification ? num(offers.priceSpecification.price) : num(offers.price),
-      description: ld.description || null,
-      property_type: (about['@type'] && about['@type'] !== 'RealEstateListing') ? about['@type'] : null,
+      description: fullDescription || ld.description || null,
+      // 2026-09-29 URGENT FIX #2 (Clayville): the extension already computed
+      // this as `_title` for the popup's own preview panel but DELETED it
+      // before POSTing — the server's deriveTitle() then fell back to a
+      // bare suburb name ("Clayville") because street_number/street_name
+      // are never sent. Send it for real; deriveTitle() now prefers it.
+      listing_title: ld.name || textOf('h1') || null,
+      listing_type: listingType,
+      // Raw signals only — the server maps these to CoreX's current
+      // taxonomy (property_type/category). property_type_raw is the
+      // schema.org @type (e.g. "Apartment"); property_type_label_hint is
+      // P24's own free-text label when present (about.description, e.g.
+      // "Apartment / Flat" — often already an exact CoreX label, confirmed
+      // on the Pomona sample, but not assumed universal).
+      property_type_raw: (about['@type'] && about['@type'] !== 'RealEstateListing') ? about['@type'] : null,
+      property_type_label_hint: (about.description && about.description !== ld.description) ? about.description : null,
       beds: beds, baths: baths, garages: garages,
       size_m2: floorSize, erf_size_m2: erfSize,
       suburb: (about.address && about.address.addressLocality) || null,
       province: (about.address && about.address.addressRegion) || null,
+      // P24's OWN external suburb id, straight off the URL — the server
+      // resolves this to CoreX's internal p24_suburb_id (+ city/province
+      // chain) via P24LocationResolver::resolveByP24Id(). Authoritative
+      // over the plain suburb/province text above when present.
+      p24_suburb_external_id: p24SuburbExternalId,
       photos: galleryUrls,
       source_agency_name: leadCtx ? leadCtx.agencyName : null,
       source_agent_name: leadCtx && leadCtx.primaryAgent ? leadCtx.primaryAgent.name : (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].name : null),
@@ -749,6 +882,10 @@
     var contact = (bp.contactDetails || []).filter(function (c) { return c.contactType === 'Agent'; })[0] || (bp.contactDetails || [])[0] || null;
 
     var m = location.pathname.match(/\/(T\d+)\/?$/i);
+
+    // .ai/specs/other-agency-stock.md §5 — 2026-09-29 Pomona field-mapping
+    // fix. PP's URL uses the same /for-sale/ vs /to-rent/ prefix as P24.
+    var listingType = /^\/to-rent\//i.test(location.pathname) ? 'rental' : 'sale';
 
     var photos = (bp.galleryPhotos || []).map(function (p) { return p.mediumUrl || (p.srcSet && p.srcSet[0]) || null; }).filter(Boolean);
 
@@ -778,9 +915,17 @@
       portal: 'pp',
       listing_ref: m ? m[1] : null,
       listing_url: location.href,
-      price: bp.purchasePrice || null,
+      // 2026-09-29 Pomona fix — bp.purchasePrice is undefined on some
+      // listings (confirmed live, T3497323); bp.priceDisplay.purchasePrice
+      // is the same value and reliably present.
+      price: bp.purchasePrice || (bp.priceDisplay ? bp.priceDisplay.purchasePrice : null) || null,
       description: bp.description || null,
-      property_type: bp.propertyType || null,
+      listing_type: listingType,
+      // Raw signal only, same reasoning as the P24 path — PP's propertyType
+      // is often a full descriptive string ("5 Bedroom House", "3 Bedroom
+      // Apartment"), not a bare type, so the server strips the leading bed
+      // count before mapping to CoreX's current taxonomy.
+      property_type_raw: bp.propertyType || null,
       beds: beds, baths: baths, garages: garages,
       size_m2: floorSize, erf_size_m2: erfSize,
       suburb: bp.suburbName || null,
@@ -800,6 +945,10 @@
       // costs nothing since these URLs never appear in `photos` here.
       source_agent_image_url: contact ? (contact.image || null) : null,
       source_agency_logo_url: agencyInfo ? (agencyInfo.agencyLogo || null) : null,
+      // 2026-09-29 URGENT FIX #2 — same fix as the P24 extractor: send the
+      // real title instead of letting it get dropped before deriveTitle()
+      // falls back to a bare suburb name.
+      listing_title: bp.title || document.title || null,
       _title: bp.title || document.title,
       _expected_photo_count: null, // PP's page has no equivalent declared-count field to cross-check against.
     };
@@ -1177,6 +1326,14 @@
       els.actionCaptureListings.disabled = true;
       els.actionImportOas.disabled = false;
       els.actionHint.textContent = 'You\'re on a listing page — pull this property into CoreX';
+
+      // 2026-09-29: the agency-mismatch cross-check + highlightAction()
+      // primary/secondary styling this block used to do only mattered for
+      // choosing between the Pull button and OAS import — moot now that
+      // Pull is hidden (PULL_PROPERTY_ACTION_ENABLED above). Removed along
+      // with the extra requestPropertyDetail() scrape it cost on every
+      // detail-page load; highlightAction() itself stays defined (unused)
+      // in case Pull is ever re-enabled.
     } else if (isSearch) {
       // On a search page — Capture Listings is available, Pull Property disabled
       els.actionPullProperty.disabled = true;
