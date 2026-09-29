@@ -79,14 +79,6 @@
 
 <form method="POST" id="dr2-main-form" action="{{ $mode === 'create' ? route('deals-dr2.store') : route('deals-dr2.update', $deal) }}" class="space-y-6">
         @csrf
-        {{-- Idempotency (duplicate-deal fix, 2026-09-29 — #1826/#1827): a
-             fresh one-time token per page load. A resubmission of this exact
-             form (double-click, Enter+click, a network retry) carries the
-             SAME token, so the server recognises it as the same submission
-             and returns the deal already created instead of a second one. --}}
-        @if($mode === 'create')
-            <input type="hidden" name="create_token" value="{{ \Illuminate\Support\Str::uuid() }}">
-        @endif
 
         {{-- Deal Details --}}
         <div>

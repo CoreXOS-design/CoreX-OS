@@ -3428,13 +3428,3 @@ html.dark .corex-template-card {
 }
 
 /* End AT-336 restyle block */
-
-/* --- Global double-submit guard (duplicate-deal fix, 2026-09-29) ---------- */
-/* See resources/js/corex-form-guard.js. Applied to any POST form's submit
-   control(s) the instant a real submit is committed to, so a double-click
-   can never fire a second request. */
-.corex-submit-locked {
-    opacity: .6;
-    cursor: wait !important;
-    pointer-events: none;
-}

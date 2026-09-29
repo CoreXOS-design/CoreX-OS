@@ -179,7 +179,6 @@ class Deal extends Model
         'agency_id',
         'deal_v2_id', // WS1 — DR1↔DR2 link (deals_v2.id of the mirrored DR2 twin)
         'deal_no',
-        'create_token', // idempotency token — see AtomicSequenceService / Dr2DealRegisterController::store()
 
         'period',
         'deal_date',
