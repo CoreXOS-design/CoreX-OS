@@ -6,6 +6,10 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\ContactMatch;
 use App\Models\Contact;
+use App\Models\P24City;
+use App\Models\P24Country;
+use App\Models\P24Province;
+use App\Models\P24Suburb;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
@@ -44,6 +48,21 @@ class OtherAgencyStockFieldMappingTest extends TestCase
         $this->agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal-' . uniqid()]);
         $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+
+        // p24_suburbs/p24_cities/p24_provinces are seeder-owned GLOBAL
+        // reference data (deploy:sync-reference-data), NOT part of
+        // migrations — a fresh RefreshDatabase test DB has zero rows here
+        // (confirmed live: QA1's real DB carries 26,864 p24_suburbs rows,
+        // ingested organically over time; this test DB has none). These
+        // tests need P24LocationResolver::resolveByP24Id() to actually
+        // resolve, so seed the exact real chain for the two live sample
+        // listings this suite is built from, rather than depending on
+        // whatever happens to already be in whichever DB runs the suite.
+        $country = P24Country::create(['p24_id' => 1, 'name' => 'South Africa']);
+        $province = P24Province::create(['p24_id' => 1, 'p24_country_id' => $country->id, 'name' => 'Gauteng']);
+        $city = P24City::create(['p24_id' => 12, 'p24_province_id' => $province->id, 'name' => 'Kempton Park']);
+        P24Suburb::create(['p24_id' => 1350, 'p24_city_id' => $city->id, 'name' => 'Pomona', 'slug' => 'pomona-' . uniqid()]);
+        P24Suburb::create(['p24_id' => 1311, 'p24_city_id' => $city->id, 'name' => 'Clayville', 'slug' => 'clayville-' . uniqid()]);
     }
 
     // ── OtherAgencyStockFieldMapper unit coverage ───────────────────────
