@@ -8,6 +8,7 @@ use App\Models\OtherAgencyStockConsent;
 use App\Services\Properties\OtherAgencyStockImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * .ai/specs/other-agency-stock.md §4 — the Chrome extension's "Import as
@@ -26,6 +27,19 @@ class OtherAgencyStockImportController extends Controller
 {
     /** Only these hosts may ever be stored as a listing/profile URL — .ai/specs/other-agency-stock.md §9. */
     private const ALLOWED_HOSTS = ['property24.com', 'www.property24.com', 'privateproperty.co.za', 'www.privateproperty.co.za'];
+
+    /**
+     * 2026-09-29 URGENT FIX: fields the extension may send as a relative
+     * path (e.g. "/estate-agents/…", straight off listingLeadFormContext /
+     * agentPageUrl) rather than an absolute URL. Normalised in place before
+     * validation so a real extension payload never 422s over this.
+     */
+    private const URL_FIELDS = [
+        'listing_url',
+        'source_agent_profile_url',
+        'source_agent_image_url',
+        'source_agency_logo_url',
+    ];
 
     /**
      * The consent wording currently in effect for the authenticated user's
@@ -50,6 +64,8 @@ class OtherAgencyStockImportController extends Controller
 
     public function import(Request $request, OtherAgencyStockImportService $service)
     {
+        $this->normaliseUrlFields($request);
+
         $validated = $request->validate([
             'portal'       => ['required', 'string', 'in:p24,pp'],
             'listing_ref'  => ['required', 'string', 'max:64'],
@@ -108,11 +124,12 @@ class OtherAgencyStockImportController extends Controller
             'source_agent_name'        => ['nullable', 'string', 'max:255'],
             'source_agent_phone'       => ['nullable', 'string', 'max:64'],
             'source_agent_email'       => ['nullable', 'email', 'max:255'],
-            'source_agent_profile_url' => ['nullable', 'string', 'max:2048', function ($attr, $value, $fail) {
-                if ($value && ! self::hostAllowed($value)) {
-                    $fail('The agent profile URL must be a property24.com or privateproperty.co.za address.');
-                }
-            }],
+            // 2026-09-29 URGENT FIX: no longer $fail()s here — an optional
+            // URL must never block an import. normaliseUrlFields() has
+            // already resolved a relative path against the portal's own
+            // host; dropInvalidOptionalUrls() strips anything still bad
+            // AFTER validation, logs it, and lets the import proceed.
+            'source_agent_profile_url' => ['nullable', 'string', 'max:2048'],
             'date_posted'    => ['nullable', 'date'],
 
             // .ai/specs/other-agency-stock.md §5 — 2026-09-29 gallery-filter
@@ -126,6 +143,8 @@ class OtherAgencyStockImportController extends Controller
             'source_agency_logo_url'  => ['nullable', 'string', 'max:2048'],
         ]);
 
+        $validated = $this->dropInvalidOptionalUrls($validated);
+
         $property = $service->import($validated, $request->user());
 
         return response()->json([
@@ -133,6 +152,102 @@ class OtherAgencyStockImportController extends Controller
             'property_id' => $property->id,
             'url'         => url('/corex/properties/' . $property->id),
         ]);
+    }
+
+    /**
+     * 2026-09-29 URGENT FIX: Johan's real extension sent a relative
+     * source_agent_profile_url ("/estate-agents/…", straight off P24's own
+     * agentPageUrl/listingLeadFormContext) and every import 422'd on it.
+     * Rewrites every field in self::URL_FIELDS in place on the request: a
+     * protocol-relative "//…" gets "https:" prefixed, anything else with no
+     * scheme gets the portal's own host prefixed (resolved from the listing
+     * URL's host, falling back to the declared `portal`). Runs BEFORE
+     * validation so the strict listing_url host check and the (now lenient)
+     * optional-field checks both see an absolute URL.
+     */
+    private function normaliseUrlFields(Request $request): void
+    {
+        $baseHost = $this->resolvePortalHost($request->input('portal'), $request->input('listing_url'));
+
+        $normalised = [];
+        foreach (self::URL_FIELDS as $field) {
+            $value = $request->input($field);
+            if (! is_string($value) || trim($value) === '') {
+                continue;
+            }
+            $normalised[$field] = self::normaliseUrl($value, $baseHost);
+        }
+
+        if ($normalised) {
+            $request->merge($normalised);
+        }
+    }
+
+    private function resolvePortalHost(?string $portal, ?string $listingUrl): string
+    {
+        if ($listingUrl) {
+            $host = strtolower((string) parse_url($listingUrl, PHP_URL_HOST));
+            if ($host && in_array($host, self::ALLOWED_HOSTS, true)) {
+                return 'https://' . $host;
+            }
+        }
+
+        return $portal === 'pp' ? 'https://www.privateproperty.co.za' : 'https://www.property24.com';
+    }
+
+    private static function normaliseUrl(string $value, string $baseHost): string
+    {
+        $value = trim($value);
+
+        if (str_starts_with($value, '//')) {
+            return 'https:' . $value;
+        }
+
+        if (preg_match('#^https?://#i', $value)) {
+            return $value;
+        }
+
+        // No scheme at all — a relative path, with or without a leading
+        // slash ("/estate-agents/jane-agent" or "estate-agents/jane-agent").
+        return rtrim($baseHost, '/') . '/' . ltrim($value, '/');
+    }
+
+    /**
+     * 2026-09-29 URGENT FIX: an optional URL (agent profile, agent image,
+     * agency logo) must NEVER block an import — even after normalising, a
+     * portal can still hand us garbage. Anything left that doesn't parse as
+     * a real URL (and, for the agent profile link specifically, doesn't sit
+     * on an allowed portal host) is dropped and logged rather than failed.
+     */
+    private function dropInvalidOptionalUrls(array $validated): array
+    {
+        $optionalUrlFields = [
+            'source_agent_profile_url' => true,  // must also be an allowed portal host
+            'source_agent_image_url'   => false,
+            'source_agency_logo_url'   => false,
+        ];
+
+        foreach ($optionalUrlFields as $field => $restrictToPortalHosts) {
+            $value = $validated[$field] ?? null;
+            if ($value === null) {
+                continue;
+            }
+
+            $valid = filter_var($value, FILTER_VALIDATE_URL) !== false;
+            if ($valid && $restrictToPortalHosts) {
+                $valid = self::hostAllowed($value);
+            }
+
+            if (! $valid) {
+                Log::warning('OtherAgencyStock import: dropped an invalid optional URL field rather than block the import', [
+                    'field' => $field,
+                    'value' => $value,
+                ]);
+                unset($validated[$field]);
+            }
+        }
+
+        return $validated;
     }
 
     private static function hostAllowed(?string $url): bool

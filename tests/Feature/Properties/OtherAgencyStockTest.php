@@ -430,4 +430,55 @@ class OtherAgencyStockTest extends TestCase
             ->postJson('/api/v1/other-agency-stock/import', $this->importPayload())
             ->assertUnauthorized();
     }
+
+    /**
+     * 2026-09-29 URGENT FIX #2, same night. Johan's real extension sent a
+     * relative source_agent_profile_url ("/estate-agents/jane-agent",
+     * straight off P24's own agentPageUrl) and every import 422'd on
+     * "The agent profile URL must be a property24.com or
+     * privateproperty.co.za address." — the host-allowlist check never
+     * expected a relative path. It must be normalised against the listing's
+     * own portal host and accepted, not rejected.
+     */
+    public function test_relative_agent_profile_url_is_normalised_against_the_listing_portal_host(): void
+    {
+        Http::fake(['*' => Http::response('', 404)]);
+
+        $token = $this->agent->createToken('corex-extension')->plainTextToken;
+
+        $response = $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/v1/other-agency-stock/import', $this->importPayload([
+                'listing_ref' => 'T-RELURL-1',
+                'source_agent_profile_url' => '/estate-agents/jane-agent',
+            ]))
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $property = \App\Models\Property::withoutGlobalScope(AgencyScope::class)->find($response->json('property_id'));
+        $this->assertSame(
+            'https://www.privateproperty.co.za/estate-agents/jane-agent',
+            $property->externalSource?->source_agent_profile_url,
+        );
+    }
+
+    /**
+     * The same optional-URL leniency for a field that's simply garbage
+     * (never a relative path — just not a URL at all). It must be dropped
+     * silently rather than block the whole import, since an agent's photo
+     * or agency logo link is never load-bearing for the property record.
+     */
+    public function test_garbage_optional_url_is_dropped_not_rejected(): void
+    {
+        Http::fake(['*' => Http::response('', 404)]);
+
+        $token = $this->agent->createToken('corex-extension')->plainTextToken;
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/v1/other-agency-stock/import', $this->importPayload([
+                'listing_ref' => 'T-GARBAGEURL-1',
+                'source_agency_logo_url' => 'not a url at all !!',
+            ]))
+            ->assertOk()
+            ->assertJson(['success' => true]);
+    }
 }
