@@ -288,6 +288,7 @@ class RentalInventoryRecordingController extends Controller
             'party_role' => ['required', 'string', 'in:' . implode(',', [
                 RentalInventorySignature::PARTY_TENANT,
                 RentalInventorySignature::PARTY_LANDLORD,
+                RentalInventorySignature::PARTY_SELLER,
                 RentalInventorySignature::PARTY_AGENT,
             ])],
             'disposition' => ['required', 'string', 'in:' . implode(',', [
@@ -392,7 +393,8 @@ class RentalInventoryRecordingController extends Controller
         SignedDocumentDistributionService $distributionService,
     ): void {
         try {
-            $pdfBytes = $this->wetInkScanAsPdfBytes($file, $rentalInventory->property?->buildDisplayAddress() ?? '', ucfirst($signature->party_role) . ' — wet-ink signature');
+            $partyLabel = \App\Services\PartyRoleLabel::for($rentalInventory->agency_id, $signature->party_role);
+            $pdfBytes = $this->wetInkScanAsPdfBytes($file, $rentalInventory->property?->buildDisplayAddress() ?? '', $partyLabel . ' — wet-ink signature');
 
             $adapter = new FileableDocumentAdapter(
                 $rentalInventory->property,

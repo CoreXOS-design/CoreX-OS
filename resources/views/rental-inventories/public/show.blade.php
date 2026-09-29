@@ -127,10 +127,11 @@
                             $isImageScan = $signature->wet_ink_upload_path
                                 && in_array(strtolower(pathinfo($signature->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'heic', 'heif']);
                         @endphp
+                        @php $partyLabel = \App\Services\PartyRoleLabel::for($inventory->agency_id, $signature->party_role); @endphp
                         <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
                             <div class="flex items-center justify-between text-sm">
                                 <span class="text-slate-600">
-                                    {{ ucfirst($signature->party_role) }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : ($signature->party_role === 'agent' && $signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : '') }}
+                                    {{ $partyLabel }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : ($signature->party_role === 'agent' && $signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : '') }}
                                 </span>
                                 <span class="text-slate-500">
                                     {{ $statusLabel }}
@@ -138,11 +139,11 @@
                                 </span>
                             </div>
                             @if($signature->disposition === 'signed' && $signature->party_signature_path)
-                                <img src="{{ $signature->party_signature_path }}" alt="{{ ucfirst($signature->party_role) }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                <img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @elseif($signature->disposition === 'wet_ink' && $signature->wet_ink_upload_path)
                                 @if($isImageScan)
                                     <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener">
-                                        <img src="{{ $signature->wet_ink_upload_path }}" alt="{{ ucfirst($signature->party_role) }} wet-ink scan" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                        <img src="{{ $signature->wet_ink_upload_path }}" alt="{{ $partyLabel }} wet-ink scan" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                                     </a>
                                 @else
                                     <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
