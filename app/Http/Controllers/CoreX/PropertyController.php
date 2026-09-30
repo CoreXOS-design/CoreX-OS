@@ -1065,7 +1065,16 @@ class PropertyController extends Controller
             'floor_number'     => 'nullable|string|max:50',
             'unit_section_block' => 'nullable|string|max:255',
             'stand_number'     => 'nullable|string|max:100',
+            // 2026-09-30 — erf_number was fillable and used for search, but
+            // had no validation rule anywhere (store or update), so it
+            // silently never saved regardless of lock status. Genuine
+            // pre-existing gap, unrelated to the OAS content lock.
+            'erf_number'       => 'nullable|string|max:100',
             'zone_type'        => 'nullable|string|max:100',
+            // 2026-09-30 field audit — pet_friendly existed as a column
+            // (and was already mapped on OAS import) but had no form field
+            // or validation rule anywhere, so it was never savable.
+            'pet_friendly'     => 'nullable|boolean',
             'address_internal_note' => 'nullable|string|max:2000',
             'street_name'      => 'nullable|string|max:255',
             'street_number'    => 'nullable|string|max:50',
@@ -1392,7 +1401,11 @@ class PropertyController extends Controller
         $isDraftSave = ($property->isDraft() || $property->listing_type_pending) && ! $publishing;
 
         // A contact is required to COMPLETE a listing, not to save a draft in progress.
-        if (! $isDraftSave && $property->contacts()->count() === 0) {
+        // 2026-09-30 — Other Agency Stock is exempt: the agency doesn't have
+        // (and will never be given) the other agency's seller/owner details,
+        // so this listing can never legitimately gain a linked contact. Every
+        // other status keeps the rule unchanged.
+        if (! $isDraftSave && ! $property->isOtherAgencyStock() && $property->contacts()->count() === 0) {
             return back()
                 ->withInput()
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
@@ -1482,7 +1495,16 @@ class PropertyController extends Controller
             'floor_number'     => 'nullable|string|max:50',
             'unit_section_block' => 'nullable|string|max:255',
             'stand_number'     => 'nullable|string|max:100',
+            // 2026-09-30 — erf_number was fillable and used for search, but
+            // had no validation rule anywhere (store or update), so it
+            // silently never saved regardless of lock status. Genuine
+            // pre-existing gap, unrelated to the OAS content lock.
+            'erf_number'       => 'nullable|string|max:100',
             'zone_type'        => 'nullable|string|max:100',
+            // 2026-09-30 field audit — pet_friendly existed as a column
+            // (and was already mapped on OAS import) but had no form field
+            // or validation rule anywhere, so it was never savable.
+            'pet_friendly'     => 'nullable|boolean',
             'address_internal_note' => 'nullable|string|max:2000',
             'street_name'      => 'nullable|string|max:255',
             'street_number'    => 'nullable|string|max:50',

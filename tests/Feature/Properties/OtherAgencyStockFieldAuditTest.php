@@ -99,7 +99,10 @@ class OtherAgencyStockFieldAuditTest extends TestCase
     public function test_build_spaces_json_norkem_park_fixture(): void
     {
         $spaces = OtherAgencyStockFieldMapper::buildSpacesJson([
-            'parking_count'     => 1,
+            'beds' => 2, 'baths' => 1,
+            'bathroom_features' => ['Shower only'],
+            'parking_count'     => 2,
+            'parking_features'  => ['1 Carport', '1 open parking'],
             'pool'              => true,
             'kitchen_features'  => ['BIC', 'Breakfast nook', 'Double sink', 'Electric stove'],
             'garden_features'   => ['Neat garden', 'Build-in braai', 'Pallisade fence', 'Private entrance'],
@@ -108,19 +111,26 @@ class OtherAgencyStockFieldAuditTest extends TestCase
 
         $byType = collect($spaces['spaces'])->keyBy('type');
 
-        $this->assertSame(1, $byType['Parking']['count']);
+        // 2026-09-30 REGRESSION FIX: Bedroom/Bathroom/Garage ARE written
+        // now — spaces_json is authoritative for the Spaces tiles the
+        // moment it's non-empty, so leaving them out (the original design)
+        // made them vanish from the property page entirely.
+        $this->assertSame(2, $byType['Bedroom']['count']);
+        $this->assertSame(1, $byType['Bathroom']['count']);
+        $this->assertSame(['Shower only'], $byType['Bathroom']['featuresAll']);
+        // 2 real spots (1 Carport + 1 open parking) — the aggregate
+        // "Parking: 1" row P24 also renders undercounts; per-spot rows win.
+        $this->assertSame(2, $byType['Parking']['count']);
+        $this->assertSame(['1 Carport', '1 open parking'], $byType['Parking']['featuresAll']);
         $this->assertSame(1, $byType['Pool']['count']);
         $this->assertSame(1, $byType['Kitchen']['count']);
+        // featuresAll (not just units[0].features) is what the property
+        // page actually reads — Johan: "come in with empty featuresAll."
+        $this->assertSame(['BIC', 'Breakfast nook', 'Double sink', 'Electric stove'], $byType['Kitchen']['featuresAll']);
         $this->assertSame(['BIC', 'Breakfast nook', 'Double sink', 'Electric stove'], $byType['Kitchen']['units'][0]['features']);
         $this->assertSame(1, $byType['Garden']['count']);
-        $this->assertSame(['Neat garden', 'Build-in braai', 'Pallisade fence', 'Private entrance'], $byType['Garden']['units'][0]['features']);
+        $this->assertSame(['Neat garden', 'Build-in braai', 'Pallisade fence', 'Private entrance'], $byType['Garden']['featuresAll']);
         $this->assertSame(['Electric entrance gate', 'Electric fence around the complex walls'], $spaces['features']['security']);
-
-        // Bedroom/Bathroom/Garage are deliberately NOT written — those
-        // tiles already read the dedicated beds/baths/garages columns.
-        $this->assertArrayNotHasKey('Bedroom', $byType);
-        $this->assertArrayNotHasKey('Bathroom', $byType);
-        $this->assertArrayNotHasKey('Garage', $byType);
     }
 
     public function test_build_spaces_json_every_signal_absent_returns_empty_shape_not_an_error(): void
@@ -129,6 +139,49 @@ class OtherAgencyStockFieldAuditTest extends TestCase
 
         $this->assertSame([], $spaces['spaces']);
         $this->assertSame([], $spaces['features']['security']);
+    }
+
+    /**
+     * 2026-09-30 URGENT REGRESSION (property #21098): the first version of
+     * buildSpacesJson() wholesale-replaced spaces_json, so a reimport wiped
+     * whatever Bedroom/Bathroom/Garage (or any OTHER space type an agent
+     * might have added) was already there. Passing the property's existing
+     * spaces_json must preserve anything this method doesn't have a fresh
+     * signal for.
+     */
+    public function test_build_spaces_json_preserves_a_space_type_it_does_not_know_about(): void
+    {
+        $existing = [
+            'spaces' => [
+                ['type' => 'Bedroom', 'count' => 2, 'units' => [], 'featuresAll' => [], 'descriptionAll' => ''],
+                ['type' => 'Sauna', 'count' => 1, 'units' => [], 'featuresAll' => ['Custom agent-added space'], 'descriptionAll' => ''],
+            ],
+            'features' => ['security' => [], 'theProperty' => ['Fibre'], 'connectivity' => [], 'sustainability' => []],
+        ];
+
+        $spaces = OtherAgencyStockFieldMapper::buildSpacesJson([
+            'kitchen_features' => ['BIC'],
+        ], $existing);
+
+        $byType = collect($spaces['spaces'])->keyBy('type');
+        $this->assertSame(2, $byType['Bedroom']['count'], 'untouched by this call — no beds signal sent — must survive');
+        $this->assertSame(1, $byType['Sauna']['count'], 'a space type this method has never heard of must survive');
+        $this->assertSame(1, $byType['Kitchen']['count'], 'the new signal is still applied');
+        // features.security has a fresh (empty) signal, so it's replaced;
+        // theProperty has none, so it must be preserved.
+        $this->assertSame(['Fibre'], $spaces['features']['theProperty']);
+    }
+
+    public function test_build_spaces_json_a_fresh_beds_signal_replaces_the_existing_bedroom_count(): void
+    {
+        $existing = ['spaces' => [
+            ['type' => 'Bedroom', 'count' => 3, 'units' => [], 'featuresAll' => [], 'descriptionAll' => ''],
+        ], 'features' => []];
+
+        $spaces = OtherAgencyStockFieldMapper::buildSpacesJson(['beds' => 2], $existing);
+
+        $byType = collect($spaces['spaces'])->keyBy('type');
+        $this->assertSame(2, $byType['Bedroom']['count'], 'a reimport with a real beds signal must win, not stack with the old count');
     }
 
     // ── Full import — the real Norkem Park overview-row payload ─────────
@@ -203,7 +256,17 @@ class OtherAgencyStockFieldAuditTest extends TestCase
         $this->assertNull($property->rates_taxes);
         $this->assertNull($property->zone_type);
         $this->assertNull($property->pet_friendly);
-        $this->assertSame([], $property->spaces_json['spaces'] ?? []);
+        // beds/baths ARE present (2/1) so Bedroom/Bathroom ARE written —
+        // that's the 2026-09-30 regression fix (they must never be absent
+        // just because none of the NEW audited fields were sent). Parking/
+        // Pool/Kitchen/Garden/Garage have no signal at all here and must be
+        // genuinely absent.
+        $byType = collect($property->spaces_json['spaces'] ?? [])->keyBy('type');
+        $this->assertSame(2, $byType['Bedroom']['count'] ?? null);
+        $this->assertSame(1, $byType['Bathroom']['count'] ?? null);
+        foreach (['Garage', 'Parking', 'Pool', 'Kitchen', 'Garden'] as $absentType) {
+            $this->assertArrayNotHasKey($absentType, $byType, "{$absentType} must be absent — no signal was sent for it");
+        }
     }
 
     public function test_import_with_unmappable_zoning_leaves_zone_type_null_not_a_guess(): void

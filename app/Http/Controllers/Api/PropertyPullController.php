@@ -71,6 +71,10 @@ class PropertyPullController extends Controller
             'garden_features.*'  => 'string|max:200',
             'security_features' => 'nullable|array',
             'security_features.*' => 'string|max:200',
+            'bathroom_features' => 'nullable|array',
+            'bathroom_features.*' => 'string|max:200',
+            'parking_features'  => 'nullable|array',
+            'parking_features.*' => 'string|max:200',
         ]);
 
         /** @var \App\Models\User $user */
@@ -90,18 +94,35 @@ class PropertyPullController extends Controller
 
         $p24Location = OtherAgencyStockFieldMapper::resolveP24Location($data['p24_suburb_external_id'] ?? null);
 
+        // 2026-09-30 REGRESSION FIX — moved above buildSpacesJson() so an
+        // existing property's CURRENT spaces_json can be merged from
+        // (Bedroom/Bathroom/Garage and any space type this shared mapper
+        // doesn't know about must survive a re-pull, never be wiped).
+        $existingForSpaces = null;
+        if (!empty($data['portal_ref'])) {
+            $existingForSpaces = Property::withTrashed()
+                ->where('agency_id', $user->effectiveAgencyId())
+                ->where('external_id', $data['portal_ref'])
+                ->first();
+        }
+
         // 2026-09-30 field audit (property #21098, Norkem Park) — same
         // shared mapper OtherAgencyStockImportService uses, so Pull's own
         // stock gets the same levy/rates/zoning/pets/parking/pool/kitchen/
         // garden/security fields Other Agency Stock now does.
         $zoneType = OtherAgencyStockFieldMapper::mapZoning($data['zone_type_raw'] ?? null);
         $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
+            'beds'              => $data['beds'] ?? 0,
+            'baths'             => $data['baths'] ?? 0,
+            'garages'           => $data['garages'] ?? 0,
+            'bathroom_features' => $data['bathroom_features'] ?? [],
             'parking_count'     => $data['parking_count'] ?? null,
+            'parking_features'  => $data['parking_features'] ?? [],
             'pool'              => $data['pool'] ?? false,
             'kitchen_features'  => $data['kitchen_features'] ?? [],
             'garden_features'   => $data['garden_features'] ?? [],
             'security_features' => $data['security_features'] ?? [],
-        ]);
+        ], $existingForSpaces?->spaces_json);
 
         // Build the property data array
         $propertyData = [
@@ -134,16 +155,10 @@ class PropertyPullController extends Controller
             'spaces_json'    => $spacesJson,
         ];
 
-        // Check for existing property by portal_ref (including soft-deleted)
-        $existing = null;
+        // Reuse the lookup already done above for buildSpacesJson() — same
+        // (agency_id, portal_ref) row, no need to query twice.
+        $existing = $existingForSpaces;
         $isUpdate = false;
-
-        if (!empty($data['portal_ref'])) {
-            $existing = Property::withTrashed()
-                ->where('agency_id', $user->effectiveAgencyId())
-                ->where('external_id', $data['portal_ref'])
-                ->first();
-        }
 
         if ($existing) {
             // Restore if soft-deleted

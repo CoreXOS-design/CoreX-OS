@@ -762,30 +762,54 @@
     // Carbon parses "17 July 2026" natively — same "extension sends raw,
     // server maps" split property_type already uses.
     var levyRaw = null, ratesTaxesRaw = null, listingDateRaw = null, petsAllowedRaw = null,
-        zoningRaw = null, parkingCount = null, poolYes = false,
-        kitchenFeatures = [], gardenFeatures = [], securityFeatures = [];
+        zoningRaw = null, parkingCountAggregate = null, poolYes = false,
+        kitchenFeatures = [], gardenFeatures = [], securityFeatures = [],
+        bathroomFeatures = [];
+    // 2026-09-30 REGRESSION FIX (property #21098): "Parking" is only the
+    // AGGREGATE row (confirmed live: shows "1" even when there are 2 real
+    // spots) — P24 also renders one row PER parking spot: "Parking 1" ->
+    // "1 Carport", "Parking 2" -> "1 open parking". Collected separately
+    // and preferred over the aggregate when present.
+    var parkingSubRows = [];
     document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
       var key = row.querySelector('.p24_propertyOverviewKey');
-      var val = row.querySelector('.p24_propertyOverviewResult .p24_info');
-      if (!key || !val) return;
+      var vals = row.querySelectorAll('.p24_propertyOverviewResult .p24_info');
+      if (!key || !vals.length) return;
       var k2 = key.textContent.toLowerCase();
+      var val = vals[0];
       var v2 = num(val.textContent);
       var vText = val.textContent.trim();
+      var parkingSubMatch = k2.match(/^parking\s+(\d+)$/);
       if (k2.indexOf('bedroom') !== -1) beds = v2;
-      else if (k2.indexOf('bathroom') !== -1) baths = v2;
+      else if (k2.indexOf('bathroom') !== -1) {
+        baths = v2;
+        // A second .p24_info in the SAME row is a free-text note ("Shower
+        // only"), confirmed live — never present for most rows, so this is
+        // additive, not a redefinition of the beds/baths pattern above.
+        if (vals.length > 1) {
+          bathroomFeatures = bathroomFeatures.concat(
+            Array.prototype.slice.call(vals, 1).map(function (v) { return v.textContent.trim(); }).filter(Boolean)
+          );
+        }
+      }
       else if (k2.indexOf('floor') !== -1) floorSize = v2;
       else if (k2 === 'levies') levyRaw = vText;
       else if (k2 === 'rates and taxes') ratesTaxesRaw = vText;
       else if (k2 === 'listing date') listingDateRaw = vText;
       else if (k2 === 'pets allowed') petsAllowedRaw = vText;
       else if (k2 === 'zoning') zoningRaw = vText;
-      else if (k2 === 'parking') parkingCount = parseInt(vText, 10) || null;
+      else if (k2 === 'parking') parkingCountAggregate = parseInt(vText, 10) || null;
+      else if (parkingSubMatch) parkingSubRows.push(vText);
       else if (k2 === 'pool') poolYes = /^yes$/i.test(vText);
       else if (k2 === 'kitchen') kitchenFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
       else if (k2 === 'garden') gardenFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
       else if (k2 === 'security') securityFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
     });
     var petsAllowed = petsAllowedRaw ? /^yes$/i.test(petsAllowedRaw) : null;
+    // Per-spot rows win outright when present (their count IS the real
+    // total — the aggregate row undercounted live: "1" vs 2 real spots).
+    var parkingCount = parkingSubRows.length > 0 ? parkingSubRows.length : parkingCountAggregate;
+    var parkingFeatures = parkingSubRows;
     var erfEl = document.querySelector('.js_sizeConversionsButton span');
     if (erfEl) erfSize = num(erfEl.textContent);
 
@@ -890,10 +914,12 @@
       zone_type_raw: zoningRaw,
       pets_allowed: petsAllowed,
       parking_count: parkingCount,
+      parking_features: parkingFeatures,
       pool: poolYes,
       kitchen_features: kitchenFeatures,
       garden_features: gardenFeatures,
       security_features: securityFeatures,
+      bathroom_features: bathroomFeatures,
       _title: ld.name || textOf('h1'),
       _expected_photo_count: imageCount,
     };

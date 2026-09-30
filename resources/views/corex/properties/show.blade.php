@@ -3027,6 +3027,17 @@
                                             </div>
                                         </div>
                                         <div>
+                                            {{-- 2026-09-30 field audit — pet_friendly existed as a column and was
+                                                 already being mapped on OAS import, but had no UI anywhere at all. --}}
+                                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Pets Allowed</label>
+                                            @php $petFriendlyCurrent = old('pet_friendly', $property->pet_friendly); @endphp
+                                            <select name="pet_friendly" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <option value="" {{ $petFriendlyCurrent === null ? 'selected' : '' }}>-- Not specified --</option>
+                                                <option value="1" {{ $petFriendlyCurrent === true || $petFriendlyCurrent === '1' ? 'selected' : '' }}>Yes</option>
+                                                <option value="0" {{ $petFriendlyCurrent === false || $petFriendlyCurrent === '0' ? 'selected' : '' }}>No</option>
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
                                             <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
@@ -3258,9 +3269,17 @@
                                     // dates. Changing the status or picking an expiry date takes it over as a
                                     // normal listing, with today's dates (PropertyController::update).
                                     $importedFields = ! $isNew && $property->isImportedStock();
+                                    // 2026-09-30 field audit — this always fell back to created_at (when the
+                                    // ROW was created), ignoring the actual listed_date column entirely. Never
+                                    // wrong for a normal property (they're usually the same day), but Other
+                                    // Agency Stock deliberately sets listed_date to the PORTAL's own real
+                                    // listing date (from P24's "Listing Date" row) — created_at is just
+                                    // whenever the import happened, e.g. today. isImportedStock() is false for
+                                    // OAS (it checks a different, legacy p24_imported_at column), so this
+                                    // branch is exactly the one OAS properties hit.
                                     $listedDateValue = $importedFields
                                         ? now()->format('Y-m-d')   // what a takeover will set; also the earliest expiry
-                                        : ($property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'));
+                                        : ($property->listed_date?->format('Y-m-d') ?? $property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'));
                                     $expiryInitial = $importedFields
                                         ? (string) old('expiry_date', '')
                                         : (string) old('expiry_date', $property->expiry_date?->format('Y-m-d'));

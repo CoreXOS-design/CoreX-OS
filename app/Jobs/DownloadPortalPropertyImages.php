@@ -69,6 +69,20 @@ class DownloadPortalPropertyImages implements ShouldQueue
         $failed = 0;
         $contentHashes = [];
         $chunks = array_chunk($imageUrls, self::BATCH_SIZE);
+        // 2026-09-30 URGENT REGRESSION FIX (property #21098): every filename
+        // this job writes includes a fresh Str::random(8) suffix, so a
+        // second dispatch for the SAME property (a reimport, or simply this
+        // job running twice) never overwrites the first run's files —
+        // merging against $property->gallery_images_json (the DB's CURRENT
+        // value, which still has the previous run's entries) just kept
+        // appending forever. Confirmed live: 3 accumulated rounds, 69
+        // entries for a genuinely 23-photo property. Track only what THIS
+        // run has stored and REPLACE gallery_images_json with exactly that
+        // — matches the contract PropertyPullController's own reimport path
+        // already assumes ("Clear old images — the new pull will
+        // re-download them"), just enforced here in the job itself so every
+        // caller gets it, not only the one that remembered to clear first.
+        $storedThisRun = [];
 
         foreach ($chunks as $chunk) {
             $responses = Http::pool(function ($pool) use ($chunk) {
@@ -136,9 +150,9 @@ class DownloadPortalPropertyImages implements ShouldQueue
             }
 
             if (count($batchStored) > 0) {
+                $storedThisRun = array_merge($storedThisRun, $batchStored);
                 $property->refresh();
-                $existing = $property->gallery_images_json ?? [];
-                $property->gallery_images_json = array_merge($existing, $batchStored);
+                $property->gallery_images_json = $storedThisRun;
                 $property->saveQuietly();
                 // File the newly-added photos into gallery_categories_json —
                 // every writer of gallery_images_json must, or the mobile app's
