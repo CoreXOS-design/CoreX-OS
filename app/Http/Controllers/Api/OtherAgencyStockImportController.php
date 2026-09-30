@@ -168,6 +168,10 @@ class OtherAgencyStockImportController extends Controller
             'garden_features.*'    => ['string', 'max:200'],
             'security_features'    => ['nullable', 'array'],
             'security_features.*'  => ['string', 'max:200'],
+            'bathroom_features'    => ['nullable', 'array'],
+            'bathroom_features.*'  => ['string', 'max:200'],
+            'parking_features'     => ['nullable', 'array'],
+            'parking_features.*'   => ['string', 'max:200'],
 
             'source_agent_image_url'  => ['nullable', 'string', 'max:2048'],
             'source_agency_logo_url'  => ['nullable', 'string', 'max:2048'],

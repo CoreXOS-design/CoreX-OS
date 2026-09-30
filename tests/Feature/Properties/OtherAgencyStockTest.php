@@ -82,6 +82,8 @@ class OtherAgencyStockTest extends TestCase
             'status' => Property::STATUS_OTHER_AGENCY_STOCK,
             'price' => 1500000,
             'description' => 'Original description',
+            'beds' => 2, 'baths' => 1, 'garages' => 0,
+            'city' => 'Margate', 'province' => 'KwaZulu-Natal',
         ]);
     }
 
@@ -480,5 +482,112 @@ class OtherAgencyStockTest extends TestCase
             ]))
             ->assertOk()
             ->assertJson(['success' => true]);
+    }
+
+    // ── 2026-09-30: contact NOT required for OAS (task A) ───────────────
+
+    private function basePropertyPayload(Property $p, array $overrides = []): array
+    {
+        return array_merge([
+            'title'    => $p->title,
+            'price'    => (int) $p->price,
+            'suburb'   => $p->suburb,
+            'city'     => $p->city,
+            'province' => $p->province,
+            'beds'     => (int) $p->beds,
+            'baths'    => (int) $p->baths, // baths is a decimal column — the "integer" validation rule rejects "1.0"
+            'garages'  => (int) $p->garages,
+            'agent_id' => $p->agent_id,
+        ], $overrides);
+    }
+
+    /**
+     * Task A (Johan): the agency will never have another agency's seller
+     * details, so a linked contact must NOT be required to save an Other
+     * Agency Stock property. Every other status keeps the existing rule —
+     * confirmed by the second test below.
+     */
+    public function test_oas_property_saves_without_a_linked_contact(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+        $this->assertSame(0, $p->contacts()->count(), 'sanity: no contact linked');
+
+        $resp = $this->actingAs($this->agent)
+            ->put(route('corex.properties.update', $p), $this->basePropertyPayload($p, [
+                'street_number' => '12A', // an edit that must actually persist
+            ]));
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertRedirect();
+        $this->assertSame('12A', $p->fresh()->street_number);
+    }
+
+    public function test_active_property_without_a_contact_still_fails_to_save(): void
+    {
+        $p = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id,
+            'agent_id'  => $this->agent->id,
+            'branch_id' => $this->branch->id,
+            'external_id' => (string) Str::uuid(),
+            'title' => 'Active Listing',
+            'suburb' => 'Uvongo',
+            'property_type' => 'house',
+            'status' => 'active',
+            'price' => 1500000,
+        ]);
+        $this->assertSame(0, $p->contacts()->count());
+
+        $resp = $this->actingAs($this->agent)
+            ->put(route('corex.properties.update', $p), $this->basePropertyPayload($p, ['price' => 1600000]));
+
+        $resp->assertSessionHasErrors(['contacts']);
+        $this->assertEquals(1500000, $p->fresh()->price, 'the rejected save must not have persisted');
+    }
+
+    // ── 2026-09-30: internal address fields editable on a locked OAS
+    //    property (task B) ───────────────────────────────────────────────
+
+    public function test_internal_address_fields_save_on_a_locked_oas_property(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+
+        $resp = $this->actingAs($this->agent)
+            ->put(route('corex.properties.update', $p), $this->basePropertyPayload($p, [
+                // The advert fields are submitted UNCHANGED (matching the
+                // property's current values) — only the internal address
+                // fields below are actually dirty.
+                'description'    => $p->description,
+                'street_number'  => '7',
+                'street_name'    => 'Palm Avenue',
+                'complex_name'   => 'Sunset Villas',
+                'unit_number'    => '4B',
+                'erf_number'     => '1234',
+            ]));
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertRedirect();
+
+        $fresh = $p->fresh();
+        $this->assertSame('7', $fresh->street_number);
+        $this->assertSame('Palm Avenue', $fresh->street_name);
+        $this->assertSame('Sunset Villas', $fresh->complex_name);
+        $this->assertSame('4B', $fresh->unit_number);
+        $this->assertSame('1234', $fresh->erf_number);
+        // The advert content itself must still be exactly what it was.
+        $this->assertSame('Original description', $fresh->description);
+        $this->assertEquals(1500000, $fresh->price);
+    }
+
+    public function test_advert_fields_still_refuse_to_save_on_a_locked_oas_property(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+
+        $resp = $this->actingAs($this->agent)
+            ->put(route('corex.properties.update', $p), $this->basePropertyPayload($p, [
+                'price' => 999, // still a LOCKED field — must still be refused
+            ]));
+
+        $resp->assertSessionHasErrors(['other_agency_stock']);
+        $this->assertEquals(1500000, $p->fresh()->price, 'the rejected save must not have persisted');
     }
 }
