@@ -178,10 +178,16 @@ beside the existing `.corex-user-*` block: `.corex-fav-toggle`, `.corex-fav-pane
 
 ### 6.2 Auto-open (decision #2)
 
-`sessionStorage` key `corex-fav-autoopen-seen`. On page load, when
-`nav_favourites_autoopen` is on **and** the key is absent, the panel opens and
-the key is set. Closing the panel does not clear it. A new login = a new browser
-session = the key is absent again.
+`sessionStorage` key `corex-fav-autoopen-seen`, holding a per-login key (the
+first 16 hex chars of a SHA-256 of the session id — regenerated on every sign-in,
+never exposed raw). On page load, when `nav_favourites_autoopen` is on **and** the
+stored value is not the current login key, the panel opens and the key is stored.
+Closing the panel does not clear it.
+
+A bare "seen" flag is NOT enough: `sessionStorage` is per-tab, not per-login, and
+survives a logout + login in the same tab — which left the panel shut after
+re-signing in (fixed 2026-09-30). Keying the marker to the sign-in makes every new
+login open it again.
 
 `sessionStorage` is the right store precisely because it is per-tab and
 per-session and is allowed to come back empty — worst case the panel opens once
