@@ -31,7 +31,17 @@ class DownloadPortalPropertyImages implements ShouldQueue
         public int $propertyId,
         public int $firstImageId,
         public int $imageCount,
-    ) {}
+    ) {
+        // 2026-09-30 demo-reliability fix: this job had NO queue assignment
+        // at all (defaulted to `default`), so a live import's photos could
+        // sit behind whatever else was already queued there — confirmed
+        // live: a 6-7 minute RegenerateBuyerMatchesJob blocked a real
+        // property's images for minutes on QA1. Same dedicated queue
+        // DownloadOtherAgencyStockGalleryJob already uses, which now also
+        // has its own dedicated worker (corex-qa1-queue-images.service) —
+        // never sharing a process with a long-running unrelated job again.
+        $this->onQueue('p24images');
+    }
 
     public function handle(): void
     {
