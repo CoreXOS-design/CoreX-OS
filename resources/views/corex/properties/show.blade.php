@@ -2425,7 +2425,7 @@
                                             class="flex flex-col items-center justify-center gap-2 px-4 py-4 transition-all cursor-pointer"
                                             :style="'flex:1 0 110px; border-right:1px solid var(--border);' + ((idx === modalSpaceIdx && modalOpen)
                                                 ? 'background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border-bottom:2px solid var(--brand-icon);'
-                                                : 'background:var(--surface); border-bottom:2px solid transparent;')"
+                                                : 'background:var(--surface); border-bottom:2px solid transparent;')">
                                         <div class="flex items-center gap-2">
                                             <span class="w-7 h-7 flex items-center justify-center flex-shrink-0"
                                                   :style="(idx === modalSpaceIdx && modalOpen) ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -2493,7 +2493,7 @@
                                             class="relative flex flex-col items-center gap-1 px-4 py-3 transition-all cursor-pointer"
                                             :style="'flex:1; border-right:1px solid var(--border);' + (featureCategoryTab === catKey
                                                 ? 'background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border-bottom:2px solid var(--brand-icon);'
-                                                : 'background:var(--surface); border-bottom:2px solid transparent;')"
+                                                : 'background:var(--surface); border-bottom:2px solid transparent;')">
                                         <span class="w-7 h-7 flex items-center justify-center" x-html="getFeatureCatIconSvg(catKey)"></span>
                                         <span class="text-xs font-medium"
                                               :style="featureCategoryTab === catKey ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
