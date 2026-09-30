@@ -1610,7 +1610,7 @@ class PropertyController extends Controller
         // checkboxes don't submit, so coerce explicitly on every save.
         $data['p24_hide_address']      = $request->boolean('p24_hide_address');
 
-        $data = $this->processSpacesJson($data);
+        $data = $this->processSpacesJson($data, $property);
         // P24 link is OPTIONAL on edit. A legacy/imported property whose suburb
         // isn't on Property24 (or simply isn't linked yet) must still be
         // saveable — forcing a re-pick on every save trapped every such record.
@@ -3374,7 +3374,7 @@ class PropertyController extends Controller
         ]);
     }
 
-    private function processSpacesJson(array $data): array
+    private function processSpacesJson(array $data, ?Property $property = null): array
     {
         // 2026-09-30 — a request that never mentions spaces_json at all (no
         // key in $data — confirmed live via tinker simulating a plain
@@ -3409,7 +3409,29 @@ class PropertyController extends Controller
                         foreach ($catArr as $f) { $flat[] = $f; }
                     }
                 }
-                $data['features_json'] = array_values(array_unique(array_filter($flat)));
+                $newFeaturesJson = array_values(array_unique(array_filter($flat)));
+
+                // 2026-09-30 — features_json is a DERIVED, "backward compat"
+                // flat mirror of spaces_json (see comment above), recomputed
+                // on every save regardless of whether the agent touched
+                // spaces/features at all. For Other Agency Stock that's a
+                // SEPARATE locked column — confirmed live via a real-form
+                // reproduction against 21098: a plain street_name edit threw
+                // "features_json is read-only" because the import path never
+                // populates this legacy column (stays null) while this
+                // recompute always produces a real array from the imported
+                // spaces_json, so ANY save looked like a features_json edit
+                // that never happened. Only write it when it's genuinely
+                // different from what's already stored, so an unrelated
+                // field edit can never smuggle in an unintended change here
+                // — exactly the same field, the lock still catches it.
+                $existingFeaturesJson = $property?->features_json ?? [];
+                sort($newFeaturesJson);
+                $existingSorted = $existingFeaturesJson;
+                sort($existingSorted);
+                if ($newFeaturesJson !== $existingSorted) {
+                    $data['features_json'] = array_values(array_unique(array_filter($flat)));
+                }
 
                 // Sync beds/baths from spaces so DB columns stay correct
                 foreach ($decoded['spaces'] ?? [] as $sp) {
