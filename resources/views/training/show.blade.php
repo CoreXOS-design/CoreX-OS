@@ -79,21 +79,51 @@
                 </form>
                 @endif
 
-                <div class="prose prose-sm max-w-none mt-3" style="color:var(--text-primary);">
-                    @if($lesson->content_type === 'text' && $lesson->content)
+                {{--
+                    2026-09-30 — each attachment renders independently of
+                    content_type now, not as a mutually-exclusive @elseif
+                    chain. The author form (lesson-form.blade.php) always
+                    lets content/video_url/external_link/document_file be
+                    filled in together regardless of which content_type is
+                    selected — content_type never gated what could be
+                    SAVED, only what the learner view would SHOW. That
+                    meant a document or link attached to a (default)
+                    'text' lesson silently never rendered here. Fix the
+                    class: show whatever is actually populated.
+                --}}
+                <div class="prose prose-sm max-w-none mt-3 space-y-3" style="color:var(--text-primary);">
+                    @if($lesson->content)
                         <div class="text-sm leading-relaxed whitespace-pre-line" style="color:var(--text-secondary);">{!! nl2br(e($lesson->content)) !!}</div>
-                    @elseif($lesson->content_type === 'video_url' && $lesson->video_url)
+                    @endif
+
+                    @if($lesson->video_url)
+                        @php $embedUrl = $lesson->youtubeEmbedUrl(); @endphp
+                        @if($embedUrl)
                         <div class="aspect-video rounded-lg overflow-hidden mb-3" style="background:#000;">
-                            <iframe src="{{ $lesson->video_url }}" class="w-full h-full" frameborder="0" allowfullscreen></iframe>
+                            <iframe src="{{ $embedUrl }}" class="w-full h-full" frameborder="0"
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                    referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
                         </div>
-                    @elseif($lesson->content_type === 'document' && $lesson->document_path)
+                        @else
+                        <a href="{{ $lesson->video_url }}" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm no-underline"
+                           style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m10.5 8.25 4.72 3.22a.75.75 0 0 1 0 1.06L10.5 15.75V8.25Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 12a9.75 9.75 0 1 1-19.5 0 9.75 9.75 0 0 1 19.5 0Z" /></svg>
+                            Watch Video
+                        </a>
+                        @endif
+                    @endif
+
+                    @if($lesson->document_path)
                         <a href="{{ route('training.lesson-document', $lesson) }}" target="_blank"
                            class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm no-underline"
                            style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                             Download Document
                         </a>
-                    @elseif($lesson->content_type === 'link' && $lesson->external_link)
+                    @endif
+
+                    @if($lesson->external_link)
                         <a href="{{ $lesson->external_link }}" target="_blank" rel="noopener"
                            class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm no-underline"
                            style="background:color-mix(in srgb, var(--brand-icon) 12%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
