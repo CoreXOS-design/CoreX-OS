@@ -578,6 +578,41 @@ class OtherAgencyStockTest extends TestCase
         $this->assertEquals(1500000, $fresh->price);
     }
 
+    public function test_internal_address_field_saves_when_the_property_has_real_spaces_json_and_the_request_omits_it(): void
+    {
+        // Reproduces the exact QA1 failure on 21098 (a real imported OAS
+        // property, never null spaces_json): the browser form always posts
+        // spaces_json via a JS-computed hidden input, but a test HTTP client
+        // (and, per the tinker simulation that found this, potentially other
+        // real callers) can legitimately omit the key entirely. Before the
+        // fix, processSpacesJson() treated "key absent" the same as "key
+        // present but empty" and force-nulled spaces_json on EVERY such
+        // save — which, against a property that actually has Bedroom/
+        // Bathroom data, immediately collided with the content lock
+        // ("spaces_json is read-only") and the save never happened at all.
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['spaces_json' => [
+            'spaces' => [['type' => 'Bedroom', 'count' => 2, 'units' => [], 'featuresAll' => [], 'descriptionAll' => '']],
+            'features' => ['security' => [], 'theProperty' => [], 'connectivity' => [], 'sustainability' => []],
+        ]]);
+        $p = $p->fresh();
+        $this->assertNotEmpty($p->spaces_json['spaces']);
+
+        $payload = $this->basePropertyPayload($p, ['street_name' => 'Real Import Street']);
+        unset($payload['spaces_json']); // never sent — the exact shape that tripped the bug
+
+        $resp = $this->actingAs($this->agent)->put(route('corex.properties.update', $p), $payload);
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertRedirect();
+
+        $fresh = $p->fresh();
+        $this->assertSame('Real Import Street', $fresh->street_name);
+        $this->assertNotEmpty($fresh->spaces_json['spaces'], 'spaces_json must survive untouched, not be nulled');
+        $this->assertSame('Bedroom', $fresh->spaces_json['spaces'][0]['type']);
+    }
+
     public function test_advert_fields_still_refuse_to_save_on_a_locked_oas_property(): void
     {
         $p = $this->makeOtherAgencyStock();
