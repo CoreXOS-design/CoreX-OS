@@ -55,6 +55,22 @@ class PropertyPullController extends Controller
             'property_type_raw'       => 'nullable|string|max:100',
             'property_type_label_hint' => 'nullable|string|max:100',
             'p24_suburb_external_id'  => 'nullable|integer',
+
+            // 2026-09-30 field audit (property #21098, Norkem Park) — same
+            // shared mapper, same new fields as OtherAgencyStockImportService.
+            'levy'              => 'nullable|string|max:50',
+            'rates_taxes'       => 'nullable|string|max:50',
+            'zone_type_raw'     => 'nullable|string|max:100',
+            'pets_allowed'      => 'nullable|boolean',
+            'date_posted'       => 'nullable|date',
+            'parking_count'     => 'nullable|integer|min:0|max:50',
+            'pool'              => 'nullable|boolean',
+            'kitchen_features'  => 'nullable|array',
+            'kitchen_features.*' => 'string|max:200',
+            'garden_features'   => 'nullable|array',
+            'garden_features.*'  => 'string|max:200',
+            'security_features' => 'nullable|array',
+            'security_features.*' => 'string|max:200',
         ]);
 
         /** @var \App\Models\User $user */
@@ -73,6 +89,19 @@ class PropertyPullController extends Controller
             );
 
         $p24Location = OtherAgencyStockFieldMapper::resolveP24Location($data['p24_suburb_external_id'] ?? null);
+
+        // 2026-09-30 field audit (property #21098, Norkem Park) — same
+        // shared mapper OtherAgencyStockImportService uses, so Pull's own
+        // stock gets the same levy/rates/zoning/pets/parking/pool/kitchen/
+        // garden/security fields Other Agency Stock now does.
+        $zoneType = OtherAgencyStockFieldMapper::mapZoning($data['zone_type_raw'] ?? null);
+        $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
+            'parking_count'     => $data['parking_count'] ?? null,
+            'pool'              => $data['pool'] ?? false,
+            'kitchen_features'  => $data['kitchen_features'] ?? [],
+            'garden_features'   => $data['garden_features'] ?? [],
+            'security_features' => $data['security_features'] ?? [],
+        ]);
 
         // Build the property data array
         $propertyData = [
@@ -98,6 +127,11 @@ class PropertyPullController extends Controller
             'property_type'  => $typeMap['property_type'] ?? 'House',
             'category'       => $typeMap['category'] ?? null,
             'features_json'  => $data['features'] ?? [],
+            'levy'           => OtherAgencyStockFieldMapper::parseCurrency($data['levy'] ?? null),
+            'rates_taxes'    => OtherAgencyStockFieldMapper::parseCurrency($data['rates_taxes'] ?? null),
+            'zone_type'      => $zoneType,
+            'pet_friendly'   => array_key_exists('pets_allowed', $data) ? $data['pets_allowed'] : null,
+            'spaces_json'    => $spacesJson,
         ];
 
         // Check for existing property by portal_ref (including soft-deleted)
@@ -130,7 +164,9 @@ class PropertyPullController extends Controller
             $propertyData['agent_id']    = $user->id;
             $propertyData['agency_id']   = $user->effectiveAgencyId();
             $propertyData['branch_id']   = $user->branch_id;
-            $propertyData['listed_date'] = now()->toDateString();
+            // 2026-09-30 field audit — prefer the portal's own declared
+            // listing date over "today" when the extension sends one.
+            $propertyData['listed_date'] = $data['date_posted'] ?? now()->toDateString();
 
             $property = Property::create($propertyData);
         }

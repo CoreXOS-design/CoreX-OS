@@ -159,4 +159,155 @@ class OtherAgencyStockFieldMapper
             'town'            => $city->name,
         ];
     }
+
+    /**
+     * .ai/specs/other-agency-stock.md §3/§4 — 2026-09-30 field audit
+     * (property #21098, Norkem Park). P24's Property Overview table renders
+     * currency as "R 1 800" (a literal "R", a space, then space-separated
+     * thousands — confirmed live, plain ASCII spaces, not a currency
+     * symbol entity or non-breaking space). Strips everything but digits —
+     * robust to "R1,800", "R 1 800.00", or any other thousands-separator
+     * style a listing happens to use. Absent/unparseable -> null, never 0
+     * (0 is a real value — a genuinely free levy — that must never be
+     * confused with "not captured").
+     */
+    public static function parseCurrency(?string $raw): ?int
+    {
+        if ($raw === null || trim($raw) === '') {
+            return null;
+        }
+
+        // Strip everything except digits and a decimal point FIRST — a naive
+        // "strip everything but digits" turns "R 1 800.00" into "180000"
+        // (100x too large), because the ".00" decimal digits get absorbed
+        // into the integer. Split on the LAST '.' to treat it as a decimal
+        // point (rand cents), never a thousands separator — ZA currency
+        // never uses '.' for thousands.
+        $cleaned = preg_replace('/[^\d.]/', '', $raw);
+        if ($cleaned === '' || $cleaned === '.') {
+            return null;
+        }
+
+        $parts = explode('.', $cleaned);
+        $intPart = $parts[0] !== '' ? $parts[0] : (count($parts) > 1 ? '0' : '');
+
+        return $intPart === '' ? null : (int) $intPart;
+    }
+
+    /**
+     * P24's free-text "Zoning" value -> one of CoreX's fixed zone_type
+     * dropdown options (resources/views/corex/properties/show.blade.php:
+     * Residential/Commercial/Industrial/Agricultural/Mixed Use). Storing
+     * P24's raw text ("General Residential") verbatim would silently show
+     * as "-- None --" in that dropdown forever — same class of bug as
+     * mapPropertyType() below, so it gets the same treatment: try an exact
+     * match, then a keyword match, then leave it null rather than storing
+     * an option the UI can't select (never guess wrong).
+     */
+    private const ZONING_KEYWORDS = [
+        'residential'  => 'Residential',
+        'business'     => 'Commercial',
+        'commercial'   => 'Commercial',
+        'retail'       => 'Commercial',
+        'office'       => 'Commercial',
+        'industrial'   => 'Industrial',
+        'agricultural' => 'Agricultural',
+        'agriculture'  => 'Agricultural',
+        'farming'      => 'Agricultural',
+        'mixed'        => 'Mixed Use',
+    ];
+
+    public static function mapZoning(?string $raw): ?string
+    {
+        if (! $raw || trim($raw) === '') {
+            return null;
+        }
+
+        $trimmed = trim($raw);
+        foreach (['Residential', 'Commercial', 'Industrial', 'Agricultural', 'Mixed Use'] as $option) {
+            if (strcasecmp($trimmed, $option) === 0) {
+                return $option;
+            }
+        }
+
+        $lower = strtolower($trimmed);
+        foreach (self::ZONING_KEYWORDS as $keyword => $option) {
+            if (str_contains($lower, $keyword)) {
+                return $option;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Builds the `spaces_json` shape the Spaces editor/property page tiles
+     * read (`{spaces: [{type, count, units: [{label, features}], featuresAll,
+     * descriptionAll}], features: {security, theProperty, connectivity,
+     * sustainability}}` — confirmed live against a real captured property).
+     * Bedroom/Bathroom/Garage are deliberately NOT written here — those
+     * tiles already read the dedicated beds/baths/garages columns (already
+     * correctly mapped elsewhere), and duplicating them into spaces_json
+     * too would be a second, driftable source of the same number. This is
+     * ONLY for the space types that have no dedicated column: Parking,
+     * Pool, Kitchen, Garden — plus the property-wide Security feature list,
+     * which is not a "space" at all (matches poolTokens()'s own documented
+     * spaces_json shape).
+     *
+     * Every input is optional and independently absent-safe (2026-09-30
+     * field audit, input-space rule) — a listing missing Kitchen detail
+     * still imports fine with an empty Kitchen space, never a partial
+     * failure over one missing overview row.
+     *
+     * @param  array{parking_count?: ?int, pool?: bool, kitchen_features?: string[], garden_features?: string[]}  $signals
+     */
+    public static function buildSpacesJson(array $signals): array
+    {
+        $spaces = [];
+
+        $addSpace = function (string $type, int $count, array $features) use (&$spaces) {
+            $units = [];
+            for ($i = 1; $i <= $count; $i++) {
+                $units[] = ['label' => "{$type} {$i}", 'features' => $features];
+            }
+            $spaces[] = [
+                'type'           => $type,
+                'count'          => $count,
+                'units'          => $units,
+                'featuresAll'    => [],
+                'descriptionAll' => '',
+            ];
+        };
+
+        $parkingCount = (int) ($signals['parking_count'] ?? 0);
+        if ($parkingCount > 0) {
+            $addSpace('Parking', $parkingCount, []);
+        }
+
+        if (! empty($signals['pool'])) {
+            $addSpace('Pool', 1, []);
+        }
+
+        $kitchenFeatures = array_values(array_filter($signals['kitchen_features'] ?? []));
+        if (! empty($kitchenFeatures)) {
+            $addSpace('Kitchen', 1, $kitchenFeatures);
+        }
+
+        $gardenFeatures = array_values(array_filter($signals['garden_features'] ?? []));
+        if (! empty($gardenFeatures)) {
+            $addSpace('Garden', 1, $gardenFeatures);
+        }
+
+        $securityFeatures = array_values(array_filter($signals['security_features'] ?? []));
+
+        return [
+            'spaces'   => $spaces,
+            'features' => [
+                'security'       => $securityFeatures,
+                'theProperty'    => [],
+                'connectivity'   => [],
+                'sustainability' => [],
+            ],
+        ];
+    }
 }

@@ -77,6 +77,23 @@ class OtherAgencyStockImportService
                 $data['p24_suburb_external_id'] ?? null
             );
 
+            // 2026-09-30 field audit (property #21098, Norkem Park): P24's
+            // Property Overview + features section carries levy/rates/zoning/
+            // pets/parking/pool/kitchen/garden/security signals the extension
+            // was never sending at all. "R 1 800" -> 1800 via the shared
+            // currency parser; "General Residential" -> "Residential" via the
+            // shared zoning map (leaves both null rather than storing an
+            // unparseable/unmappable value — same never-guess rule as
+            // mapPropertyType()).
+            $zoneType = OtherAgencyStockFieldMapper::mapZoning($data['zone_type_raw'] ?? null);
+            $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
+                'parking_count'     => $data['parking_count'] ?? null,
+                'pool'              => $data['pool'] ?? false,
+                'kitchen_features'  => $data['kitchen_features'] ?? [],
+                'garden_features'   => $data['garden_features'] ?? [],
+                'security_features' => $data['security_features'] ?? [],
+            ]);
+
             $property->fill([
                 'agency_id'     => $agencyId,
                 'agent_id'      => $agentId,
@@ -119,8 +136,20 @@ class OtherAgencyStockImportService
                 // FIRST import — a reimport must not keep resetting "days on
                 // market" to today.
                 'excerpt'       => ! empty($data['description']) ? Str::limit(strip_tags($data['description']), 300) : ($property->excerpt ?? null),
-                'listed_date'   => $property->listed_date ?? now()->toDateString(),
+                // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-30 field
+                // audit: prefer the portal's OWN declared listing date
+                // (date_posted, already captured from JSON-LD/the overview
+                // table but never used here) over "today" — only fall back
+                // to now() when the portal genuinely didn't say, and even
+                // then only on the FIRST import (a reimport must not keep
+                // resetting "days on market").
+                'listed_date'   => $data['date_posted'] ?? $property->listed_date ?? now()->toDateString(),
                 'features_json' => ! empty($data['features']) ? array_values($data['features']) : ($property->features_json ?? null),
+                'levy'          => OtherAgencyStockFieldMapper::parseCurrency($data['levy'] ?? null) ?? $property->levy ?? null,
+                'rates_taxes'   => OtherAgencyStockFieldMapper::parseCurrency($data['rates_taxes'] ?? null) ?? $property->rates_taxes ?? null,
+                'zone_type'     => $zoneType ?? $property->zone_type ?? null,
+                'pet_friendly'  => array_key_exists('pets_allowed', $data) ? $data['pets_allowed'] : ($property->pet_friendly ?? null),
+                'spaces_json'   => $spacesJson,
             ])->save();
 
             $source = PropertyExternalSource::updateOrCreate(
