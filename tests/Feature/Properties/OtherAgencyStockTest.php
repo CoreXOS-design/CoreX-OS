@@ -547,6 +547,68 @@ class OtherAgencyStockTest extends TestCase
     // ── 2026-09-30: internal address fields editable on a locked OAS
     //    property (task B) ───────────────────────────────────────────────
 
+    public function test_saving_with_unchanged_spaces_json_does_not_trip_the_lock_via_the_features_json_side_effect(): void
+    {
+        // Reproduces the second, deeper QA1 failure on 21098 (found via a
+        // real-form reproduction against the live property after the
+        // spaces_json-omission fix): processSpacesJson() ALWAYS recomputes
+        // features_json — a separate locked "backward compat" flat mirror
+        // of spaces_json — from whatever spaces_json the form submits, even
+        // when nothing about spaces/features changed. Real OAS imports never
+        // populate features_json (it stays null), so this recompute always
+        // produced a real array that differed from the stored null, and
+        // tripped the content lock on features_json specifically — even
+        // though spaces_json itself round-tripped identically and the
+        // agent only meant to edit street_name.
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update([
+            'spaces_json' => [
+                'spaces' => [['type' => 'Bedroom', 'count' => 2, 'units' => [], 'featuresAll' => [], 'descriptionAll' => '']],
+                'features' => ['security' => [], 'theProperty' => [], 'connectivity' => [], 'sustainability' => []],
+            ],
+            'features_json' => null, // exactly what a real OAS import leaves it
+        ]);
+        $p = $p->fresh();
+
+        $payload = $this->basePropertyPayload($p, [
+            'street_name' => 'Features JSON Regression Street',
+            'spaces_json' => json_encode($p->spaces_json), // the form always round-trips this, unchanged
+        ]);
+
+        $resp = $this->actingAs($this->agent)->put(route('corex.properties.update', $p), $payload);
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertRedirect();
+
+        $fresh = $p->fresh();
+        $this->assertSame('Features JSON Regression Street', $fresh->street_name);
+        $this->assertNull($fresh->features_json, 'features_json must stay untouched when spaces genuinely did not change');
+    }
+
+    public function test_a_genuine_spaces_json_change_still_refuses_to_save_on_a_locked_oas_property(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['spaces_json' => [
+            'spaces' => [['type' => 'Bedroom', 'count' => 2, 'units' => [], 'featuresAll' => [], 'descriptionAll' => '']],
+            'features' => ['security' => [], 'theProperty' => [], 'connectivity' => [], 'sustainability' => []],
+        ]]);
+        $p = $p->fresh();
+
+        $changedSpaces = $p->spaces_json;
+        $changedSpaces['spaces'][0]['count'] = 5; // a REAL change
+
+        $payload = $this->basePropertyPayload($p, [
+            'beds' => 5,
+            'spaces_json' => json_encode($changedSpaces),
+        ]);
+
+        $resp = $this->actingAs($this->agent)->put(route('corex.properties.update', $p), $payload);
+
+        $resp->assertSessionHasErrors(['other_agency_stock']);
+    }
+
     public function test_internal_address_fields_save_on_a_locked_oas_property(): void
     {
         $p = $this->makeOtherAgencyStock();
