@@ -33,9 +33,16 @@ class OtherAgencyStockContentLock
         // Photos.
         'images_json', 'gallery_images_json',
         'dawn_images_json', 'noon_images_json', 'dusk_images_json',
-        // Address / geo.
-        'street_number', 'street_name', 'suburb', 'city', 'province',
-        'address', 'latitude', 'longitude', 'erf_number',
+        // Address / geo — the PORTAL'S OWN advertised location only.
+        // 2026-09-30 — street_number/street_name/erf_number deliberately
+        // removed: those are INTERNAL fields the agent fills in for their
+        // own records (unit/complex/erf detail the portal ad never showed,
+        // needed for FICA/compliance/deeds work) — never part of "the
+        // advert", so they must stay editable even while locked.
+        // complex_name/unit_number/property_number/stand_number/
+        // unit_section_block were never in this list either (same
+        // reasoning) — this is a correction, not a new exemption class.
+        'suburb', 'city', 'province', 'address', 'latitude', 'longitude',
     ];
 
     /**

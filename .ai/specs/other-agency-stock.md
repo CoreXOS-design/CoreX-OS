@@ -155,11 +155,38 @@ the server never scrapes the portals itself.
   existing `properties` columns (`levy`, `rates_taxes`, `zone_type`, `pet_friendly`); Listing
   Date overwrites `date_posted` (already captured, previously never used to set
   `properties.listed_date`, which defaulted to "today" instead); Parking/Pool/Kitchen/Garden
-  map into `spaces_json` (`buildSpacesJson()` — Bedroom/Bathroom/Garage are deliberately NOT
-  duplicated there, those tiles already read the dedicated beds/baths/garages columns);
-  Security maps into `spaces_json.features.security[]` (a property-wide feature list, not a
-  "space"). Wired into BOTH `OtherAgencyStockImportService` and `PropertyPullController` via
-  the one shared mapper — own-stock pulls get the same fields OAS imports do.
+  map into `spaces_json` (`buildSpacesJson()`); Security maps into
+  `spaces_json.features.security[]` (a property-wide feature list, not a "space"). Wired into
+  BOTH `OtherAgencyStockImportService` and `PropertyPullController` via the one shared mapper
+  — own-stock pulls get the same fields OAS imports do.
+
+  **Same-day regression + fix**: the first version of `buildSpacesJson()` deliberately left
+  Bedroom/Bathroom/Garage out, reasoning those tiles read the dedicated beds/baths/garages
+  columns directly. Wrong — confirmed live: once `spaces_json` is non-empty, the Spaces tiles
+  show ONLY what `spaces_json` lists; there is no per-type fallback to the columns. A
+  Bedroom x2/Bathroom x1 that had been showing via the empty-`spaces_json` fallback vanished
+  outright the first time this ran. Fixed: `buildSpacesJson()` now also writes
+  Bedroom/Bathroom/Garage (from the SAME beds/baths/garages values going into the property
+  columns in the same write) and accepts the property's EXISTING `spaces_json` as a second
+  argument, merged from by `type` — any space type it doesn't know about (a custom one an
+  agent added, or a future addition) survives untouched; only types it has a fresh signal for
+  are replaced. Also: `featuresAll` (not just `units[0].features`) is what the Spaces tiles
+  actually read — both are populated now. Bathroom gets a `Shower only`-style free-text note
+  (a second `.p24_info` block in the SAME overview row) into `bathroom_features`. Parking's
+  count/features come from P24's own per-spot rows ("Parking 1" → "1 Carport", "Parking 2" →
+  "1 open parking") when present — the single aggregate "Parking" row undercounts (confirmed
+  live: shows "1" for a listing with 2 real spots) and is only a fallback when no per-spot
+  rows exist.
+
+  **Two display-only bugs found in the SAME investigation** (the underlying data was already
+  correct — `properties.listed_date`/`pet_friendly` for #21098 read 2026-07-17/true in the DB
+  the whole time): (1) the property edit form's read-only "Listed Date" field always fell back
+  to `created_at` (when the row was saved) instead of the real `listed_date` column — never
+  wrong for a normal property (usually the same day) but always wrong for OAS, which
+  deliberately sets `listed_date` to the portal's own real listing date; fixed to prefer
+  `listed_date`. (2) `pet_friendly` had no form field anywhere on the property page at all,
+  so a correctly-imported value was simply never shown — added a Yes/No/Not-specified select
+  next to Zone Type.
 - Garages: `.p24_feature`/`.p24_featureAmount` pair near `icon_garage_updated.svg`.
 - Agent/agency: inline `<script>window.listingLeadFormContext = {...}</script>` — plain JS
   object literal, `agencyName`, `agentDetails[]` (id, name, imageURL, profileURL),
@@ -273,7 +300,25 @@ same authorisation question applies. Whoever wires that setting in should read
 Once a property is (or was, in the same write) `other_agency_stock`, its imported advert
 content is READ-ONLY: `App\Services\Properties\OtherAgencyStockContentLock::LOCKED_FIELDS` —
 description/title/headline, price, beds/baths/garages/sizes, property/listing type,
-features/spaces, all five image-gallery JSON columns, and every address/geo field.
+features/spaces, all five image-gallery JSON columns, and the PORTAL'S OWN advertised
+location (`suburb`, `city`, `province`, `address`, `latitude`, `longitude`).
+
+**2026-09-30 correction**: `street_number`, `street_name` and `erf_number` are NOT locked.
+Those are INTERNAL fields the agent fills in for their own records (unit/complex/erf detail
+the portal ad never showed — needed for FICA/compliance/deeds work), never part of "the
+advert" itself — they must stay editable on a locked OAS property, while the imported ad
+content (including the portal's own suburb/city/province/address) stays read-only.
+`complex_name`/`unit_number`/`property_number`/`stand_number`/`unit_section_block` were
+never in `LOCKED_FIELDS` either (same reasoning) — this was a correction to an over-broad
+original list, not a new exemption class.
+
+### 8b. Contact not required to save (Johan, 2026-09-30)
+
+`PropertyController::update()`'s existing "a contact must be linked before saving" rule
+(enforced for every completed, non-draft property) is bypassed for `other_agency_stock`
+specifically (`! $property->isOtherAgencyStock()` added to the guard) — the agency will
+never have (and can never legitimately obtain) the other agency's seller/owner details, so
+this listing can never gain a linked contact. Every other status keeps the rule unchanged.
 
 Enforced in **`PropertyObserver::saving()`** — the one Eloquent-level chokepoint every update
 path (property edit form, gallery/photo endpoints, bulk edit, API — anything that calls

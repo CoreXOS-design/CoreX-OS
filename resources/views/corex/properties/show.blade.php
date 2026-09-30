@@ -3111,6 +3111,17 @@
                                             </div>
                                         </div>
                                         <div>
+                                            {{-- 2026-09-30 field audit — pet_friendly existed as a column and was
+                                                 already being mapped on OAS import, but had no UI anywhere at all. --}}
+                                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Pets Allowed</label>
+                                            @php $petFriendlyCurrent = old('pet_friendly', $property->pet_friendly); @endphp
+                                            <select name="pet_friendly" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <option value="" {{ $petFriendlyCurrent === null ? 'selected' : '' }}>-- Not specified --</option>
+                                                <option value="1" {{ $petFriendlyCurrent === true || $petFriendlyCurrent === '1' ? 'selected' : '' }}>Yes</option>
+                                                <option value="0" {{ $petFriendlyCurrent === false || $petFriendlyCurrent === '0' ? 'selected' : '' }}>No</option>
+                                            </select>
+                                        </div>
+                                        <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
                                             <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>

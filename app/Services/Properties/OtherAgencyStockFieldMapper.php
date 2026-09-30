@@ -245,68 +245,100 @@ class OtherAgencyStockFieldMapper
      * read (`{spaces: [{type, count, units: [{label, features}], featuresAll,
      * descriptionAll}], features: {security, theProperty, connectivity,
      * sustainability}}` — confirmed live against a real captured property).
-     * Bedroom/Bathroom/Garage are deliberately NOT written here — those
-     * tiles already read the dedicated beds/baths/garages columns (already
-     * correctly mapped elsewhere), and duplicating them into spaces_json
-     * too would be a second, driftable source of the same number. This is
-     * ONLY for the space types that have no dedicated column: Parking,
-     * Pool, Kitchen, Garden — plus the property-wide Security feature list,
-     * which is not a "space" at all (matches poolTokens()'s own documented
-     * spaces_json shape).
+     *
+     * 2026-09-30 REGRESSION FIX (property #21098): the first version of this
+     * method deliberately left Bedroom/Bathroom/Garage out, reasoning those
+     * tiles read the dedicated beds/baths/garages columns directly. Wrong —
+     * confirmed live: once spaces_json is non-empty, the Spaces tiles show
+     * ONLY what spaces_json lists; there is no per-type fallback to the
+     * columns. Writing a spaces_json with just Parking/Pool/Kitchen/Garden
+     * made the Bedroom x2/Bathroom x1 tiles that were showing (via the
+     * EMPTY-spaces_json fallback, before this method ever ran) vanish
+     * outright. Bedroom/Bathroom/Garage are now written here too, from the
+     * SAME beds/baths/garages values already going into the property
+     * columns in the same fill() call — one source, both places, never two
+     * numbers to drift apart.
+     *
+     * $existingSpacesJson (the property's spaces_json BEFORE this write) is
+     * merged from, keyed by `type` — any space type this method doesn't
+     * know about (a custom one an agent added, or a future addition) passes
+     * through untouched; only the types this method actually has a fresh
+     * signal for are replaced.
      *
      * Every input is optional and independently absent-safe (2026-09-30
      * field audit, input-space rule) — a listing missing Kitchen detail
      * still imports fine with an empty Kitchen space, never a partial
      * failure over one missing overview row.
      *
-     * @param  array{parking_count?: ?int, pool?: bool, kitchen_features?: string[], garden_features?: string[]}  $signals
+     * @param  array{beds?: ?int, baths?: ?int, garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, kitchen_features?: string[], garden_features?: string[], security_features?: string[]}  $signals
      */
-    public static function buildSpacesJson(array $signals): array
+    public static function buildSpacesJson(array $signals, ?array $existingSpacesJson = null): array
     {
-        $spaces = [];
+        $byType = [];
+        foreach (($existingSpacesJson['spaces'] ?? []) as $space) {
+            if (! empty($space['type'])) {
+                $byType[$space['type']] = $space;
+            }
+        }
 
-        $addSpace = function (string $type, int $count, array $features) use (&$spaces) {
+        $setSpace = function (string $type, int $count, array $features) use (&$byType) {
+            if ($count <= 0) {
+                unset($byType[$type]);
+
+                return;
+            }
             $units = [];
             for ($i = 1; $i <= $count; $i++) {
                 $units[] = ['label' => "{$type} {$i}", 'features' => $features];
             }
-            $spaces[] = [
+            $byType[$type] = [
                 'type'           => $type,
                 'count'          => $count,
                 'units'          => $units,
-                'featuresAll'    => [],
+                'featuresAll'    => $features,
                 'descriptionAll' => '',
             ];
         };
 
+        if (array_key_exists('beds', $signals) && $signals['beds'] !== null) {
+            $setSpace('Bedroom', (int) $signals['beds'], []);
+        }
+        if (array_key_exists('baths', $signals) && $signals['baths'] !== null) {
+            $setSpace('Bathroom', (int) $signals['baths'], array_values(array_filter($signals['bathroom_features'] ?? [])));
+        }
+        if (array_key_exists('garages', $signals) && $signals['garages'] !== null) {
+            $setSpace('Garage', (int) $signals['garages'], []);
+        }
+
         $parkingCount = (int) ($signals['parking_count'] ?? 0);
         if ($parkingCount > 0) {
-            $addSpace('Parking', $parkingCount, []);
+            $setSpace('Parking', $parkingCount, array_values(array_filter($signals['parking_features'] ?? [])));
         }
 
         if (! empty($signals['pool'])) {
-            $addSpace('Pool', 1, []);
+            $setSpace('Pool', 1, []);
         }
 
         $kitchenFeatures = array_values(array_filter($signals['kitchen_features'] ?? []));
         if (! empty($kitchenFeatures)) {
-            $addSpace('Kitchen', 1, $kitchenFeatures);
+            $setSpace('Kitchen', 1, $kitchenFeatures);
         }
 
         $gardenFeatures = array_values(array_filter($signals['garden_features'] ?? []));
         if (! empty($gardenFeatures)) {
-            $addSpace('Garden', 1, $gardenFeatures);
+            $setSpace('Garden', 1, $gardenFeatures);
         }
 
         $securityFeatures = array_values(array_filter($signals['security_features'] ?? []));
+        $existingFeatures = $existingSpacesJson['features'] ?? [];
 
         return [
-            'spaces'   => $spaces,
+            'spaces'   => array_values($byType),
             'features' => [
-                'security'       => $securityFeatures,
-                'theProperty'    => [],
-                'connectivity'   => [],
-                'sustainability' => [],
+                'security'       => $securityFeatures ?: ($existingFeatures['security'] ?? []),
+                'theProperty'    => $existingFeatures['theProperty'] ?? [],
+                'connectivity'   => $existingFeatures['connectivity'] ?? [],
+                'sustainability' => $existingFeatures['sustainability'] ?? [],
             ],
         ];
     }

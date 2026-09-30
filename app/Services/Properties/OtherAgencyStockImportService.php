@@ -86,13 +86,23 @@ class OtherAgencyStockImportService
             // unparseable/unmappable value — same never-guess rule as
             // mapPropertyType()).
             $zoneType = OtherAgencyStockFieldMapper::mapZoning($data['zone_type_raw'] ?? null);
+            // 2026-09-30 REGRESSION FIX — Bedroom/Bathroom/Garage go in here
+            // too now (from the SAME beds/baths/garages values the property
+            // columns get below), and $property->spaces_json (BEFORE this
+            // write) is passed through so any space type this method
+            // doesn't know about survives untouched.
             $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
+                'beds'              => $data['beds'] ?? 0,
+                'baths'             => $data['baths'] ?? 0,
+                'garages'           => $data['garages'] ?? 0,
+                'bathroom_features' => $data['bathroom_features'] ?? [],
                 'parking_count'     => $data['parking_count'] ?? null,
+                'parking_features'  => $data['parking_features'] ?? [],
                 'pool'              => $data['pool'] ?? false,
                 'kitchen_features'  => $data['kitchen_features'] ?? [],
                 'garden_features'   => $data['garden_features'] ?? [],
                 'security_features' => $data['security_features'] ?? [],
-            ]);
+            ], $property->spaces_json);
 
             $property->fill([
                 'agency_id'     => $agencyId,

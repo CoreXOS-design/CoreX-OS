@@ -600,24 +600,43 @@
     property.levy = null; property.rates_taxes = null; property.date_posted = null;
     property.pets_allowed = null; property.zone_type_raw = null; property.parking_count = null;
     property.pool = false; property.kitchen_features = []; property.garden_features = []; property.security_features = [];
+    property.bathroom_features = []; property.parking_features = [];
     try {
+      // 2026-09-30 REGRESSION FIX (property #21098): "Parking" is only the
+      // AGGREGATE row (confirmed live: shows "1" even with 2 real spots) —
+      // P24 also renders one row PER spot: "Parking 1" -> "1 Carport",
+      // "Parking 2" -> "1 open parking". Per-spot rows win when present.
+      let parkingAggregate = null;
+      const parkingSubRows = [];
       document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
         const key = row.querySelector('.p24_propertyOverviewKey');
-        const val = row.querySelector('.p24_propertyOverviewResult .p24_info');
-        if (!key || !val) return;
+        const vals = row.querySelectorAll('.p24_propertyOverviewResult .p24_info');
+        if (!key || !vals.length) return;
         const k2 = key.textContent.toLowerCase();
-        const vText = val.textContent.trim();
+        const vText = vals[0].textContent.trim();
+        const parkingSubMatch = k2.match(/^parking\s+(\d+)$/);
         if (k2 === 'levies') property.levy = vText;
         else if (k2 === 'rates and taxes') property.rates_taxes = vText;
         else if (k2 === 'listing date') property.date_posted = vText;
         else if (k2 === 'pets allowed') property.pets_allowed = /^yes$/i.test(vText);
         else if (k2 === 'zoning') property.zone_type_raw = vText;
-        else if (k2 === 'parking') property.parking_count = parseInt(vText, 10) || null;
+        else if (k2 === 'parking') parkingAggregate = parseInt(vText, 10) || null;
+        else if (parkingSubMatch) parkingSubRows.push(vText);
         else if (k2 === 'pool') property.pool = /^yes$/i.test(vText);
         else if (k2 === 'kitchen') property.kitchen_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
         else if (k2 === 'garden') property.garden_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
         else if (k2 === 'security') property.security_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+        else if (k2.indexOf('bathroom') !== -1 && vals.length > 1) {
+          // A second .p24_info in the SAME row is a free-text note ("Shower
+          // only") — confirmed live, additive to whatever set property.baths
+          // from JSON-LD further up in this function.
+          property.bathroom_features = property.bathroom_features.concat(
+            Array.prototype.slice.call(vals, 1).map(v => v.textContent.trim()).filter(Boolean)
+          );
+        }
       });
+      property.parking_count = parkingSubRows.length > 0 ? parkingSubRows.length : parkingAggregate;
+      property.parking_features = parkingSubRows;
     } catch (e) { /* */ }
 
     // 6. Agent info
