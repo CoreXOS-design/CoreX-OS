@@ -90,6 +90,7 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
         }
 
         $pack->update(['status' => 'generating']);
+        $pack->touch(); // restart the stale-pack clock now that the job is really running
 
         try {
             $agency = Agency::withoutGlobalScopes()->find($pack->agency_id);
@@ -152,13 +153,13 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
             // 6-8. Sampled deal/rental/listing file sets (k/l/m), reusing
             // the SAME aggregation manifests the Report's per-file index
             // already computed from.
-            foreach (Deal::withoutGlobalScopes()->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_deal_ids ?? [])->get() as $deal) {
+            foreach (Deal::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_deal_ids ?? [])->get() as $deal) {
                 $this->bundleManifest($zip, $salesAgg->aggregate($deal));
             }
-            foreach (Lease::withoutGlobalScopes()->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_rental_ids ?? [])->get() as $lease) {
+            foreach (Lease::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_rental_ids ?? [])->get() as $lease) {
                 $this->bundleManifest($zip, $rentalAgg->aggregate($lease));
             }
-            foreach (Property::withoutGlobalScopes()->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_listing_ids ?? [])->get() as $property) {
+            foreach (Property::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_listing_ids ?? [])->get() as $property) {
                 $this->bundleManifest($zip, $mandateAgg->aggregate($property));
             }
 

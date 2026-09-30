@@ -168,7 +168,9 @@ class Property24SyndicationService
         // the queued job, observer resubmit and CLI all funnel here, so a
         // revoked / never-given approval can't be bypassed by a non-controller
         // caller. Pure DB read; adds no portal call to an unchanged refresh.
-        if ($blocked = $this->blockIfNotApproved($property)) {
+        // isUpdate: a listing already live on P24 keeps receiving edits after a
+        // revoke; a new publish / returning an off-portal listing still needs approval.
+        if ($blocked = $this->blockIfNotApproved($property, true)) {
             return $blocked;
         }
 
@@ -196,15 +198,14 @@ class Property24SyndicationService
     }
 
     /**
-     * AT-369 — refuse to push a listing to P24 while Private Property holds it
-     * exclusive. Persists a clear status + reason on the property (never a
-     * silent skip — a caller that dispatched a queued job and returned
-     * "submitting" to the UI must not leave the property stuck there) and logs
-     * it. Returns null when the listing is clear to submit.
+     * Layer 3 — refuse a P24 send while the listing lacks a syndication
+     * approval (see SyndicationApprovalService::refusalFor). Pure DB read.
+     * Returns null when the listing is clear to submit.
      */
-    private function blockIfNotApproved(Property $property): ?array
+    private function blockIfNotApproved(Property $property, bool $isUpdate = false): ?array
     {
-        $refusal = app(SyndicationApprovalService::class)->refusalFor($property, 'Property24');
+        $svc     = app(SyndicationApprovalService::class);
+        $refusal = $isUpdate ? $svc->refusalForUpdate($property, 'Property24') : $svc->refusalFor($property, 'Property24');
 
         if ($refusal !== null) {
             $this->log('warning', "P24 send blocked for property #{$property->id} — syndication approval required");
@@ -213,6 +214,13 @@ class Property24SyndicationService
         return $refusal;
     }
 
+    /**
+     * AT-369 — refuse to push a listing to P24 while Private Property holds it
+     * exclusive. Persists a clear status + reason on the property (never a
+     * silent skip — a caller that dispatched a queued job and returned
+     * "submitting" to the UI must not leave the property stuck there) and logs
+     * it. Returns null when the listing is clear to submit.
+     */
     private function blockIfPpExclusive(Property $property): ?array
     {
         if (!$property->isPpExclusiveActive()) {

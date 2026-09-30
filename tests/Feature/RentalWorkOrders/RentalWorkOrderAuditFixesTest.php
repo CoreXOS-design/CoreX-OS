@@ -272,4 +272,25 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
 
         $this->actingAs($agent)->get(route('corex.rental-work-orders.show', $mine))->assertOk();
     }
+
+    // ── N3: create paths respect property visibility ────────────────────
+
+    public function test_an_own_scope_agent_cannot_raise_a_work_order_against_a_colleagues_property(): void
+    {
+        $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_work_orders.create', 'scope' => 'own']);
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'properties.view', 'scope' => 'own']);
+        \App\Services\PermissionService::clearCache();
+
+        // $this->property belongs to the admin (agent_id), not to $agent.
+        $payload = [
+            'property_id' => $this->property->id,
+            'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
+            'title' => 'Leaking tap', 'description' => 'Kitchen tap drips.',
+        ];
+
+        $before = RentalWorkOrder::withoutGlobalScopes()->count();
+        $this->actingAs($agent)->post(route('corex.rental-work-orders.store'), $payload)->assertNotFound();
+        $this->assertSame($before, RentalWorkOrder::withoutGlobalScopes()->count());
+    }
 }

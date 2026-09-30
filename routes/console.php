@@ -547,6 +547,10 @@ Schedule::command('geo:cache-purge')
 // Spec: .ai/specs/p24-syndication.md (AT-68) + corex-domain-events-spec.md.
 Schedule::command('mandates:expire')->dailyAt('00:00')->onOneServer()->withoutOverlapping();
 
+// PPRA inspection pack — mark packs whose job was lost/killed as failed so they can be regenerated.
+Schedule::call(fn () => \App\Models\Compliance\PpraInspectionPack::rescueStale())
+    ->everyTenMinutes()->name('ppra-pack-rescue-stale')->onOneServer()->withoutOverlapping();
+
 // Fault reports auto-prune — soft-delete reports older than 3 days, daily at 02:30.
 Schedule::call(function () {
     \App\Models\FaultReport::where('last_seen_at', '<', now()->subDays(3))->delete();

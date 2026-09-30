@@ -595,6 +595,11 @@ class SyndicationApprovalGateTest extends TestCase
         $admin = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin',
         ]);
+        // Explicit grants (seeding any grant leaves the unseeded "allow all" test
+        // fallback, so the permissions this route needs must be stated).
+        foreach (['access_settings', 'properties.syndication.manage_approvers'] as $key) {
+            \App\Models\RolePermission::create(['role' => 'admin', 'permission_key' => $key, 'agency_id' => $this->agency->id]);
+        }
 
         // A VALIDATION error, not a flash: the Agency Setup Wizard reuses this
         // saver and ignores return values, so the refusal has to be something

@@ -380,14 +380,21 @@ class RentalInspectionSignature extends Model
         [$bytes, $mime] = $read;
         abort_unless(in_array($mime, ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'application/pdf'], true), 404);
 
-        return response($bytes, 200, [
+        $headers = [
             'Content-Type' => $mime,
             'Content-Disposition' => 'inline',
             'X-Content-Type-Options' => 'nosniff',
-            'Content-Security-Policy' => "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
             'Cache-Control' => 'private, no-store',
             'Referrer-Policy' => 'no-referrer',
-        ]);
+        ];
+        // Images get the sandboxing CSP. A PDF must NOT: Chrome's built-in PDF
+        // viewer will not render inside a CSP-sandboxed response. An
+        // application/pdf body with nosniff cannot execute as a page.
+        if ($mime !== 'application/pdf') {
+            $headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
+        }
+
+        return response($bytes, 200, $headers);
     }
 
     /**

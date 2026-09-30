@@ -215,6 +215,11 @@ class SyndicationApprovalWizardTest extends TestCase
         // One saver, one rule — the settings page and the wizard cannot drift.
         $agency = $this->agency();
         $admin  = $this->admin($agency);
+        // Explicit grants (seeding any grant leaves the unseeded "allow all" test
+        // fallback, so the permissions this route needs must be stated).
+        foreach (['access_settings', 'properties.syndication.manage_approvers'] as $key) {
+            \App\Models\RolePermission::create(['role' => 'admin', 'permission_key' => $key, 'agency_id' => $agency->id]);
+        }
 
         $this->actingAs($admin)
             ->post(route('corex.settings.syndication-portals'), [

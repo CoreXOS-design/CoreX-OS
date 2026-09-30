@@ -46,10 +46,12 @@ class PpraInspectionPackController extends Controller
         $rows = $this->checklist->checklistFor($agency);
         $latestPack = PpraInspectionPack::where('agency_id', $agency->id)->latest('created_at')->first();
 
-        // A job killed mid-run (timeout/OOM/deploy) never writes 'failed' — treat a
-        // 'generating' pack that has outlived the job timeout as failed so it can be regenerated.
-        if ($latestPack && $latestPack->status === 'generating' && $latestPack->updated_at && $latestPack->updated_at->lt(now()->subMinutes(20))) {
-            $latestPack->update(['status' => 'failed', 'error_message' => 'Generation did not finish (timed out or was interrupted). Please regenerate.']);
+        // A job lost or killed mid-run (timeout/OOM/deploy) never writes 'failed'.
+        // Show such a pack as failed WITHOUT writing on a GET; the scheduled
+        // PpraInspectionPack::rescueStale() (and generate()) persist it.
+        if ($latestPack && $latestPack->isStale()) {
+            $latestPack->status = 'failed';
+            $latestPack->error_message = 'Generation did not finish (timed out or was interrupted). Please regenerate.';
         }
 
         return view('admin.ppra-inspection-pack.index', compact('agency', 'rows', 'latestPack'));
@@ -66,6 +68,15 @@ class PpraInspectionPackController extends Controller
     {
         $agency = $this->resolveAgency($request);
         $user = $request->user();
+
+        // Persist any dead pack as failed first so regeneration is never blocked by it.
+        PpraInspectionPack::rescueStale();
+
+        // A live (dispatched, not stale) generation is already running — do not double-dispatch.
+        if (PpraInspectionPack::where('agency_id', $agency->id)->where('status', 'generating')->exists()) {
+            return redirect()->route('admin.ppra-inspection-pack.index')
+                ->with('success', 'A pack is already being generated — you\'ll be notified when it\'s ready.');
+        }
 
         // currentDraftFor() only ever returns a queued/generated_at=null row
         // — reuse it as-is if one exists. Otherwise this is a REGENERATION
@@ -87,6 +98,10 @@ class PpraInspectionPackController extends Controller
                 'sample_listing_ids'   => $previous?->sample_listing_ids,
             ]);
         }
+
+        // 'generating' from the moment of dispatch (not 'queued', which is also the
+        // picker draft's state) so a lost job is detectable by rescueStale().
+        $pack->update(['status' => 'generating', 'error_message' => null]);
 
         GeneratePpraInspectionPackJob::dispatch($pack->id);
 

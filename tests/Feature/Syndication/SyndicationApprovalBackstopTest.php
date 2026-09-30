@@ -111,28 +111,71 @@ class SyndicationApprovalBackstopTest extends TestCase
 
     // ── Service chokepoints ─────────────────────────────────────────────
 
-    public function test_p24_submit_and_reactivate_refuse_an_unapproved_listing_without_any_portal_call(): void
+    public function test_p24_new_publish_and_return_to_market_refuse_an_unapproved_listing_without_any_portal_call(): void
     {
         $this->switchGateOn();
-        $p = $this->property(['p24_ref' => '12345']);
+        // NEW listing: never sent to P24 (no ref). Off-portal listing: P24 was told to take it off.
+        $new = $this->property();
+        $off = $this->property(['p24_ref' => '12345', 'p24_syndication_status' => Property::PORTAL_OFF_STATUS]);
 
         $service = app(Property24SyndicationService::class);
 
-        $this->assertFalse($service->submitListing($p)['success']);
-        $this->assertFalse($service->reactivateListing($p)['success']);
+        $this->assertFalse($service->submitListing($new)['success']);
+        $this->assertFalse($service->submitListing($off)['success']);
+        $this->assertFalse($service->reactivateListing($off)['success']);
 
         Http::assertNothingSent();
     }
 
-    public function test_pp_submit_and_reactivate_refuse_an_unapproved_listing_without_any_portal_call(): void
+    public function test_pp_new_publish_and_return_to_market_refuse_an_unapproved_listing_without_any_portal_call(): void
     {
         $this->switchGateOn();
-        $p = $this->property(['pp_ref' => 'PP1']);
+        $new = $this->property();
+        $off = $this->property(['pp_ref' => 'PP1', 'pp_syndication_status' => Property::PORTAL_OFF_STATUS]);
 
         $service = app(PrivatePropertySyndicationService::class);
 
-        $this->assertTrue($service->submitListing($p)['approval_required'] ?? false);
-        $this->assertTrue($service->reactivateListing($p)['approval_required'] ?? false);
+        $this->assertTrue($service->submitListing($new)['approval_required'] ?? false);
+        $this->assertTrue($service->submitListing($off)['approval_required'] ?? false);
+        $this->assertTrue($service->reactivateListing($off)['approval_required'] ?? false);
+
+        Http::assertNothingSent();
+    }
+
+    // ── Revoke / not-yet-grandfathered leaves LIVE listings alone ───────
+
+    public function test_update_refusal_lets_an_already_live_listing_through_but_never_a_new_or_off_portal_one(): void
+    {
+        $this->switchGateOn();
+        $svc = app(SyndicationApprovalService::class);
+
+        // Live on P24 / PP (portal ref, not taken off) but carrying no approval stamp
+        // (revoked, or the grandfather job has not run yet).
+        $liveP24 = $this->property(['p24_ref' => '111', 'p24_syndication_status' => 'active']);
+        $livePp  = $this->property(['pp_ref' => 'PP9', 'pp_syndication_status' => 'active']);
+
+        $this->assertNull($svc->refusalForUpdate($liveP24, 'Property24'));
+        $this->assertNull($svc->refusalForUpdate($livePp, 'Private Property'));
+
+        // Live on P24 says nothing about PP, and vice versa.
+        $this->assertNotNull($svc->refusalForUpdate($liveP24, 'Private Property'));
+        $this->assertNotNull($svc->refusalForUpdate($livePp, 'Property24'));
+
+        // NEW listing (no portal ref) and a listing taken off the portal stay gated.
+        $this->assertNotNull($svc->refusalForUpdate($this->property(), 'Property24'));
+        $this->assertNotNull($svc->refusalForUpdate($this->property(['p24_ref' => '5', 'p24_syndication_status' => Property::PORTAL_OFF_STATUS]), 'Property24'));
+        $this->assertNotNull($svc->refusalForUpdate($this->property(['pp_ref' => 'X', 'pp_syndication_status' => Property::PORTAL_OFF_STATUS]), 'Private Property'));
+
+        // And the strict check used for new publishing is unchanged.
+        $this->assertNotNull($svc->refusalFor($liveP24, 'Property24'));
+    }
+
+    public function test_the_pp_status_sync_job_still_refuses_to_return_an_off_portal_listing_to_market_when_unapproved(): void
+    {
+        $this->switchGateOn();
+        $off = $this->property(['pp_syndication_enabled' => true, 'pp_ref' => 'PP2', 'pp_syndication_status' => Property::PORTAL_OFF_STATUS, 'status' => 'active']);
+
+        (new SyncPpListingStatusJob($off->id))->handle(app(PrivatePropertySyndicationService::class));
 
         Http::assertNothingSent();
     }
@@ -170,7 +213,7 @@ class SyndicationApprovalBackstopTest extends TestCase
     public function test_the_pp_status_sync_job_does_not_republish_an_unapproved_listing(): void
     {
         $this->switchGateOn();
-        $p = $this->property(['pp_syndication_enabled' => true, 'pp_ref' => 'PP1', 'status' => 'active']);
+        $p = $this->property(['pp_syndication_enabled' => true, 'pp_ref' => 'PP1', 'pp_syndication_status' => Property::PORTAL_OFF_STATUS, 'status' => 'active']);
 
         (new SyncPpListingStatusJob($p->id))->handle(app(PrivatePropertySyndicationService::class));
 
@@ -233,6 +276,11 @@ class SyndicationApprovalBackstopTest extends TestCase
         $admin = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin',
         ]);
+        // Explicit grants (seeding any grant leaves the unseeded "allow all" test
+        // fallback, so the permissions this route needs must be stated).
+        foreach (['access_settings', 'properties.syndication.manage_approvers'] as $key) {
+            \App\Models\RolePermission::create(['role' => 'admin', 'permission_key' => $key, 'agency_id' => $this->agency->id]);
+        }
 
         $other       = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
         $otherBranch = Branch::create(['agency_id' => $other->id, 'name' => 'Main']);

@@ -209,6 +209,12 @@ class RentalFaultReportController extends Controller
         ]);
 
         $property = Property::findOrFail($validated['property_id']);
+        // The acting user must be able to see this property (own/branch/agency)
+        // — same rule as the inventory store; AgencyScope alone is not enough.
+        abort_unless(
+            Property::query()->visibleTo($request->user())->whereKey($property->id)->exists(),
+            404
+        );
         $user = $request->user();
 
         $attributes = $validated;

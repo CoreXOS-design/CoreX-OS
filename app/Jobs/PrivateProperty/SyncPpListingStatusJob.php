@@ -60,7 +60,7 @@ class SyncPpListingStatusJob implements ShouldQueue
         $listingType = PrivatePropertyListingMapper::resolveListingType($property);
         if (
             PrivatePropertyListingMapper::statusFor($property, $listingType) !== 'Inactive'
-            && ($refusal = app(SyndicationApprovalService::class)->refusalFor($property, 'Private Property'))
+            && ($refusal = app(SyndicationApprovalService::class)->refusalForUpdate($property, 'Private Property'))
         ) {
             Log::warning("PP status sync skipped for property #{$property->id} — {$refusal['message']}");
             return;

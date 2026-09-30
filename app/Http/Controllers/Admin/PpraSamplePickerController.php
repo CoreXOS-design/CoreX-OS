@@ -87,7 +87,7 @@ class PpraSamplePickerController extends Controller
             'listing' => \App\Models\Property::class,
         };
         if ($ids !== []) {
-            $owned = $model::withoutGlobalScopes()->where('agency_id', $agency->id)->whereIn('id', $ids)->count();
+            $owned = $model::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $agency->id)->whereIn('id', $ids)->count();
             abort_if($owned !== count($ids), 422, 'One or more selected items do not belong to this agency.');
         }
         $validated['ids'] = $ids;

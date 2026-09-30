@@ -65,7 +65,9 @@ class PrivatePropertySyndicationService
     {
         // Layer 3 (syndication approval) backstop — every non-controller caller
         // (console commands, remediation, jobs) funnels through here.
-        if ($refusal = app(\App\Services\Syndication\SyndicationApprovalService::class)->refusalFor($property, 'Private Property')) {
+        // refusalForUpdate: an already-live listing keeps receiving edits after a
+        // revoke; a NEW publish (no live portal ref) still needs the approval.
+        if ($refusal = app(\App\Services\Syndication\SyndicationApprovalService::class)->refusalForUpdate($property, 'Private Property')) {
             return $refusal;
         }
 

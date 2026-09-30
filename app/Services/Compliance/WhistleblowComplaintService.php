@@ -646,6 +646,10 @@ class WhistleblowComplaintService
             );
         }
 
+        // Same approver-list rule as approve(): only someone entitled to approve
+        // may push this complaint to PPRA again.
+        $this->validateApproverPermission($complaint, $actor);
+
         $this->sendToPpra($complaint, $actor);
 
         if ($alsoResendSellerPack) {

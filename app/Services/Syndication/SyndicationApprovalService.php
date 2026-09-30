@@ -98,6 +98,34 @@ class SyndicationApprovalService
     }
 
     /**
+     * Refusal for a push to a listing that MAY ALREADY BE LIVE on a portal
+     * (price / status / field-edit resubmits, queued jobs). Spec: revoking an
+     * approval leaves live listings alone — so an already-live listing keeps
+     * receiving updates whether it was revoked, or is simply not yet stamped
+     * (the grandfather job for a freshly switched-on agency has not run).
+     * What still needs the approval is NEW publishing and returning an
+     * off-market listing to market: no portal reference, or one the portal was
+     * told to take off ('deactivated'), is NOT live and is refused as normal.
+     *
+     * Only Property24 / Private Property have a "live" notion; any other target
+     * (websites) falls straight through to refusalFor().
+     */
+    public function refusalForUpdate(Property $property, string $target): ?array
+    {
+        if ($this->isApproved($property)) {
+            return null;
+        }
+
+        $live = match ($target) {
+            'Property24'       => $property->mayBeLiveOnP24(),
+            'Private Property' => $property->mayBeLiveOnPp(),
+            default            => false,
+        };
+
+        return $live ? null : $this->refusalFor($property, $target);
+    }
+
+    /**
      * May an agent raise a request right now? Requires compliance to be complete
      * (spec D5 — the button does not exist before that), no approval already in
      * place, and no request already pending.

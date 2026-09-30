@@ -937,7 +937,8 @@ return [
                 // properties.syndication.manage_approvers is deliberately NOT here.
                 'leases.view', 'leases.create', 'leases.renew', 'leases.cancel',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.resolve_discrepancy',
-                'rental_inspections.sign_on_behalf', 'rental_inspections.review_deposit_comparison',
+                // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
+                'rental_inspections.review_deposit_comparison',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
                 'rental_fault_reports.record_approval', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.record_approval',

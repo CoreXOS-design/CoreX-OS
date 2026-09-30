@@ -69,7 +69,7 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
         // Layer 3 — re-check at RUN time: the approval may have been revoked
         // while this job sat in the queue. (submitListing() also refuses; this
         // just avoids the lock/cost-window work and resolves a 'submitting' row.)
-        if ($refusal = app(SyndicationApprovalService::class)->refusalFor($this->property, 'Property24')) {
+        if ($refusal = app(SyndicationApprovalService::class)->refusalForUpdate($this->property, 'Property24')) {
             Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — syndication approval required");
             $fresh = $this->property->fresh();
             if ($fresh && $fresh->p24_syndication_status === 'submitting') {
