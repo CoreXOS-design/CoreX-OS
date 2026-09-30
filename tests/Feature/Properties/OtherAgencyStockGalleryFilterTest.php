@@ -171,6 +171,13 @@ class OtherAgencyStockGalleryFilterTest extends TestCase
 
             return true;
         });
+        // 2026-09-30 demo-reliability fix: this job used to have NO queue
+        // assignment (silently landed on `default`), so a live import's
+        // photos could queue behind whatever unrelated long-running job got
+        // there first — confirmed live, a 6-7 minute RegenerateBuyerMatchesJob
+        // blocked a real property's images for minutes. Must be on the SAME
+        // dedicated, isolated queue DownloadOtherAgencyStockGalleryJob uses.
+        Queue::assertPushedOn('p24images', DownloadPortalPropertyImages::class);
         Queue::assertNotPushed(DownloadOtherAgencyStockGalleryJob::class);
     }
 
