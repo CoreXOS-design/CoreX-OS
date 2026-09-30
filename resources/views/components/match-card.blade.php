@@ -257,10 +257,15 @@
         {{-- Reuses the property page's OWN share mechanism verbatim (copy link /
              WhatsApp / email, Property::public_url) — no new URL scheme, no new
              share logic. Self-gated inside the partial by the properties.share
-             permission + a shareable status, so it silently renders nothing for
-             an agent without that permission or a non-shareable listing, exactly
-             like the property page itself. --}}
-        @include('corex.properties.partials.share-actions', ['property' => $property])
+             permission, exactly like the property page itself.
+             fromCoreMatches=true (2026-09-30, Johan) — a property only ever
+             reaches this card because ClientMatchResolver already vetted it
+             against the agency's Core Matches status allow-list, so the
+             partial trusts that instead of re-checking a second, narrower,
+             independently-drifting status list — every listing that appears
+             in these results is shareable, OAS included. See the partial's
+             own docblock for the full incident (c54eb654f). --}}
+        @include('corex.properties.partials.share-actions', ['property' => $property, 'fromCoreMatches' => true])
 
         <form method="POST" action="{{ route('corex.contacts.matches.toggleHide', [$contact, $match, $property]) }}" x-ref="hideForm">
             @csrf
