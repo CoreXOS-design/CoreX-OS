@@ -151,6 +151,24 @@ class OtherAgencyStockImportController extends Controller
             // did (defense in depth — a regressed extension version must
             // never be the only thing standing between an agent photo and
             // the imported gallery).
+            // 2026-09-30 field audit (property #21098, Norkem Park). Raw
+            // currency text ("R 1 800") — parsed server-side by the shared
+            // mapper (OtherAgencyStockFieldMapper::parseCurrency()), same
+            // reasoning as property_type_raw above: the extension sends
+            // what the portal shows, the mapper turns it into CoreX data.
+            'levy'                 => ['nullable', 'string', 'max:50'],
+            'rates_taxes'          => ['nullable', 'string', 'max:50'],
+            'zone_type_raw'        => ['nullable', 'string', 'max:100'],
+            'pets_allowed'         => ['nullable', 'boolean'],
+            'parking_count'        => ['nullable', 'integer', 'min:0', 'max:50'],
+            'pool'                 => ['nullable', 'boolean'],
+            'kitchen_features'     => ['nullable', 'array'],
+            'kitchen_features.*'   => ['string', 'max:200'],
+            'garden_features'      => ['nullable', 'array'],
+            'garden_features.*'    => ['string', 'max:200'],
+            'security_features'    => ['nullable', 'array'],
+            'security_features.*'  => ['string', 'max:200'],
+
             'source_agent_image_url'  => ['nullable', 'string', 'max:2048'],
             'source_agency_logo_url'  => ['nullable', 'string', 'max:2048'],
         ]);

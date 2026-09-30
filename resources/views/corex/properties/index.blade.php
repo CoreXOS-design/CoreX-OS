@@ -794,7 +794,16 @@
     <div x-show="view === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-tour="re-properties-list">
         @foreach($properties as $property)
         @php
-            $images = $property->allImages();
+            // 2026-09-30 field audit — allImages() merges gallery_images_json
+            // with images_json (a divergent public/website mirror) and the
+            // dawn/noon/dusk variant sets, over-counting the "N photos" badge
+            // below (confirmed live: 46 shown for a genuinely 23-photo
+            // property — exactly the class of bug syndicationImages() was
+            // already built to fix for outbound syndication; same fix here.
+            // Falls back to allImages() when the curated gallery is empty,
+            // so a property whose photos live only in a legacy column still
+            // shows a thumbnail/count instead of none.
+            $images = $property->syndicationImages();
             // Resolved ONCE here (not re-called inside the <img>) so the @if
             // gate below checks the SAME value the <img src> uses — a missing
             // original now correctly falls through to the placeholder instead
@@ -1065,7 +1074,8 @@
             <tbody>
                 @foreach($properties as $property)
                 @php
-                    $rowImages = $property->allImages();
+                    // 2026-09-30 field audit — see the grid-view $images comment above.
+                    $rowImages = $property->syndicationImages();
                     // Resolved once — see the grid-view $thumb comment above.
                     $rowThumb  = $property->thumbFor($rowImages[0] ?? null);
                     $rowListingLabel = $property->isRental() ? 'For Rent' : 'For Sale';
