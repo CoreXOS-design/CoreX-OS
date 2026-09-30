@@ -245,8 +245,7 @@ final class RentalFaultRoutingServiceTest extends TestCase
 
     public function test_a_routed_decision_is_logged_on_the_evidence_log_with_the_rule_that_fired(): void
     {
-        RentalFaultRoutingProfile::create([
-            'agency_id' => $this->agency->id, 'property_id' => null,
+        RentalFaultRoutingProfile::where('agency_id', $this->agency->id)->whereNull('property_id')->firstOrFail()->update([
             'emergency_route' => 'owner_first', 'emergency_owner_first_spend_limit' => 200, 'non_emergency_route' => 'agent_review',
         ]);
 
