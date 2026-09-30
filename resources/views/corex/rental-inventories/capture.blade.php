@@ -283,13 +283,19 @@
             </div>
 
             @if(!$inventory)
-                {{-- §0a/§15 — RentalInventory::resolveOrStartFor() now always resolves
-                     or starts an inventory for a real Property (a sale property, or any
-                     rental property between tenancies, gets a property-level inventory
-                     with no lease attached) — this branch should be unreachable. Kept as
-                     an honest fallback rather than a silent blank page if it ever isn't. --}}
+                {{-- Audit M4 — viewing this screen never creates anything. With no
+                     current inventory for the property, the agent starts one
+                     explicitly (POST, needs rental_inventories.create). --}}
                 <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-                    Something went wrong loading this property's inventory. Refresh the page — if this keeps happening, contact support.
+                    <p>This property has no inventory yet.</p>
+                    @if($canStartInventory ?? false)
+                        <form method="POST" action="{{ route('corex.properties.inventory.start', $property) }}" class="mt-3">
+                            @csrf
+                            <button type="submit" class="corex-btn-primary">Start inventory</button>
+                        </form>
+                    @else
+                        <p class="mt-2 text-xs">You do not have permission to start an inventory.</p>
+                    @endif
                 </div>
             @else
                 @if(!$isDraft)

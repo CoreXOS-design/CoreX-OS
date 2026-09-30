@@ -283,6 +283,18 @@ by oversight — do not reinstate them without asking:
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
 
+- **Pending Johan's ruling (added 2026-09-30, audit fix MED-3)** — settings that reached neither
+  the wizard nor a recorded decision. Kept OUT of the wizard for now because §10a makes the
+  in-or-out call Johan's, not the lane's; each is **pending Johan's ruling**:
+  - `rental_application_qualifying_settings.credit_bureau_name` (text)
+  - `rental_application_qualifying_settings.tenanted_label` (text)
+  - `rental_inspection_settings.require_notes_blocks_progression` (boolean)
+  - `lease_settings.show_lease_type_field` (boolean; see rental-property-tab.md) — pending Johan's ruling
+  - `rental_inspection_settings.omr_mark_threshold` (see rental-inspection-form.md) — pending Johan's ruling
+  - `baseline_condition_key`, `condition_states`, `refusal_reason_presets` and the photo
+    classification lists (see rental-inspections.md, rental-inventory.md §8.4/§13.6, already
+    marked "open, Johan's call") — pending Johan's ruling
+
 - **Rental application "Property Link Lock"** (`rental_application_qualifying_settings.
   lock_property_after_submission`, added 2026-09-10). A fine-tuning toggle on an already-
   running rental-applications feature (whether the linked property can still be changed once

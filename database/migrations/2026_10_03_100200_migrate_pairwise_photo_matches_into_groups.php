@@ -88,8 +88,24 @@ return new class extends Migration
             }
         }
 
+        // Audit L4 — idempotent: a photo that already belongs to a group
+        // (a previous partial/complete run, or a group a user has since made)
+        // is never re-inserted, and the whole insert is one transaction so a
+        // mid-run failure leaves nothing half-migrated.
+        $alreadyGrouped = array_flip(
+            DB::table('rental_inspection_photo_match_group_members')
+                ->pluck('rental_inspection_photo_id')
+                ->map(fn ($id) => (int) $id)
+                ->all()
+        );
+
         $now = now();
+        DB::transaction(function () use ($componentPhotos, $componentFirstEdge, $photoFirstEdge, $photoRootProperty, $alreadyGrouped, $now) {
         foreach ($componentPhotos as $root => $photoIds) {
+            $photoIds = array_diff_key($photoIds, $alreadyGrouped);
+            if ($photoIds === []) {
+                continue;
+            }
             $firstEdge = $componentFirstEdge[$root];
             $groupId = DB::table('rental_inspection_photo_match_groups')->insertGetId([
                 'agency_id' => $photoRootProperty[$root]['agency_id'],
@@ -114,6 +130,7 @@ return new class extends Migration
             }
             DB::table('rental_inspection_photo_match_group_members')->insert($memberRows);
         }
+        });
     }
 
     public function down(): void
@@ -123,7 +140,9 @@ return new class extends Migration
         // discarded which specific pairs were once directly compared —
         // not a safe or meaningful inverse. The original table (untouched
         // by up()) remains the historical record either way.
-        DB::table('rental_inspection_photo_match_group_members')->delete();
-        DB::table('rental_inspection_photo_match_groups')->delete();
+        //
+        // Audit L4 — this used to DELETE every row in both group tables,
+        // including groups users created after the migration ran. It is now
+        // a no-op: rolling back leaves the (additive) group tables intact.
     }
 };

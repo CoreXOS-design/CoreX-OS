@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
@@ -13,6 +14,7 @@ use App\Services\Rentals\RentalWorkOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -23,6 +25,8 @@ use Illuminate\View\View;
  */
 class RentalWorkOrderController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     /**
      * Search: property address, tenant name, supplier name, title/description.
      * Sort: reported_at (default, most-recent-first), status, property.
@@ -91,7 +95,9 @@ class RentalWorkOrderController extends Controller
             $query->where('rental_work_orders.reported_at', '>=', $dateFrom);
         }
         if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_work_orders.reported_at', '<=', $dateTo);
+            // Inclusive end date: a bare 'YYYY-MM-DD' compares as midnight,
+            // which would drop every record reported ON the end date.
+            $query->where('rental_work_orders.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
         }
         if ($request->boolean('overdue')) {
             $query->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()));
@@ -161,17 +167,23 @@ class RentalWorkOrderController extends Controller
     /** A work order raised DIRECTLY — not from a fault report. See RentalFaultReportController::raiseWorkOrder(). */
     public function store(Request $request, RentalWorkOrderService $service): RedirectResponse
     {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $propertyId = $request->input('property_id');
+
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            // The lease / inspection item must belong to THIS property — a
+            // same-agency lease on another property would otherwise make
+            // notifyTenant() email the wrong tenant (audit L2).
+            'lease_id' => ['nullable', Rule::exists('leases', 'id')->where('property_id', $propertyId)],
+            'rental_inspection_item_id' => ['nullable', Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
             'reported_by_type' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::REPORTED_BY_TENANT,
                 RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
                 RentalWorkOrder::REPORTED_BY_OWNER_INSTRUCTED,
                 RentalWorkOrder::REPORTED_BY_INSPECTION,
             ])],
-            'reported_by_contact_id' => ['nullable', 'exists:contacts,id'],
+            'reported_by_contact_id' => ['nullable', Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
             'reported_inspection_observation_id' => ['nullable', 'exists:rental_inspection_observations,id'],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
@@ -196,6 +208,8 @@ class RentalWorkOrderController extends Controller
 
     public function show(Request $request, RentalWorkOrder $rentalWorkOrder): View
     {
+        $this->assertVisible($request, $rentalWorkOrder);
+
         $rentalWorkOrder->load([
             'property', 'lease.tenants.contact', 'inspectionItem', 'supplier',
             'reportedByContact', 'reportedByUser', 'reportedFaultReport', 'cancelledByUser',
@@ -206,7 +220,7 @@ class RentalWorkOrderController extends Controller
         return view('corex.rental-work-orders.show', [
             'workOrder' => $rentalWorkOrder,
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
-            'noApprovalThreshold' => \App\Models\RentalWorkOrderSetting::thresholdFor($rentalWorkOrder->property),
+            'noApprovalThreshold' => $rentalWorkOrder->spendThreshold(),
             // §3.4c full-CRUD floor — archived quotes stay reachable with a
             // restore path on this same screen (no separate quotes index).
             'archivedQuotes' => $rentalWorkOrder->quotes()->onlyTrashed()->with('supplier')->get(),
@@ -214,13 +228,14 @@ class RentalWorkOrderController extends Controller
     }
 
     /**
-     * §"Printing" — a work order handed to a supplier. Same query-layer
-     * scoping as show() above (route-model-binding + the global AgencyScope) —
-     * a user who cannot open this record's own detail page cannot download
-     * it either, since both resolve the SAME bound model the SAME way.
+     * §"Printing" — a work order handed to a supplier. Same OWN/BRANCH/AGENCY
+     * check as show() above (assertVisible) — a user who cannot open this
+     * record's own detail page cannot download it either.
      */
     public function pdf(RentalWorkOrder $rentalWorkOrder, RentalDocumentPdfService $service)
     {
+        $this->assertVisible(request(), $rentalWorkOrder);
+
         $pdf = $service->workOrderPdf($rentalWorkOrder);
 
         return request()->boolean('dl')
@@ -231,6 +246,7 @@ class RentalWorkOrderController extends Controller
     /** Editable only while status='reported' — the reportable facts, not the lifecycle. */
     public function update(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($rentalWorkOrder->status === RentalWorkOrder::STATUS_REPORTED, 409, 'This work order has moved on and can no longer be edited here.');
 
         $validated = $request->validate([
@@ -247,8 +263,9 @@ class RentalWorkOrderController extends Controller
 
     public function assignSupplier(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', 'exists:agency_service_providers,id'],
+            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'trade_type' => ['nullable', 'string', 'max:60'],
         ]);
 
@@ -269,6 +286,7 @@ class RentalWorkOrderController extends Controller
      */
     public function recordApproval(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
             'decision' => ['required', 'in:' . implode(',', [
                 \App\Models\RentalApproval::DECISION_APPROVED,
@@ -294,6 +312,7 @@ class RentalWorkOrderController extends Controller
 
     public function startProgress(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         try {
             $rentalWorkOrder->startProgress($request->user());
         } catch (\LogicException $e) {
@@ -305,6 +324,7 @@ class RentalWorkOrderController extends Controller
 
     public function complete(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
             'paid_by' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::PAID_BY_OWNER,
@@ -329,6 +349,7 @@ class RentalWorkOrderController extends Controller
 
     public function addNote(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate(['note' => ['required', 'string']]);
 
         $rentalWorkOrder->addNote($validated['note'], $request->user());
@@ -338,6 +359,7 @@ class RentalWorkOrderController extends Controller
 
     public function cancel(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate(['cancel_reason' => ['required', 'string', 'max:500']]);
 
         try {
@@ -351,6 +373,7 @@ class RentalWorkOrderController extends Controller
 
     public function destroy(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         if (!$rentalWorkOrder->isDeletable()) {
             return back()->withErrors(['rental_work_order' => 'This work order has evidence logged against it and cannot be deleted — cancel it instead.']);
         }
@@ -363,6 +386,7 @@ class RentalWorkOrderController extends Controller
     public function restore(Request $request, int $rentalWorkOrder): RedirectResponse
     {
         $workOrder = RentalWorkOrder::withTrashed()->findOrFail($rentalWorkOrder);
+        $this->assertVisible($request, $workOrder);
         $workOrder->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order restored.');
@@ -371,6 +395,7 @@ class RentalWorkOrderController extends Controller
     /** §3.4 — 'reported' and 'in_progress' photo types upload the same way; 'completed' feeds the completion gate. */
     public function storePhoto(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): JsonResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'photo_type' => ['required', 'in:' . implode(',', [
@@ -381,7 +406,8 @@ class RentalWorkOrderController extends Controller
 
         $clientKey = $validated['client_idempotency_key'] ?? null;
         if ($clientKey) {
-            $existing = RentalWorkOrderPhoto::where('client_idempotency_key', $clientKey)->first();
+            $existing = RentalWorkOrderPhoto::where('client_idempotency_key', $clientKey)
+                ->where('rental_work_order_id', $rentalWorkOrder->id)->first();
             if ($existing) {
                 return response()->json($existing, 200);
             }

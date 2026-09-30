@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\PropertyRoom;
 use App\Models\RentalInventory;
@@ -13,6 +14,7 @@ use App\Models\RentalInventorySignature;
 use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * .ai/specs/rental-inventory.md §4/§5 — adding/retiring lines and capturing
@@ -22,6 +24,27 @@ use Illuminate\Http\Request;
  */
 class RentalInventoryRecordingController extends Controller
 {
+    use EnforcesRecordVisibility;
+
+    /**
+     * Move-out dispositions and move-out photos are the ONE write that is
+     * allowed on a COMPLETED inventory (and only a completed one): the
+     * comparison screen only opens once the inventory is completed, and
+     * RentalInventoryLineDisposition::record() requires it. Everything else
+     * stays draft-only via assertEditable(); cancelled stays locked (audit H1).
+     */
+    private function assertMoveOutRecordable(RentalInventory $rentalInventory): void
+    {
+        if ($rentalInventory->status === RentalInventory::STATUS_COMPLETED) {
+            return;
+        }
+        if ($rentalInventory->status === RentalInventory::STATUS_CANCELLED) {
+            throw new \App\Exceptions\RentalInventoryNotEditableException($rentalInventory);
+        }
+
+        abort(409, 'Move-out findings can only be recorded once the inventory is completed.');
+    }
+
     /**
      * POST /corex/rental-inventories/{inventory}/lines — §0b: the capture
      * surface sends property_room_id (the property's own PropertyRoom, the
@@ -31,10 +54,11 @@ class RentalInventoryRecordingController extends Controller
      */
     public function storeLine(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         $rentalInventory->assertEditable();
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
+            'property_room_id' => ['nullable', 'integer', Rule::exists('property_rooms', 'id')->where('property_id', $rentalInventory->property_id)],
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
             // Johan, 2026-10-02: a new line's qty starts blank, not 1 — "lets
             // get that to null and it will work perfect." Blank stays blank;
@@ -63,11 +87,12 @@ class RentalInventoryRecordingController extends Controller
 
     public function updateLine(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
         $rentalInventory->assertEditable();
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
+            'property_room_id' => ['nullable', 'integer', Rule::exists('property_rooms', 'id')->where('property_id', $rentalInventory->property_id)],
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
             'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
@@ -86,6 +111,7 @@ class RentalInventoryRecordingController extends Controller
     /** POST /corex/rental-inventories/{inventory}/lines/{line}/retire — §3.3-style, never a hard delete. */
     public function retireLine(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
         $rentalInventory->assertEditable();
 
@@ -102,8 +128,9 @@ class RentalInventoryRecordingController extends Controller
      */
     public function storeLineDisposition(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
-        $rentalInventory->assertEditable();
+        $this->assertMoveOutRecordable($rentalInventory);
 
         $validated = $request->validate([
             'disposition_key' => ['required', 'string', 'max:60'],
@@ -137,6 +164,7 @@ class RentalInventoryRecordingController extends Controller
      */
     public function markRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
         $rentalInventory->assertEditable();
 
@@ -169,6 +197,7 @@ class RentalInventoryRecordingController extends Controller
      */
     public function unmarkRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
         $rentalInventory->assertEditable();
 
@@ -191,6 +220,7 @@ class RentalInventoryRecordingController extends Controller
      */
     public function copyFromLastInventory(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         $rentalInventory->assertEditable();
 
         $prior = $rentalInventory->priorInventory();
@@ -219,8 +249,9 @@ class RentalInventoryRecordingController extends Controller
      */
     public function storeLineMoveOutPhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
-        $rentalInventory->assertEditable();
+        $this->assertMoveOutRecordable($rentalInventory);
 
         $validated = $request->validate([
             'photos' => ['required', 'array', 'min:1', 'max:10'],
@@ -235,7 +266,8 @@ class RentalInventoryRecordingController extends Controller
         foreach ($validated['photos'] as $i => $file) {
             $clientKey = $validated['client_idempotency_keys'][$i] ?? null;
             if ($clientKey) {
-                $existing = RentalInventoryPhoto::where('client_idempotency_key', $clientKey)->first();
+                $existing = RentalInventoryPhoto::where('client_idempotency_key', $clientKey)
+                    ->where('rental_inventory_id', $rentalInventory->id)->first();
                 if ($existing) {
                     $created[] = $existing;
                     continue;
@@ -276,6 +308,7 @@ class RentalInventoryRecordingController extends Controller
      */
     public function storeSignature(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         $rentalInventory->assertEditable();
 
         $validated = $request->validate([
@@ -288,8 +321,8 @@ class RentalInventoryRecordingController extends Controller
                 RentalInventorySignature::DISPOSITION_SIGNED,
                 RentalInventorySignature::DISPOSITION_REFUSED,
             ])],
-            'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
-            'signature_image' => ['nullable', 'string'],
+            'party_contact_id' => ['nullable', 'integer', Rule::exists('contacts', 'id')->where('agency_id', $rentalInventory->agency_id)],
+            'signature_image' => ['nullable', 'string', 'max:1000000'],
             'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
             'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
         ]);
@@ -305,11 +338,11 @@ class RentalInventoryRecordingController extends Controller
             $attributes = ['recorded_by_user_id' => $request->user()->id];
         }
 
-        if (!empty($validated['signature_image'])) {
-            $attributes['party_signature_path'] = RentalInventorySignature::storeCanvasImage($validated['signature_image'], $rentalInventory->property_id);
-        }
-
         try {
+            if (!empty($validated['signature_image'])) {
+                $attributes['party_signature_path'] = RentalInventorySignature::storeCanvasImage($validated['signature_image'], $rentalInventory->property_id);
+            }
+
             $signature = RentalInventorySignature::capture($rentalInventory, $validated['party_role'], $validated['disposition'], $attributes);
         } catch (\InvalidArgumentException|\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -336,6 +369,7 @@ class RentalInventoryRecordingController extends Controller
         \App\Services\Rentals\RentalInventoryReportPdfService $pdfService,
         \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
+        $this->assertVisible(request(), $rentalInventory);
         try {
             $rentalInventory->assertEditable();
             $rentalInventory->markCompleted();
@@ -374,6 +408,7 @@ class RentalInventoryRecordingController extends Controller
         \App\Services\Rentals\RentalInventoryReportPdfService $pdfService,
         \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
+        $this->assertVisible($request, $rentalInventory);
         if ($rentalInventory->status !== RentalInventory::STATUS_COMPLETED) {
             return response()->json(['message' => 'This inventory is not yet completed.'], 409);
         }

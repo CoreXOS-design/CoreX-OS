@@ -115,7 +115,7 @@
                                 </span>
                             </div>
                             @if($signature->disposition === 'signed' && $signature->party_signature_path)
-                                <img src="{{ $signature->party_signature_path }}" alt="{{ ucfirst($signature->party_role) }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                <img src="{{ $signature->signature_image_src }}" alt="{{ ucfirst($signature->party_role) }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @endif
                         </div>
                     @endforeach

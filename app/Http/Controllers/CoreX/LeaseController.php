@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\LeaseEscalation;
@@ -12,6 +13,7 @@ use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -22,6 +24,8 @@ use Illuminate\View\View;
  */
 class LeaseController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
     private const LEASE_EXPIRING_SOON_DAYS = 60;
 
@@ -157,14 +161,23 @@ class LeaseController extends Controller
             'end_date' => ['nullable', 'date', 'after:start_date'],
             'is_month_to_month' => ['nullable', 'boolean'],
             'lease_type' => ['nullable', 'string', 'max:40'],
-            'rental_application_id' => ['nullable', 'exists:rental_applications,id'],
+            // Same-agency only — a bare exists: would accept any agency's row.
+            'rental_application_id' => ['nullable', Rule::exists('rental_applications', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'tenant_contact_ids' => ['required', 'array', 'min:1'],
-            'tenant_contact_ids.*' => ['exists:contacts,id'],
+            'tenant_contact_ids.*' => [Rule::exists('contacts', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'activate_immediately' => ['nullable', 'boolean'],
         ]);
 
         $property = Property::findOrFail($validated['property_id']);
         $user = $request->user();
+
+        // The linked application must be for THIS property (audit M6/L2).
+        if (!empty($validated['rental_application_id'])) {
+            $application = RentalApplication::findOrFail($validated['rental_application_id']);
+            if ($application->property_id !== null && (int) $application->property_id !== (int) $property->id) {
+                return back()->withInput()->withErrors(['rental_application_id' => 'That rental application is for a different property.']);
+            }
+        }
 
         $lease = Lease::create([
             'agency_id' => $property->agency_id,
@@ -199,6 +212,8 @@ class LeaseController extends Controller
 
     public function show(Request $request, Lease $lease): View
     {
+        $this->assertVisible($request, $lease);
+
         $lease->load(['property', 'tenants.contact', 'escalations.createdByUser', 'previousLease', 'renewedLease']);
 
         return view('corex.leases.show', [
@@ -227,6 +242,7 @@ class LeaseController extends Controller
      */
     public function update(Request $request, Lease $lease): RedirectResponse
     {
+        $this->assertVisible($request, $lease);
         $validated = $request->validate([
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
             'end_date' => ['nullable', 'date', 'after:' . $lease->start_date->format('Y-m-d')],
@@ -246,6 +262,7 @@ class LeaseController extends Controller
 
     public function activate(Request $request, Lease $lease): RedirectResponse
     {
+        $this->assertVisible($request, $lease);
         try {
             app(LeaseActivationService::class)->activate($lease);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -257,9 +274,16 @@ class LeaseController extends Controller
 
     public function cancel(Request $request, Lease $lease): RedirectResponse
     {
+        $this->assertVisible($request, $lease);
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
+
+        // Only a draft or active lease can be cancelled — cancelling one
+        // that is already cancelled/expired would overwrite who/when/why.
+        if (!in_array($lease->status, [Lease::STATUS_DRAFT, Lease::STATUS_ACTIVE], true)) {
+            return back()->withErrors(['lease' => "A {$lease->status} lease cannot be cancelled."]);
+        }
 
         $lease->update([
             'status' => Lease::STATUS_CANCELLED,
@@ -277,18 +301,36 @@ class LeaseController extends Controller
      */
     public function escalate(Request $request, Lease $lease): RedirectResponse
     {
+        $this->assertVisible($request, $lease);
         $validated = $request->validate([
             'effective_date' => ['required', 'date'],
             'new_rental_amount' => ['required', 'numeric', 'min:0'],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $previousAmount = (float) $lease->rental_amount;
+        if (!in_array($lease->status, [Lease::STATUS_DRAFT, Lease::STATUS_ACTIVE], true)) {
+            return back()->withErrors(['lease' => "A {$lease->status} lease cannot be escalated."]);
+        }
+
+        // "Previous" = the rent in force just before this escalation's own
+        // effective date: the latest earlier escalation's new amount, else
+        // the original rent (first escalation's previous, else the current
+        // rent when nothing has been recorded yet).
+        $effective = $validated['effective_date'];
+        $before = LeaseEscalation::where('lease_id', $lease->id)
+            ->whereDate('effective_date', '<=', $effective)
+            ->orderByDesc('effective_date')->orderByDesc('id')->first();
+        if ($before) {
+            $previousAmount = (float) $before->new_rental_amount;
+        } else {
+            $first = LeaseEscalation::where('lease_id', $lease->id)->orderBy('effective_date')->orderBy('id')->first();
+            $previousAmount = $first ? (float) $first->previous_rental_amount : (float) $lease->rental_amount;
+        }
         $newAmount = (float) $validated['new_rental_amount'];
 
         LeaseEscalation::create([
             'lease_id' => $lease->id,
-            'effective_date' => $validated['effective_date'],
+            'effective_date' => $effective,
             'previous_rental_amount' => $previousAmount,
             'new_rental_amount' => $newAmount,
             'escalation_rate_percent' => LeaseEscalation::computeRatePercent($previousAmount, $newAmount),
@@ -296,13 +338,17 @@ class LeaseController extends Controller
             'created_by_user_id' => $request->user()->id,
         ]);
 
-        $lease->update(['rental_amount' => $newAmount]);
+        // A future effective date must not change the rent today: the row is
+        // recorded now and applied once due (leases:apply-due-escalations
+        // runs daily). A date that has already arrived applies immediately.
+        $lease->applyDueEscalation();
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Escalation recorded.');
     }
 
     public function destroy(Request $request, Lease $lease): RedirectResponse
     {
+        $this->assertVisible($request, $lease);
         if (!$lease->isDeletable()) {
             return back()->withErrors(['lease' => 'This lease has escalation history and cannot be deleted — cancel it instead.']);
         }
@@ -315,6 +361,7 @@ class LeaseController extends Controller
     public function restore(Request $request, int $lease): RedirectResponse
     {
         $leaseModel = Lease::withTrashed()->findOrFail($lease);
+        $this->assertVisible($request, $leaseModel);
         $leaseModel->restore();
 
         return redirect()->route('corex.leases.show', $leaseModel)->with('success', 'Lease restored.');

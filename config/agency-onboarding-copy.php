@@ -342,7 +342,7 @@ return [
         ],
     ],
 
-    // .ai/specs/agency-onboarding-rentals-step.md — Johan's ruling 2026-09-19:
+    // .ai/specs/agency-onboarding-setup.md — Johan's ruling 2026-09-19:
     // "we will have to set up a rental in the take on wizard with all things
     // rental related." One home for every rental setting, not settings
     // scattered across the wizard. This step's KEY stays 'leases' deliberately
@@ -395,10 +395,8 @@ return [
             // update() (see that saver's own docblock for why).
             ['controller' => RentalInventorySettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
             // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
-            // threshold. completion_requires_photo/overdue_reminder_days are
-            // still Stage 4 (work orders themselves aren't built), so this
-            // saver validates and writes ONLY no_approval_spend_threshold —
-            // never merged into either saver above.
+            // threshold, plus completion_requires_photo/overdue_reminder_days
+            // (has()-guarded in the saver). Never merged into either saver above.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
             // Shipped-field tick grid (rentals-field-config.blade.php partial) —
             // narrow, has()/submitted-marker-guarded savers, same independence
@@ -463,7 +461,7 @@ return [
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
-             'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+             'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific property can be set higher or lower on the property itself.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()
@@ -474,9 +472,17 @@ return [
              'label' => 'Default deposit, as a multiple of monthly rent',
              'explain' => 'When an agent ticks "Has deposit" on a property but leaves the deposit amount blank, CoreX fills in a starting figure — this many months of that property\'s own rent.',
              'affects' => 'The deposit amount a property starts with when one is required but not yet typed in. 1 month suits most South African tenancies — the figure is always shown as a starting point an agent can change, never locked in.'],
-            // Reserved for rental-work-orders.md's two remaining settings
-            // (completion_requires_photo, overdue_reminder_days) — added here
-            // once work orders themselves are built (Stage 4), not before.
+            // rental-work-orders.md — the two remaining work-order settings
+            // (Stage 4 shipped). Saved by RentalWorkOrderSettingsController::
+            // update(), has()-guarded there (§6.1).
+            ['key' => 'completion_requires_photo', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require a photo before a work order is marked complete',
+             'explain' => 'When on, whoever completes a repair job must attach photo evidence of the finished work before CoreX lets it be marked complete.',
+             'affects' => 'Whether a work order can be closed without a photo. Off by default, because some repairs (a replaced circuit board inside a gate motor, say) cannot sensibly be photographed.'],
+            ['key' => 'overdue_reminder_days', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 365, 'step' => 1,
+             'label' => 'Overdue work order reminder (days)',
+             'explain' => 'How many days a work order can sit with no progress before CoreX reminds the responsible agent that it is overdue.',
+             'affects' => 'How quickly stalled repairs are flagged. 3 days is the default — lower it to chase contractors harder, raise it if your jobs routinely take longer.'],
             // .ai/specs/rental-application-field-config.md — the 5 scalar rental-
             // application settings the conductor ruled IN the wizard, 2026-09-20.
             // identity_gate_enabled deliberately stays OUT — its own docblock

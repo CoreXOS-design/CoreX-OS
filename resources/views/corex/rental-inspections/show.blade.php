@@ -99,7 +99,7 @@
                 <p class="text-xs break-all" style="color: var(--text-secondary);">{{ route('rental-inspections.public.show', $inspection->public_token) }}</p>
                 <p class="text-xs" style="color: var(--text-muted);">Live until {{ $inspection->public_token_expires_at->format('Y-m-d') }}.</p>
             @else
-                <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share, or download the report above (it generates one automatically).</p>
+                <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share. The downloaded report only carries the QR code / link once a live link exists.</p>
             @endif
             <div class="flex items-center gap-2">
                 <form method="POST" action="{{ route('corex.rental-inspections.public-link.generate', $inspection) }}">
@@ -378,7 +378,7 @@
                         <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Signed</span>
                         @if($signature->party_signature_path)
                             <div class="mt-1">
-                                <img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }}'s signature"
+                                <img src="{{ $signature->fileUrl('signature') }}" alt="{{ $partyLabel }}'s signature"
                                      style="max-height: 60px; background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 4px;">
                             </div>
                         @endif
@@ -399,7 +399,7 @@
                             </div>
                         @elseif($signature->wet_ink_upload_path)
                             <div class="text-xs mt-0.5">
-                                <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #0ea5e9);">View uploaded page</a>
+                                <a href="{{ $signature->fileUrl('wet-ink') }}" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #0ea5e9);">View uploaded page</a>
                             </div>
                         @endif
                         @if($signature->recordedByUser)

@@ -42,7 +42,8 @@ class PpraSamplePickerController extends Controller
 
         $results = $this->picker->search($agency, $mode, $filters, max($page, 1));
 
-        $draft = PpraInspectionPack::findOrCreateDraftFor($agency, $request->user());
+        // Read-only: a GET must not create a draft pack as a side effect.
+        $draft = PpraInspectionPack::currentDraftFor($agency);
         $column = PpraInspectionPack::sampleColumnForMode($mode);
 
         return response()->json([
@@ -51,7 +52,7 @@ class PpraSamplePickerController extends Controller
             'last_page'    => $results->lastPage(),
             'total'        => $results->total(),
             'sample_size'  => $this->picker->sampleSizeFor($agency, $mode),
-            'selected_ids' => $draft->{$column} ?? [],
+            'selected_ids' => $draft?->{$column} ?? [],
         ]);
     }
 
@@ -78,6 +79,19 @@ class PpraSamplePickerController extends Controller
             'ids.*' => 'integer',
         ]);
 
+        // Every id must belong to the effective agency (tenant isolation).
+        $ids = array_values(array_unique(array_map('intval', $validated['ids'])));
+        $model = match ($mode) {
+            'deal'    => \App\Models\Deal::class,
+            'rental'  => \App\Models\Lease::class,
+            'listing' => \App\Models\Property::class,
+        };
+        if ($ids !== []) {
+            $owned = $model::withoutGlobalScopes()->where('agency_id', $agency->id)->whereIn('id', $ids)->count();
+            abort_if($owned !== count($ids), 422, 'One or more selected items do not belong to this agency.');
+        }
+        $validated['ids'] = $ids;
+
         $sampleSize = $this->picker->sampleSizeFor($agency, $mode);
         abort_if(count($validated['ids']) > $sampleSize, 422, "Selection exceeds the agency's configured sample size of {$sampleSize}.");
 
@@ -96,7 +110,7 @@ class PpraSamplePickerController extends Controller
     private function resolveAgency(Request $request): Agency
     {
         $user = $request->user() ?? Auth::user();
-        $agency = $user->agency ?? Agency::find($user->effectiveAgencyId());
+        $agency = Agency::find($user->effectiveAgencyId());
         abort_unless($agency, 403, 'No agency context.');
 
         return $agency;

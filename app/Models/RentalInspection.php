@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Contracts\SignedDocumentDistributable;
+use App\Exceptions\RentalInspectionNotRecordableException;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -337,6 +338,24 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * Audit M1 — own/branch scoping on every route-bound action (show, form,
+     * report, scans, recording, cancel, archive...), not just the list
+     * screen: the bound model is resolved through the SAME scopeVisibleTo()
+     * the list uses, so a direct-URL id outside the user's scope is a 404.
+     * Console/queue/no-user contexts fall through to the AgencyScope only.
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        $query = $this->newQuery()->where($field ?? $this->getRouteKeyName(), $value);
+        $user = request()->user();
+        if ($user instanceof User) {
+            $query->visibleTo($user);
+        }
+
+        return $query->first();
+    }
+
+    /**
      * §5/§7 — OWN/BRANCH/AGENCY scoping, layered on top of the hard
      * AgencyScope boundary. Same PermissionService::getDataScope() +
      * clampScope() convention as Lease::scopeVisibleTo() and rental
@@ -373,6 +392,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     public function startAwaitingSignature(): void
     {
+        $this->assertRecordable();
         if (! in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
             throw new \LogicException('Only an in- or out-inspection has a signing window.');
         }
@@ -407,6 +427,17 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     public function markCompleted(): void
     {
+        // Audit H2 — a completed or cancelled (or archived) inspection can
+        // never be (re)completed: a second call would overwrite completed_at,
+        // reset the tenant's fault-report window and re-file/re-email the
+        // report. Any still-open state (draft / in progress / awaiting
+        // signature) may complete — the in/out signature gate below is what
+        // actually controls that; nothing in the app currently sets
+        // in_progress, so a draft is the normal starting point.
+        if (! $this->isRecordable()) {
+            throw new RentalInspectionNotRecordableException('Cannot complete an inspection that is ' . ($this->trashed() ? 'archived' : str_replace('_', ' ', (string) $this->status)) . '.');
+        }
+
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot complete an inspection while a discrepancy is unresolved.');
         }
@@ -451,6 +482,29 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * Audit H1 — the ONE definition of "this inspection can still be
+     * written to": draft / in progress / awaiting signature, and not
+     * archived. Completed and cancelled inspections are immutable records
+     * (the signed report and public link read live data).
+     */
+    public function isRecordable(): bool
+    {
+        return ! $this->trashed() && in_array($this->status, [
+            self::STATUS_DRAFT, self::STATUS_IN_PROGRESS, self::STATUS_AWAITING_SIGNATURE,
+        ], true);
+    }
+
+    /** @throws RentalInspectionNotRecordableException */
+    public function assertRecordable(): void
+    {
+        if (! $this->isRecordable()) {
+            throw new RentalInspectionNotRecordableException(
+                'This inspection is ' . ($this->trashed() ? 'archived' : str_replace('_', ' ', (string) $this->status)) . ' and can no longer be changed.'
+            );
+        }
+    }
+
+    /**
      * §14.1 (mobile-foundation audit, fix 1) — the cancellation transition,
      * pulled out of the web controller so a future API controller can call
      * this exact method instead of re-implementing the same four-field
@@ -459,6 +513,13 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     public function cancel(User $by, string $reason): void
     {
+        // Audit H2 — a completed (signed) inspection is a record, not a
+        // draft: it can never be cancelled, and cancelling twice must not
+        // overwrite the first reason/actor.
+        if ($this->trashed() || ! $this->isRecordable()) {
+            throw new RentalInspectionNotRecordableException('Cannot cancel an inspection that is ' . str_replace('_', ' ', (string) $this->status) . '.');
+        }
+
         $this->forceFill([
             'status' => self::STATUS_CANCELLED,
             'cancelled_at' => now(),
@@ -687,6 +748,10 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         }
         if (! in_array($type, [self::TYPE_OUT, self::TYPE_AD_HOC], true)) {
             throw new \LogicException('Unknown inspection type.');
+        }
+        // Audit L6 — a cancelled (never happened) or archived inspection cannot be chained from.
+        if ($predecessor->status === self::STATUS_CANCELLED || $predecessor->trashed()) {
+            throw new \LogicException('A cancelled or archived inspection cannot be followed by a next inspection.');
         }
         if ($predecessor->nextInChain()->exists()) {
             throw new \LogicException('This inspection already has a next inspection — a chain link cannot fork.');

@@ -130,13 +130,61 @@ final class RentalInventoryLockedAfterCompletionTest extends TestCase
         $this->assertFalse($this->line->fresh()->is_retired);
     }
 
-    public function test_storeLineDisposition_refuses_on_a_completed_inventory(): void
+    /**
+     * Audit H1 — the move-out comparison only opens on a COMPLETED inventory
+     * and RentalInventoryLineDisposition::record() requires it, so the
+     * disposition endpoint must be open exactly then (it used to 409 here,
+     * making the whole move-out flow unusable).
+     */
+    public function test_storeLineDisposition_is_allowed_on_a_completed_inventory(): void
     {
         $this->completeInventory();
+
+        $response = $this->postJson(route('corex.rental-inventories.lines.dispositions.store', [$this->inventory, $this->line]), [
+            'disposition_key' => 'present',
+        ]);
+
+        // Never the lock's 409; a bad preset key would be a 422, success a 201.
+        $this->assertContains($response->getStatusCode(), [201, 422]);
+    }
+
+    public function test_storeLineDisposition_refuses_on_a_draft_and_on_a_cancelled_inventory(): void
+    {
+        $this->postJson(route('corex.rental-inventories.lines.dispositions.store', [$this->inventory, $this->line]), [
+            'disposition_key' => 'present',
+        ])->assertStatus(409)->assertJsonPath('message', 'Move-out findings can only be recorded once the inventory is completed.');
+
+        $this->inventory->cancel($this->agent, 'Tenant withdrew before move-in.');
 
         $this->postJson(route('corex.rental-inventories.lines.dispositions.store', [$this->inventory, $this->line]), [
             'disposition_key' => 'present',
         ])->assertStatus(409);
+    }
+
+    public function test_storeLineMoveOutPhoto_is_allowed_on_completed_but_not_draft(): void
+    {
+        Storage::fake('public');
+
+        $this->postJson(route('corex.rental-inventories.lines.move-out-photos.store', [$this->inventory, $this->line]), [
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ])->assertStatus(409);
+
+        $this->completeInventory();
+
+        $response = $this->postJson(route('corex.rental-inventories.lines.move-out-photos.store', [$this->inventory, $this->line]), [
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ]);
+        $this->assertNotSame(409, $response->getStatusCode());
+    }
+
+    public function test_a_completed_inventory_cannot_be_cancelled(): void
+    {
+        $this->completeInventory();
+
+        $this->post(route('corex.rental-inventories.cancel', $this->inventory), ['cancel_reason' => 'oops'])
+            ->assertSessionHasErrors('rental_inventory');
+
+        $this->assertSame(RentalInventory::STATUS_COMPLETED, $this->inventory->fresh()->status);
     }
 
     public function test_markRoomEmpty_refuses_on_a_completed_inventory(): void
@@ -288,16 +336,24 @@ final class RentalInventoryLockedAfterCompletionTest extends TestCase
      * 'cancelled']))` guards) — this test locks in the resolver behaviour so
      * a future change to it doesn't silently strand an agent on a dead page.
      */
-    public function test_visiting_the_capture_page_after_cancellation_starts_a_fresh_draft_not_the_cancelled_one(): void
+    public function test_visiting_the_capture_page_after_cancellation_offers_start_and_only_the_post_creates_a_fresh_draft(): void
     {
         $this->inventory->cancel($this->agent, 'Tenant withdrew before move-in.');
+        $before = RentalInventory::where('property_id', $this->property->id)->count();
 
+        // Audit M4 — the GET is read-only: it creates nothing.
         $response = $this->get(route('corex.properties.inventory.show', $this->property));
 
         $response->assertOk();
         $response->assertDontSee('Cancelled — closed, read-only');
-        // The normal draft edit surface renders for the NEW inventory.
-        $response->assertSee('placeholder="e.g. Bedroom 1"', false);
+        $response->assertSee('Start inventory');
+        $this->assertSame($before, RentalInventory::where('property_id', $this->property->id)->count());
+
+        // The explicit POST starts the fresh draft; the normal edit surface renders.
+        $this->post(route('corex.properties.inventory.start', $this->property))
+            ->assertRedirect(route('corex.properties.inventory.show', $this->property));
+        $this->get(route('corex.properties.inventory.show', $this->property))
+            ->assertSee('placeholder="e.g. Bedroom 1"', false);
 
         $fresh = RentalInventory::where('property_id', $this->property->id)->latest('id')->first();
         $this->assertNotSame($this->inventory->id, $fresh->id);

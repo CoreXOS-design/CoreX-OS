@@ -29,6 +29,9 @@ class NavFavouriteService
     /** uri => Route for every parameterless GET route. Built once per instance. */
     private ?array $pathMap = null;
 
+    /** @var \WeakMap<object, array<string, \Illuminate\Routing\Route>>|null */
+    private static ?\WeakMap $pathMaps = null;
+
     // ── Reading ──────────────────────────────────────────────────────────
 
     /**
@@ -303,9 +306,19 @@ class NavFavouriteService
             return $this->pathMap;
         }
 
+        // Shared across instances (the sidebar resolves this service on every page) but
+        // keyed by the live RouteCollection object in a WeakMap, so a rebuilt route table
+        // (every test, or route cache reload) can never be served a stale map.
+        $collection = Route::getRoutes();
+        self::$pathMaps ??= new \WeakMap();
+
+        if (isset(self::$pathMaps[$collection])) {
+            return $this->pathMap = self::$pathMaps[$collection];
+        }
+
         $map = [];
 
-        foreach (Route::getRoutes()->getRoutes() as $route) {
+        foreach ($collection->getRoutes() as $route) {
             if (! in_array('GET', $route->methods(), true)) {
                 continue;
             }
@@ -322,6 +335,8 @@ class NavFavouriteService
 
             $map[$uri] ??= $route;
         }
+
+        self::$pathMaps[$collection] = $map;
 
         return $this->pathMap = $map;
     }

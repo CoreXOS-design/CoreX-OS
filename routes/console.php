@@ -55,6 +55,9 @@ Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
+// Lease rent escalations recorded with a future effective date — applied once due.
+Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOverlapping();
+
 // AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
 Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
 

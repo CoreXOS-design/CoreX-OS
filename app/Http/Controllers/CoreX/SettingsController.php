@@ -533,6 +533,15 @@ class SettingsController extends Controller
             ]);
         }
 
+        // The approval-gate permission is checked BEFORE any write in this request
+        // so a 403 can never leave the portal toggles below half-saved.
+        if ($request->has('syndication_approval_required')) {
+            abort_unless(
+                auth()->user()?->hasPermission('properties.syndication.manage_approvers'),
+                403
+            );
+        }
+
         // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
         foreach (['syndication_pp_enabled', 'syndication_p24_enabled', 'pp_exclusivity_enabled'] as $key) {
             if ($request->has($key)) {
@@ -557,6 +566,20 @@ class SettingsController extends Controller
                 (array) $request->input('syndication_approver_user_ids', [])
             )));
             $approvers = array_values(array_filter($approvers));
+
+            // Only active people of THIS agency may be on the roster — a posted id
+            // from another agency would otherwise be emailed every approval
+            // request (address, agent details) and shown by name.
+            $rosterAgencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+            $approvers = $rosterAgencyId > 0 && ! empty($approvers)
+                ? \App\Models\User::withoutGlobalScopes()
+                    ->whereIn('id', $approvers)
+                    ->where('agency_id', $rosterAgencyId)
+                    ->where('is_active', true)
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all()
+                : [];
 
             // HARD rule: the switch cannot be ON with nobody behind it —
             // that is the one way this feature could stop an agency marketing
@@ -613,7 +636,10 @@ class SettingsController extends Controller
             // on, everything the agency already has out on a portal is stamped
             // approved, so the approver never faces the back catalogue.
             if ($wantsOn && ! $wasOn && $agencyId > 0) {
-                GrandfatherSyndicatedStockJob::dispatch($agencyId, (int) auth()->id());
+                // afterCommit: the wizard wraps its savers in a DB::transaction — a
+                // later saver throwing must not leave this queued (stamping stock
+                // approved while the switch was rolled back to off).
+                GrandfatherSyndicatedStockJob::dispatch($agencyId, (int) auth()->id())->afterCommit();
             }
         }
 
@@ -1407,7 +1433,7 @@ class SettingsController extends Controller
 
         $data = $request->validate($rules);
 
-        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->agency_id);
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->effectiveAgencyId());
         if (!$agency) {
             return redirect()->back()->with('error', 'Agency not found.');
         }

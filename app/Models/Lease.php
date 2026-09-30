@@ -94,6 +94,29 @@ class Lease extends Model
         return $this->hasMany(LeaseEscalation::class)->orderByDesc('effective_date');
     }
 
+    /**
+     * Sets rental_amount to the new amount of the latest escalation whose
+     * effective date has arrived (audit M6: a future-dated escalation must
+     * not change the rent until its date). Idempotent — safe to call after
+     * recording an escalation and again from the daily
+     * leases:apply-due-escalations command. Returns whether the rent changed.
+     */
+    public function applyDueEscalation(): bool
+    {
+        $due = LeaseEscalation::where('lease_id', $this->id)
+            ->whereDate('effective_date', '<=', now()->toDateString())
+            ->orderByDesc('effective_date')->orderByDesc('id')
+            ->first();
+
+        if (! $due || (float) $due->new_rental_amount === (float) $this->rental_amount) {
+            return false;
+        }
+
+        $this->update(['rental_amount' => $due->new_rental_amount]);
+
+        return true;
+    }
+
     public function createdByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');

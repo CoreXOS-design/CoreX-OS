@@ -74,6 +74,30 @@ class SyndicationApprovalService
     }
 
     /**
+     * The refusal every service chokepoint returns when this listing may not go
+     * to a portal / website: null when it may. Same isApproved() as the
+     * controllers' enforceSyndicationApproval() — one gate, no parallel rule.
+     * Pure DB read (agency setting + the stamp on the row), never a portal call.
+     *
+     * @return array{success: false, message: string, approval_required: true}|null
+     */
+    public function refusalFor(Property $property, string $target = 'any website or portal'): ?array
+    {
+        if ($this->isApproved($property)) {
+            return null;
+        }
+
+        $names = $this->approverNamesFor((int) $property->agency_id);
+        $who   = empty($names) ? 'your agency admin' : implode(' or ', $names);
+
+        return [
+            'success'           => false,
+            'approval_required' => true,
+            'message'           => "Blocked: this listing must be approved by {$who} before it can go to {$target}.",
+        ];
+    }
+
+    /**
      * May an agent raise a request right now? Requires compliance to be complete
      * (spec D5 — the button does not exist before that), no approval already in
      * place, and no request already pending.
@@ -238,6 +262,7 @@ class SyndicationApprovalService
 
         return User::withoutGlobalScope(AgencyScope::class)
             ->whereIn('id', $ids)
+            ->where('agency_id', $agencyId)
             ->where('is_active', true)
             ->orderBy('name')
             ->pluck('name')
@@ -249,8 +274,17 @@ class SyndicationApprovalService
     /** Agent clicks "Send for approval". */
     public function request(Property $property, User $by, ?string $note = null): PropertySyndicationApproval
     {
-        $approval = DB::transaction(function () use ($property, $by, $note) {
-            return PropertySyndicationApproval::create([
+        [$approval, $created] = DB::transaction(function () use ($property, $by, $note) {
+            // Serialise on the property row so a double-click / second tab can
+            // never create two pending rows: the loser sees the winner's row.
+            Property::withoutGlobalScopes()->whereKey($property->id)->lockForUpdate()->first();
+
+            $existing = $this->latestApproval($property);
+            if ($existing && $existing->status === PropertySyndicationApproval::STATUS_PENDING) {
+                return [$existing, false];
+            }
+
+            return [PropertySyndicationApproval::create([
                 'agency_id'            => $property->agency_id,
                 'branch_id'            => $property->branch_id,
                 'property_id'          => $property->id,
@@ -258,8 +292,12 @@ class SyndicationApprovalService
                 'requested_by_user_id' => $by->id,
                 'requested_at'         => now(),
                 'request_note'         => $note ?: null,
-            ]);
+            ]), true];
         });
+
+        if (! $created) {
+            return $approval;
+        }
 
         SyndicationApprovalRequested::dispatch(
             $property,
@@ -271,27 +309,50 @@ class SyndicationApprovalService
         return $approval;
     }
 
-    /** Agent cancels their own pending request. */
-    public function cancel(Property $property, User $by): void
+    /** The user who raised the currently pending request, or null when none is pending. */
+    public function pendingRequesterId(Property $property): ?int
     {
         $pending = $this->latestApproval($property);
 
-        if (! $pending || $pending->status !== PropertySyndicationApproval::STATUS_PENDING) {
-            return;
-        }
+        return $pending && $pending->status === PropertySyndicationApproval::STATUS_PENDING
+            ? (int) $pending->requested_by_user_id
+            : null;
+    }
 
-        $pending->update([
-            'status'        => PropertySyndicationApproval::STATUS_WITHDRAWN,
-            'decided_by_user_id' => $by->id,
-            'decided_at'    => now(),
-            'decision_note' => 'Request cancelled by the listing agent.',
-        ]);
+    /** Agent cancels their own pending request. Returns false when nothing was pending. */
+    public function cancel(Property $property, User $by): bool
+    {
+        return DB::transaction(function () use ($property, $by) {
+            Property::withoutGlobalScopes()->whereKey($property->id)->lockForUpdate()->first();
+
+            $pending = $this->latestApproval($property);
+
+            if (! $pending || $pending->status !== PropertySyndicationApproval::STATUS_PENDING) {
+                return false;
+            }
+
+            $pending->update([
+                'status'        => PropertySyndicationApproval::STATUS_WITHDRAWN,
+                'decided_by_user_id' => $by->id,
+                'decided_at'    => now(),
+                'decision_note' => 'Request cancelled by the listing agent.',
+            ]);
+
+            return true;
+        });
     }
 
     /** Approver approves — the stamp that unlocks every portal, permanently. */
     public function approve(Property $property, User $by, ?string $note = null): void
     {
         $approval = DB::transaction(function () use ($property, $by, $note) {
+            // Lock + re-read the stamp: two approvers acting at once, or one on a
+            // stale route-bound model, must not both write an approval row.
+            $locked = Property::withoutGlobalScopes()->whereKey($property->id)->lockForUpdate()->first();
+            if ($locked && $locked->syndication_approved_at !== null) {
+                return null;
+            }
+
             $pending = $this->latestApproval($property);
 
             if ($pending && $pending->status === PropertySyndicationApproval::STATUS_PENDING) {
@@ -326,13 +387,17 @@ class SyndicationApprovalService
             return $pending;
         });
 
-        SyndicationApproved::dispatch($property, (int) $approval->id, (int) $by->id);
+        if ($approval) {
+            SyndicationApproved::dispatch($property, (int) $approval->id, (int) $by->id);
+        }
     }
 
     /** Approver rejects — the reason is mandatory and reaches the agent. */
-    public function reject(Property $property, User $by, string $reason): void
+    public function reject(Property $property, User $by, string $reason): bool
     {
         $approval = DB::transaction(function () use ($property, $by, $reason) {
+            Property::withoutGlobalScopes()->whereKey($property->id)->lockForUpdate()->first();
+
             $pending = $this->latestApproval($property);
 
             if (! $pending || $pending->status !== PropertySyndicationApproval::STATUS_PENDING) {
@@ -352,6 +417,8 @@ class SyndicationApprovalService
         if ($approval) {
             SyndicationRejected::dispatch($property, (int) $approval->id, (int) $by->id, $reason);
         }
+
+        return $approval !== null;
     }
 
     /**
@@ -363,6 +430,11 @@ class SyndicationApprovalService
     public function revoke(Property $property, User $by, string $reason): void
     {
         $approval = DB::transaction(function () use ($property, $by, $reason) {
+            $locked = Property::withoutGlobalScopes()->whereKey($property->id)->lockForUpdate()->first();
+            if ($locked && $locked->syndication_approved_at === null) {
+                return null; // already revoked by someone else
+            }
+
             $row = PropertySyndicationApproval::create([
                 'agency_id'            => $property->agency_id,
                 'branch_id'            => $property->branch_id,
@@ -383,6 +455,8 @@ class SyndicationApprovalService
             return $row;
         });
 
-        SyndicationApprovalRevoked::dispatch($property, (int) $approval->id, (int) $by->id, $reason);
+        if ($approval) {
+            SyndicationApprovalRevoked::dispatch($property, (int) $approval->id, (int) $by->id, $reason);
+        }
     }
 }

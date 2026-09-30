@@ -7,6 +7,7 @@ namespace App\Jobs\Property;
 use App\Mail\SyndicationApprovalRequestedMail;
 use App\Models\Property;
 use App\Models\PropertySyndicationApproval;
+use App\Models\Role;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
@@ -71,9 +72,27 @@ class SendSyndicationApprovalEmailJob implements ShouldQueue
 
         $approvers = User::withoutGlobalScope(AgencyScope::class)
             ->whereIn('id', $this->approverUserIds)
+            ->where('agency_id', $property->agency_id)
             ->where('is_active', true)
             ->whereNotNull('email')
             ->get();
+
+        // The roster is empty / all inactive: owners and agency admins are the
+        // standing fallback approvers (SyndicationApprovalService::canApprove),
+        // so they must hear about the request too or it sits unseen.
+        if ($approvers->isEmpty()) {
+            $fallbackRoles = array_values(array_unique(array_merge(
+                ['admin', 'super_admin'],
+                Role::where('is_owner', true)->pluck('name')->all()
+            )));
+
+            $approvers = User::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $property->agency_id)
+                ->whereIn('role', $fallbackRoles)
+                ->where('is_active', true)
+                ->whereNotNull('email')
+                ->get();
+        }
 
         $sent = false;
 

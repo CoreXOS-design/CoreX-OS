@@ -104,6 +104,10 @@ class RentalInspectionSignature extends Model
      */
     public static function capture(RentalInspection $inspection, string $partyRole, string $disposition, array $attributes = []): self
     {
+        // Audit H1 — a completed / cancelled / archived inspection takes no
+        // further signatures (the signed record must not change after the fact).
+        $inspection->assertRecordable();
+
         if (! in_array($partyRole, [self::PARTY_TENANT, self::PARTY_LANDLORD, self::PARTY_AGENT], true)) {
             throw new \InvalidArgumentException("Unknown party_role: {$partyRole}");
         }
@@ -205,23 +209,81 @@ class RentalInspectionSignature extends Model
     }
 
     /**
+     * Audit M4 — signature images and wet-ink documents are stored on the
+     * PRIVATE ('local') disk and referenced as "private:<disk path>". They
+     * are served only through an authorised route (agent screens: session +
+     * scoping; public report page: a valid, unexpired token) — see fileUrl()
+     * and fileResponse(). Rows written before this change hold the old
+     * public "/storage/..." URL form; those are still read from the public
+     * disk (both forms are handled everywhere a stored path is read).
+     */
+    public const PRIVATE_PREFIX = 'private:';
+
+    /** Wet-ink evidence: content-sniffed MIME -> the ONLY extension we ever write. */
+    private const WET_INK_EXTENSIONS = [
+        'application/pdf' => 'pdf',
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/heic' => 'heic',
+        'image/heif' => 'heic',
+    ];
+
+    /** Decoded-size ceiling for a canvas signature PNG. */
+    private const MAX_CANVAS_BYTES = 1048576;
+
+    /**
      * §3.6/§14.1 — decode a canvas-captured signature (base64 PNG) and store
-     * it, returning the public URL to save as party_signature_path. Same
-     * lightweight pattern already proven for compliance sign-off. Pulled out
-     * of the controller deliberately: a future mobile API controller calls
-     * this exact method instead of re-implementing it (§15.10).
+     * it, returning the stored reference to save as party_signature_path.
+     * Pulled out of the controller deliberately: a future mobile API
+     * controller calls this exact method instead of re-implementing it
+     * (§15.10).
+     *
+     * Audit M5 — strict base64, non-empty, size-capped, and the bytes must
+     * really be a PNG (getimagesizefromstring); the image is re-encoded
+     * through GD when available so nothing but pixel data is ever written.
+     *
+     * @throws \InvalidArgumentException when the payload is not a usable PNG
      */
     public static function storeCanvasImage(string $base64, int $propertyId): string
     {
         $data = str_contains($base64, ',') ? explode(',', $base64, 2)[1] : $base64;
-        $binary = base64_decode($data, true) ?: '';
+        $binary = base64_decode(trim($data), true);
+
+        if ($binary === false || $binary === '') {
+            throw new \InvalidArgumentException('The signature image is empty or not valid base64.');
+        }
+        if (strlen($binary) > self::MAX_CANVAS_BYTES) {
+            throw new \InvalidArgumentException('The signature image is too large.');
+        }
+
+        $info = @getimagesizefromstring($binary);
+        if ($info === false || ($info[2] ?? null) !== IMAGETYPE_PNG || ($info[0] ?? 0) < 1 || ($info[1] ?? 0) < 1) {
+            throw new \InvalidArgumentException('The signature must be a PNG image.');
+        }
+
+        if (function_exists('imagecreatefromstring') && function_exists('imagepng')) {
+            $image = @imagecreatefromstring($binary);
+            if ($image === false) {
+                throw new \InvalidArgumentException('The signature image could not be read.');
+            }
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+            ob_start();
+            imagepng($image);
+            $reencoded = (string) ob_get_clean();
+            imagedestroy($image);
+            if ($reencoded === '') {
+                throw new \InvalidArgumentException('The signature image could not be processed.');
+            }
+            $binary = $reencoded;
+        }
 
         // No EXIF-orientation step — unlike a phone camera photo, a
         // canvas-drawn signature has no camera orientation to correct.
-        $path = "properties/{$propertyId}/rental-inspection-signatures/" . uniqid('sig_', true) . '.png';
-        \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
+        $path = "rental-inspection-signatures/{$propertyId}/" . bin2hex(random_bytes(16)) . '.png';
+        \Illuminate\Support\Facades\Storage::disk('local')->put($path, $binary);
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+        return self::PRIVATE_PREFIX . $path;
     }
 
     /**
@@ -229,17 +291,103 @@ class RentalInspectionSignature extends Model
      * Deliberately a real file upload, not base64-JSON like
      * storeCanvasImage() — this is a document someone photographed or
      * scanned, not a canvas drawing, so it arrives as multipart form data.
-     * Stored in the SAME properties/{id}/rental-inspection-signatures/
-     * directory as canvas signatures (one storage location for this
-     * feature, not two) but the filename prefix keeps it visually
-     * distinguishable on disk from a canvas capture.
+     *
+     * Audit H3 — the client's filename/extension is NEVER used. The
+     * extension comes from the content-sniffed MIME type through a fixed
+     * allow-list, and the filename is generated server-side.
+     *
+     * @throws \InvalidArgumentException when the file type is not allowed
      */
     public static function storeWetInkUpload(\Illuminate\Http\UploadedFile $file, int $propertyId): string
     {
-        $filename = uniqid('wetink_', true) . '.' . ($file->getClientOriginalExtension() ?: $file->extension());
-        $path = $file->storeAs("properties/{$propertyId}/rental-inspection-signatures", $filename, 'public');
+        $extension = self::WET_INK_EXTENSIONS[strtolower((string) $file->getMimeType())] ?? null;
+        if ($extension === null) {
+            throw new \InvalidArgumentException('The uploaded page must be a PDF, JPG, PNG or HEIC file.');
+        }
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+        $filename = 'wetink_' . bin2hex(random_bytes(16)) . '.' . $extension;
+        $path = $file->storeAs("rental-inspection-signatures/{$propertyId}", $filename, 'local');
+        if ($path === false) {
+            throw new \LogicException('The uploaded page could not be stored.');
+        }
+
+        return self::PRIVATE_PREFIX . $path;
+    }
+
+    /**
+     * The URL a screen should use for this row's stored file. A legacy
+     * public-disk value is returned as-is; a private one goes through an
+     * authorised route: the agent-side one by default, or — when $publicToken
+     * is given (the public report page) — the token-authorised one.
+     *
+     * @param 'signature'|'wet-ink' $kind
+     */
+    public function fileUrl(string $kind, ?string $publicToken = null): ?string
+    {
+        $stored = $kind === 'wet-ink' ? $this->wet_ink_upload_path : $this->party_signature_path;
+        if (! $stored) {
+            return null;
+        }
+        if (! str_starts_with($stored, self::PRIVATE_PREFIX)) {
+            return $stored;
+        }
+
+        return $publicToken
+            ? route('rental-inspections.public.signature-file', ['token' => $publicToken, 'signature' => $this->id, 'kind' => $kind])
+            : route('corex.rental-inspections.signatures.file', ['rentalInspection' => $this->rental_inspection_id, 'signature' => $this->id, 'kind' => $kind]);
+    }
+
+    /**
+     * Read a stored reference (private or legacy public) back to bytes.
+     *
+     * @return array{0:string,1:string}|null [bytes, mime]
+     */
+    public static function readStored(?string $stored): ?array
+    {
+        if (! $stored) {
+            return null;
+        }
+        if (str_starts_with($stored, self::PRIVATE_PREFIX)) {
+            $disk = \Illuminate\Support\Facades\Storage::disk('local');
+            $relative = substr($stored, strlen(self::PRIVATE_PREFIX));
+        } else {
+            $disk = \Illuminate\Support\Facades\Storage::disk('public');
+            $relative = preg_replace('#^.*/storage/#', '', $stored);
+        }
+        if (! $relative || str_contains($relative, '..') || ! $disk->exists($relative)) {
+            return null;
+        }
+        $bytes = $disk->get($relative);
+        if ($bytes === null) {
+            return null;
+        }
+
+        return [$bytes, $disk->mimeType($relative) ?: 'application/octet-stream'];
+    }
+
+    /**
+     * Stream this row's file. Only image/PDF types are ever served inline,
+     * with nosniff + a sandboxing CSP so an old public-era upload with a
+     * hostile payload cannot execute as a page.
+     *
+     * @param 'signature'|'wet-ink' $kind
+     */
+    public function fileResponse(string $kind): \Symfony\Component\HttpFoundation\Response
+    {
+        $read = self::readStored($kind === 'wet-ink' ? $this->wet_ink_upload_path : $this->party_signature_path);
+        abort_if($read === null, 404);
+
+        [$bytes, $mime] = $read;
+        abort_unless(in_array($mime, ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'application/pdf'], true), 404);
+
+        return response($bytes, 200, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline',
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+            'Cache-Control' => 'private, no-store',
+            'Referrer-Policy' => 'no-referrer',
+        ]);
     }
 
     /**
@@ -266,6 +414,7 @@ class RentalInspectionSignature extends Model
         if ($existing->superseded_at !== null) {
             throw new \LogicException('This wet-ink upload has already been superseded.');
         }
+        $inspection->assertRecordable();
         if ($inspection->hasAgentSignature()) {
             throw new \LogicException('Cannot replace a wet-ink upload once the agent has signed — the agent\'s signature already attests to this record as it stood.');
         }

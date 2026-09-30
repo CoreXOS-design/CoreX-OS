@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
@@ -25,6 +26,8 @@ use Illuminate\View\View;
  */
 class RentalFaultReportController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     /**
      * Search: property address, title/description. Sort: reported_at
      * (default, most-recent-first), property, status. Filter: status,
@@ -98,7 +101,8 @@ class RentalFaultReportController extends Controller
             $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
         }
         if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_fault_reports.reported_at', '<=', $dateTo);
+            // Inclusive end date (a bare date compares as midnight).
+            $query->where('rental_fault_reports.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
         }
 
         if ($sort === 'property') {
@@ -178,16 +182,20 @@ class RentalFaultReportController extends Controller
 
     public function store(Request $request, RentalFaultReportService $service): RedirectResponse
     {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $propertyId = $request->input('property_id');
+
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            // Lease / inspection item must belong to THIS property (audit L2).
+            'lease_id' => ['nullable', \Illuminate\Validation\Rule::exists('leases', 'id')->where('property_id', $propertyId)],
+            'rental_inspection_item_id' => ['nullable', \Illuminate\Validation\Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
             'reported_by_type' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::REPORTED_BY_TENANT,
                 RentalFaultReport::REPORTED_BY_AGENT_NOTICED,
                 RentalFaultReport::REPORTED_BY_OWNER_INSTRUCTED,
             ])],
-            'reported_by_contact_id' => ['nullable', 'exists:contacts,id'],
+            'reported_by_contact_id' => ['nullable', \Illuminate\Validation\Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
             'reported_channel' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::CHANNEL_PHONE,
                 RentalFaultReport::CHANNEL_WHATSAPP,
@@ -221,6 +229,8 @@ class RentalFaultReportController extends Controller
 
     public function show(Request $request, RentalFaultReport $rentalFaultReport): View
     {
+        $this->assertVisible($request, $rentalFaultReport);
+
         $rentalFaultReport->load([
             'property', 'lease.tenants.contact', 'inspectionItem',
             // 'workOrder' — added in Stage 4 once App\Models\RentalWorkOrder
@@ -238,6 +248,8 @@ class RentalFaultReportController extends Controller
      */
     public function pdf(RentalFaultReport $rentalFaultReport, RentalDocumentPdfService $service)
     {
+        $this->assertVisible(request(), $rentalFaultReport);
+
         $pdf = $service->faultReportPdf($rentalFaultReport);
 
         return request()->boolean('dl')
@@ -253,6 +265,7 @@ class RentalFaultReportController extends Controller
      */
     public function update(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         abort_unless($rentalFaultReport->status === RentalFaultReport::STATUS_REPORTED, 409, 'This fault report has moved on and can no longer be edited here.');
 
         $validated = $request->validate([
@@ -272,6 +285,7 @@ class RentalFaultReportController extends Controller
      */
     public function requestApproval(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         try {
             $rentalFaultReport->requestApproval($request->user());
         } catch (\LogicException $e) {
@@ -289,6 +303,7 @@ class RentalFaultReportController extends Controller
      */
     public function recordApproval(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         $validated = $request->validate([
             'decision' => ['required', 'in:' . implode(',', [
                 \App\Models\RentalApproval::DECISION_APPROVED,
@@ -333,6 +348,7 @@ class RentalFaultReportController extends Controller
      */
     public function setOutcome(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         $validated = $request->validate([
             'outcome' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::OUTCOME_REPAIRED,
@@ -365,6 +381,7 @@ class RentalFaultReportController extends Controller
      */
     public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         $validated = $request->validate([
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
@@ -382,17 +399,24 @@ class RentalFaultReportController extends Controller
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
+
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $rentalFaultReport->cancel($request->user(), $validated['cancel_reason']);
+        try {
+            $rentalFaultReport->cancel($request->user(), $validated['cancel_reason']);
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Fault report cancelled.');
     }
 
     public function destroy(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         if (!$rentalFaultReport->isDeletable()) {
             return back()->withErrors(['rental_fault_report' => 'This fault report has photos or a linked work order and cannot be deleted — cancel it instead.']);
         }
@@ -405,6 +429,7 @@ class RentalFaultReportController extends Controller
     public function restore(Request $request, int $rentalFaultReport): RedirectResponse
     {
         $faultReport = RentalFaultReport::withTrashed()->findOrFail($rentalFaultReport);
+        $this->assertVisible($request, $faultReport);
         $faultReport->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-fault-reports.show', $faultReport)->with('success', 'Fault report restored.');
@@ -416,6 +441,7 @@ class RentalFaultReportController extends Controller
      */
     public function storePhoto(Request $request, RentalFaultReport $rentalFaultReport): JsonResponse
     {
+        $this->assertVisible($request, $rentalFaultReport);
         $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'client_idempotency_key' => 'nullable|uuid',
@@ -423,7 +449,8 @@ class RentalFaultReportController extends Controller
 
         $clientKey = $request->input('client_idempotency_key');
         if ($clientKey) {
-            $existing = RentalFaultReportPhoto::where('client_idempotency_key', $clientKey)->first();
+            $existing = RentalFaultReportPhoto::where('client_idempotency_key', $clientKey)
+                ->where('rental_fault_report_id', $rentalFaultReport->id)->first();
             if ($existing) {
                 return response()->json($existing, 200);
             }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Syndication\Property24;
 
+use App\Services\Syndication\SyndicationApprovalService;
 use App\Exceptions\Property24ConfigurationException;
 use App\Models\Agency;
 use App\Models\Property;
@@ -163,6 +164,14 @@ class Property24SyndicationService
             return $blocked;
         }
 
+        // Layer 3 (syndication approval) backstop — same chokepoint reasoning:
+        // the queued job, observer resubmit and CLI all funnel here, so a
+        // revoked / never-given approval can't be bypassed by a non-controller
+        // caller. Pure DB read; adds no portal call to an unchanged refresh.
+        if ($blocked = $this->blockIfNotApproved($property)) {
+            return $blocked;
+        }
+
         if ($blocked = $this->blockIfAgentConflict($property, $confirmAgentSwitch)) {
             return $blocked;
         }
@@ -193,6 +202,17 @@ class Property24SyndicationService
      * "submitting" to the UI must not leave the property stuck there) and logs
      * it. Returns null when the listing is clear to submit.
      */
+    private function blockIfNotApproved(Property $property): ?array
+    {
+        $refusal = app(SyndicationApprovalService::class)->refusalFor($property, 'Property24');
+
+        if ($refusal !== null) {
+            $this->log('warning', "P24 send blocked for property #{$property->id} — syndication approval required");
+        }
+
+        return $refusal;
+    }
+
     private function blockIfPpExclusive(Property $property): ?array
     {
         if (!$property->isPpExclusiveActive()) {
@@ -695,6 +715,10 @@ class Property24SyndicationService
         // previously-deactivated P24 listing could be brought straight back
         // onto the portal during a PP-exclusive window through this path alone.
         if ($blocked = $this->blockIfPpExclusive($property)) {
+            return $blocked;
+        }
+
+        if ($blocked = $this->blockIfNotApproved($property)) {
             return $blocked;
         }
 

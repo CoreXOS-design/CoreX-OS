@@ -60,6 +60,7 @@
             </div>
             <div class="p-5">
                 <label class="flex items-center gap-2 text-sm">
+                    <input type="hidden" name="show_lease_type_field" value="0">
                     <input type="checkbox" name="show_lease_type_field" value="1" @checked(old('show_lease_type_field', $showLeaseTypeField))>
                     Show the Lease Type control on the lease screen and the property Rental tab
                 </label>

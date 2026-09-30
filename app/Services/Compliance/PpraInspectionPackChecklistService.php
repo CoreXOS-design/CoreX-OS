@@ -287,7 +287,7 @@ class PpraInspectionPackChecklistService
             $evidence = null;
         } else {
             $count = count($ids);
-            $labels = Deal::whereIn('id', $ids)->get(['id', 'property_address', 'deal_no'])
+            $labels = Deal::where('agency_id', $agency->id)->whereIn('id', $ids)->get(['id', 'property_address', 'deal_no'])
                 ->map(fn (Deal $d) => $d->property_address ?: ('Deal #' . ($d->deal_no ?: $d->id)))
                 ->implode(', ');
             $why = "{$count} deal(s) sampled: {$labels}.";
@@ -326,7 +326,7 @@ class PpraInspectionPackChecklistService
             $evidence = null;
         } else {
             $count = count($ids);
-            $labels = Lease::whereIn('id', $ids)->with('property')->get()
+            $labels = Lease::where('agency_id', $agency->id)->whereIn('id', $ids)->with('property')->get()
                 ->map(fn (Lease $l) => $l->property->address ?? ('Lease #' . $l->id))
                 ->implode(', ');
             $why = "{$count} lease(s) sampled: {$labels}.";
@@ -370,7 +370,7 @@ class PpraInspectionPackChecklistService
         $draft = PpraInspectionPack::currentDraftFor($agency);
         $sampleIds = $draft?->sample_listing_ids ?? [];
         if (! empty($sampleIds)) {
-            $labels = Property::whereIn('id', $sampleIds)->get(['id', 'address'])
+            $labels = Property::where('agency_id', $agency->id)->whereIn('id', $sampleIds)->get(['id', 'address'])
                 ->map(fn (Property $p) => $p->address ?: ('Property #' . $p->id))
                 ->implode(', ');
             $why .= ' Sample: ' . count($sampleIds) . ' listing(s) — ' . $labels . '.';

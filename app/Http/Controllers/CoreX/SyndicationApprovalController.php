@@ -61,7 +61,27 @@ class SyndicationApprovalController extends Controller
         $this->authorizeProperty($property);
         $this->assertFeatureOn($property);
 
-        $this->service->cancel($property, $request->user());
+        $requesterId = $this->service->pendingRequesterId($property);
+
+        if ($requesterId === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'There is no pending approval request to cancel.',
+            ], 422);
+        }
+
+        // Only the person who raised the request (or an approver) may withdraw it.
+        abort_unless(
+            $requesterId === (int) $request->user()->id || $this->service->canApprove($request->user(), $property),
+            403
+        );
+
+        if (! $this->service->cancel($property, $request->user())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'There is no pending approval request to cancel.',
+            ], 422);
+        }
 
         return $this->state($property, 'Approval request cancelled.');
     }
@@ -93,7 +113,12 @@ class SyndicationApprovalController extends Controller
             'reason' => ['required', 'string', 'max:2000'],
         ]);
 
-        $this->service->reject($property, $request->user(), $data['reason']);
+        if (! $this->service->reject($property, $request->user(), $data['reason'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'There is no pending approval request on this listing, so nothing was rejected.',
+            ], 422);
+        }
 
         return $this->state($property->fresh(), 'Listing not approved — the agent has been told why.');
     }

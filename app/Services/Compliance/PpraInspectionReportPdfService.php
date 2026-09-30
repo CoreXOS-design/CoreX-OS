@@ -77,7 +77,7 @@ class PpraInspectionReportPdfService
         if (! is_dir($pdfDir)) {
             mkdir($pdfDir, 0755, true);
         }
-        $pdfPath = $pdfDir . '/' . $reportReference . '.pdf';
+        $pdfPath = $pdfDir . '/' . $reportReference . '-' . substr(uniqid(), -6) . '.pdf';
 
         $this->invokePuppeteer($htmlPath, $pdfPath, 'report-' . $agency->id);
 
@@ -104,7 +104,7 @@ class PpraInspectionReportPdfService
             return [];
         }
 
-        $deals = Deal::whereIn('id', $ids)->get()->keyBy('id');
+        $deals = Deal::where('agency_id', $agency->id)->whereIn('id', $ids)->get()->keyBy('id');
 
         return collect($ids)
             ->map(fn ($id) => $deals->get($id))
@@ -131,7 +131,7 @@ class PpraInspectionReportPdfService
             return [];
         }
 
-        $leases = Lease::whereIn('id', $ids)->get()->keyBy('id');
+        $leases = Lease::where('agency_id', $agency->id)->whereIn('id', $ids)->get()->keyBy('id');
 
         return collect($ids)
             ->map(fn ($id) => $leases->get($id))
@@ -158,7 +158,7 @@ class PpraInspectionReportPdfService
             return [];
         }
 
-        $properties = Property::whereIn('id', $ids)->get()->keyBy('id');
+        $properties = Property::where('agency_id', $agency->id)->whereIn('id', $ids)->get()->keyBy('id');
 
         return collect($ids)
             ->map(fn ($id) => $properties->get($id))

@@ -657,6 +657,8 @@ class PropertyObserver
             && $property->pp_ref
         ) {
             try {
+                // Layer 3 gate lives in SyncPpListingStatusJob::handle (off-market
+                // pushes stay allowed there); the run-time re-check is the backstop.
                 \App\Jobs\PrivateProperty\SyncPpListingStatusJob::dispatch($property->id);
             } catch (\Throwable $e) {
                 Log::warning("PP status sync dispatch failed for property #{$property->id}: {$e->getMessage()}");
@@ -707,6 +709,19 @@ class PropertyObserver
                 return;
             }
 
+            // Layer 3 — same reasoning: a terminal push only reduces exposure, but
+            // anything returning the listing to market needs the approval. Stock the
+            // grandfather job skipped (off-market) carries no stamp, so a status
+            // flip back to Active must not silently re-publish it.
+            if (!Property24ListingMapper::isTerminalStatus($p24Status)
+                && ($refusal = app(\App\Services\Syndication\SyndicationApprovalService::class)->refusalFor($property, 'Property24'))) {
+                Log::channel('property24')->warning(
+                    "Status auto-sync blocked for property #{$property->id} — syndication approval required",
+                    ['attempted_p24_status' => $p24Status]
+                );
+                return;
+            }
+
             try {
                 $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
                 $client = new Property24ApiClient($agency);
@@ -752,6 +767,13 @@ class PropertyObserver
         $changed = array_intersect(array_keys($dirty), $syncFields);
 
         if (!empty($changed)) {
+            // Layer 3 — an edit on an unapproved (e.g. revoked) listing must not
+            // push the full listing. The service + job re-check too.
+            if (app(\App\Services\Syndication\SyndicationApprovalService::class)->refusalFor($property, 'Property24')) {
+                Log::channel('property24')->warning("Field-edit resubmit skipped for property #{$property->id} — syndication approval required");
+                return;
+            }
+
             SubmitListingToProperty24::dispatch($property);
         }
     }

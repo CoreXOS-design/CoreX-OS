@@ -91,7 +91,10 @@ class RentalWorkOrder extends Model
 
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        // withTrashed(): an archived property must not null this relation —
+        // thresholdFor() etc. need it, and a work order is evidence that
+        // outlives the property's own archiving (audit L1).
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     /** Branch logo fallback for the supplier PDF (§"Printing", 2026-09-22). */
@@ -356,6 +359,12 @@ class RentalWorkOrder extends Model
         // had been recorded against, using its own snapshot if one exists —
         // an approval from before quote_id_at_decision existed has none, and
         // says so plainly rather than guessing.
+        // Audit M1: callers that merely EDIT an already-selected quote (see
+        // RentalWorkOrderQuoteController::update()) only reach this method
+        // when the price or supplier actually changed — that is the one
+        // deliberate case where a recorded approval is dropped and
+        // re-approval is required, because the owner approved a different
+        // price/supplier than the one now on the quote.
         $wasRecordedDecision = in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true);
         $priorApproval       = $wasRecordedDecision ? $this->approvals()->first() : null;
         $oldStatus            = $this->owner_approval_status;
@@ -363,7 +372,7 @@ class RentalWorkOrder extends Model
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
         $quote->forceFill(['is_selected' => true])->save();
 
-        $threshold = RentalWorkOrderSetting::thresholdFor($this->property);
+        $threshold = $this->spendThreshold();
         $this->forceFill([
             'owner_approval_status' => (float) $quote->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING,
         ])->save();
@@ -410,6 +419,9 @@ class RentalWorkOrder extends Model
      */
     public function archiveQuote(RentalWorkOrderQuote $quote, User $by): void
     {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This work order is already closed.');
+        }
         if ($quote->rental_work_order_id !== $this->id) {
             throw new \LogicException('This quote does not belong to this work order.');
         }
@@ -428,7 +440,7 @@ class RentalWorkOrder extends Model
 
             $nowSelected = $this->quotes()->where('id', '!=', $quote->id)->where('is_selected', true)->first();
             if ($nowSelected) {
-                $threshold = RentalWorkOrderSetting::thresholdFor($this->property);
+                $threshold = $this->spendThreshold();
                 $newStatus = (float) $nowSelected->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING;
                 $reason    = 'now derived from ' . $this->describeQuote($nowSelected);
             } else {
@@ -451,6 +463,9 @@ class RentalWorkOrder extends Model
 
     public function restoreQuote(RentalWorkOrderQuote $quote, User $by): void
     {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This work order is already closed.');
+        }
         if ($quote->rental_work_order_id !== $this->id) {
             throw new \LogicException('This quote does not belong to this work order.');
         }
@@ -461,6 +476,35 @@ class RentalWorkOrder extends Model
             'agency_id' => $this->agency_id, 'update_type' => 'quote_restored',
             'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
         ]);
+    }
+
+    /**
+     * The no-approval spend threshold for this work order — the property's
+     * own override, else the agency default. Null-safe: falls back to the
+     * agency default if the property row is somehow unavailable.
+     */
+    public function spendThreshold(): float
+    {
+        return $this->property
+            ? RentalWorkOrderSetting::thresholdFor($this->property)
+            : RentalWorkOrderSetting::spendThresholdFor($this->agency_id);
+    }
+
+    /**
+     * The approval gate shared by assignSupplier(), startProgress() and
+     * complete() (audit H2) — one rule, one place. Pending/declined always
+     * blocks. When a cost is supplied (completion), a cost above the
+     * threshold additionally needs a recorded/inherited approval, even if
+     * the work order was never given a quote and so sits at not_required.
+     */
+    private function assertApprovalAllows(string $action, ?float $cost = null): void
+    {
+        if (in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_DECLINED], true)) {
+            throw new \LogicException("Cannot {$action} while owner approval is pending or declined.");
+        }
+        if ($cost !== null && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
+            throw new \LogicException('The cost of R' . number_format($cost, 2) . ' is above the approval threshold — record the owner\'s approval before ' . $action . '.');
+        }
     }
 
     private function describeQuote(RentalWorkOrderQuote $quote): string
@@ -482,8 +526,14 @@ class RentalWorkOrder extends Model
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
-        if (in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_DECLINED], true)) {
-            throw new \LogicException('Cannot assign a supplier while owner approval is pending or declined.');
+        $this->assertApprovalAllows('assign a supplier');
+
+        // The approval rides on the selected quote — the supplier actually
+        // ordered must be that quote's supplier (audit M1), otherwise the
+        // approval snapshot names one supplier and another does the work.
+        $selectedQuote = $this->quotes()->where('is_selected', true)->first();
+        if ($selectedQuote && (int) $selectedQuote->agency_service_provider_id !== $agencyServiceProviderId) {
+            throw new \LogicException('The selected quote is from a different supplier — select that supplier\'s quote, or the quote of the supplier being assigned, first.');
         }
 
         $updateType = $this->agency_service_provider_id === null ? 'supplier_assigned' : 'supplier_changed';
@@ -518,6 +568,8 @@ class RentalWorkOrder extends Model
             throw new \LogicException('This work order is already closed.');
         }
 
+        $this->assertApprovalAllows('start work');
+
         $fromStatus = $this->status;
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
         $this->updates()->create([
@@ -549,6 +601,9 @@ class RentalWorkOrder extends Model
             throw new \InvalidArgumentException('paid_by is required before completion.');
         }
 
+        $cost = $attributes['cost_amount'] ?? $this->cost_amount;
+        $this->assertApprovalAllows('completing this work order', $cost !== null ? (float) $cost : null);
+
         $fromStatus = $this->status;
         $this->forceFill([
             'status' => self::STATUS_COMPLETED,
@@ -569,6 +624,10 @@ class RentalWorkOrder extends Model
     {
         if ($this->status === self::STATUS_CANCELLED) {
             throw new \LogicException('This work order is already cancelled.');
+        }
+        if ($this->status === self::STATUS_COMPLETED) {
+            // A completed work order is permanent evidence (audit M2).
+            throw new \LogicException('A completed work order is a permanent record and cannot be cancelled.');
         }
 
         $fromStatus = $this->status;

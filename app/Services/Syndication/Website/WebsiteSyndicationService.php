@@ -31,6 +31,18 @@ class WebsiteSyndicationService
      */
     public function setEnabled(Property $property, AgencyApiKey $key, bool $enabled): PropertyWebsiteSyndication
     {
+        // Layer 3 (syndication approval) backstop. Only ENABLING is gated —
+        // taking a listing off a website must always work.
+        if ($enabled) {
+            $svc = app(\App\Services\Syndication\SyndicationApprovalService::class);
+            if (! $svc->isApproved($property)) {
+                throw new \App\Services\Syndication\SyndicationApprovalRequiredException(
+                    $svc->stateFor($property),
+                    $key->name ?: 'this website',
+                );
+            }
+        }
+
         $row = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
             ->firstOrNew([
                 'property_id'       => $property->id,

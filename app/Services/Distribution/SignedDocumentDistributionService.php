@@ -42,14 +42,12 @@ use Illuminate\Support\Str;
  * NOT go through Laravel's default `MAIL_MAILER`, so QA's existing
  * "outbound is neutralised" protection (BUILD_STANDARD §8) does NOT
  * apply to this path. Every send outside a real `production` environment
- * is therefore forcibly redirected to can.assurance@gmail.com — this is
+ * is therefore forcibly redirected to the configured mail.non_production_redirect address (suppressed if unset) — this is
  * not a convenience, it is the only thing standing between a QA click
  * and a real tenant/landlord inbox.
  */
 class SignedDocumentDistributionService
 {
-    private const TEST_RECIPIENT = 'can.assurance@gmail.com';
-
     public function __construct(
         private PerMailboxMailTransportBuilder $mailTransportBuilder = new PerMailboxMailTransportBuilder(),
         private ?ImapSentFolderAppender $sentFolderAppender = null,
@@ -153,9 +151,23 @@ class SignedDocumentDistributionService
         $agent = $sendAs ?? $doc->distributionAgent();
         $testOverride = ! app()->environment('production');
         $results = [];
+        $testRecipient = (string) config('mail.non_production_redirect');
 
         foreach ($doc->distributionRecipients() as $recipient) {
-            $toEmail = $testOverride ? self::TEST_RECIPIENT : $recipient['email'];
+            if ($testOverride && $testRecipient === '') {
+                // No redirect target configured outside production: never
+                // reach a real inbox — suppress and log as not sent.
+                $result = ['status' => 'failed', 'message_id' => null, 'error' => 'Suppressed: non-production and mail.non_production_redirect is not set'];
+                $this->log(
+                    doc: $doc, channel: 'email', status: $result['status'], mode: $mode,
+                    role: $recipient['role'], contactId: $recipient['contact_id'] ?? null,
+                    email: $recipient['email'], messageId: null, error: $result['error'],
+                    sentByUserId: $triggeredBy?->id,
+                );
+                $results[] = array_merge(['role' => $recipient['role'], 'email' => $recipient['email']], $result);
+                continue;
+            }
+            $toEmail = $testOverride ? $testRecipient : $recipient['email'];
 
             $mail = new SignedDocumentDistributionMail(
                 recipientName: $recipient['name'],
@@ -168,7 +180,7 @@ class SignedDocumentDistributionService
             );
             $mail->fromAgent($agent);
             if ($agent?->outward_email) {
-                $mail->cc($testOverride ? self::TEST_RECIPIENT : $agent->outward_email);
+                $mail->cc($testOverride ? $testRecipient : $agent->outward_email);
             }
 
             $result = $this->dispatch($toEmail, $mail);

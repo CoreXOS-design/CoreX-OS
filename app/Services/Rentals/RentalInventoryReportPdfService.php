@@ -77,7 +77,7 @@ class RentalInventoryReportPdfService
         // signatureSummaryRows()-style resolver).
         $signatureImages = $inventory->signatures
             ->filter(fn (RentalInventorySignature $s) => $s->disposition === RentalInventorySignature::DISPOSITION_SIGNED)
-            ->mapWithKeys(fn (RentalInventorySignature $s) => [$s->id => StorageDataUri::fromPublicStoragePath($s->party_signature_path)]);
+            ->mapWithKeys(fn (RentalInventorySignature $s) => [$s->id => $s->signature_image_src]);
 
         return Pdf::loadView('corex.rental-inventories.report-pdf', [
             'inventory' => $inventory,

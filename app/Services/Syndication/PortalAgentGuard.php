@@ -160,11 +160,22 @@ class PortalAgentGuard
 
         $refs = [];
         foreach ($agents as $user) {
+            // P24 drops agents who opted out (exclude_from_p24) from the payload,
+            // so recordSent() never stores them; expecting them here made a
+            // registered-but-opted-out co-agent a permanent agent_differs.
+            if ($portal === self::P24 && $user->exclude_from_p24) {
+                continue;
+            }
+
             $ref = $this->refFor($property, $portal, $user);
             if ($ref === null) {
                 return null;
             }
             $refs[] = $ref;
+        }
+
+        if (empty($refs)) {
+            return null; // every agent is opted out — nothing is sent, nothing to compare
         }
 
         return $this->normalise($refs);

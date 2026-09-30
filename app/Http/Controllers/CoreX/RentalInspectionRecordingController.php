@@ -500,7 +500,9 @@ class RentalInspectionRecordingController extends Controller
         $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
 
         $validated = $request->validate([
-            'rental_inspection_item_id' => ['required', 'integer', 'exists:rental_inspection_items,id'],
+            'rental_inspection_item_id' => ['required', 'integer', Rule::exists('rental_inspection_items', 'id')
+                ->where('property_id', $rentalInspection->property_id)
+                ->where('agency_id', $rentalInspection->agency_id)],
             'condition' => ['required', 'string', Rule::in(array_column($conditionStates, 'key'))],
             'notes' => ['nullable', 'string'],
             'source' => ['required', 'string', 'in:' . implode(',', [
@@ -511,6 +513,13 @@ class RentalInspectionRecordingController extends Controller
             ])],
             'client_idempotency_key' => ['nullable', 'uuid'],
         ]);
+
+        // Audit H1 — the one carve-out: a tenant fault report is legitimately
+        // filed AFTER an in-inspection completes, inside its fault-report window.
+        if (! $this->isTenantFaultReportInWindow($rentalInspection, $validated['source'])
+            && ($refused = $this->refuseIfNotRecordable($rentalInspection))) {
+            return $refused;
+        }
 
         // §0.3 — a state that needs a reason (per the agency's OWN
         // vocabulary) must have one on record. Good needs none; N/A needs
@@ -541,6 +550,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function markRoomNa(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if($room->property_id !== $rentalInspection->property_id, 404);
 
         $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
@@ -584,6 +597,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function markRoomGood(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if($room->property_id !== $rentalInspection->property_id, 404);
 
         $baselineKey = RentalInspectionSetting::baselineConditionKeyFor($rentalInspection->agency_id);
@@ -626,6 +643,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function markAllGood(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         $baselineKey = RentalInspectionSetting::baselineConditionKeyFor($rentalInspection->agency_id);
 
         $source = match ($rentalInspection->type) {
@@ -666,6 +687,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeRoomNote(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if($room->property_id !== $rentalInspection->property_id, 404);
 
         $validated = $request->validate(['note' => ['required', 'string', 'max:4000']]);
@@ -690,6 +715,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function updateOverallNotes(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         $validated = $request->validate(['overall_notes' => ['nullable', 'string', 'max:4000']]);
 
         $rentalInspection->update(['overall_notes' => $validated['overall_notes'] ?? null]);
@@ -709,6 +738,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionObservation $observation): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if($observation->rental_inspection_id !== $rentalInspection->id, 404);
 
         $request->validate([
@@ -718,7 +751,7 @@ class RentalInspectionRecordingController extends Controller
 
         $clientKey = $request->input('client_idempotency_key');
         if ($clientKey) {
-            $existing = RentalInspectionPhoto::where('client_idempotency_key', $clientKey)->first();
+            $existing = RentalInspectionPhoto::where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $clientKey)->first();
             if ($existing) {
                 return response()->json($existing, 200);
             }
@@ -771,6 +804,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhotos(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
@@ -819,7 +856,7 @@ class RentalInspectionRecordingController extends Controller
         foreach ($validated['photos'] as $i => $file) {
             $clientKey = $validated['client_idempotency_keys'][$i] ?? null;
             if ($clientKey) {
-                $existing = RentalInspectionPhoto::where('client_idempotency_key', $clientKey)->first();
+                $existing = RentalInspectionPhoto::where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $clientKey)->first();
                 if ($existing) {
                     $created[] = $existing;
                     continue;
@@ -843,6 +880,29 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json(['photos' => $created, 'observation' => $observation], 201);
+    }
+
+    /** Audit H1 — 409 for any write against a completed / cancelled / archived inspection. */
+    private function refuseIfNotRecordable(RentalInspection $rentalInspection): ?JsonResponse
+    {
+        try {
+            $rentalInspection->assertRecordable();
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return null;
+    }
+
+    /** A tenant fault report on a completed in-inspection, inside its fault-report window. */
+    private function isTenantFaultReportInWindow(RentalInspection $rentalInspection, string $source): bool
+    {
+        return $source === RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT
+            && $rentalInspection->type === RentalInspection::TYPE_IN
+            && $rentalInspection->status === RentalInspection::STATUS_COMPLETED
+            && ! $rentalInspection->trashed()
+            && $rentalInspection->fault_report_deadline_at !== null
+            && $rentalInspection->fault_report_deadline_at->isFuture();
     }
 
     /**
@@ -906,6 +966,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function tagPhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
 
         $validated = $request->validate([
@@ -943,6 +1007,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function tagPhotosBulk(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         $validated = $request->validate([
             'photo_ids' => ['required', 'array', 'min:1'],
             'photo_ids.*' => ['integer'],
@@ -971,6 +1039,10 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/rental-inspections/{inspection}/photos/{photo}/untag — back to the tray. The exact reverse of tag/tag-bulk. */
     public function untagPhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
 
         $photo->untag($request->user());
@@ -989,6 +1061,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function archivePhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
 
         $photo->archive($request->user());
@@ -1147,6 +1223,10 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/rental-inspections/{inspection}/discrepancies/{discrepancy}/resolve */
     public function resolveDiscrepancy(Request $request, RentalInspection $rentalInspection, RentalInspectionDiscrepancy $discrepancy): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_if($discrepancy->rental_inspection_id !== $rentalInspection->id, 404);
 
         $validated = $request->validate([
@@ -1186,6 +1266,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeSignature(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         $validated = $request->validate([
             'party_role' => ['required', 'string', 'in:' . implode(',', [
                 RentalInspectionSignature::PARTY_TENANT,
@@ -1198,7 +1282,8 @@ class RentalInspectionRecordingController extends Controller
                 RentalInspectionSignature::DISPOSITION_WET_INK,
             ])],
             'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
-            'signature_image' => ['nullable', 'string'],
+            // Audit M5 — ~1.4M base64 chars ≈ the 1MB decoded cap enforced in storeCanvasImage().
+            'signature_image' => ['nullable', 'string', 'max:1450000'],
             // §16 — a photo/scan of a signed paper page. image or pdf; 10MB
             // matches FicaController::agentUpload()'s own per-file ceiling
             // for the same class of upload (a photographed document).
@@ -1233,15 +1318,17 @@ class RentalInspectionRecordingController extends Controller
             $attributes = ['recorded_by_user_id' => $request->user()->id];
         }
 
-        if (!empty($validated['signature_image'])) {
-            $attributes['party_signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
-        }
-        if ($request->hasFile('wet_ink_file')) {
-            $attributes['wet_ink_upload_path'] = RentalInspectionSignature::storeWetInkUpload($request->file('wet_ink_file'), $rentalInspection->property_id);
-        }
-
         try {
+            if (!empty($validated['signature_image'])) {
+                $attributes['party_signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
+            }
+            if ($request->hasFile('wet_ink_file')) {
+                $attributes['wet_ink_upload_path'] = RentalInspectionSignature::storeWetInkUpload($request->file('wet_ink_file'), $rentalInspection->property_id);
+            }
+
             $signature = RentalInspectionSignature::capture($rentalInspection, $validated['party_role'], $validated['disposition'], $attributes);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
         } catch (\InvalidArgumentException|\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -1258,6 +1345,10 @@ class RentalInspectionRecordingController extends Controller
      */
     public function supersedeWetInkSignature(Request $request, RentalInspection $rentalInspection, RentalInspectionSignature $signature): JsonResponse
     {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            return $refused;
+        }
+
         abort_unless((int) $signature->rental_inspection_id === (int) $rentalInspection->id, 404);
 
         $validated = $request->validate([
@@ -1271,7 +1362,9 @@ class RentalInspectionRecordingController extends Controller
                 $validated['wet_ink_file'],
                 $request->user()->id,
             );
-        } catch (\LogicException $e) {
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        } catch (\InvalidArgumentException|\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 

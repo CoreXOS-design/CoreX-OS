@@ -72,6 +72,12 @@ return new class extends Migration
             ->where('disposition', 'refused')
             ->where('refusal_reason_preset', 'other')
             ->where('party_role', 'tenant')
+            // Audit L5 — old agent_on_behalf rows never carried a contact id
+            // (the UI never sent one), while every row created by
+            // RentalInspectionSignature::capture() since does; without this
+            // a genuinely-refused row recorded AFTER the migration would be
+            // wrongly reverted too.
+            ->whereNull('party_contact_id')
             ->update(['party_role' => 'agent_on_behalf']);
 
         Schema::table('rental_inspection_signatures', function (Blueprint $table) {

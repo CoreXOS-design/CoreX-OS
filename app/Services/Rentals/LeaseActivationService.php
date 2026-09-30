@@ -38,6 +38,16 @@ class LeaseActivationService
             /** @var Property $lockedProperty */
             $lockedProperty = Property::withoutGlobalScopes()->whereKey($lease->property_id)->lockForUpdate()->firstOrFail();
 
+            // A cancelled or expired lease is closed history — re-activating it
+            // would resurrect a dead record with its cancel data still set
+            // (audit M6). Status is re-read under the property lock.
+            $currentStatus = Lease::withoutGlobalScopes()->whereKey($lease->id)->value('status');
+            if (in_array($currentStatus, [Lease::STATUS_CANCELLED, Lease::STATUS_EXPIRED], true)) {
+                throw ValidationException::withMessages([
+                    'status' => "A {$currentStatus} lease cannot be activated again. Create a new lease instead.",
+                ]);
+            }
+
             $currentlyActive = Lease::withoutGlobalScopes()
                 ->where('property_id', $lockedProperty->id)
                 ->where('status', Lease::STATUS_ACTIVE)

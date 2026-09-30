@@ -302,12 +302,10 @@ class RentalInspectionController extends Controller
             'observations.item.room', 'observations.item', 'signatures.partyContact',
         ]);
 
-        // A tenant/landlord scans the PDF's QR code straight into the
-        // public link — generate one now if none is live, rather than
-        // printing a QR that 404s the moment someone actually scans it.
-        if (! $rentalInspection->publicLinkIsValid()) {
-            $rentalInspection->generatePublicLink();
-        }
+        // Audit M3 — a GET must never change state. The PDF carries the QR /
+        // link only when a live public link ALREADY exists; creating one is
+        // the explicit POST generatePublicLink() action (permission-gated).
+        // The report service omits the QR block when there is no token.
 
         $pdf = $service->generate($rentalInspection);
 
@@ -346,6 +344,12 @@ class RentalInspectionController extends Controller
      */
     public function generatePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        // Audit L2/M3 — no live link for a cancelled or archived inspection.
+        if ($rentalInspection->status === RentalInspection::STATUS_CANCELLED || $rentalInspection->trashed()) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => 'A public link cannot be created for a cancelled inspection.']);
+        }
+
         $rentalInspection->generatePublicLink();
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)
@@ -366,7 +370,12 @@ class RentalInspectionController extends Controller
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $rentalInspection->cancel($request->user(), $validated['cancel_reason']);
+        try {
+            $rentalInspection->cancel($request->user(), $validated['cancel_reason']);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)->with('success', 'Inspection cancelled.');
     }
@@ -391,10 +400,24 @@ class RentalInspectionController extends Controller
 
     public function restore(Request $request, int $rentalInspection): RedirectResponse
     {
-        $inspection = RentalInspection::withTrashed()->findOrFail($rentalInspection);
+        // Audit M1 — same own/branch scoping as the list and every bound route.
+        $inspection = RentalInspection::withTrashed()->visibleTo($request->user())->findOrFail($rentalInspection);
         $inspection->restore();
         $inspection->forceFill(['archived_by_user_id' => null])->save();
 
         return redirect()->route('corex.rental-inspections.show', $inspection)->with('success', 'Inspection restored.');
+    }
+
+    /**
+     * Audit M4 — serve a signature image / wet-ink upload from the private
+     * disk. Route-bound inspection is already agency- and own/branch-scoped
+     * (RentalInspection::resolveRouteBinding); the file must belong to it.
+     */
+    public function signatureFile(Request $request, RentalInspection $rentalInspection, \App\Models\RentalInspectionSignature $signature, string $kind)
+    {
+        abort_unless(in_array($kind, ['signature', 'wet-ink'], true), 404);
+        abort_unless((int) $signature->rental_inspection_id === (int) $rentalInspection->id, 404);
+
+        return $signature->fileResponse($kind);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Services\Syndication\Property24\Property24SyndicationService;
+use App\Services\Syndication\SyndicationApprovalService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -63,6 +64,21 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
         // a submission we already know is blocked.
         if ($this->property->isPpExclusiveActive()) {
             Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — PP exclusive until {$this->property->pp_delay_until->format('d M Y')}");
+        }
+
+        // Layer 3 — re-check at RUN time: the approval may have been revoked
+        // while this job sat in the queue. (submitListing() also refuses; this
+        // just avoids the lock/cost-window work and resolves a 'submitting' row.)
+        if ($refusal = app(SyndicationApprovalService::class)->refusalFor($this->property, 'Property24')) {
+            Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — syndication approval required");
+            $fresh = $this->property->fresh();
+            if ($fresh && $fresh->p24_syndication_status === 'submitting') {
+                $fresh->update([
+                    'p24_syndication_status' => 'error',
+                    'p24_last_error'         => $refusal['message'],
+                ]);
+            }
+            return;
         }
 
         if ($this->reactivateAfter) {

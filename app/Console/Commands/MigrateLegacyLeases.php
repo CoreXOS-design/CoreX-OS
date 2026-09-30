@@ -43,6 +43,12 @@ class MigrateLegacyLeases extends Command
 
     protected $description = 'Migrate legacy rentals/lease_records rows into the new leases table (address-matched, nothing deleted)';
 
+    /** @var array<int, string> property_id => start date of the active lease planned/created this run */
+    private array $activeThisRun = [];
+
+    /** @var array<int, string> human-readable notes on leases downgraded to expired to keep one active lease per property */
+    private array $downgraded = [];
+
     public function __construct(private readonly TenantContactResolver $tenantContactResolver)
     {
         parent::__construct();
@@ -58,6 +64,9 @@ class MigrateLegacyLeases extends Command
         [$leaseRecordsMatched, $leaseRecordsUnresolved] = $this->migrateLeaseRecords($dryRun);
 
         $this->newLine();
+        foreach ($this->downgraded as $note) {
+            $this->warn("  one-active-lease rule — {$note}");
+        }
         $this->info("rentals: {$rentalsMatched} matched/migrated, " . count($rentalsUnresolved) . ' unresolved');
         foreach ($rentalsUnresolved as $row) {
             $this->warn("  needs manual review — rentals.id={$row['id']}: \"{$row['lease_address']}\"");
@@ -77,7 +86,10 @@ class MigrateLegacyLeases extends Command
         $matched = 0;
         $unresolved = [];
 
-        Rental::withoutGlobalScopes()->get()->each(function (Rental $rental) use ($dryRun, &$matched, &$unresolved) {
+        // Drop the agency/branch scopes (this runs without a user) but keep
+        // archived rows OUT: withoutGlobalScopes() alone would also strip the
+        // SoftDeletes scope and migrate archived rentals as live leases.
+        Rental::withoutGlobalScopes()->whereNull('rentals.deleted_at')->get()->each(function (Rental $rental) use ($dryRun, &$matched, &$unresolved) {
             if (Lease::withoutGlobalScopes()->where('migrated_from_table', 'rentals')->where('migrated_from_id', $rental->id)->exists()) {
                 $matched++; // already migrated on a prior run
 
@@ -98,17 +110,26 @@ class MigrateLegacyLeases extends Command
 
                 return;
             }
+            // The address match searches every agency — never let a rental
+            // in one agency become a lease on another agency's property.
+            if ($rental->agency_id && (int) $rental->agency_id !== (int) $agencyId) {
+                $unresolved[] = ['id' => $rental->id, 'lease_address' => (string) $rental->lease_address . ' (matched property belongs to a different agency)'];
+
+                return;
+            }
 
             $latestVersion = $rental->currentAmountVersion;
             $rentalAmount = $latestVersion->rent_incl ?? $latestVersion->rent_excl ?? 0;
 
+            $status = $this->resolveStatus($property->id, (bool) $rental->is_active, $rental->lease_start_date, "rentals.id={$rental->id}", $dryRun);
+
             if (!$dryRun) {
-                DB::transaction(function () use ($rental, $property, $agencyId, $rentalAmount) {
+                DB::transaction(function () use ($rental, $property, $agencyId, $rentalAmount, $status) {
                     Lease::withoutGlobalScopes()->create([
                         'agency_id' => $agencyId,
                         'branch_id' => $rental->branch_id,
                         'property_id' => $property->id,
-                        'status' => $rental->is_active ? 'active' : 'expired',
+                        'status' => $status,
                         'rental_amount' => $rentalAmount,
                         'start_date' => $rental->lease_start_date ?? now()->toDateString(),
                         'end_date' => $rental->lease_end_date,
@@ -138,7 +159,7 @@ class MigrateLegacyLeases extends Command
         $matched = 0;
         $unresolved = [];
 
-        LeaseRecord::withoutGlobalScopes()->with('document.owner')->get()
+        LeaseRecord::withoutGlobalScopes()->whereNull('lease_records.deleted_at')->with('document.owner')->get()
             ->each(function (LeaseRecord $record) use ($dryRun, &$matched, &$unresolved) {
                 if (Lease::withoutGlobalScopes()->where('migrated_from_table', 'lease_records')->where('migrated_from_id', $record->id)->exists()) {
                     $matched++;
@@ -163,12 +184,23 @@ class MigrateLegacyLeases extends Command
                     return;
                 }
 
+                // lease_records carries no agency_id of its own; its document's
+                // owner is the agency it belongs to — must match the property's.
+                $recordAgencyId = $record->document?->owner?->agency_id;
+                if ($recordAgencyId && (int) $recordAgencyId !== (int) $agencyId) {
+                    $unresolved[] = ['id' => $record->id, 'property_address' => (string) $record->property_address . ' (matched property belongs to a different agency)'];
+
+                    return;
+                }
+
+                $status = $this->resolveStatus($property->id, $record->status === LeaseRecord::STATUS_ACTIVE, $record->lease_start_date, "lease_records.id={$record->id}", $dryRun);
+
                 if (!$dryRun) {
-                    DB::transaction(function () use ($record, $property, $agencyId) {
+                    DB::transaction(function () use ($record, $property, $agencyId, $status) {
                         $lease = Lease::withoutGlobalScopes()->create([
                             'agency_id' => $agencyId,
                             'property_id' => $property->id,
-                            'status' => $record->status === LeaseRecord::STATUS_ACTIVE ? 'active' : 'expired',
+                            'status' => $status,
                             'rental_amount' => $record->rental_amount ?? 0,
                             'start_date' => $record->lease_start_date ?? now()->toDateString(),
                             'end_date' => $record->lease_end_date,
@@ -193,6 +225,55 @@ class MigrateLegacyLeases extends Command
             });
 
         return [$matched, $unresolved];
+    }
+
+    /**
+     * leases.md §3.5 — one ACTIVE lease per property. A legacy row that
+     * wants to be active while the property already has an active lease
+     * (a real one, an earlier migrated one, or one planned earlier in this
+     * run) is resolved by start date: the newer lease stays active and the
+     * older becomes expired. A real (non-migrated) active lease always wins.
+     * In a dry run nothing is written but the same decisions are reported.
+     */
+    private function resolveStatus(int $propertyId, bool $wantsActive, $startDate, string $label, bool $dryRun): string
+    {
+        if (!$wantsActive) {
+            return 'expired';
+        }
+
+        $start = $startDate ? \Illuminate\Support\Carbon::parse($startDate)->toDateString() : now()->toDateString();
+
+        $existing = Lease::withoutGlobalScopes()->whereNull('deleted_at')
+            ->where('property_id', $propertyId)->where('status', 'active')->first();
+
+        $existingStart = $existing?->start_date?->toDateString();
+        $existingIsReal = $existing && $existing->source !== 'migrated_legacy';
+
+        if (!$existing && isset($this->activeThisRun[$propertyId])) {
+            $existingStart = $this->activeThisRun[$propertyId]; // planned (dry run) — nothing to demote yet
+        }
+
+        if ($existingStart === null) {
+            $this->activeThisRun[$propertyId] = $start;
+
+            return 'active';
+        }
+
+        if ($existingIsReal || $existingStart >= $start) {
+            $this->downgraded[] = "{$label} migrated as expired (property {$propertyId} already has an active lease)";
+
+            return 'expired';
+        }
+
+        // The migrated row is newer than the active one already there: it
+        // takes over, the older migrated lease is expired.
+        if ($existing && !$dryRun) {
+            $existing->forceFill(['status' => 'expired'])->save();
+        }
+        $this->downgraded[] = ($existing ? "lease #{$existing->id}" : 'an earlier migrated row') . " expired in favour of newer {$label} (property {$propertyId})";
+        $this->activeThisRun[$propertyId] = $start;
+
+        return 'active';
     }
 
     private function matchOneProperty(?string $freeTextAddress): ?Property

@@ -268,7 +268,7 @@ final class RentalWorkOrderLifecycleTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $workOrder), [
-            'paid_by' => 'owner', 'cost_amount' => 850,
+            'paid_by' => 'owner', 'cost_amount' => 450,
         ])->assertRedirect();
 
         $workOrder->refresh();

@@ -63,6 +63,12 @@ class PrivatePropertySyndicationService
      */
     public function submitListing(Property $property, bool $confirmAgentSwitch = false): array
     {
+        // Layer 3 (syndication approval) backstop — every non-controller caller
+        // (console commands, remediation, jobs) funnels through here.
+        if ($refusal = app(\App\Services\Syndication\SyndicationApprovalService::class)->refusalFor($property, 'Private Property')) {
+            return $refusal;
+        }
+
         $this->client->forAgency($property->agency);
 
         if ($blocked = $this->blockIfAgentConflict($property, $confirmAgentSwitch)) {
@@ -604,6 +610,10 @@ class PrivatePropertySyndicationService
      */
     public function reactivateListing(Property $property, bool $confirmAgentSwitch = false): array
     {
+        if ($refusal = app(\App\Services\Syndication\SyndicationApprovalService::class)->refusalFor($property, 'Private Property')) {
+            return $refusal;
+        }
+
         $this->client->forAgency($property->agency);
 
         // Reactivation only flips PP's status — it never tells PP who the agent

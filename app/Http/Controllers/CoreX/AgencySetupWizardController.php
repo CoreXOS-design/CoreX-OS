@@ -589,6 +589,8 @@ class AgencySetupWizardController extends Controller
                 // repeat this bug a third time.
                 'rental_work_orders' => match ($key) {
                     'no_approval_spend_threshold' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
+                    'completion_requires_photo' => \App\Models\RentalWorkOrderSetting::completionRequiresPhotoFor($agency->id),
+                    'overdue_reminder_days' => \App\Models\RentalWorkOrderSetting::overdueReminderDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 'rental_inspections' => match ($key) {

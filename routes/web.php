@@ -3326,6 +3326,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // 2026-09-23, Johan's ruling — the completed-inspection report: no
         // photos, a QR + link to the public page below instead.
         Route::get('/{rentalInspection}/report', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'report'])->name('corex.rental-inspections.report');
+        // Audit M4 — signature images / wet-ink uploads live on the private disk; served only here (session + own/branch scoping).
+        Route::get('/{rentalInspection}/signatures/{signature}/file/{kind}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'signatureFile'])
+            ->where('kind', 'signature|wet-ink')->name('corex.rental-inspections.signatures.file');
         // The chain — "Next inspection" from this one, and the public-link
         // lifecycle (generate/regenerate, revoke).
         Route::post('/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'next'])
@@ -4298,6 +4301,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // surface. Sale or rental, not gated on listing_type.
         Route::get('/{property}/inventory', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'show'])
             ->middleware('permission:rental_inventories.view')->name('inventory.show');
+        // Audit M4 — the GET above is read-only; creating the inventory is an explicit POST.
+        Route::post('/{property}/inventory', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'start'])
+            ->middleware('permission:rental_inventories.create')->name('inventory.start');
 
         // Presentations V2 — one-button generator (Phase 1) + coverage scorer (Phase 2)
         Route::post('/{property}/generate-presentation', [\App\Http\Controllers\Presentation\PresentationGeneratorController::class, 'generate'])
@@ -4504,8 +4510,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Rental inspection items — Johan's ruling §0.6, the agent adds items per
         // property, differing from the advertised marketing room list above.
         // Spec: rental-inspections.md §14.1/§14.2.
-        Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->name('rental-inspection-tab.data');
-        Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
+        Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->middleware('permission:rental_inspections.view')->name('rental-inspection-tab.data');
+        Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->middleware('permission:rental_inspections.create')->name('rental-inspections.start');
         // Johan's ruling, 2026-09-23 — "Next inspection" from the tab's own
         // live recording surface. JSON, same "thin call into the shared
         // model method" pattern as start() above (RentalInspection::
@@ -4514,24 +4520,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // second caller for the property tab's AJAX flow, not a second
         // implementation.
         Route::post('/{property}/rental-inspections/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'next'])
-            ->name('rental-inspections.next');
-        Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
-        Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+            ->middleware('permission:rental_inspections.create')->name('rental-inspections.next');
+        Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.store');
+        Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.retire');
         // 2026-09-22 — Johan, property 4862: "how do I add to a room, not a
         // new room." restore/rename/reorder complete the CRUD floor for an
         // item added to an existing room (retire already existed above).
-        Route::post('/{property}/rental-inspection-items/{item}/restore', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'restoreItem'])->name('rental-inspection-items.restore');
-        Route::post('/{property}/rental-inspection-items/{item}/rename', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'renameItem'])->name('rental-inspection-items.rename');
-        Route::post('/{property}/rental-inspection-items/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderItems'])->name('rental-inspection-items.reorder');
+        Route::post('/{property}/rental-inspection-items/{item}/restore', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'restoreItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.restore');
+        Route::post('/{property}/rental-inspection-items/{item}/rename', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'renameItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.rename');
+        Route::post('/{property}/rental-inspection-items/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderItems'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.reorder');
         // 2026-09-21 — retrofit a room type onto a legacy typeless space item
         // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
-        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
-        Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
+        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.assign-type');
+        Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.seed-from-advertising');
         // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
         // is the explicit, agent-triggered one-click fix for a property's EXISTING
         // rooms; reorder persists the agent's own manual up/down moves.
-        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->name('rental-inspection-rooms.apply-default-order');
-        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->name('rental-inspection-rooms.reorder');
+        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->middleware('permission:rental_inspections.create')->name('rental-inspection-rooms.apply-default-order');
+        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->middleware('permission:rental_inspections.create')->name('rental-inspection-rooms.reorder');
         // §20.15 — the two-panel compare view's "match photos" control.
         // Property-scoped like items/rooms above: a match spans two
         // different inspections on the same property, never one.
@@ -5807,6 +5813,10 @@ Route::prefix('rental-application')->group(function () {
 Route::prefix('rental-inspection-report')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'show'])
         ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.show');
+    // Audit M4 — token-authorised fetch of a private signature / wet-ink file for the public page.
+    Route::get('/{token}/signatures/{signature}/{kind}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'signatureFile'])
+        ->where(['signature' => '[0-9]+', 'kind' => 'signature|wet-ink'])
+        ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.signature-file');
 });
 
 // ===== RENTAL INVENTORY REPORT — public, no auth, token-based =====
