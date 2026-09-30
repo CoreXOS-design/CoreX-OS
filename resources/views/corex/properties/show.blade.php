@@ -1879,6 +1879,7 @@
                   novalidate
                   data-is-new="{{ $isNew ? '1' : '0' }}"
                   data-contact-count="{{ $isNew ? 0 : $property->contacts->count() }}"
+                  data-is-oas="{{ (!$isNew && $property->isOtherAgencyStock()) ? '1' : '0' }}"
                   @submit="if (!window.coreXPropertyContactGuard($event, $el)) { return; } window.coreXPropDirty && window.coreXPropDirty.clear();"
                   x-data="{
                       info: {
@@ -10748,6 +10749,11 @@
 
 window.coreXPropertyContactGuard = function (event, form) {
     if (!form) return true;
+    // Other Agency Stock is exempt — the agency will never have the other
+    // agency's owner/seller details, so this client-side gate must mirror
+    // the server-side bypass in PropertyController::update(). See
+    // .ai/specs/other-agency-stock.md §8b.
+    if (form.getAttribute('data-is-oas') === '1') return true;
     var isNew = form.getAttribute('data-is-new') === '1';
     var hasContact;
     if (isNew) {

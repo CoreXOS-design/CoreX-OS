@@ -261,12 +261,16 @@ class SharedMatchController extends Controller
         // "Latest from {agency}" mirrors PublicAgencyPropertiesController's
         // own status filter for the same reason. Johan, 2026-08-24: absent
         // (not an empty-state placeholder) when there's nothing to show.
+        // 2026-09-30 — both status lists below were hard-coded and silently
+        // excluded Other Agency Stock (the same drift class as the preview
+        // page bug). Property::coreMatchAllowedStatuses() is the one
+        // canonical list (already includes other_agency_stock) so these
+        // suggestion surfaces can never drift from Core Matches again.
         $agentListings = $agent
             ? Property::withoutGlobalScope(AgencyScope::class)
                 ->where('agent_id', $agent->id)
                 ->whereNull('deleted_at')
-                ->whereIn('status', ['active', 'pending', 'under_offer', 'sold'])
-                ->orderByRaw("FIELD(status, 'active', 'pending', 'under_offer', 'sold')")
+                ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), Property::coreMatchAllowedStatuses($agencyId))
                 ->latest('published_at')
                 ->limit(2)
                 ->get()
@@ -276,7 +280,7 @@ class SharedMatchController extends Controller
             ? Property::withoutGlobalScope(AgencyScope::class)
                 ->where('agency_id', $agency->id)
                 ->whereNull('deleted_at')
-                ->whereIn('status', ['Active', 'NewListing', 'Reduced', 'active', 'new_listing', 'reduced'])
+                ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), Property::coreMatchAllowedStatuses($agencyId))
                 ->orderByDesc('id')
                 ->limit(2)
                 ->get()

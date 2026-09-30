@@ -590,4 +590,88 @@ class OtherAgencyStockTest extends TestCase
         $resp->assertSessionHasErrors(['other_agency_stock']);
         $this->assertEquals(1500000, $p->fresh()->price, 'the rejected save must not have persisted');
     }
+
+    // ── 2026-09-30 QA1 real-browser regression: client-side contact guard ──
+
+    public function test_show_page_flags_the_form_as_oas_so_the_client_side_contact_guard_never_fires(): void
+    {
+        // No contact linked at all — mirrors 21098 exactly. Server-side save
+        // is already exempt (see test_oas_property_saves_without_a_linked_contact
+        // above); this asserts the CLIENT-side gate (coreXPropertyContactGuard
+        // in show.blade.php, keyed on data-is-oas) is wired too, since the JS
+        // gate fires BEFORE the request ever reaches the server and blocked
+        // the save even after the server-side bypass landed.
+        $p = $this->makeOtherAgencyStock();
+        $this->assertSame(0, $p->contacts()->count());
+
+        $resp = $this->actingAs($this->agent)->get(route('corex.properties.show', $p));
+
+        $resp->assertOk();
+        $resp->assertSee('data-is-oas="1"', false);
+    }
+
+    public function test_show_page_does_not_flag_an_active_property_as_oas(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['status' => 'active']);
+
+        $resp = $this->actingAs($this->agent)->get(route('corex.properties.show', $p));
+
+        $resp->assertOk();
+        $resp->assertSee('data-is-oas="0"', false);
+    }
+
+    // ── 2026-09-30 QA1 real-browser regression: share surfaces excluded OAS ──
+
+    public function test_marketing_readiness_service_treats_oas_as_marketable_with_no_compliance_documents(): void
+    {
+        // No mandate, no MDF/disclosure, no FICA-approved seller, no snapshot
+        // — every ordinary compliance gate is unsatisfied. OAS must still be
+        // marketable: the agency structurally can never obtain the other
+        // agency's mandate/disclosure/FICA, so gating on them would
+        // permanently exclude OAS from every share surface.
+        $p = $this->makeOtherAgencyStock();
+        $this->assertNull($p->compliance_snapshot_at);
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+
+        $this->assertTrue($svc->isMarketable($p));
+    }
+
+    public function test_marketing_readiness_service_still_gates_an_active_property_with_no_compliance_documents(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['status' => 'active']);
+        \App\Models\DevSetting::set('compliance_checks_disabled', '0');
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+
+        $this->assertFalse($svc->isMarketable($p->fresh()), 'the OAS exemption must not leak to ordinary listings');
+    }
+
+    public function test_live_preview_renders_for_oas_property_with_no_compliance_documents(): void
+    {
+        // Reproduces the exact QA1 bug: /corex/properties/21098/preview?agent=22
+        // showed "This listing is no longer available" because livePreview()
+        // gates on MarketingReadinessService::isMarketable(), which OAS could
+        // never pass (no seller contact to hold a mandate/MDF/FICA against).
+        $p = $this->makeOtherAgencyStock();
+
+        $resp = $this->get(route('corex.properties.preview', $p) . '?agent=' . $this->agent->id);
+
+        $resp->assertOk();
+        $resp->assertDontSee('This listing is no longer available');
+    }
+
+    public function test_public_agency_properties_index_includes_other_agency_stock(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+
+        $resp = $this->get('/' . $this->agency->slug . '/properties');
+
+        $resp->assertOk();
+        $resp->assertSee($p->title);
+    }
 }
