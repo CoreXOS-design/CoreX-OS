@@ -3376,6 +3376,18 @@ class PropertyController extends Controller
 
     private function processSpacesJson(array $data): array
     {
+        // 2026-09-30 — a request that never mentions spaces_json at all (no
+        // key in $data — confirmed live via tinker simulating a plain
+        // street_name edit on 21098) used to fall into the same "else" branch
+        // as an EXPLICIT empty submission and force the column to null. For
+        // Other Agency Stock that's an imported advert field under the
+        // content lock, so nulling out real Bedroom/Bathroom/etc. data on an
+        // unrelated address-only save immediately tripped "spaces_json is
+        // read-only" — the property never actually saved. Only an explicitly
+        // submitted-but-empty/undecodable payload (a genuine "clear spaces"
+        // action) may null the column; a request that omits the key entirely
+        // must leave the property's existing spaces_json untouched.
+        $hadKey  = array_key_exists('spaces_json', $data);
         $rawJson = $data['spaces_json'] ?? null;
         unset($data['features'], $data['spaces_json']);
 
@@ -3405,7 +3417,7 @@ class PropertyController extends Controller
                     if ($sp['type'] === 'Bathroom') { $data['baths'] = (int) ($sp['count'] ?? 0); }
                 }
             }
-        } else {
+        } elseif ($hadKey) {
             $data['spaces_json'] = null;
         }
 

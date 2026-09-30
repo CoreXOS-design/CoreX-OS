@@ -578,6 +578,41 @@ class OtherAgencyStockTest extends TestCase
         $this->assertEquals(1500000, $fresh->price);
     }
 
+    public function test_internal_address_field_saves_when_the_property_has_real_spaces_json_and_the_request_omits_it(): void
+    {
+        // Reproduces the exact QA1 failure on 21098 (a real imported OAS
+        // property, never null spaces_json): the browser form always posts
+        // spaces_json via a JS-computed hidden input, but a test HTTP client
+        // (and, per the tinker simulation that found this, potentially other
+        // real callers) can legitimately omit the key entirely. Before the
+        // fix, processSpacesJson() treated "key absent" the same as "key
+        // present but empty" and force-nulled spaces_json on EVERY such
+        // save — which, against a property that actually has Bedroom/
+        // Bathroom data, immediately collided with the content lock
+        // ("spaces_json is read-only") and the save never happened at all.
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['spaces_json' => [
+            'spaces' => [['type' => 'Bedroom', 'count' => 2, 'units' => [], 'featuresAll' => [], 'descriptionAll' => '']],
+            'features' => ['security' => [], 'theProperty' => [], 'connectivity' => [], 'sustainability' => []],
+        ]]);
+        $p = $p->fresh();
+        $this->assertNotEmpty($p->spaces_json['spaces']);
+
+        $payload = $this->basePropertyPayload($p, ['street_name' => 'Real Import Street']);
+        unset($payload['spaces_json']); // never sent — the exact shape that tripped the bug
+
+        $resp = $this->actingAs($this->agent)->put(route('corex.properties.update', $p), $payload);
+
+        $resp->assertSessionHasNoErrors();
+        $resp->assertRedirect();
+
+        $fresh = $p->fresh();
+        $this->assertSame('Real Import Street', $fresh->street_name);
+        $this->assertNotEmpty($fresh->spaces_json['spaces'], 'spaces_json must survive untouched, not be nulled');
+        $this->assertSame('Bedroom', $fresh->spaces_json['spaces'][0]['type']);
+    }
+
     public function test_advert_fields_still_refuse_to_save_on_a_locked_oas_property(): void
     {
         $p = $this->makeOtherAgencyStock();
@@ -589,5 +624,89 @@ class OtherAgencyStockTest extends TestCase
 
         $resp->assertSessionHasErrors(['other_agency_stock']);
         $this->assertEquals(1500000, $p->fresh()->price, 'the rejected save must not have persisted');
+    }
+
+    // ── 2026-09-30 QA1 real-browser regression: client-side contact guard ──
+
+    public function test_show_page_flags_the_form_as_oas_so_the_client_side_contact_guard_never_fires(): void
+    {
+        // No contact linked at all — mirrors 21098 exactly. Server-side save
+        // is already exempt (see test_oas_property_saves_without_a_linked_contact
+        // above); this asserts the CLIENT-side gate (coreXPropertyContactGuard
+        // in show.blade.php, keyed on data-is-oas) is wired too, since the JS
+        // gate fires BEFORE the request ever reaches the server and blocked
+        // the save even after the server-side bypass landed.
+        $p = $this->makeOtherAgencyStock();
+        $this->assertSame(0, $p->contacts()->count());
+
+        $resp = $this->actingAs($this->agent)->get(route('corex.properties.show', $p));
+
+        $resp->assertOk();
+        $resp->assertSee('data-is-oas="1"', false);
+    }
+
+    public function test_show_page_does_not_flag_an_active_property_as_oas(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['status' => 'active']);
+
+        $resp = $this->actingAs($this->agent)->get(route('corex.properties.show', $p));
+
+        $resp->assertOk();
+        $resp->assertSee('data-is-oas="0"', false);
+    }
+
+    // ── 2026-09-30 QA1 real-browser regression: share surfaces excluded OAS ──
+
+    public function test_marketing_readiness_service_treats_oas_as_marketable_with_no_compliance_documents(): void
+    {
+        // No mandate, no MDF/disclosure, no FICA-approved seller, no snapshot
+        // — every ordinary compliance gate is unsatisfied. OAS must still be
+        // marketable: the agency structurally can never obtain the other
+        // agency's mandate/disclosure/FICA, so gating on them would
+        // permanently exclude OAS from every share surface.
+        $p = $this->makeOtherAgencyStock();
+        $this->assertNull($p->compliance_snapshot_at);
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+
+        $this->assertTrue($svc->isMarketable($p));
+    }
+
+    public function test_marketing_readiness_service_still_gates_an_active_property_with_no_compliance_documents(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+        $p->allowOtherAgencyStockContentWrite = true;
+        $p->update(['status' => 'active']);
+        \App\Models\DevSetting::set('compliance_checks_disabled', '0');
+
+        $svc = app(\App\Services\Compliance\MarketingReadinessService::class);
+
+        $this->assertFalse($svc->isMarketable($p->fresh()), 'the OAS exemption must not leak to ordinary listings');
+    }
+
+    public function test_live_preview_renders_for_oas_property_with_no_compliance_documents(): void
+    {
+        // Reproduces the exact QA1 bug: /corex/properties/21098/preview?agent=22
+        // showed "This listing is no longer available" because livePreview()
+        // gates on MarketingReadinessService::isMarketable(), which OAS could
+        // never pass (no seller contact to hold a mandate/MDF/FICA against).
+        $p = $this->makeOtherAgencyStock();
+
+        $resp = $this->get(route('corex.properties.preview', $p) . '?agent=' . $this->agent->id);
+
+        $resp->assertOk();
+        $resp->assertDontSee('This listing is no longer available');
+    }
+
+    public function test_public_agency_properties_index_includes_other_agency_stock(): void
+    {
+        $p = $this->makeOtherAgencyStock();
+
+        $resp = $this->get('/' . $this->agency->slug . '/properties');
+
+        $resp->assertOk();
+        $resp->assertSee($p->title);
     }
 }
