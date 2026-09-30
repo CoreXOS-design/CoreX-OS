@@ -7,6 +7,8 @@ use App\Models\TrainingCompletion;
 use App\Models\TrainingCourse;
 use App\Models\TrainingLesson;
 use App\Models\TrainingProgress;
+use App\Models\User;
+use App\Services\PermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -212,6 +214,103 @@ class TrainingController extends Controller
         $course = TrainingCourse::findOrFail($id);
 
         return view('training.course-form', compact('course'));
+    }
+
+    /**
+     * 2026-09-30 (Johan, urgent) — "nobody can tell who has done the
+     * training." Per-course completion report: who has acknowledged the
+     * course (App\Models\TrainingCompletion, already created by
+     * acknowledgeCourse() above), who is still outstanding, and their
+     * in-progress lesson percent. Search (name/email), sort (name /
+     * status / completed date, default: outstanding-first then name),
+     * filter (status + completed-date range), pagination, and a real
+     * empty state per BUILD_STANDARD.md §1b.
+     *
+     * Scoping (§1c, own/branch/agency): gated behind training.manage like
+     * every other admin method here, then the ROSTER of learners shown is
+     * further narrowed by PermissionService::getDataScope($user,
+     * 'training') — the same own/branch/all grant already exposed in Role
+     * Manager for the pre-existing training.view permission (any module
+     * with a `{module}.view` action key automatically gets the
+     * own/branch/all selector there, no new config needed). 'own' shows
+     * only the viewer's own row, 'branch' the viewer's branch, 'all' the
+     * whole agency — this is about which LEARNERS' rows a manager may
+     * see, layered on top of (never a substitute for) the outer
+     * agency_id boundary users are already scoped to via AgencyScope.
+     */
+    public function completions($courseId, Request $request)
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('training.manage'), 403);
+
+        $course = TrainingCourse::findOrFail($courseId);
+
+        $scope = PermissionService::getDataScope($user, 'training') ?? 'own';
+
+        $query = User::query()
+            ->leftJoin('training_completions', function ($join) use ($course) {
+                $join->on('training_completions.user_id', '=', 'users.id')
+                    ->where('training_completions.course_id', '=', $course->id);
+            })
+            ->select('users.*', 'training_completions.completed_at as tc_completed_at', 'training_completions.acknowledged_at as tc_acknowledged_at');
+
+        if ($scope === 'branch') {
+            $query->where('users.branch_id', $user->effectiveBranchId());
+        } elseif ($scope === 'own') {
+            $query->where('users.id', $user->id);
+        }
+
+        if ($request->filled('q')) {
+            $q = trim((string) $request->string('q'));
+            $query->where(function ($w) use ($q) {
+                $w->where('users.name', 'like', "%{$q}%")
+                    ->orWhere('users.email', 'like', "%{$q}%");
+            });
+        }
+
+        if ($request->filled('status')) {
+            $status = $request->string('status')->toString();
+            if ($status === 'completed') {
+                $query->whereNotNull('training_completions.completed_at');
+            } elseif ($status === 'outstanding') {
+                $query->whereNull('training_completions.completed_at');
+            }
+        }
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('training_completions.completed_at', '>=', $request->date('date_from'));
+        }
+        if ($request->filled('date_to')) {
+            $query->whereDate('training_completions.completed_at', '<=', $request->date('date_to'));
+        }
+
+        $sortable = [
+            'name' => 'users.name',
+            'status' => 'training_completions.completed_at',
+            'completed_at' => 'training_completions.completed_at',
+        ];
+        $sort = $sortable[$request->string('sort')->toString()] ?? 'training_completions.completed_at';
+        $direction = $request->filled('direction')
+            ? ($request->string('direction')->toString() === 'desc' ? 'desc' : 'asc')
+            : 'asc'; // default: outstanding (NULL completed_at) first — the actionable list
+
+        $perPageOptions = [10, 25, 50, 100];
+        $rawPerPage = $request->integer('per_page', 25);
+        $perPage = collect($perPageOptions)->first(fn ($opt) => $rawPerPage <= $opt) ?? end($perPageOptions);
+
+        $learners = $query
+            ->orderBy($sort, $direction)
+            ->orderBy('users.name', 'asc')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $learners->getCollection()->transform(function ($learner) use ($course) {
+            $learner->training_percent = $course->completionPercentForUser($learner->id);
+
+            return $learner;
+        });
+
+        return view('training.completions', compact('course', 'learners', 'scope'));
     }
 
     public function updateCourse($id, Request $request)

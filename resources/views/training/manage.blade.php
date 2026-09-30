@@ -58,6 +58,7 @@
                 <div class="text-xs mt-1" style="color: var(--text-muted);">{{ number_format($course->lessons_count) }} lesson{{ $course->lessons_count !== 1 ? 's' : '' }}</div>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
+                <a href="{{ route('training.completions', $course) }}" class="corex-btn-outline no-underline">Completions</a>
                 <a href="{{ route('training.create-lesson', $course) }}" class="corex-btn-outline no-underline" style="color: var(--brand-icon); border-color: color-mix(in srgb, var(--brand-icon) 30%, transparent);">+ Lesson</a>
                 <a href="{{ route('training.edit-course', $course) }}" class="corex-btn-outline no-underline">Edit</a>
             </div>

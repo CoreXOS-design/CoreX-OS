@@ -2379,6 +2379,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/training/manage/create', [\App\Http\Controllers\Training\TrainingController::class, 'createCourse'])->name('training.create-course');
     Route::post('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'storeCourse'])->name('training.store-course');
     Route::get('/training/manage/{course}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editCourse'])->name('training.edit-course');
+    Route::get('/training/manage/{course}/completions', [\App\Http\Controllers\Training\TrainingController::class, 'completions'])->name('training.completions');
     Route::put('/training/manage/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'updateCourse'])->name('training.update-course');
     Route::get('/training/manage/{course}/lessons/create', [\App\Http\Controllers\Training\TrainingController::class, 'createLesson'])->name('training.create-lesson');
     Route::post('/training/manage/{course}/lessons', [\App\Http\Controllers\Training\TrainingController::class, 'storeLesson'])->name('training.store-lesson');
