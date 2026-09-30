@@ -73,6 +73,7 @@ status, no new filter, no behaviour difference anywhere. The gate is inert until
 | D6 | Where does the agency turn it on? | **The Property Settings section** — `/corex/settings`, the Properties block that already holds *Default Property Ordering*, *Property Statuses*, *Property Marketing* and *Syndication Portals*. It goes directly beneath Syndication Portals. |
 | D7 | How does the approver find what is waiting? | **A status on the property, and a filter on the Properties list.** The Properties list — which already has search, sort, filters, pagination and an empty state — becomes the queue. **No separate approvals screen is built** (revision 1 proposed one; D7 replaces it). |
 | D8 | On the day an agency switches this on, does its existing stock need approving? | **No — only new stock.** Everything the agency already has out on a portal is stamped approved automatically at switch-on and never reaches the approver. See §4.4 for the exact set and the one case it deliberately excludes. |
+| D9 | May a listing agent who is also on the approver roster approve their own listing? | **Yes (owner's ruling, 2026-09-30).** Being on the roster is the whole grant of authority; there is no "not your own listing" exclusion. `SyndicationApprovalService::canApprove()` has never had one (it checks roster/owner/admin membership, agency, and an explicit branch limit only) — so no code change was needed; this records the ruling so it is not later "fixed" into a restriction. |
 
 ### D7 in detail — why there is no separate queue screen
 
@@ -338,6 +339,8 @@ BUILD_STANDARD §1a forbids shipping a state no human can reverse.
 A user may approve iff **their id is in the agency's `syndication_approver_user_ids`**, or they are
 the agency owner / agency admin (the standing fallback so an agency whose chosen approver has left
 is never stuck — the same doctrine as every other designated-person feature in CoreX).
+
+**Self-approval is allowed (D9, owner's ruling 2026-09-30):** a listing agent who is also on the roster (or an owner/admin) may approve their own listing. Nothing in `canApprove()` compares the approver to `property.agent_id` or to the requester, and none must be added.
 
 Expressed as **`SyndicationApprovalService::canApprove(User, ?Property)`**, called from the
 controller (`abort_unless(... , 403)`) and from every Blade surface. **One source of truth.** A

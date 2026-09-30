@@ -74,9 +74,9 @@
 
             {{-- Rich inline partial (complex steps render their real settings form
                  here, inside the wizard form, posting to the same canonical saver). --}}
-            @if (!empty($config['partial']))
-                @include($config['partial'])
-            @endif
+            @foreach ((array) ($config['partial'] ?? []) as $stepPartial)
+                @include($stepPartial)
+            @endforeach
 
             {{-- Live controls (data-driven simple settings). Two-per-row on wide
                  screens — a single stacked column was the "acres of empty space"

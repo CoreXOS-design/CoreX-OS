@@ -1782,6 +1782,12 @@ silently recomputed by a deploy). The fix needed three parts together, not one:
    `refusal_reason_presets` (§15.6) — a full-permutation reorder of every space type has no fitting
    wizard control type (number/select/text/textarea/toggle). Deliberately NOT in the wizard.
 
+   **Update, 2026-09-30 (owner's ruling):** the refusal-reason presets, condition states (+ baseline),
+   photo-note classifications and inventory condition states ARE now in the Setup Wizard (Rentals step,
+   `agency-setup.steps.rentals-inspection-lists` partial, reusing the settings screens' repeater markup)
+   — see `agency-onboarding-setup.md` §5.1. The room-type walking order above is NOT covered by that
+   ruling and stays out of the wizard.
+
 2. **Natural-numeric tiebreak within a type, computed, never stored as a sort key.**
    `RentalInspectionSetting::defaultRoomSortOrderFor($agencyId, $type, $label)` = `(walking position ×
    1000) + min(first number found in $label, 999)`. Johan: "natural-numeric, NOT alphabetical:

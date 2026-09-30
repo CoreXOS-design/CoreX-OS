@@ -192,6 +192,13 @@ class AgencySetupWizardController extends Controller
                 'rentalFieldOrder' => \App\Models\RentalApplicationQualifyingSetting::fieldOrderFor($agency->id),
                 'rentalReturnGateAttemptMax' => \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($agency->id),
                 'rentalReturnGateAttemptWindowMinutes' => \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($agency->id),
+                // Repeater lists (rentals-inspection-lists partial) — the same reads
+                // the full settings screens use.
+                'wzRefusalPresets' => \App\Models\RentalInspectionSetting::refusalReasonPresetsFor($agency->id),
+                'wzConditionStates' => \App\Models\RentalInspectionSetting::conditionStatesFor($agency->id),
+                'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
+                'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
+                'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
             ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.
@@ -257,7 +264,12 @@ class AgencySetupWizardController extends Controller
         $setup  = $this->resolveOrCreateSetup();
         $config = config("agency-onboarding-copy.$step");
 
-        DB::transaction(function () use ($config, $request, $step) {
+        // Savers refused with a 403 (the user lacks that section's permission).
+        // A refused saver writes nothing, but the step must NOT then be marked
+        // complete or say "Saved." — the user is told plainly instead.
+        $denied = 0;
+
+        DB::transaction(function () use ($config, $request, $step, &$denied) {
             foreach (($config['savers'] ?? []) as $saver) {
                 // Some canonical savers take the Agency as a second argument
                 // (e.g. CompanySettingsController@update). Declared per-saver.
@@ -288,8 +300,11 @@ class AgencySetupWizardController extends Controller
                     }
                 } catch (HttpException $e) {
                     if ($e->getStatusCode() === 403) {
-                        // Admin lacks this section's permission — absorb, don't write,
-                        // don't break the flow (spec §8 / BUILD_STANDARD §3).
+                        // User lacks this section's permission — the saver wrote
+                        // nothing (its abort runs before any write). Other savers
+                        // in the step still run; the denial is reported below and
+                        // the step is NOT marked complete.
+                        $denied++;
                         Log::info('Agency setup wizard: saver skipped (no permission).', [
                             'step' => $step, 'method' => $saver['method'], 'user' => Auth::id(),
                         ]);
@@ -299,6 +314,11 @@ class AgencySetupWizardController extends Controller
                 }
             }
         });
+
+        if ($denied > 0) {
+            return redirect()->route('corex.agency-setup.step', ['step' => $step])
+                ->withErrors(['permission' => 'You do not have permission to change one or more of the settings on this step, so they were not saved and this step has not been marked complete. Ask an administrator who has access to set them up, or use Skip to move on.']);
+        }
 
         $setup->markStepComplete($step);
 
@@ -347,6 +367,9 @@ class AgencySetupWizardController extends Controller
             if ($e->getStatusCode() !== 403) {
                 throw $e;
             }
+            // Refused — say so rather than reporting a false "Added.".
+            return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
+                ->withErrors(['permission' => 'You do not have permission to add this item.']);
         }
 
         return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
@@ -392,6 +415,11 @@ class AgencySetupWizardController extends Controller
         } catch (HttpException $e) {
             if (!in_array($e->getStatusCode(), [403, 404], true)) {
                 throw $e;
+            }
+            if ($e->getStatusCode() === 403) {
+                // Refused — say so rather than reporting a false "Removed.".
+                return redirect()->route('corex.agency-setup.step', ['step' => $def['step']])
+                    ->withErrors(['permission' => 'You do not have permission to remove this item.']);
             }
         }
 
@@ -574,6 +602,7 @@ class AgencySetupWizardController extends Controller
                 // source.
                 'leases' => match ($key) {
                     'expiry_notice_window_days' => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
+                    'show_lease_type_field' => LeaseSetting::showLeaseTypeFieldFor($agency->id),
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
                     default => $control['default'] ?? null,
                 },
@@ -599,6 +628,8 @@ class AgencySetupWizardController extends Controller
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
+                    'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
+                    'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own
