@@ -1864,6 +1864,27 @@
         @endpermission
         @endfeature
 
+        {{-- Manage Training (course authoring) — 2026-09-30 (urgent, Johan).
+             TrainingController@manage/@createCourse/etc were hardcoded to
+             abort_unless($user->isOwnerRole() || super_admin) — a role check
+             that never consulted training.manage (the dedicated Role-Manager-
+             settable permission this feature already exposes,
+             config/corex-permissions.php:323, already granted to 'admin' on
+             agency 1). Johan's own 'admin' account 403'd even though Role
+             Manager showed him with access, because the controller was never
+             looking at that grant. Controller now checks
+             hasPermission('training.manage') instead (see TrainingController.php)
+             — this link is gated the same way. The old link inside System
+             Developer -> Hidden (near the bottom of this file) is removed:
+             it only ever inherited the unrelated access_settings gate, never
+             had one of its own, and duplicating it here would just reproduce
+             the exact bug this fix closes. --}}
+        @feature('training')
+        @permission('training.manage')
+        <a href="{{ route('training.manage') }}" class="corex-nav-subitem {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">Manage Training</a>
+        @endpermission
+        @endfeature
+
         @endpermission {{-- /sidebar.section.agents --}}
 
         {{-- ═══════════════════════════════════════════
@@ -2817,14 +2838,14 @@
                 {{-- Revenue Share --}}
                 <a href="{{ route('revenue-share.calculator') }}" class="corex-nav-subitem {{ request()->routeIs('revenue-share.*') ? 'active' : '' }}">Revenue Share</a>
 
-                {{-- Training (agent-facing LMS front) — 2026-09-30, moved out of
-                     here: its own gate (@feature('training') + access_training)
-                     now lives in the Agents section above, where a normal agent
-                     can actually reach it. Training Mgmt below stays here —
-                     course authoring is deliberately owner-only. --}}
-
-                {{-- Training Management (LMS authoring) --}}
-                <a href="{{ route('training.manage') }}" class="corex-nav-subitem {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">Training Mgmt</a>
+                {{-- Training / Training Mgmt — both moved out of here, 2026-09-30:
+                     "Training" to the Agents section above
+                     (@feature('training') + access_training); "Manage Training"
+                     next to it, same section (@feature('training') +
+                     training.manage — the controller-enforced permission, see
+                     TrainingController.php). Neither had a gate of its own in
+                     here; both only ever inherited this panel's unrelated
+                     access_settings check. --}}
 
                 {{-- Training Help (in-app guides) — hidden from agency users. The
                      unread-count query only runs for owners now that the link is
