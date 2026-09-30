@@ -146,8 +146,13 @@ final class RentalFaultRoutingServiceTest extends TestCase
 
     public function test_caretaker_route_falls_back_to_agent_review_when_no_caretaker_linked(): void
     {
-        RentalFaultRoutingProfile::query()->create([
-            'agency_id' => $this->agency->id, 'property_id' => null,
+        // AgencyObserver already seeded this agency's one default profile
+        // (agency_id + property_id=null is unique in practice, enforced by
+        // seedDefaultFor()'s firstOrCreate() being the only app-level
+        // creation path) — update it in place rather than inserting a
+        // second property_id=null row, which would just race profileFor()'s
+        // unordered ->first() against the row the observer already made.
+        RentalFaultRoutingProfile::where('agency_id', $this->agency->id)->whereNull('property_id')->firstOrFail()->update([
             'emergency_route' => 'caretaker', 'non_emergency_route' => 'agent_review',
         ]);
         $report = $this->faultReport($this->faultType('emergency'));
@@ -159,8 +164,7 @@ final class RentalFaultRoutingServiceTest extends TestCase
 
     public function test_caretaker_route_resolves_when_a_caretaker_is_linked(): void
     {
-        RentalFaultRoutingProfile::query()->create([
-            'agency_id' => $this->agency->id, 'property_id' => null,
+        RentalFaultRoutingProfile::where('agency_id', $this->agency->id)->whereNull('property_id')->firstOrFail()->update([
             'emergency_route' => 'caretaker', 'emergency_caretaker_spend_limit' => 300, 'non_emergency_route' => 'agent_review',
         ]);
         $contact = Contact::create(['agency_id' => $this->agency->id, 'first_name' => 'Care', 'last_name' => 'Taker']);
@@ -269,8 +273,7 @@ final class RentalFaultRoutingServiceTest extends TestCase
 
     public function test_the_resolved_route_and_spend_limit_persist_on_the_fault_report(): void
     {
-        RentalFaultRoutingProfile::create([
-            'agency_id' => $this->agency->id, 'property_id' => null,
+        RentalFaultRoutingProfile::where('agency_id', $this->agency->id)->whereNull('property_id')->firstOrFail()->update([
             'emergency_route' => 'owner_first', 'emergency_owner_first_spend_limit' => 250, 'non_emergency_route' => 'agent_review',
         ]);
 
@@ -290,8 +293,7 @@ final class RentalFaultRoutingServiceTest extends TestCase
         // wrongly need no approval.
         $this->property->update(['rental_no_approval_spend_threshold' => 5000]);
 
-        RentalFaultRoutingProfile::create([
-            'agency_id' => $this->agency->id, 'property_id' => null,
+        RentalFaultRoutingProfile::where('agency_id', $this->agency->id)->whereNull('property_id')->firstOrFail()->update([
             'emergency_route' => 'owner_first', 'emergency_owner_first_spend_limit' => 100, 'non_emergency_route' => 'agent_review',
         ]);
         $report = $this->faultReport($this->faultType('emergency'));
