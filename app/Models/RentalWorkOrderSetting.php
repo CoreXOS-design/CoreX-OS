@@ -82,8 +82,22 @@ class RentalWorkOrderSetting extends Model
      * RentalWorkOrder::selectQuote() (§3.4c) against the SELECTED quote's
      * amount.
      */
-    public static function thresholdFor(Property $property): float
+    /**
+     * .ai/specs/rentals-faults-work-orders.md §13.3 — a work order raised
+     * from a ROUTED fault report gates against the route's own spend
+     * limit, not the property's flat threshold — "the spend limit gates
+     * exactly like the existing threshold gate already does," Johan's own
+     * routing ruling, mirroring this exact mechanic rather than inventing
+     * a second gate shape. $viaFaultReport is optional and backward-
+     * compatible: every existing caller that doesn't pass one keeps
+     * today's property → agency-default resolution unchanged.
+     */
+    public static function thresholdFor(Property $property, ?RentalFaultReport $viaFaultReport = null): float
     {
+        if ($viaFaultReport !== null && $viaFaultReport->routed_spend_limit !== null) {
+            return (float) $viaFaultReport->routed_spend_limit;
+        }
+
         if ($property->rental_no_approval_spend_threshold !== null) {
             return (float) $property->rental_no_approval_spend_threshold;
         }

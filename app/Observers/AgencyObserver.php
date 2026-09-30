@@ -50,6 +50,12 @@ class AgencyObserver
             // on day one.
             \App\Models\RentalFaultType::seedDefaultsFor($agency->id);
 
+            // .ai/specs/rentals-faults-work-orders.md §13.2 — seed the
+            // agency's default routing profile (agent_review/agent_review —
+            // today's existing behaviour) so routing resolution never has
+            // nothing to resolve against.
+            \App\Models\RentalFaultRoutingProfile::seedDefaultFor($agency->id);
+
             // Contact-details Phase 2 — seed the agency's contact-label list
             // (Personal/Business/Contact) so the phone/email label dropdown is
             // never empty for a brand-new agency.

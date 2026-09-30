@@ -35,6 +35,23 @@ class RentalFaultReportService
             'reported_at' => $attributes['reported_at'] ?? now(),
         ]));
 
+        // .ai/specs/rentals-faults-work-orders.md §13.3 — resolves the
+        // moment the fault report exists, BEFORE the agent-review step.
+        // The route/spend-limit are persisted (not just logged) so a work
+        // order later raised from this report can gate owner approval
+        // against the route's own limit (RentalWorkOrderSetting::
+        // thresholdFor(), §13.3's own note) — never recomputed differently
+        // at that later point.
+        $routing = app(RentalFaultRoutingService::class);
+        $decision = $routing->resolve($faultReport);
+        if (!$decision->isDefault()) {
+            $faultReport->forceFill([
+                'routed_via' => $decision->route,
+                'routed_spend_limit' => $decision->spendLimit,
+            ])->save();
+        }
+        $routing->logDecision($faultReport, $decision);
+
         $this->notifyCreated($faultReport);
 
         return $faultReport;

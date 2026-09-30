@@ -363,7 +363,7 @@ class RentalWorkOrder extends Model
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
         $quote->forceFill(['is_selected' => true])->save();
 
-        $threshold = RentalWorkOrderSetting::thresholdFor($this->property);
+        $threshold = RentalWorkOrderSetting::thresholdFor($this->property, $this->reportedFaultReport);
         $this->forceFill([
             'owner_approval_status' => (float) $quote->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING,
         ])->save();
@@ -428,7 +428,7 @@ class RentalWorkOrder extends Model
 
             $nowSelected = $this->quotes()->where('id', '!=', $quote->id)->where('is_selected', true)->first();
             if ($nowSelected) {
-                $threshold = RentalWorkOrderSetting::thresholdFor($this->property);
+                $threshold = RentalWorkOrderSetting::thresholdFor($this->property, $this->reportedFaultReport);
                 $newStatus = (float) $nowSelected->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING;
                 $reason    = 'now derived from ' . $this->describeQuote($nowSelected);
             } else {

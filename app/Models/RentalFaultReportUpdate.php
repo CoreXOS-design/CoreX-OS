@@ -27,6 +27,8 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_NOTE = 'note';
     public const TYPE_ARCHIVED = 'archived';
     public const TYPE_RESTORED = 'restored';
+    /** .ai/specs/rentals-faults-work-orders.md §13.5 — the rule that fired. */
+    public const TYPE_ROUTING_DECISION = 'routing_decision';
 
     protected $fillable = [
         'agency_id',

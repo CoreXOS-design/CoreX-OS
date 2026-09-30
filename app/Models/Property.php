@@ -1181,6 +1181,25 @@ class Property extends Model
     }
 
     /**
+     * .ai/specs/rentals-faults-work-orders.md §13.4 — "a contact linked to
+     * the property/complex in a caretaker role, from the agency's contact
+     * types, not hardcoded." Reuses sellerOwnerContact()'s exact mechanism
+     * — contact_property.role is already a plain, free-text column
+     * (PropertyController::contactsLink() validates it as
+     * 'nullable|string|max:50', no fixed enum), so an agent can already
+     * link a caretaker today through the existing contact-linking screen;
+     * no new UI, no new role list. Returns null, not a guess, when no
+     * contact carries this role — the caller (RentalFaultRoutingService)
+     * falls back to agent_review rather than routing to nobody.
+     */
+    public function caretakerContact(): ?Contact
+    {
+        return $this->contacts()->get()->first(
+            fn ($c) => strtolower(trim((string) ($c->pivot->role ?? ''))) === 'caretaker'
+        );
+    }
+
+    /**
      * AT-105 enhancement — the canonical pivot-role SET a routing contact_role
      * resolves across. 'seller_owner' deliberately spans BOTH seller and owner
      * (esign auto-link writes 'owner' for sellers — investigation §3). Returns
