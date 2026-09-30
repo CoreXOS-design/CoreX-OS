@@ -1829,7 +1829,22 @@
         @endfeature
         @endpermission
 
-        {{-- Training (LMS) — moved to agent section above as "Training" --}}
+        {{-- Training (LMS) — 2026-09-30 (urgent, Johan) — this link had no
+             gate of its own; it lived inside the System Developer -> Hidden
+             panel (below, near Training Mgmt), which is gated on
+             access_settings (an admin/owner permission), not on
+             access_training — the dedicated Role-Manager-settable permission
+             this feature actually has (config/corex-permissions.php:319).
+             Confirmed byte-identical on origin/Staging and origin/main: not
+             a QA1 code regression, an existing placement gap everywhere that
+             only ever "worked" for whoever also happened to hold
+             access_settings. Real gate, matching the task: agency feature
+             flag AND access_training, nothing else. --}}
+        @feature('training')
+        @permission('access_training')
+        <a href="{{ route('training.index') }}" class="corex-nav-subitem {{ request()->routeIs('training.index', 'training.show') ? 'active' : '' }}">Training</a>
+        @endpermission
+        @endfeature
 
         @endpermission {{-- /sidebar.section.agents --}}
 
@@ -2784,8 +2799,11 @@
                 {{-- Revenue Share --}}
                 <a href="{{ route('revenue-share.calculator') }}" class="corex-nav-subitem {{ request()->routeIs('revenue-share.*') ? 'active' : '' }}">Revenue Share</a>
 
-                {{-- Training --}}
-                <a href="{{ route('training.index') }}" class="corex-nav-subitem {{ request()->routeIs('training.index', 'training.show') ? 'active' : '' }}">Training</a>
+                {{-- Training (agent-facing LMS front) — 2026-09-30, moved out of
+                     here: its own gate (@feature('training') + access_training)
+                     now lives in the Agents section above, where a normal agent
+                     can actually reach it. Training Mgmt below stays here —
+                     course authoring is deliberately owner-only. --}}
 
                 {{-- Training Management (LMS authoring) --}}
                 <a href="{{ route('training.manage') }}" class="corex-nav-subitem {{ request()->routeIs('training.manage', 'training.create-course', 'training.edit-course', 'training.create-lesson', 'training.edit-lesson', 'training.store-course', 'training.update-course') ? 'active' : '' }}">Training Mgmt</a>
