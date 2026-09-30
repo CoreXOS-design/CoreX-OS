@@ -103,6 +103,30 @@ final class SidebarFavouritesTest extends TestCase
         $this->assertFalse((bool) $user->fresh()->nav_favourites_autoopen);
     }
 
+    /**
+     * Auto-open is once per LOGIN. The browser's "already opened" marker survives
+     * a logout + login in the same tab, so the sidebar must hand the page a key
+     * that belongs to THIS sign-in — derived from the session id, which every
+     * login regenerates — and never the raw session id itself.
+     */
+    public function test_the_sidebar_ties_auto_open_to_the_current_sign_in(): void
+    {
+        [, $user] = $this->agencyWithUser();
+        $user->forceFill(['nav_favourites_autoopen' => true])->save();
+        $this->pin($user, [self::PROPERTIES => 'Properties']);
+
+        $response = $this->actingAs($user)->get(route('agent.portal'))->assertOk();
+        $sessionId = session()->getId();
+
+        $response->assertSee("loginKey: '".substr(hash('sha256', $sessionId), 0, 16)."'", false);
+        $response->assertDontSee($sessionId, false);
+
+        session()->regenerate();   // what every sign-in does
+        $this->actingAs($user)->get(route('agent.portal'))
+            ->assertSee("loginKey: '".substr(hash('sha256', session()->getId()), 0, 16)."'", false)
+            ->assertDontSee("loginKey: '".substr(hash('sha256', $sessionId), 0, 16)."'", false);
+    }
+
     // ── Empty / clearing ─────────────────────────────────────────────────
 
     public function test_saving_with_nothing_ticked_clears_the_list_without_an_error(): void

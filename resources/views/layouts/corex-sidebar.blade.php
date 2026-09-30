@@ -343,6 +343,10 @@
     $_navFavService  = app(\App\Services\Navigation\NavFavouriteService::class);
     $_navFavourites  = $user ? $_navFavService->forUser($user) : collect();
     $_navFavAutoOpen = (bool) ($user?->nav_favourites_autoopen ?? false);
+    // Identifies THIS sign-in: the session id is regenerated on every login, so
+    // a logout + login in the same tab yields a new key and auto-open fires again.
+    // Hashed so the raw session id never reaches the page.
+    $_navFavLoginKey = substr(hash('sha256', (string) session()->getId()), 0, 16);
 
     // Can this user actually REACH the picker? My Portal is gated on
     // access_my_portal, so for a user without it the "choose your pages" link is a
@@ -2916,7 +2920,7 @@
              ═══════════════════════════════════════════ --}}
         @if($_navFavCanManage || $_navFavourites->isNotEmpty())
         <div class="corex-fav"
-             x-data="corexFavourites({ autoOpen: @js($_navFavAutoOpen), count: {{ $_navFavourites->count() }} })"
+             x-data="corexFavourites({ autoOpen: @js($_navFavAutoOpen), loginKey: @js($_navFavLoginKey), count: {{ $_navFavourites->count() }} })"
              x-init="init()">
 
             <div x-show="open" x-cloak x-transition
@@ -3038,6 +3042,7 @@ function corexFavourites(config) {
         open: false,
         maxHeight: 0,
         autoOpen: !!(config && config.autoOpen),
+        loginKey: (config && config.loginKey) || '',
         count: (config && config.count) || 0,
 
         init() {
@@ -3056,18 +3061,19 @@ function corexFavourites(config) {
             this.maxHeight = h > 0 ? Math.floor(h / 2) : 0;
         },
 
-        // Auto-open is once per LOGIN: a new sign-in is a new browser session, so
-        // sessionStorage is the store. Every access is guarded — a private window
-        // or blocked storage must never break the sidebar, and the safe direction
-        // is "treat it as already seen" (don't auto-open) rather than reopening on
-        // every page.
+        // Auto-open is once per LOGIN. sessionStorage survives a logout + login in
+        // the same tab, so the marker stores the sign-in's loginKey rather than a
+        // bare flag: a new sign-in carries a new key and the panel opens again.
+        // Every access is guarded — a private window or blocked storage must never
+        // break the sidebar, and the safe direction is "treat it as already seen"
+        // (don't auto-open) rather than reopening on every page.
         seenThisSession() {
-            try { return sessionStorage.getItem('corex-fav-autoopen-seen') === '1'; }
+            try { return sessionStorage.getItem('corex-fav-autoopen-seen') === this.loginKey; }
             catch (e) { return true; }
         },
 
         markSeen() {
-            try { sessionStorage.setItem('corex-fav-autoopen-seen', '1'); } catch (e) {}
+            try { sessionStorage.setItem('corex-fav-autoopen-seen', this.loginKey); } catch (e) {}
         },
 
         maybeAutoOpen() {
