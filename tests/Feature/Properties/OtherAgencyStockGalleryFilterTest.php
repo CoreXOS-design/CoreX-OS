@@ -6,10 +6,14 @@ use App\Jobs\DownloadOtherAgencyStockGalleryJob;
 use App\Jobs\DownloadPortalPropertyImages;
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\Property;
 use App\Models\User;
 use App\Services\Properties\OtherAgencyStockImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -198,5 +202,49 @@ class OtherAgencyStockGalleryFilterTest extends TestCase
 
         Queue::assertNotPushed(DownloadPortalPropertyImages::class);
         Queue::assertPushed(DownloadOtherAgencyStockGalleryJob::class);
+    }
+
+    /**
+     * 2026-09-30 URGENT REGRESSION (property #21098): DownloadPortalPropertyImages
+     * writes every file under a fresh Str::random(8) suffix, so re-running it
+     * for the SAME property never overwrites the previous run's files —
+     * merging against gallery_images_json's CURRENT (stale) DB value just
+     * kept appending. Confirmed live: 3 accumulated rounds, 69 entries for a
+     * genuinely 23-photo property, and the property card's "N photos" badge
+     * (already fixed once tonight to read the curated gallery instead of
+     * allImages()) inherited the inflated count because the underlying DATA
+     * was wrong, not the display logic. A second, independent dispatch for
+     * the same property (a reimport) must REPLACE the gallery, never append
+     * to whatever a previous run already left there.
+     */
+    public function test_second_dispatch_for_the_same_property_replaces_the_gallery_not_appends(): void
+    {
+        Storage::fake('public');
+        Http::fake(fn () => Http::response(Str::random(2500), 200, ['Content-Type' => 'image/jpeg']));
+
+        $property = Property::create([
+            'title'        => 'Gallery Replace Regression ' . Str::random(4),
+            'agency_id'    => $this->agency->id,
+            'agent_id'     => $this->agent->id,
+            'branch_id'    => Branch::where('agency_id', $this->agency->id)->first()->id,
+            'listing_type' => 'sale',
+            'status'       => 'active',
+            // Simulates the stale data left by an EARLIER run of this same
+            // job (or, live, two different jobs writing different filename
+            // patterns) — exactly what property #21098 had before repair.
+            'gallery_images_json' => [
+                'https://example.test/properties/999/stale-1.jpg',
+                'https://example.test/properties/999/stale-2.jpg',
+                'https://example.test/properties/999/stale-3.jpg',
+            ],
+        ]);
+
+        (new DownloadPortalPropertyImages($property->id, 90000, 4))->handle();
+
+        $property->refresh();
+        $this->assertCount(4, $property->gallery_images_json, 'expected the fresh run to REPLACE the gallery, not append 3 stale + 4 new = 7');
+        foreach ($property->gallery_images_json as $url) {
+            $this->assertStringNotContainsString('stale-', $url);
+        }
     }
 }
