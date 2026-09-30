@@ -238,6 +238,8 @@
                                 // One-time-per-agent forced-read explainer — never shown again
                                 // once acknowledged, tracked on the user, not the listing.
                                 'explainerSeen'   => (bool) auth()->user()?->pp_exclusivity_explainer_seen_at,
+                                // Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §6.
+                                'agentConflict'   => app(\App\Services\Syndication\PortalAgentGuard::class)->current($property, 'pp'),
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2"
@@ -292,6 +294,8 @@
                                     <span style="color:var(--text-muted);">Deactivated</span>
                                 </template>
                             </div>
+
+                            @include('corex.properties.partials.portal-agent-conflict')
 
                             {{-- PP Exclusive listing warning --}}
                             <div x-show="isPpExclusiveActive()" x-cloak
@@ -582,6 +586,8 @@
                                 'resolvedP24AgencyLabel' => $resolvedP24AgencyLabel ?? '',
                                 // A.2.1 — single source of truth for the public URL lives on Property.
                                 'publicUrl'              => $property->publicListingUrls()['p24'] ?? '',
+                                // Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §6.
+                                'agentConflict'          => app(\App\Services\Syndication\PortalAgentGuard::class)->current($property, 'p24'),
                             ];
                         @endphp
                         <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-2 mt-2"
@@ -633,6 +639,8 @@
                                 <template x-if="status === 'rejected'"><span style="color:var(--ds-crimson);" x-text="'Rejected: ' + lastError"></span></template>
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
+
+                            @include('corex.properties.partials.portal-agent-conflict')
 
                             {{-- Deferred-sync note: the listing is LIVE on P24 (has a ref,
                                  status active/submitted) but the last push didn't land

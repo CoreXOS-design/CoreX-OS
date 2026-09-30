@@ -130,6 +130,8 @@ class PropertyController extends Controller
             // Without this it counts as a "bare visit" and the saved-filter
             // restore would redirect the approver straight back out of the queue.
             || $request->query('filter') === 'approval_pending'
+            // Portal Agent Mismatch Guard — the "Portal agent" tile click-through.
+            || $request->query('filter') === 'portal_agent'
             || collect($FILTER_KEYS)->contains(fn ($k) => $request->has($k));
 
         // Bare visit + saved state → restore by redirecting to the canonical URL.
@@ -198,7 +200,7 @@ class PropertyController extends Controller
             } elseif ($request->has('agent_id')) {
                 $aid = (string) $request->query('agent_id', '');
                 $filterAgentIds = ($aid !== '' && ctype_digit($aid)) ? [$aid] : [];
-            } elseif (in_array($request->query('filter'), ['marketing_pending', 'approval_pending'], true)) {
+            } elseif (in_array($request->query('filter'), ['marketing_pending', 'approval_pending', 'portal_agent'], true)) {
                 // Compliance / approval click-through ⇒ full scope. An approver
                 // looking at the queue must see EVERY agent's pending listing,
                 // not whichever agent filter their last visit left behind.
@@ -329,6 +331,13 @@ class PropertyController extends Controller
             $query->whereNull('compliance_snapshot_at')->whereNotIn('status', Property::OFF_MARKET_STATUSES);
         }
 
+        // Portal Agent Mismatch Guard — "Portal agent": listings whose send to
+        // P24 / Private Property stopped on an agent problem.
+        // .ai/specs/portal-agent-mismatch-guard.md §6
+        if ($marketingFilter === 'portal_agent') {
+            $query->needsPortalAgentAttention();
+        }
+
         // Layer 3 — "Awaiting approval". The approver's queue IS this list
         // (spec D7 / §7.1): compliance-clear, not yet approved, and a request
         // actually pending. Deliberately the same click-through shape as
@@ -396,6 +405,13 @@ class PropertyController extends Controller
         // the same breadth the click-through shows: the viewer's role scope,
         // nothing narrower. This is a standing queue indicator, not a
         // breakdown of the current view.
+        // Portal Agent Mismatch Guard — the "Portal agent" tile. Same breadth rule
+        // as the approval tile below: a standing indicator over the viewer's role
+        // scope, so its count matches what the click-through shows.
+        $stats['portalAgent'] = tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
+            ->needsPortalAgentAttention()
+            ->count();
+
         $stats['awaitingApproval'] = ($syndicationApprovalOn && $canApproveSyndication)
             ? tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
                 ->whereNotNull('compliance_snapshot_at')

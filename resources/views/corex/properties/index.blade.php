@@ -265,6 +265,18 @@
             ];
         }
 
+        // Portal Agent Mismatch Guard (.ai/specs/portal-agent-mismatch-guard.md §6):
+        // listings whose send to a portal stopped on an agent problem. The tile
+        // appears only while there is something to act on.
+        if (($stats['portalAgent'] ?? 0) > 0) {
+            $kpiTiles[] = [
+                'label'  => 'Portal agent',
+                'value'  => $stats['portalAgent'],
+                'filter' => 'portal_agent',
+                'param'  => 'filter',
+            ];
+        }
+
         $currentStatus = $status ?? '';
         $currentFilter = request()->query('filter', '');
         $baseUrl = request()->url();
@@ -815,6 +827,9 @@
                  empty state is good news. .ai/specs/syndication-approval-gate.md §7.2 --}}
             <h3 class="text-base font-semibold" style="color:var(--text-primary);">Nothing waiting for your approval.</h3>
             <p class="text-sm mt-1" style="color:var(--text-muted);">When an agent finishes a listing's compliance and sends it for approval, it appears here — and you get an email.</p>
+        @elseif(request()->query('filter') === 'portal_agent')
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No portal agent problems.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">When a listing can't go to Property24 or Private Property because of its agent, it appears here.</p>
         @elseif(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
             <h3 class="text-base font-semibold" style="color:var(--text-primary);">No {{ ($importedStock ?? false) ? 'imported stock' : 'properties' }} match these filters.</h3>
             <p class="text-sm mt-1" style="color:var(--text-muted);">{{ ($importedStock ?? false) ? 'Try clearing some filters.' : 'Try clearing some filters, or add a new listing.' }}</p>
@@ -958,6 +973,9 @@
                          imported off-market stock, and it must be tagged there too. --}}
                     @if($property->isImportedStock())
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
+                    @endif
+                    @if($property->needsPortalAgentAttention())
+                    <span class="text-[11px] px-2 py-1 rounded-md font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 14%, var(--surface)); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
                     @endif
                 </div>
 
@@ -1197,6 +1215,9 @@
                         </a>
                         @if($property->isImportedStock())
                         <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                        @endif
+                        @if($property->needsPortalAgentAttention())
+                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
                         @endif
                         @if($property->p24_ref)
                         <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon, #0ea5e9)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>

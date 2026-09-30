@@ -6,6 +6,7 @@ use App\Exceptions\Property24ConfigurationException;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Syndication\PortalAgentGuard;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -145,7 +146,13 @@ class Property24SyndicationService
         }
     }
 
-    public function submitListing(Property $property): array
+    /**
+     * @param bool $confirmAgentSwitch The user saw that Property24 holds this
+     *   listing under a different agent and confirmed sending it under the CoreX
+     *   listing agent (.ai/specs/portal-agent-mismatch-guard.md). Unattended
+     *   callers never pass it, so they never switch the portal's agent.
+     */
+    public function submitListing(Property $property, bool $confirmAgentSwitch = false): array
     {
         // AT-369 — THE service-layer backstop. Every P24 submission path in the
         // app (controller, queued job, console commands, bulk command, and any
@@ -153,6 +160,10 @@ class Property24SyndicationService
         // what actually closes the gate, not the cosmetic UI disable. Checked
         // before the lock: a blocked attempt should never even contend for it.
         if ($blocked = $this->blockIfPpExclusive($property)) {
+            return $blocked;
+        }
+
+        if ($blocked = $this->blockIfAgentConflict($property, $confirmAgentSwitch)) {
             return $blocked;
         }
 
@@ -199,6 +210,33 @@ class Property24SyndicationService
         $this->log('warning', "P24 submit blocked for property #{$property->id} — PP exclusive until {$until}");
 
         return ['success' => false, 'message' => $message];
+    }
+
+    /**
+     * Portal Agent Mismatch Guard — stop the send when a listing agent is
+     * inactive in CoreX, or when Property24 holds the listing under a different
+     * agent and nobody confirmed the switch. Records the reason for the listing
+     * panel and the listings filter; never a silent skip.
+     */
+    private function blockIfAgentConflict(Property $property, bool $confirmAgentSwitch): ?array
+    {
+        $guard    = app(PortalAgentGuard::class);
+        $conflict = $guard->check($property, PortalAgentGuard::P24);
+
+        if ($conflict === null || ($confirmAgentSwitch && $conflict['can_switch'])) {
+            return null;
+        }
+
+        $guard->recordConflict($property, PortalAgentGuard::P24, $conflict);
+
+        // A queued submit already showed "Syncing…" — never leave it there.
+        if ($property->p24_syndication_status === 'submitting') {
+            $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => $conflict['message']]);
+        }
+
+        $this->log('warning', "P24 send stopped for property #{$property->id} — {$conflict['code']}", ['conflict' => $conflict]);
+
+        return ['success' => false, 'message' => $conflict['message'], 'agent_conflict' => $conflict];
     }
 
     private function performSubmit(Property $property): array
@@ -295,6 +333,15 @@ class Property24SyndicationService
 
             // Permanent failure (4xx validation etc.) — surface the real error.
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => $result['message'] ?? 'Unknown API error']);
+
+            // P24 refused an agent ("Some of the specified agents are not active")
+            // — say which agent and what to do, not the raw portal wording.
+            $guard = app(PortalAgentGuard::class);
+            if ($conflict = $guard->fromPortalRejection($property, PortalAgentGuard::P24, $result['message'] ?? null)) {
+                $guard->recordConflict($property, PortalAgentGuard::P24, $conflict);
+                return ['success' => false, 'message' => $conflict['message'], 'agent_conflict' => $conflict];
+            }
+
             return ['success' => false, 'message' => $result['message'] ?? 'Unknown API error'];
         }
 
@@ -357,6 +404,9 @@ class Property24SyndicationService
         }
 
         $property->update($updateData);
+
+        // Property24 now holds the listing under exactly the agents just sent.
+        app(PortalAgentGuard::class)->recordSent($property, PortalAgentGuard::P24, (array) ($payload['contactAgentIds'] ?? []));
 
         // Audit chain (CLAUDE.md rule #10): record the P24 listingNumber as an
         // external ref on the Tracked Property so future ingress paths (e.g.
@@ -652,6 +702,13 @@ class Property24SyndicationService
             return ['success' => false, 'message' => 'No P24 reference — listing was never submitted'];
         }
 
+        // BackOnMarket only flips the status — it never tells Property24 who the
+        // agent is. A listing P24 holds under a different agent must go through
+        // switchAgentAndReactivate() (after the user confirms), never this.
+        if ($blocked = $this->blockIfAgentConflict($property, false)) {
+            return $blocked;
+        }
+
         $this->bindClientForProperty($property);
         $result = $this->client->setListingStatus($property->id, (int) $property->p24_ref, 'BackOnMarket');
 
@@ -666,13 +723,55 @@ class Property24SyndicationService
                 $this->log('warning', "Reactivation transient-failed for property #{$property->id} — marked retryable", ['status_code' => $result['status_code'] ?? null]);
                 return ['success' => false, 'transient' => true, 'message' => 'Property24 temporarily unavailable — reactivation will be retried.'];
             }
+
+            // P24 refused because of an agent on the listing (2026-09-30: a
+            // listing imported under Johan, now Barbara's). The listing is still
+            // off the portal exactly as before — keep its status so its buttons
+            // stay, record why, and let the panel offer the switch.
+            $guard = app(PortalAgentGuard::class);
+            if ($conflict = $guard->fromPortalRejection($property, PortalAgentGuard::P24, $result['message'] ?? null)) {
+                $property->update(['p24_last_error' => 'Reactivation failed: ' . $conflict['message']]);
+                $conflict['action'] = 'reactivate';
+                $guard->recordConflict($property, PortalAgentGuard::P24, $conflict);
+                return ['success' => false, 'message' => $conflict['message'], 'agent_conflict' => $conflict];
+            }
+
             $property->update(['p24_syndication_status' => 'error', 'p24_last_error' => 'Reactivation failed: ' . ($result['message'] ?? 'Unknown error')]);
             return ['success' => false, 'message' => $result['message'] ?? 'Reactivation failed'];
         }
 
-        $property->update(['p24_syndication_status' => 'submitted', 'p24_last_error' => null]);
+        $property->update(['p24_syndication_status' => 'submitted', 'p24_last_error' => null, 'p24_agent_conflict' => null]);
         $this->log('info', "Listing reactivated for property #{$property->id}");
         return ['success' => true, 'message' => 'Listing reactivated on Property24'];
+    }
+
+    /**
+     * The user confirmed putting an off-market listing back on Property24 under
+     * the CoreX listing agent, although P24 holds it under someone else. Send the
+     * full listing first (that is what carries the agent), then BackOnMarket.
+     * Runs from the queue — the full send can take a minute with photos.
+     */
+    public function switchAgentAndReactivate(Property $property): array
+    {
+        $submit = $this->submitListing($property, true);
+        if (!$submit['success']) {
+            return $submit;
+        }
+
+        $property->refresh();
+        $reactivate = $this->reactivateListing($property);
+        if ($reactivate['success']) {
+            return $reactivate;
+        }
+
+        // The full send may already have put the listing back on the portal, in
+        // which case P24 refuses the status flip. The portal is the truth.
+        if (!($reactivate['transient'] ?? false) && $this->isOnPortal($property) === true) {
+            $property->update(['p24_syndication_status' => 'active', 'p24_last_error' => null]);
+            return ['success' => true, 'message' => 'Listing back on Property24 under the listing agent'];
+        }
+
+        return $reactivate;
     }
 
     public function syncActivationStatus(Property $property): array

@@ -252,6 +252,18 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                     $property->save();
                 }
 
+                // Portal Agent Mismatch Guard (.ai/specs/portal-agent-mismatch-guard.md §3):
+                // the export row is P24's own record of this listing, and its agent
+                // resolved to this CoreX user — so P24 holds the listing under that
+                // user's P24 agent. Remember it, so a later change of listing agent in
+                // CoreX is caught before a send. Unknown P24 agent id = leave unknown.
+                if (!empty($property->p24_ref)) {
+                    $guard = app(\App\Services\Syndication\PortalAgentGuard::class);
+                    if ($held = $guard->expectedRefs($property, \App\Services\Syndication\PortalAgentGuard::P24)) {
+                        $guard->recordSent($property, \App\Services\Syndication\PortalAgentGuard::P24, $held);
+                    }
+                }
+
                 // Go-live migration: agency on-boarding imports their existing
                 // already-compliant P24 stock. The run was flagged at upload
                 // time; flip the compliance snapshot so MarketingReadinessService

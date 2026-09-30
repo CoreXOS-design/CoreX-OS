@@ -39,8 +39,18 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
     // the constructor (default read 120 → 180, the prior hardcoded value).
     public int $timeout = 180;
 
-    public function __construct(public Property $property)
-    {
+    /**
+     * @param bool $confirmAgentSwitch The user confirmed sending under the CoreX
+     *   listing agent although P24 holds the listing under someone else
+     *   (.ai/specs/portal-agent-mismatch-guard.md). Observer/bulk dispatches never set it.
+     * @param bool $reactivateAfter    Put the listing back on the market after the
+     *   send — the confirmed-switch path of Reactivate.
+     */
+    public function __construct(
+        public Property $property,
+        public bool $confirmAgentSwitch = false,
+        public bool $reactivateAfter = false,
+    ) {
         $readTimeout = $property->agency?->p24HttpReadTimeout() ?? Agency::P24_DEFAULT_HTTP_READ_TIMEOUT;
         $this->timeout = $readTimeout + 60;
     }
@@ -55,7 +65,12 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
             Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — PP exclusive until {$this->property->pp_delay_until->format('d M Y')}");
         }
 
-        $service->submitListing($this->property);
+        if ($this->reactivateAfter) {
+            $service->switchAgentAndReactivate($this->property);
+            return;
+        }
+
+        $service->submitListing($this->property, $this->confirmAgentSwitch);
     }
 
     /**

@@ -5,6 +5,7 @@ namespace App\Services\PrivateProperty;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\Images\AgentPhotoNormalizer;
+use App\Services\Syndication\PortalAgentGuard;
 use App\Services\Syndication\PortalInventoryGuard;
 use Illuminate\Support\Facades\Log;
 
@@ -54,9 +55,19 @@ class PrivatePropertySyndicationService
         return $property->pp_ref ? 'active' : 'submitted';
     }
 
-    public function submitListing(Property $property): array
+    /**
+     * @param bool $confirmAgentSwitch The user saw that Private Property holds
+     *   this listing under a different agent and confirmed sending it under the
+     *   CoreX listing agent (.ai/specs/portal-agent-mismatch-guard.md). Unattended
+     *   callers never pass it, so they never switch the portal's agent.
+     */
+    public function submitListing(Property $property, bool $confirmAgentSwitch = false): array
     {
         $this->client->forAgency($property->agency);
+
+        if ($blocked = $this->blockIfAgentConflict($property, $confirmAgentSwitch)) {
+            return $blocked;
+        }
 
         // Never publish a SECOND advert for a property the portal already
         // advertises under a listing CoreX does not own. An agency that arrives
@@ -222,6 +233,9 @@ class PrivatePropertySyndicationService
 
         $property->update($updateData);
 
+        // Private Property now holds the listing under exactly the agents just sent.
+        app(PortalAgentGuard::class)->recordSent($property, PortalAgentGuard::PP, explode(',', (string) ($payload['AgentId'] ?? '')));
+
         $this->log('info', "Listing submitted for property #{$property->id}", [
             'pp_status'       => $updateData['pp_syndication_status'],
             'pp_ref'          => $updateData['pp_ref'] ?? null,
@@ -284,6 +298,28 @@ class PrivatePropertySyndicationService
             'video_synced'  => $videoOutcome === null ? null : $videoOutcome['success'],
             'video_message' => $videoOutcome['message'] ?? null,
         ];
+    }
+
+    /**
+     * Portal Agent Mismatch Guard — stop the send when a listing agent is
+     * inactive in CoreX, or when Private Property holds the listing under a
+     * different agent and nobody confirmed the switch. The listing's status is
+     * left exactly as it was (nothing was sent); the reason is recorded for the
+     * listing panel and the listings filter.
+     */
+    private function blockIfAgentConflict(Property $property, bool $confirmAgentSwitch): ?array
+    {
+        $guard    = app(PortalAgentGuard::class);
+        $conflict = $guard->check($property, PortalAgentGuard::PP);
+
+        if ($conflict === null || ($confirmAgentSwitch && $conflict['can_switch'])) {
+            return null;
+        }
+
+        $guard->recordConflict($property, PortalAgentGuard::PP, $conflict);
+        $this->log('warning', "PP send stopped for property #{$property->id} — {$conflict['code']}", ['conflict' => $conflict]);
+
+        return ['success' => false, 'message' => $conflict['message'], 'agent_conflict' => $conflict];
     }
 
     /**
@@ -566,9 +602,28 @@ class PrivatePropertySyndicationService
     /**
      * Reactivate a previously deactivated listing on PP.
      */
-    public function reactivateListing(Property $property): array
+    public function reactivateListing(Property $property, bool $confirmAgentSwitch = false): array
     {
         $this->client->forAgency($property->agency);
+
+        // Reactivation only flips PP's status — it never tells PP who the agent
+        // is. A listing PP holds under a different agent is sent in full first
+        // (that carries the agent), and only once the user has confirmed.
+        $guard    = app(PortalAgentGuard::class);
+        $conflict = $guard->check($property, PortalAgentGuard::PP);
+        if ($conflict !== null) {
+            if ($blocked = $this->blockIfAgentConflict($property, $confirmAgentSwitch)) {
+                $blocked['agent_conflict']['action'] = 'reactivate';
+                $guard->recordConflict($property, PortalAgentGuard::PP, $blocked['agent_conflict']);
+                return $blocked;
+            }
+            $submit = $this->submitListing($property, true);
+            if (!$submit['success']) {
+                return $submit;
+            }
+            $property->refresh();
+        }
+
         $listingType = PrivatePropertyListingMapper::resolveListingType($property);
         $result = $this->client->reactivateListing((string) $property->id, $listingType);
 
@@ -587,6 +642,7 @@ class PrivatePropertySyndicationService
         $property->update([
             'pp_syndication_status' => 'submitted',
             'pp_last_error'         => null,
+            'pp_agent_conflict'     => null,
         ]);
 
         $this->log('info', "Listing reactivated for property #{$property->id}");

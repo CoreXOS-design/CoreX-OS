@@ -10820,6 +10820,8 @@ CREATE TABLE `properties` (
   `pp_exclusive_days` int DEFAULT NULL,
   `pp_delay_until` timestamp NULL DEFAULT NULL,
   `pp_last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `pp_portal_agent_ids` json DEFAULT NULL,
+  `pp_agent_conflict` json DEFAULT NULL,
   `pp_images_last_synced_at` timestamp NULL DEFAULT NULL,
   `pp_listing_last_synced_at` timestamp NULL DEFAULT NULL,
   `pp_hide_street_name` tinyint(1) NOT NULL DEFAULT '1',
@@ -10877,6 +10879,8 @@ CREATE TABLE `properties` (
   `imported_released_at` timestamp NULL DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
   `p24_image_signature` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `p24_portal_agent_ids` json DEFAULT NULL,
+  `p24_agent_conflict` json DEFAULT NULL,
   `access_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   PRIMARY KEY (`id`),
   UNIQUE KEY `properties_agency_ext_uq` (`agency_id`,`external_id`),
@@ -18301,3 +18305,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1479,'2026_09_28_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1480,'2026_09_28_000001_add_nav_favourites_autoopen_to_users_table',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1481,'2026_09_29_110000_add_syndication_approval_to_properties',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1482,'2026_09_29_110100_create_property_syndication_approvals_table',257);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1483,'2026_10_05_090500_add_portal_agent_tracking_to_properties_table',258);

@@ -723,6 +723,8 @@ class Property extends Model
         'pp_exclusive_days',
         'pp_delay_until',
         'pp_last_error',
+        'pp_portal_agent_ids',
+        'pp_agent_conflict',
         'pp_images_last_synced_at',
         'pp_listing_last_synced_at',
         'floor_number',
@@ -759,6 +761,8 @@ class Property extends Model
         'p24_images_last_synced_at',
         'p24_listing_last_synced_at',
         'p24_image_signature',
+        'p24_portal_agent_ids',
+        'p24_agent_conflict',
         'gallery_expected_count',
         'gallery_stored_count',
         'gallery_import_status',
@@ -865,6 +869,11 @@ class Property extends Model
         'p24_activated_at'            => 'datetime',
         'p24_images_last_synced_at'   => 'datetime',
         'p24_listing_last_synced_at'  => 'datetime',
+        // Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §3.
+        'p24_portal_agent_ids'        => 'array',
+        'p24_agent_conflict'          => 'array',
+        'pp_portal_agent_ids'         => 'array',
+        'pp_agent_conflict'           => 'array',
         'compliance_snapshot_at'      => 'datetime',
         'compliance_snapshot_data'    => 'array',
         // Layer 3 approval stamp — .ai/specs/syndication-approval-gate.md §4.1.
@@ -918,6 +927,21 @@ class Property extends Model
                 $property->street_name_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseStreet($property->street_name);
             }
         });
+    }
+
+    /**
+     * Portal Agent Mismatch Guard — a send to P24 or Private Property was stopped
+     * on an agent problem and is waiting for someone to act.
+     * .ai/specs/portal-agent-mismatch-guard.md §6
+     */
+    public function needsPortalAgentAttention(): bool
+    {
+        return !empty($this->p24_agent_conflict) || !empty($this->pp_agent_conflict);
+    }
+
+    public function scopeNeedsPortalAgentAttention($query)
+    {
+        return $query->where(fn ($q) => $q->whereNotNull('p24_agent_conflict')->orWhereNotNull('pp_agent_conflict'));
     }
 
     public function agent(): BelongsTo

@@ -111,7 +111,7 @@ class SyndicationController extends Controller
             ], 422);
         }
 
-        $result = $this->syndicationService->submitListing($property);
+        $result = $this->syndicationService->submitListing($property, $request->boolean('confirm_agent_switch'));
 
         $fresh = $property->fresh();
 
@@ -127,7 +127,8 @@ class SyndicationController extends Controller
             'pp_syndication_status' => $fresh->pp_syndication_status,
             'pp_ref'                => $fresh->pp_ref,
             'errors'                => $result['errors'] ?? [],
-        ], $result['success'] ? 200 : 422);
+            'agent_conflict'        => $result['agent_conflict'] ?? null,
+        ], $result['success'] ? 200 : (isset($result['agent_conflict']) ? 409 : 422));
     }
 
     /**
@@ -197,7 +198,7 @@ class SyndicationController extends Controller
             return $errorResponse;
         }
 
-        $result = $this->syndicationService->reactivateListing($property);
+        $result = $this->syndicationService->reactivateListing($property, $request->boolean('confirm_agent_switch'));
 
         $fresh = $property->fresh();
 
@@ -227,7 +228,8 @@ class SyndicationController extends Controller
             'message'               => $message,
             'pp_syndication_status' => $fresh->pp_syndication_status,
             'pp_ref'                => $fresh->pp_ref,
-        ], $result['success'] ? 200 : 422);
+            'agent_conflict'        => $result['agent_conflict'] ?? null,
+        ], $result['success'] ? 200 : (isset($result['agent_conflict']) ? 409 : 422));
     }
 
     /**
