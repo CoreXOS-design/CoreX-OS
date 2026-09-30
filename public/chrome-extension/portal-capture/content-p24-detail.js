@@ -585,6 +585,41 @@
       property.image_count = document.querySelectorAll('.js_mainThreeImage').length || 1;
     }
 
+    // 5c. 2026-09-30 field audit (property #21098, Norkem Park): Levies,
+    // Rates and Taxes, Listing Date, Pets Allowed, Zoning, Parking, Pool,
+    // Kitchen, Garden, Security — none of these are in JSON-LD at all, they
+    // only sit in the same .p24_propertyOverviewRow table beds/baths/floor
+    // ALSO come from further up (via JSON-LD there, so this is a SEPARATE
+    // pass, not a duplicate of anything above). Same markup as the OAS
+    // extractor (popup.js p24ExtractOasFn) uses: .p24_propertyOverviewKey
+    // label + .p24_propertyOverviewResult .p24_info value; Kitchen/Garden/
+    // Security render as ONE .p24_info block with real embedded newlines.
+    // Raw text sent as-is; the server-side shared mapper
+    // (OtherAgencyStockFieldMapper) parses currency/zoning, Carbon parses
+    // "17 July 2026" natively.
+    property.levy = null; property.rates_taxes = null; property.date_posted = null;
+    property.pets_allowed = null; property.zone_type_raw = null; property.parking_count = null;
+    property.pool = false; property.kitchen_features = []; property.garden_features = []; property.security_features = [];
+    try {
+      document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
+        const key = row.querySelector('.p24_propertyOverviewKey');
+        const val = row.querySelector('.p24_propertyOverviewResult .p24_info');
+        if (!key || !val) return;
+        const k2 = key.textContent.toLowerCase();
+        const vText = val.textContent.trim();
+        if (k2 === 'levies') property.levy = vText;
+        else if (k2 === 'rates and taxes') property.rates_taxes = vText;
+        else if (k2 === 'listing date') property.date_posted = vText;
+        else if (k2 === 'pets allowed') property.pets_allowed = /^yes$/i.test(vText);
+        else if (k2 === 'zoning') property.zone_type_raw = vText;
+        else if (k2 === 'parking') property.parking_count = parseInt(vText, 10) || null;
+        else if (k2 === 'pool') property.pool = /^yes$/i.test(vText);
+        else if (k2 === 'kitchen') property.kitchen_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+        else if (k2 === 'garden') property.garden_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+        else if (k2 === 'security') property.security_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+      });
+    } catch (e) { /* */ }
+
     // 6. Agent info
     try { const el = document.querySelector('.p24_agentName, [class*="agent-name"], [class*="agentName"], .p24_listingAgentName, .p24_agentDetails .p24_name'); if (el) property.agent_name = el.textContent.trim(); } catch (e) { /* */ }
     if (!property.agency_name) {

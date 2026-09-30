@@ -1404,7 +1404,11 @@
                 $statusColor      = $statusColors[$property->status] ?? 'var(--text-muted)';
                 $statusBadgeClass = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
                 $statusLabel      = $property->status ? $property->statusBadge() : 'Draft';
-                $photoCount       = count($property->allImages());
+                // 2026-09-30 field audit — see index.blade.php's $images
+                // comment: allImages() over-counts (merges images_json +
+                // variant sets on top of the curated gallery), same "46 for
+                // 23 real photos" class of bug on this hero count too.
+                $photoCount       = count($property->syndicationImages());
             @endphp
 
             {{-- ── HERO / LIVE PREVIEW ────────────────────────────────────── --}}

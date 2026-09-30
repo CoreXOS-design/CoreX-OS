@@ -749,16 +749,43 @@
     }
 
     var erfSize = null, floorSize = null, beds = null, baths = null, garages = null;
+    // 2026-09-30 field audit (property #21098, Norkem Park): Levies, Rates
+    // and Taxes, Listing Date, Pets Allowed, Zoning, Parking, Pool, Kitchen,
+    // Garden, Security all sit in this SAME .p24_propertyOverviewRow table
+    // as beds/baths/floor — confirmed live, identical markup
+    // (.p24_propertyOverviewKey label + .p24_propertyOverviewResult .p24_info
+    // value). Kitchen/Garden/Security render their feature list as ONE
+    // .p24_info block with real embedded newlines (P24's own <br>-per-item
+    // markup collapses to textContent newlines) — .split('\n') recovers the
+    // list. Raw text is sent AS-IS; the server-side shared mapper
+    // (OtherAgencyStockFieldMapper) does the currency/zoning parsing and
+    // Carbon parses "17 July 2026" natively — same "extension sends raw,
+    // server maps" split property_type already uses.
+    var levyRaw = null, ratesTaxesRaw = null, listingDateRaw = null, petsAllowedRaw = null,
+        zoningRaw = null, parkingCount = null, poolYes = false,
+        kitchenFeatures = [], gardenFeatures = [], securityFeatures = [];
     document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
       var key = row.querySelector('.p24_propertyOverviewKey');
       var val = row.querySelector('.p24_propertyOverviewResult .p24_info');
       if (!key || !val) return;
       var k2 = key.textContent.toLowerCase();
       var v2 = num(val.textContent);
+      var vText = val.textContent.trim();
       if (k2.indexOf('bedroom') !== -1) beds = v2;
       else if (k2.indexOf('bathroom') !== -1) baths = v2;
       else if (k2.indexOf('floor') !== -1) floorSize = v2;
+      else if (k2 === 'levies') levyRaw = vText;
+      else if (k2 === 'rates and taxes') ratesTaxesRaw = vText;
+      else if (k2 === 'listing date') listingDateRaw = vText;
+      else if (k2 === 'pets allowed') petsAllowedRaw = vText;
+      else if (k2 === 'zoning') zoningRaw = vText;
+      else if (k2 === 'parking') parkingCount = parseInt(vText, 10) || null;
+      else if (k2 === 'pool') poolYes = /^yes$/i.test(vText);
+      else if (k2 === 'kitchen') kitchenFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      else if (k2 === 'garden') gardenFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      else if (k2 === 'security') securityFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
     });
+    var petsAllowed = petsAllowedRaw ? /^yes$/i.test(petsAllowedRaw) : null;
     var erfEl = document.querySelector('.js_sizeConversionsButton span');
     if (erfEl) erfSize = num(erfEl.textContent);
 
@@ -853,7 +880,20 @@
       source_agent_image_url: (leadCtx && leadCtx.primaryAgent && leadCtx.primaryAgent.imageURL)
         || (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].imageURL : null) || null,
       source_agency_logo_url: agencyLogoUrl,
-      date_posted: ld.datePosted || null,
+      // 2026-09-30 field audit — the Property Overview's own "Listing Date"
+      // row ("17 July 2026") wins over JSON-LD's datePosted when present;
+      // Laravel's `date` validation rule (strtotime-compatible) and PHP's
+      // Carbon both parse this format natively, no client-side date math.
+      date_posted: listingDateRaw || ld.datePosted || null,
+      levy: levyRaw,
+      rates_taxes: ratesTaxesRaw,
+      zone_type_raw: zoningRaw,
+      pets_allowed: petsAllowed,
+      parking_count: parkingCount,
+      pool: poolYes,
+      kitchen_features: kitchenFeatures,
+      garden_features: gardenFeatures,
+      security_features: securityFeatures,
       _title: ld.name || textOf('h1'),
       _expected_photo_count: imageCount,
     };

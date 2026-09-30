@@ -142,15 +142,35 @@ the server never scrapes the portals itself.
 - Erf size: plain HTML, `.js_sizeConversionsButton` span (not in JSON-LD).
 - Floor/beds/baths: `.p24_propertyOverviewRow > .p24_propertyOverviewKey` (label) +
   `.p24_propertyOverviewResult .p24_info` (value).
+- **2026-09-30 field audit** (Johan, property #21098, Norkem Park): the SAME
+  `.p24_propertyOverviewRow` table also carries Levies, Rates and Taxes, Listing Date, Pets
+  Allowed, Zoning, Parking (count), Pool (Yes/No) and multi-line feature lists for Kitchen,
+  Garden and Security (one `.p24_info` block per row with real embedded newlines — P24's own
+  `<br>`-per-item markup collapses to `textContent` newlines; `.split('\n')` recovers the
+  list). None of these are in JSON-LD. The extension sends the raw row text as-is (currency
+  string, "17 July 2026", "General Residential", etc.) — `OtherAgencyStockFieldMapper` does
+  all parsing/normalising server-side (`parseCurrency()` strips everything but digits;
+  `mapZoning()` maps P24's free text to CoreX's fixed zone_type dropdown options, leaving it
+  null rather than storing an option the UI can't select). Levy/Rates/Zoning/Pets map to
+  existing `properties` columns (`levy`, `rates_taxes`, `zone_type`, `pet_friendly`); Listing
+  Date overwrites `date_posted` (already captured, previously never used to set
+  `properties.listed_date`, which defaulted to "today" instead); Parking/Pool/Kitchen/Garden
+  map into `spaces_json` (`buildSpacesJson()` — Bedroom/Bathroom/Garage are deliberately NOT
+  duplicated there, those tiles already read the dedicated beds/baths/garages columns);
+  Security maps into `spaces_json.features.security[]` (a property-wide feature list, not a
+  "space"). Wired into BOTH `OtherAgencyStockImportService` and `PropertyPullController` via
+  the one shared mapper — own-stock pulls get the same fields OAS imports do.
 - Garages: `.p24_feature`/`.p24_featureAmount` pair near `icon_garage_updated.svg`.
 - Agent/agency: inline `<script>window.listingLeadFormContext = {...}</script>` — plain JS
   object literal, `agencyName`, `agentDetails[]` (id, name, imageURL, profileURL),
   `primaryAgent`.
-- **Full gallery: every `images.prop24.com/\d+` URL present as plain server-rendered `<img>`
-  tags on the page** — confirmed live (30 of 30 found for the sample listing). The extension's
-  EXISTING P24 detail-page logic (`content-p24-detail.js`) uses a `first_image_id` +
-  `image_count` sequential-ID-guessing heuristic instead — **this flow does not reuse that
-  heuristic**; it collects every matching URL directly from the rendered DOM.
+- **Full gallery**: **2026-09-30 superseded** — this flow now sends `first_image_id` +
+  `image_count` (P24's own sequential image-id pattern, read the SAME way
+  `content-p24-detail.js`'s Pull-flow extractor already did) and the SAME
+  `DownloadPortalPropertyImages` job Pull uses downloads every photo server-side. The
+  DOM-collected-URL-array approach this bullet originally described (and the
+  `DownloadOtherAgencyStockGalleryJob` it fed) is now PP-only — P24 no longer sends a photo
+  URL list from the client at all. See `OtherAgencyStockImportService::import()`.
 - Phone: not in raw HTML — requires an authenticated `/Listing/ShowContactNumbers` AJAX call
   with a per-agent token. **Never call this** (Johan) — it registers a lead with the portal.
   Capture phone/email only if already visible in the DOM (they generally aren't for P24).
