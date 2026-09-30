@@ -613,9 +613,27 @@
             </div>
         </div>
 
+        {{-- 2026-09-30 (Johan, urgent) — scroll position used to be ONE raw
+             sessionStorage number shared across every group. Landing on
+             /corex/core-matches (Real Estate) right after viewing
+             /corex/rentals/core-matches restored THAT page's own scrollTop
+             on the freshly server-computed Real Estate panel — activeGroup/
+             the "active" link were always correct (this was never a
+             group-selection bug), but the sidebar visually landed wherever
+             the Rentals page happened to leave the scrollbar, which usually
+             put the Rentals panel back in view even though it was correctly
+             CLOSED. Keyed per-group now: revisiting the SAME group restores
+             where you left off in IT specifically; landing in a DIFFERENT
+             group (no saved position for it yet) scrolls that group's own
+             active link into view instead of trusting an unrelated group's
+             stale offset. Reproduces identically on origin/Staging with the
+             byte-identical old code — not a QA1 regression. --}}
         <div class="corex-nav-root"
-             x-init="$el.scrollTop = sessionStorage.getItem('sidebarScroll') || 0"
-             @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll', $el.scrollTop)">
+             x-init="const _sk = 'sidebarScroll:' + (openGroup || 'root');
+                     const _saved = sessionStorage.getItem(_sk);
+                     if (_saved !== null) { $el.scrollTop = _saved; }
+                     else { $nextTick(() => { const _a = $el.querySelector('.corex-nav-item.active, .corex-nav-subitem.active'); if (_a) _a.scrollIntoView({ block: 'center' }); }); }"
+             @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll:' + (openGroup || 'root'), $el.scrollTop)">
 
         @permission('sidebar.section.agents')
         <div class="corex-nav-section-label">Agents</div>
