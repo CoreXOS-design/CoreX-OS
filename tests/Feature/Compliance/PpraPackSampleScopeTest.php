@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -13,8 +14,6 @@ use Tests\TestCase;
  * The PPRA pack job and the sample picker drop ONLY AgencyScope (they resolve
  * the agency explicitly from the pack / effective agency) — soft-deleted rows
  * must stay excluded, and another agency's ids must never count as "owned".
- *
- * NOTE: authored without being able to run the suite — run before merging.
  */
 final class PpraPackSampleScopeTest extends TestCase
 {
@@ -24,8 +23,9 @@ final class PpraPackSampleScopeTest extends TestCase
     {
         $agency = Agency::create(['name' => $name, 'slug' => 'ppra-' . uniqid()]);
         $branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency->id]);
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
         $property = Property::forceCreate([
-            'agency_id' => $agency->id, 'branch_id' => $branch->id,
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'agent_id' => $agent->id,
             'title' => $name . ' listing', 'status' => 'active',
         ]);
 

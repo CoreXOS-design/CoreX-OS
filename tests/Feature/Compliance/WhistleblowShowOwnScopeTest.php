@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature\Compliance;
 
 use App\Models\Compliance\WhistleblowComplaint;
+use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -26,6 +28,11 @@ final class WhistleblowShowOwnScopeTest extends TestCase
             'id' => $agencyId, 'agency_id' => $agencyId, 'name' => 'Default',
             'created_at' => now(), 'updated_at' => now(),
         ]);
+        // Seed the grants table so the permission check is real (an unseeded table is allow-all in the
+        // test suite): agents may open the whistleblow area but do NOT hold view_all_agency.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'compliance.whistleblow.view', 'scope' => null, 'agency_id' => null]);
+        PermissionService::clearCache();
+
         $owner = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
         $other = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
 

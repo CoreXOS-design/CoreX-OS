@@ -283,10 +283,13 @@ class SyndicationApprovalBackstopTest extends TestCase
         }
 
         $other       = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
-        $otherBranch = Branch::create(['agency_id' => $other->id, 'name' => 'Main']);
-        $foreign     = User::factory()->create([
+        // setUp() has an authenticated agent, and BelongsToAgency would force any row created
+        // now onto that agent's agency — stamping must be suppressed for the foreign rows.
+        $otherBranch = Branch::withoutAgencyStamping(fn () => Branch::create(['agency_id' => $other->id, 'name' => 'Main']));
+        $foreign     = User::withoutAgencyStamping(fn () => User::factory()->create([
             'agency_id' => $other->id, 'branch_id' => $otherBranch->id, 'role' => 'agent',
-        ]);
+        ]));
+        $this->assertSame($other->id, (int) $foreign->fresh()->agency_id);
 
         $this->actingAs($admin)
             ->post(route('corex.settings.syndication-portals'), [

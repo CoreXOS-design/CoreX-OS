@@ -19,9 +19,6 @@ use Tests\TestCase;
  * the inspection / inventory repeater lists (condition states, refusal presets,
  * photo-note classifications) are IN the Setup Wizard's Rentals ('leases') step.
  * (agency-onboarding-setup.md §5.1, CLAUDE.md #10a, §6.1 subset-post rule.)
- *
- * NOTE: written without being able to run the suite (no test DB available to the
- * authoring agent) — run this file before merging.
  */
 final class RentalsStepRuledInSettingsTest extends TestCase
 {
@@ -63,6 +60,15 @@ final class RentalsStepRuledInSettingsTest extends TestCase
             'tag_contact_as_tenant_on_approval' => '1',
             'require_fica_before_authorisation' => '0',
             'document_uploads_open_after_approval' => '1',
+            // approval_mode is a required radio; require_checklist_complete is has()-guarded —
+            // the step always posts both.
+            'approval_mode' => 'two_step',
+            // The step's other has()-guarded toggles / fields — a real page load always renders them.
+            'auto_pair_photos_enabled' => '1',
+            'auto_send_report_enabled' => '1',
+            'inventory_auto_send_report_enabled' => '1',
+            'public_link_expiry_days' => 90,
+            'require_checklist_complete' => '0',
         ];
     }
 

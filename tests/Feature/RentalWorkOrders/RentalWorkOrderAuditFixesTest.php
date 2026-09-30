@@ -278,6 +278,8 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
     public function test_an_own_scope_agent_cannot_raise_a_work_order_against_a_colleagues_property(): void
     {
         $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        // The route group is gated on .view, the store route on .create.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_work_orders.view', 'scope' => 'own']);
         \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_work_orders.create', 'scope' => 'own']);
         \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'properties.view', 'scope' => 'own']);
         \App\Services\PermissionService::clearCache();
