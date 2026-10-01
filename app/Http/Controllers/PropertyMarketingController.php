@@ -294,24 +294,27 @@ class PropertyMarketingController extends Controller
     /**
      * Disconnect (soft-delete) a social account.
      */
-    public function disconnectAccount(Request $request): JsonResponse
+    public function disconnectAccount(Request $request): RedirectResponse
     {
-        $platform = $request->validate([
+        $data = $request->validate([
             'platform' => 'required|in:facebook,instagram',
-        ])['platform'];
+            'return'   => 'nullable|in:portal',
+        ]);
 
         $account = AgentSocialAccount::where('user_id', auth()->id())
-            ->where('platform', $platform)
+            ->where('platform', $data['platform'])
             ->active()
             ->first();
 
+        $back = ($data['return'] ?? null) === 'portal' ? $this->backToSocialCard() : redirect()->back();
+
         if (!$account) {
-            return response()->json(['ok' => false, 'error' => 'Account not found.'], 404);
+            return $back->with('error', 'That account is not connected.');
         }
 
         $account->delete();
 
-        return response()->json(['ok' => true]);
+        return $back->with('success', ucfirst($data['platform']) . ' disconnected.');
     }
 
     /**

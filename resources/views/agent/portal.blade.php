@@ -1237,7 +1237,7 @@
                         </div>
                     </div>
                     @if($fbSocial)
-                    <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">@csrf<input type="hidden" name="platform" value="facebook">
+                    <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">@csrf<input type="hidden" name="platform" value="facebook"><input type="hidden" name="return" value="portal">
                         <button type="submit" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); cursor:pointer;">Disconnect</button>
                     </form>
                     @else
