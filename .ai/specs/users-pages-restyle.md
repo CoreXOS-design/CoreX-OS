@@ -56,8 +56,13 @@ moves *inside the table*, under its row, byte-for-byte the same forms and endpoi
 Tick one or more rows (a header tick-box selects everything currently shown after filtering). A bar
 appears: **"N selected"** · `Resend invitation` · `Deactivate` · clear.
 
-* **Resend invitation** — eligible: active users who have not yet set up their account. Everyone else
+* **Resend invitation** — eligible: anyone who has not yet set up their account (`email_verified_at` is
+  null), whatever their `is_active` — every invitee is inactive until first sign-in. Everyone else
   is skipped with a reason. Sends the same `UserInviteMail` the single action sends.
+* **Per-row Resend (2026-10-01):** every row whose person has not yet set up their account also shows an
+  envelope icon button beside Edit that resends their invitation in one click (same
+  `admin.users.resend-invite` action). The edit page's quick action and Actions-tab "Pending Invite" card
+  use the same rule — they previously required `is_active`, which hid Resend from every real invitee.
 * **Deactivate** — eligible: active users other than the acting admin. Asks for confirmation first
   ("N people will lose access immediately and stop being billed…"). It runs **exactly** the single
   Deactivate's side effects — seat release (`AgentSeatLockService::release`), access revoked, Property24

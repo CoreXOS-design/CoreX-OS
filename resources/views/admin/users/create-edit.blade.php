@@ -258,7 +258,7 @@
         </div>
 
         <div class="ue-panel ue-qa">
-            @if($ueStatus === 'pending')
+            @if(! $user->email_verified_at)
             <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">@csrf
                 <input type="hidden" name="active_tab" value="actions">
                 <button type="submit" class="qa"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>Resend invitation</button>
@@ -988,9 +988,10 @@
         <div x-show="activeTab === 'actions'" x-cloak class="space-y-5">
 
             {{-- Card: Pending Invite (only for users who haven't set up yet) --}}
-            {{-- AT-423 — a sub-user is inactive until their first sign-in, so the card must show for
-                 them regardless of is_active: Resend is their only way to get a fresh set-up link. --}}
-            @if(($user->is_active || $user->isSubUser()) && !$user->email_verified_at)
+            {{-- Every invitee is inactive until their first sign-in (store() creates them with
+                 is_active = false), so the card keys on email_verified_at alone — gating it on
+                 is_active hid Resend from exactly the people it exists for. --}}
+            @if(! $user->email_verified_at)
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
                 <div class="flex items-center gap-2 mb-3">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
