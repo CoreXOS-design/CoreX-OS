@@ -265,6 +265,29 @@ final class UsersLedgerBulkTest extends TestCase
         $this->assertStringContainsString('Deactivate user', $a);
     }
 
+    public function test_resend_invitation_is_offered_to_real_invitees_who_are_still_inactive(): void
+    {
+        // A real invitee is created is_active = false and stays so until first sign-in —
+        // the list used to show them as "Inactive" with no way to resend.
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $invitee     = $this->agent($agencyId, ['is_active' => 0, 'email_verified_at' => null]);
+        $deactivated = $this->agent($agencyId, ['is_active' => 0]);
+
+        $list = $this->actingAs($admin)->get(route('admin.users'))->assertOk()->getContent();
+        $this->assertStringContainsString(route('admin.users.resend-invite', $invitee), $list);
+        $this->assertStringNotContainsString(route('admin.users.resend-invite', $deactivated), $list);
+
+        $i = $this->actingAs($admin)->get(route('admin.users.edit', $invitee))->assertOk()->getContent();
+        $d = $this->actingAs($admin)->get(route('admin.users.edit', $deactivated))->assertOk()->getContent();
+        $this->assertStringContainsString('>Resend invitation</button>', $i);
+        $this->assertStringContainsString('This user has not yet set up their password.', $i);
+        $this->assertStringNotContainsString(route('admin.users.resend-invite', $deactivated), $d);
+
+        Mail::fake();
+        $this->actingAs($admin)->post(route('admin.users.resend-invite', $invitee))->assertRedirect();
+        Mail::assertSent(UserInviteMail::class, fn ($m) => $m->hasTo($invitee->email));
+    }
+
     public function test_create_page_has_no_profile_panel_and_keeps_its_form_checkboxes(): void
     {
         [, $admin] = $this->agencyWithAdmin();
