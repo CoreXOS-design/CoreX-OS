@@ -12,6 +12,7 @@ use App\Services\MetaOAuthService;
 use App\Services\MetaPublishingService;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -193,7 +194,7 @@ class PropertyMarketingController extends Controller
         $state       = $request->query('state');
 
         if ((!$code && !$accessToken) || !$state) {
-            return redirect()->route('agent.portal')
+            return $this->backToSocialCard()
                 ->with('error', 'Meta OAuth was cancelled or failed.');
         }
 
@@ -207,7 +208,7 @@ class PropertyMarketingController extends Controller
                 : $this->oauthService->exchangeCodeForPages($code, $state);
 
             if ((int) $pagesData['user_id'] !== (int) auth()->id()) {
-                return redirect()->route('agent.portal')
+                return $this->backToSocialCard()
                     ->with('error', 'Meta OAuth session mismatch. Please try connecting again.');
             }
 
@@ -219,7 +220,7 @@ class PropertyMarketingController extends Controller
                     $pagesData['pages'],
                 );
 
-                return redirect()->route('agent.portal')
+                return $this->backToSocialCard()
                     ->with('success', 'Social account connected successfully.');
             }
 
@@ -231,7 +232,7 @@ class PropertyMarketingController extends Controller
             return redirect()->route('corex.social.oauth.choose-page');
         } catch (\Throwable $e) {
             Log::error('PropertyMarketingController::oauthCallback failed: ' . $e->getMessage());
-            return redirect()->route('agent.portal')
+            return $this->backToSocialCard()
                 ->with('error', 'Connection failed: ' . $e->getMessage());
         }
     }
@@ -246,7 +247,7 @@ class PropertyMarketingController extends Controller
         $pages    = session('meta_oauth_pages');
 
         if (!$platform || !$pages) {
-            return redirect()->route('agent.portal')
+            return $this->backToSocialCard()
                 ->with('error', 'Your Meta connection session expired. Please connect again.');
         }
 
@@ -264,7 +265,7 @@ class PropertyMarketingController extends Controller
         $pages    = session('meta_oauth_pages');
 
         if (!$platform || !$pages) {
-            return redirect()->route('agent.portal')
+            return $this->backToSocialCard()
                 ->with('error', 'Your Meta connection session expired. Please connect again.');
         }
 
@@ -272,13 +273,22 @@ class PropertyMarketingController extends Controller
             $this->oauthService->connectPage(auth()->id(), $platform, $pageId, $pages);
             session()->forget(['meta_oauth_platform', 'meta_oauth_pages']);
 
-            return redirect()->route('agent.portal')
+            return $this->backToSocialCard()
                 ->with('success', 'Social account connected successfully.');
         } catch (\Throwable $e) {
             Log::error('PropertyMarketingController::oauthChoosePage failed: ' . $e->getMessage());
-            return redirect()->route('agent.portal')
+            return $this->backToSocialCard()
                 ->with('error', 'Connection failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * The Social Media card lives under My Portal → Tools → Social Media; a
+     * bare portal redirect lands on Overview and hides the connect result.
+     */
+    private function backToSocialCard(): RedirectResponse
+    {
+        return redirect(route('agent.portal', ['pane' => 'social']) . '#tools');
     }
 
     /**

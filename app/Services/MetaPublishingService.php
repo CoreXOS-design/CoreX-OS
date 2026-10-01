@@ -207,26 +207,32 @@ class MetaPublishingService
             $accessToken = $account->access_token;
 
             if ($post->platform === 'facebook') {
-                $metrics  = 'post_impressions,post_impressions_unique,post_reactions_like_total,post_comments,post_shares,post_clicks';
-                $response = $this->http->get(self::GRAPH_BASE . '/' . $postId . '/insights', [
-                    'query' => [
-                        'metric'       => $metrics,
-                        'access_token' => $accessToken,
-                    ],
+                // Likes/comments/shares are fields on the post object itself
+                // (pages_read_engagement). The /insights edge (read_insights)
+                // only carries reach-type metrics and rejects the WHOLE request
+                // if any metric name is unknown — post_comments / post_shares
+                // never existed there, so one combined call always 400'd.
+                $object = $this->graphGet($postId, [
+                    'fields'       => 'shares,comments.summary(true).limit(0),likes.summary(true).limit(0)',
+                    'access_token' => $accessToken,
                 ]);
 
-                $data    = json_decode($response->getBody()->getContents(), true);
-                $byName  = [];
-                foreach ($data['data'] ?? [] as $metric) {
+                $insights = $this->graphGet($postId . '/insights', [
+                    'metric'       => 'post_impressions,post_impressions_unique,post_clicks',
+                    'access_token' => $accessToken,
+                ]);
+
+                $byName = [];
+                foreach ($insights['data'] ?? [] as $metric) {
                     $byName[$metric['name']] = $metric['values'][0]['value'] ?? 0;
                 }
 
                 return [
                     'impressions' => (int) ($byName['post_impressions'] ?? 0),
                     'reach'       => (int) ($byName['post_impressions_unique'] ?? 0),
-                    'likes'       => (int) ($byName['post_reactions_like_total'] ?? 0),
-                    'comments'    => (int) ($byName['post_comments'] ?? 0),
-                    'shares'      => (int) ($byName['post_shares'] ?? 0),
+                    'likes'       => (int) ($object['likes']['summary']['total_count'] ?? 0),
+                    'comments'    => (int) ($object['comments']['summary']['total_count'] ?? 0),
+                    'shares'      => (int) ($object['shares']['count'] ?? 0),
                     'link_clicks' => (int) ($byName['post_clicks'] ?? 0),
                 ];
             } else {
@@ -258,5 +264,25 @@ class MetaPublishingService
             Log::error('MetaPublishingService::fetchPostInsights failed for post ' . $post->id . ': ' . $e->getMessage());
             throw new \RuntimeException('Failed to fetch post insights: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Guzzle's default 4xx exception text embeds the full request URL — access
+     * token included — so it must never reach a log line or the UI.
+     */
+    private function graphGet(string $path, array $query): array
+    {
+        $response = $this->http->get(self::GRAPH_BASE . '/' . $path, [
+            'query'       => $query,
+            'http_errors' => false,
+        ]);
+
+        $data = json_decode($response->getBody()->getContents(), true) ?? [];
+
+        if (isset($data['error'])) {
+            throw new \RuntimeException('Facebook: ' . ($data['error']['message'] ?? 'unknown error'));
+        }
+
+        return $data;
     }
 }

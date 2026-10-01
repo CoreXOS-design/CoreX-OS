@@ -26,7 +26,7 @@
 <div class="w-full space-y-5"
      x-data="{
         tab: (window.location.hash || '#overview').replace('#', ''),
-        sub: { overview: '{{ ($isAssistant ?? false) ? 'compliance' : 'earnings' }}', profile: '{{ $portalProfileSub }}', favourites: 'intro', tools: 'theme', documents: '', training: 'rmcp', password: 'update' },
+        sub: { overview: '{{ ($isAssistant ?? false) ? 'compliance' : 'earnings' }}', profile: '{{ $portalProfileSub }}', favourites: 'intro', tools: '{{ request('pane') === 'social' ? 'social' : 'theme' }}', documents: '', training: 'rmcp', password: 'update' },
         setTab(t) { this.tab = t; history.replaceState(null, '', '#' + t); }
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
@@ -1230,6 +1230,7 @@
                             <div style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">Facebook</div>
                             @if($fbSocial)
                             <span class="ds-badge ds-badge-success">Connected</span>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">{{ $fbSocial->platform_page_name }}</div>
                             @else
                             <span class="ds-badge ds-badge-default">Not Connected</span>
                             @endif
@@ -1979,7 +1980,7 @@
                     + '&access_token=' + encodeURIComponent(response.authResponse.accessToken)
                     + '&state=' + encodeURIComponent(state);
             } else {
-                window.location.href = '{{ route('agent.portal') }}?tab=user';
+                window.location.href = '{{ route('agent.portal', ['pane' => 'social']) }}#tools';
             }
         }, {
             config_id: configId,
