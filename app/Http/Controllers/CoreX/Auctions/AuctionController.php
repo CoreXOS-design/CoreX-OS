@@ -219,23 +219,7 @@ class AuctionController extends Controller
      */
     private function attachPropertyAsLot(Auction $auction, Property $property, array $priceFields): AuctionLot
     {
-        $nextLotNumber = (int) ($auction->lots()->max('lot_number') ?? 0) + 1;
-
-        $lot = AuctionLot::create([
-            'agency_id' => $auction->agency_id,
-            'auction_id' => $auction->id,
-            'property_id' => $property->id,
-            'lot_number' => $nextLotNumber,
-            'reserve_price' => $priceFields['reserve_price'] ?? null,
-            'guide_price_min' => $priceFields['guide_price_min'] ?? null,
-            'guide_price_max' => $priceFields['guide_price_max'] ?? null,
-            'opening_bid' => $priceFields['opening_bid'] ?? null,
-        ]);
-
-        $property->sale_method = 'auction';
-        $property->save();
-
-        return $lot;
+        return app(\App\Services\Auctions\AuctionLotAttacher::class)->attach($auction, $property, $priceFields);
     }
 
     /** Only a lot that never catalogued may be removed here — a published lot is withdrawn instead (AuctionLotController). */

@@ -1983,10 +1983,42 @@
                             <div>
                                 <label class="prop-label">Listing Type</label>
                                 @if($isNew || $property->listing_type_pending)
-                                    <select name="listing_type" class="prop-select prop-field-enum">
+                                    @php
+                                        // AT-432 — third choice, only for a brand-new property on an agency with Auctions on.
+                                        $auctionChoiceOpen = $isNew && ! $property->listing_type_pending
+                                            && app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', auth()->user()->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null)
+                                            && auth()->user()->hasPermission('auctions.create');
+                                        $openAuctions = $auctionChoiceOpen ? \App\Services\Auctions\AuctionLotAttacher::openAuctions() : collect();
+                                    @endphp
+                                    <select name="listing_type" class="prop-select prop-field-enum" id="prop-listing-type">
                                         <option value="sale"   {{ old('listing_type', $property->listing_type ?? 'sale') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                                         <option value="rental" {{ old('listing_type', $property->listing_type ?? 'sale') === 'rental' ? 'selected' : '' }}>For Rental</option>
+                                        @if($auctionChoiceOpen)
+                                        <option value="auction" {{ old('listing_type') === 'auction' ? 'selected' : '' }}>On Auction</option>
+                                        @endif
                                     </select>
+                                    @if($auctionChoiceOpen)
+                                    <div id="prop-auction-pick" style="display:none;" class="mt-2">
+                                        <label class="prop-label">Which auction?</label>
+                                        <select name="auction_id" class="prop-select prop-field-enum">
+                                            <option value="">Select an auction…</option>
+                                            @foreach($openAuctions as $oa)
+                                            <option value="{{ $oa->id }}" {{ (string) old('auction_id') === (string) $oa->id ? 'selected' : '' }}>{{ $oa->reference }} — {{ $oa->title }} ({{ $oa->starts_at?->format('d M Y') }})</option>
+                                            @endforeach
+                                        </select>
+                                        @if($openAuctions->isEmpty())
+                                        <p class="mt-1 text-xs" style="color:var(--text-muted);">There is no upcoming auction yet. <a href="{{ route('corex.auctions.create') }}" class="underline">Create the auction first</a>, then come back.</p>
+                                        @endif
+                                    </div>
+                                    <script>
+                                        (function () {
+                                            var lt = document.getElementById('prop-listing-type'), box = document.getElementById('prop-auction-pick');
+                                            if (!lt || !box) return;
+                                            var sync = function () { box.style.display = lt.value === 'auction' ? 'block' : 'none'; };
+                                            lt.addEventListener('change', sync); sync();
+                                        })();
+                                    </script>
+                                    @endif
                                     <p class="mt-1 text-xs" style="color:var(--text-muted);">
                                         @if($property->listing_type_pending)
                                             Draft copy — set the type and complete the details. Locks on first save.

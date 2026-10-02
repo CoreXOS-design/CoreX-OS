@@ -5,7 +5,7 @@
 @endphp
 
 @section('corex-content')
-<div class="w-full h-full flex flex-col p-6 gap-6 max-w-4xl">
+<div class="corex-auctions w-full h-full flex flex-col p-6 gap-6 max-w-4xl">
     <h1 class="text-xl font-semibold">Settings — Auctions</h1>
     <p class="text-sm text-gray-500">.ai/specs/auctions.md §4 — who runs your auctions, where bidding happens, and how the agency is paid.</p>
 

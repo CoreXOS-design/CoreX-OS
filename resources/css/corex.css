@@ -3414,3 +3414,49 @@ html.dark .corex-template-card {
 }
 
 /* End AT-336 restyle block */
+
+/* ============================================================
+   Auctions (AT-432) — staff screens.
+   These views were built with plain Tailwind greys/greens and a
+   `.corex-input` class that never existed, so they rendered as a
+   light, unstyled island inside the themed app. Scoped to the
+   `.corex-auctions` page wrapper so nothing else (the dr2 views also
+   reference .corex-input) changes. Every colour is a theme variable,
+   so light and dark both follow the app.
+   ============================================================ */
+.corex-auctions { color: var(--text-primary); }
+.corex-auctions h1, .corex-auctions h2, .corex-auctions h3 { color: var(--text-primary); }
+.corex-auctions .text-gray-400, .corex-auctions .text-gray-500, .corex-auctions .text-gray-600 { color: var(--text-muted); }
+.corex-auctions .text-gray-700, .corex-auctions .text-gray-800 { color: var(--text-secondary); }
+.corex-auctions .bg-gray-50, .corex-auctions .hover\:bg-gray-50:hover { background: var(--surface-2); }
+.corex-auctions .border, .corex-auctions .border-b, .corex-auctions .border-t,
+.corex-auctions .border-gray-100, .corex-auctions .border-gray-200 { border-color: var(--border); }
+.corex-auctions .bg-green-50 { background: rgba(16,185,129,0.12); }
+.corex-auctions .text-green-800 { color: #34d399; }
+.corex-auctions .bg-red-50 { background: rgba(239,68,68,0.12); }
+.corex-auctions .text-red-800 { color: #f87171; }
+.corex-auctions .bg-amber-50, .corex-auctions .bg-yellow-50 { background: rgba(245,158,11,0.12); }
+.corex-auctions .text-amber-800, .corex-auctions .text-yellow-800 { color: #fbbf24; }
+.corex-auctions .bg-blue-50 { background: rgba(59,130,246,0.12); }
+.corex-auctions .text-blue-800 { color: #60a5fa; }
+.corex-auctions .bg-white { background: var(--surface); }
+.corex-auctions .corex-input,
+.corex-auctions input[type="text"], .corex-auctions input[type="number"], .corex-auctions input[type="date"],
+.corex-auctions input[type="datetime-local"], .corex-auctions input[type="email"], .corex-auctions input[type="url"],
+.corex-auctions input[type="file"], .corex-auctions select, .corex-auctions textarea {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    color: var(--text-primary);
+    padding: 0.4rem 0.625rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+}
+.corex-auctions .corex-input:focus, .corex-auctions input:focus, .corex-auctions select:focus, .corex-auctions textarea:focus {
+    outline: none;
+    border-color: var(--brand-button, #0ea5e9);
+    box-shadow: 0 0 0 1px var(--brand-button, #0ea5e9);
+}
+.corex-auctions table th { font-weight: 600; text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; }
+.corex-auctions table td { padding: 0.5rem 0.75rem 0.5rem 0; }
+.corex-auctions table tr { border-color: var(--border); }

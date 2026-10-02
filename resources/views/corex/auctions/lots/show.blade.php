@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full h-full flex flex-col p-6 gap-6 max-w-3xl">
+<div class="corex-auctions w-full h-full flex flex-col p-6 gap-6 max-w-3xl">
     <div>
         <a href="{{ route('corex.auctions.show', $lot->auction) }}" class="text-sm text-gray-500 underline">&larr; {{ $lot->auction->title }}</a>
         <h1 class="text-xl font-semibold">Lot {{ $lot->lot_number }} — {{ $lot->property?->buildDisplayAddress() ?? ('Property #'.$lot->property_id) }}</h1>

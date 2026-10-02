@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full h-full flex flex-col p-6 gap-6">
+<div class="corex-auctions w-full h-full flex flex-col p-6 gap-6">
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-xl font-semibold">{{ $auction->title }}</h1>

@@ -962,6 +962,21 @@ class PropertyController extends Controller
         /** @var User $user */
         $user = auth()->user();
 
+        // AT-432 — "On Auction" is a third choice in the Listing Type picker
+        // (spec §2.1). It is stored as a SALE listing with sale_method='auction';
+        // the chosen auction takes the property as a lot once it exists.
+        $auctionChoice = $request->input('listing_type') === 'auction';
+        $chosenAuction = null;
+        if ($auctionChoice) {
+            abort_unless($user->hasPermission('auctions.create'), 403);
+            $request->validate(['auction_id' => 'required|integer']);
+            $chosenAuction = \App\Models\Auction::find((int) $request->input('auction_id'));
+            if (! $chosenAuction) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['auction_id' => 'Pick the auction this property is going into.']);
+            }
+            $request->merge(['listing_type' => 'sale']);
+        }
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
@@ -1303,6 +1318,10 @@ class PropertyController extends Controller
 
             return $property;
         });
+
+        if ($chosenAuction) {
+            app(\App\Services\Auctions\AuctionLotAttacher::class)->attach($chosenAuction, $property);
+        }
 
         // The create form falls back to an AJAX submit when it carries more
         // gallery images than PHP's max_file_uploads cap (default 20): the

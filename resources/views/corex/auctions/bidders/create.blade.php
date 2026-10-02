@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full h-full flex flex-col p-6 gap-4 max-w-2xl">
+<div class="corex-auctions w-full h-full flex flex-col p-6 gap-4 max-w-2xl">
     <div>
         <a href="{{ route('corex.auctions.bidders.index', $auction) }}" class="text-sm text-gray-500 underline">&larr; Bidder Register</a>
         <h1 class="text-xl font-semibold">Register a Bidder — {{ $auction->title }}</h1>

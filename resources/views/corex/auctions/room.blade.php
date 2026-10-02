@@ -1,7 +1,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full h-full flex flex-col p-4 gap-4">
+<div class="corex-auctions w-full h-full flex flex-col p-4 gap-4">
     <div class="flex items-center justify-between">
         <div>
             <a href="{{ route('corex.auctions.show', $auction) }}" class="text-sm text-gray-500 underline">&larr; {{ $auction->title }}</a>

@@ -65,6 +65,9 @@ class PropertyWizardController extends Controller
         $draftPrefill = $draft ? [
             // Step 1
             'listing_type'       => $draft->listing_type,
+            // AT-432 — a draft already placed in an auction resumes as "On Auction".
+            'sale_method'        => $draft->isAuction() ? 'auction' : 'private_treaty',
+            'auction_id'         => $draft->isAuction() ? ($draft->currentAuctionLot()?->auction_id) : null,
             'title'              => $draft->title,
             'property_type'      => $draft->property_type,
             'price'              => $draft->price,
@@ -165,6 +168,8 @@ class PropertyWizardController extends Controller
         $data = $request->validate([
             'property_id'     => 'nullable|integer',   // set when resuming/editing an existing draft (AT-210)
             'listing_type'    => 'required|string|in:sale,rental',
+            'sale_method'     => 'nullable|string|in:private_treaty,auction',   // AT-432
+            'auction_id'      => 'nullable|integer',                            // AT-432
             'property_type'   => 'required|string|max:50',
             'suburb'          => 'nullable|string|max:100',
             'city'            => 'nullable|string|max:100',
@@ -195,6 +200,22 @@ class PropertyWizardController extends Controller
 
         $contactId = $data['contact_id'] ?? null;
         unset($data['contact_id']);
+
+        // AT-432 — "On Auction" (spec §2.1). Never written straight onto the
+        // property: sale_method only flips together with a real lot (see
+        // AuctionLotAttacher), so pull both fields out of $data here and apply
+        // them after the property exists.
+        $wantsAuction = ($data['sale_method'] ?? null) === 'auction' && ($data['listing_type'] ?? null) === 'sale';
+        $auctionId = $data['auction_id'] ?? null;
+        unset($data['sale_method'], $data['auction_id']);
+        $chosenAuction = null;
+        if ($wantsAuction) {
+            abort_unless($user->hasPermission('auctions.create'), 403);
+            $chosenAuction = $auctionId ? \App\Models\Auction::find((int) $auctionId) : null;
+            if (! $chosenAuction) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['auction_id' => 'Pick the auction this property is going into.']);
+            }
+        }
 
         $draftId = $data['property_id'] ?? null;
         unset($data['property_id']);
@@ -251,6 +272,24 @@ class PropertyWizardController extends Controller
                     actorUserId: $user->id,
                 ));
             }
+        }
+
+        // AT-432 — apply the auction choice now the property exists.
+        $attacher = app(\App\Services\Auctions\AuctionLotAttacher::class);
+        $currentLot = $property->currentAuctionLot();
+        if ($chosenAuction) {
+            if (! $currentLot) {
+                $attacher->attach($chosenAuction, $property);
+            } elseif ((int) $currentLot->auction_id !== (int) $chosenAuction->id && $currentLot->status === \App\Models\AuctionLot::STATUS_DRAFT) {
+                // Resumed draft, auction changed before publishing — move the lot.
+                $currentLot->delete();
+                $attacher->attach($chosenAuction, $property);
+            }
+        } elseif ($currentLot && $currentLot->status === \App\Models\AuctionLot::STATUS_DRAFT && $existing) {
+            // Resumed draft switched back to a normal sale — drop the unpublished lot.
+            $currentLot->delete();
+            $property->sale_method = 'private_treaty';
+            $property->save();
         }
 
         // Link the originating contact as the seller side of the listing
