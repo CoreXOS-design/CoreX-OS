@@ -239,13 +239,19 @@
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
+        ] : (($isAuctionEntry ?? false) ? [
+            // AT-432 — Auctions lens: the statuses that matter for auction stock.
+            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
+            ['label' => 'On Auction',  'value' => $stats['onAuction'],   'filter' => \App\Models\Property::STATUS_ON_AUCTION],
+            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
+            ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
         ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
-        ];
+        ]);
         $currentStatus = $status ?? '';
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
@@ -377,7 +383,12 @@
                  mislabelled — no rental-equivalent status exists for either today. --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
-                @if($isRentalEntry ?? false)
+                @if($isAuctionEntry ?? false)
+                <option value="{{ \App\Models\Property::STATUS_ON_AUCTION }}" {{ $status === \App\Models\Property::STATUS_ON_AUCTION ? 'selected' : '' }}>On Auction</option>
+                <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
+                <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
+                <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @elseif($isRentalEntry ?? false)
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>Available</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -402,7 +413,27 @@
                  server-side whenever isRentalEntry is true, regardless of
                  what this control (or a hand-edited URL) says, so a static
                  label here is honest, not merely decorative. --}}
-            @if($isRentalEntry ?? false)
+            @if($isAuctionEntry ?? false)
+                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows auction properties only">Auctions only</span>
+                {{-- AT-432 (§8.2) — lens-only filters: which auction, lot status, reserve met. --}}
+                <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction">
+                    <option value="">All auctions</option>
+                    @foreach($auctionOptions as $ao)
+                    <option value="{{ $ao->id }}" {{ $auctionFilters['auctionId'] === (string) $ao->id ? 'selected' : '' }}>{{ $ao->reference }} — {{ $ao->title }} ({{ $ao->starts_at?->format('d M Y') }})</option>
+                    @endforeach
+                </select>
+                <select name="lot_status" onchange="this.form.submit()" class="list-header-filter" title="Lot status">
+                    <option value="">Any lot status</option>
+                    @foreach($lotStatusLabels as $slug => $label)
+                    <option value="{{ $slug }}" {{ $auctionFilters['lotStatus'] === (string) $slug ? 'selected' : '' }}>{{ $label }}</option>
+                    @endforeach
+                </select>
+                <select name="reserve_met" onchange="this.form.submit()" class="list-header-filter" title="Reserve">
+                    <option value="">Reserve: any</option>
+                    <option value="1" {{ $auctionFilters['reserveMet'] === '1' ? 'selected' : '' }}>Reserve met</option>
+                    <option value="0" {{ $auctionFilters['reserveMet'] === '0' ? 'selected' : '' }}>Reserve not met</option>
+                </select>
+            @elseif($isRentalEntry ?? false)
                 <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
             @else
                 <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
@@ -422,6 +453,10 @@
                 <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
                 <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
                 <option value="title"      {{ ($filters['sort'] ?? '') === 'title'      ? 'selected' : '' }}>Title (A–Z)</option>
+                @if($isAuctionEntry ?? false)
+                <option value="lot_number" {{ ($filters['sort'] ?? '') === 'lot_number' ? 'selected' : '' }}>Lot number</option>
+                <option value="auction_date" {{ ($filters['sort'] ?? '') === 'auction_date' ? 'selected' : '' }}>Auction date</option>
+                @endif
             </select>
 
             {{-- More filters toggle --}}
@@ -952,6 +987,8 @@
                 </div>
                 @endif
 
+                @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
+
                 {{-- Property type + features row --}}
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs" style="color:var(--text-secondary);">
                     <span class="capitalize">{{ str_replace('_', ' ', $property->property_type) }}</span>
@@ -1154,6 +1191,7 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
                         {{ $property->buildDisplayAddress() }}
+                        @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
                         {{ str_replace('_', ' ', $property->property_type) }}

@@ -176,6 +176,9 @@ class PropertyController extends Controller
             'agent', 'branch', 'secondAgent',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
         ]);
+        if ($isAuctionEntry) {
+            $query->with('auctionLots.auction');
+        }
 
         // AT-419 — the two pages partition every property between them: Imported
         // Stock gets P24-imported off-market rows, Properties gets everything
@@ -365,7 +368,9 @@ class PropertyController extends Controller
             // aggregate every other tile already uses, so this tile can never
             // disagree with the filtered list: "whatever filters the list
             // must also filter every count, badge and tile."
-            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
+            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting,"
+            // AT-432 — Auctions lens "On Auction" tile (same clone-of-$query rule).
+            . " SUM(CASE WHEN status = '" . Property::STATUS_ON_AUCTION . "' THEN 1 ELSE 0 END) as on_auction"
         )->first();
         $stats = [
             'total'      => (int) ($agg->total ?? 0),
@@ -374,6 +379,7 @@ class PropertyController extends Controller
             'sold'       => (int) ($agg->sold ?? 0),
             'rentedOut'  => (int) ($agg->rented_out ?? 0),
             'prospecting'=> (int) ($agg->prospecting ?? 0),
+            'onAuction'  => (int) ($agg->on_auction ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -432,6 +438,18 @@ class PropertyController extends Controller
             } else {
                 $query->orderByDesc('created_at');
             }
+        } elseif ($isAuctionEntry && in_array($sort, ['lot_number', 'auction_date'], true)) {
+            // AT-432 (§8.2) — sort by lot number / auction date. Correlated
+            // sub-selects over the property's live (non-deleted) lots; a property
+            // with no lot sorts last either way. $dir is already whitelisted.
+            $concluded = "'" . implode("','", \App\Models\AuctionLot::CONCLUDED_STATUSES) . "'";
+            $expr = $sort === 'lot_number'
+                ? "(SELECT MIN(al.lot_number) FROM auction_lots al WHERE al.property_id = properties.id AND al.deleted_at IS NULL AND al.status NOT IN ($concluded))"
+                : "(SELECT MIN(a.starts_at) FROM auction_lots al JOIN auctions a ON a.id = al.auction_id WHERE al.property_id = properties.id AND al.deleted_at IS NULL AND a.deleted_at IS NULL)";
+            $query->select('properties.*')
+                  ->orderByRaw("$expr IS NULL")
+                  ->orderByRaw("$expr " . ($dir === 'asc' ? 'asc' : 'desc'))
+                  ->orderByDesc('properties.created_at');
         } elseif (isset($sortableColumns[$sort])) {
             $query->orderBy($sortableColumns[$sort], $dir);
         } else {
@@ -558,6 +576,20 @@ class PropertyController extends Controller
             'bedsMin', 'bathsMin', 'sort'
         );
 
+        // AT-432 — lens-only filter controls (§8.2): which auction, lot status, reserve met.
+        $isAuctionEntry = $isAuctionEntry ?? false;
+        $auctionFilters = [
+            'auctionId' => (string) $auctionIdFilter,
+            'lotStatus' => (string) $lotStatusFilter,
+            'reserveMet' => (string) $reserveMetFilter,
+        ];
+        $auctionOptions = $isAuctionEntry
+            ? \App\Models\Auction::query()->orderByDesc('starts_at')->get(['id', 'reference', 'title', 'starts_at'])
+            : collect();
+        $lotStatusLabels = $isAuctionEntry
+            ? PropertySettingItem::auctionLotStatusLabelsFor((int) ($user?->effectiveAgencyId() ?? 0))
+            : [];
+
         $scope = $viewScope;
 
         $currentSort = $sort;
@@ -567,7 +599,8 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName'
+            'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
+            'isAuctionEntry', 'auctionFilters', 'auctionOptions', 'lotStatusLabels'
         ));
     }
 
