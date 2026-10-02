@@ -36,6 +36,8 @@ final class AuctionBidderApprovalTest extends TestCase
         PermissionService::clearCache();
 
         $this->agency = Agency::create(['name' => 'Bidder Test Agency', 'slug' => 'bidder-test-'.uniqid()]);
+        // These tests cover CoreX running the sale — advertising-only (the default) switches it off.
+        \App\Models\AgencyAuctionSettings::updateOrCreate(['agency_id' => $this->agency->id], ['advertising_only' => false]);
         $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
         $this->user = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
 

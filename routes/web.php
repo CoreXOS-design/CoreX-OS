@@ -4053,6 +4053,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/lots/{lot}/open-for-bids', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openForBids'])->middleware('permission:auctions.edit')->name('lots.open');
         Route::post('/lots/{lot}/start-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'startHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.start');
         Route::post('/lots/{lot}/record-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'recordHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.record');
+        Route::post('/lots/{lot}/record-result', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'recordResult'])->middleware('permission:auctions.edit')->name('lots.record-result');
         Route::post('/lots/{lot}/confirm', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'confirm'])->middleware('permission:auctions.edit')->name('lots.confirm');
         Route::post('/lots/{lot}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'decline'])->middleware('permission:auctions.edit')->name('lots.decline');
         Route::post('/lots/{lot}/passed-in', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'passedIn'])->middleware('permission:auctions.edit')->name('lots.passed-in');
@@ -4067,22 +4068,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-432 Phase 2 (.ai/specs/auctions.md §7 screens 5-6, §10.2) — the
         // Bidder Register and staff-side registration/approval. The register
         // is always OF an auction (§8.3), so it's nested under {auction}.
-        Route::prefix('{auction}/bidders')->middleware('permission:auctions.bidders.view')->name('bidders.')->group(function () {
+        Route::prefix('{auction}/bidders')->middleware(['permission:auctions.bidders.view', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.')->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'index'])->name('index');
             Route::get('/create', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'create'])->middleware('permission:auctions.bidders.approve')->name('create');
             Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'store'])->middleware('permission:auctions.bidders.approve')->name('store');
         });
-        Route::get('/bidders/{bidder}', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'show'])->middleware('permission:auctions.bidders.view')->name('bidders.show');
-        Route::post('/bidders/{bidder}/verify-fica', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'verifyFica'])->middleware('permission:auctions.bidders.verify_fica')->name('bidders.verify-fica');
-        Route::post('/bidders/{bidder}/deposit', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'recordDeposit'])->middleware('permission:auctions.bidders.deposits')->name('bidders.deposit');
-        Route::post('/bidders/{bidder}/deposit/refund', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'refundDeposit'])->middleware('permission:auctions.bidders.deposits')->name('bidders.deposit.refund');
-        Route::post('/bidders/{bidder}/rules-signed', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'markRulesSigned'])->middleware('permission:auctions.bidders.approve')->name('bidders.rules-signed');
-        Route::post('/bidders/{bidder}/approve', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'approve'])->middleware('permission:auctions.bidders.approve')->name('bidders.approve');
-        Route::post('/bidders/{bidder}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'decline'])->middleware('permission:auctions.bidders.approve')->name('bidders.decline');
-        Route::post('/bidders/{bidder}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'withdraw'])->middleware('permission:auctions.bidders.approve')->name('bidders.withdraw');
+        Route::get('/bidders/{bidder}', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'show'])->middleware(['permission:auctions.bidders.view', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.show');
+        Route::post('/bidders/{bidder}/verify-fica', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'verifyFica'])->middleware(['permission:auctions.bidders.verify_fica', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.verify-fica');
+        Route::post('/bidders/{bidder}/deposit', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'recordDeposit'])->middleware(['permission:auctions.bidders.deposits', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.deposit');
+        Route::post('/bidders/{bidder}/deposit/refund', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'refundDeposit'])->middleware(['permission:auctions.bidders.deposits', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.deposit.refund');
+        Route::post('/bidders/{bidder}/rules-signed', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'markRulesSigned'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.rules-signed');
+        Route::post('/bidders/{bidder}/approve', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'approve'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.approve');
+        Route::post('/bidders/{bidder}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'decline'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.decline');
+        Route::post('/bidders/{bidder}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'withdraw'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.withdraw');
 
         // AT-432 Phase 3 (.ai/specs/auctions.md §7 screen 7, §11.1) — the Sale Room.
-        Route::prefix('{auction}/room')->middleware('permission:auctions.room.operate')->name('room.')->group(function () {
+        Route::prefix('{auction}/room')->middleware(['permission:auctions.room.operate', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('room.')->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'show'])->name('show');
             Route::post('/lots/{lot}/open', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'openForBids'])->name('open');
             Route::post('/lots/{lot}/hammer/start', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'startHammer'])->name('hammer.start');
@@ -5263,6 +5264,18 @@ Route::prefix('register-to-bid')->group(function () {
     Route::get('/{auction}', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'show'])->name('public.auctions.register.show');
     Route::post('/{auction}', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'store'])->middleware('throttle:auction-registration-submit')->name('public.auctions.register.store');
     Route::get('/{auction}/thanks', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'thanks'])->name('public.auctions.register.thanks');
+});
+
+// ===== AT-432 PUBLIC AUCTION ADVERT (no auth) =====
+// .ai/specs/auctions-advertising-mode.md §4 — the public page for a published
+// auction catalogue, each lot, the Rules/Conditions PDFs, and the enquiry form.
+// Keyed by the auction's id like register-to-bid above (public once published);
+// every action is throttled.
+Route::prefix('auction-catalogue')->middleware('throttle:60,1')->group(function () {
+    Route::get('/{auction}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'show'])->name('public.auctions.show');
+    Route::get('/{auction}/lots/{lot}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'lotPage'])->name('public.auctions.lot');
+    Route::get('/{auction}/documents/{kind}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'document'])->name('public.auctions.document');
+    Route::post('/{auction}/lots/{lot}/enquire', [\App\Http\Controllers\Public\AuctionPublicController::class, 'enquire'])->middleware('throttle:10,1')->name('public.auctions.enquire');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

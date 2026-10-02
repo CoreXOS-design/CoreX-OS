@@ -8,12 +8,17 @@
             <p class="text-sm text-gray-500">{{ $auction->reference }} · {{ ucwords(str_replace('_', ' ', $auction->status)) }} · {{ $auction->starts_at?->format('d M Y H:i') }}</p>
         </div>
         <div class="flex gap-2">
+            @if($auction->isCataloguePublished())
+            <a href="{{ route('public.auctions.show', $auction->id) }}" target="_blank" class="corex-btn-outline">View public page</a>
+            @endif
+            @if(! $advertisingOnly)
             @permission('auctions.bidders.view')
             <a href="{{ route('corex.auctions.bidders.index', $auction) }}" class="corex-btn-outline">Bidder Register</a>
             @endpermission
             @permission('auctions.room.operate')
             <a href="{{ route('corex.auctions.room.show', $auction) }}" class="corex-btn-outline">Sale Room</a>
             @endpermission
+            @endif
             @permission('auctions.edit')
             <a href="{{ route('corex.auctions.edit', $auction) }}" class="corex-btn-outline">Edit</a>
             @endpermission
@@ -27,7 +32,11 @@
     </div>
 
     @if(session('status'))<div class="rounded bg-green-50 text-green-800 px-4 py-2 text-sm">{{ session('status') }}</div>@endif
-    @if($errors->any())<div class="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{{ $errors->first() }}</div>@endif
+    @if($errors->any())<div class="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{{ $errors->first() }}
+        @if(session('publish_blockers'))
+        <ul class="list-disc ml-5 mt-1">@foreach(session('publish_blockers') as $b)<li>{{ $b }}</li>@endforeach</ul>
+        @endif
+    </div>@endif
 
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
         <div><span class="text-gray-500">Bidding mode</span><br>{{ ucfirst(str_replace('_', ' ', $auction->bidding_mode)) }}</div>

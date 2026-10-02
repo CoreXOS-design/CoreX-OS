@@ -50,9 +50,26 @@ class AuctionRegistrationController extends Controller
         return $auction;
     }
 
-    public function show(int $auction): View
+    /**
+     * Advertising-only mode: CoreX does not take bidder registrations, so the
+     * form is closed server-side. An old link lands on the auctioneer's own
+     * registration page if one was given, else on the public auction advert.
+     */
+    private function advertisingRedirect(Auction $auction): ?RedirectResponse
+    {
+        if (! AgencyAuctionSettings::advertisingOnlyFor((int) $auction->agency_id)) {
+            return null;
+        }
+
+        return redirect()->away($auction->external_registration_url ?: route('public.auctions.show', $auction->id));
+    }
+
+    public function show(int $auction)
     {
         $auction = $this->findPublicAuction($auction);
+        if ($redirect = $this->advertisingRedirect($auction)) {
+            return $redirect;
+        }
 
         return view('public.auctions.register', [
             'auction' => $auction,
@@ -65,6 +82,9 @@ class AuctionRegistrationController extends Controller
     public function store(Request $request, int $auction): RedirectResponse
     {
         $auction = $this->findPublicAuction($auction);
+        if ($redirect = $this->advertisingRedirect($auction)) {
+            return $redirect;
+        }
 
         if (! $auction->isRegistrationOpen()) {
             return back()->withErrors(['registration' => 'Registration for this auction is not currently open.'])->withInput();
@@ -97,6 +117,7 @@ class AuctionRegistrationController extends Controller
                 'contact_kind' => Contact::TYPE_ENTITY,
                 'first_name' => $data['entity_name'],
                 'entity_name' => $data['entity_name'],
+                'last_name' => '',
             ]);
         }
 
@@ -151,7 +172,8 @@ class AuctionRegistrationController extends Controller
         return Contact::create([
             'agency_id' => $auction->agency_id,
             'first_name' => $data['first_name'],
-            'last_name' => $data['last_name'] ?? null,
+            // contacts.last_name is NOT NULL, but the public form leaves it optional.
+            'last_name' => $data['last_name'] ?? '',
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'] ?? null,
         ]);

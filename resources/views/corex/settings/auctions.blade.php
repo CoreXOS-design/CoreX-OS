@@ -20,6 +20,14 @@
         @csrf
 
         <section>
+            <h2 class="font-medium mb-3">How your agency uses Auctions</h2>
+            <label class="flex items-start gap-2 text-sm">
+                <input type="checkbox" name="advertising_only" value="1" class="mt-1" @checked(\App\Models\AgencyAuctionSettings::advertisingOnlyFor($agencyId))>
+                <span><strong>Advertising only</strong> — Auctions is where we advertise auction properties. The sale itself is run elsewhere, so the Sale Room, bidder register and online registration are switched off. Untick to run the sale from CoreX.</span>
+            </label>
+        </section>
+
+        <section>
             <h2 class="font-medium mb-3">Who runs the auction</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>

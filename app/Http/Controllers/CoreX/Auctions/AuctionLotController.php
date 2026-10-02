@@ -34,6 +34,7 @@ class AuctionLotController extends Controller
             'canSeeReserve' => AgencyAuctionSettings::reserveVisibilityFor($agencyId) === 'published'
                 || auth()->user()->hasPermission('auctions.reserve.view'),
             'statusLabels' => PropertySettingItem::auctionLotStatusLabelsFor($agencyId),
+            'advertisingOnly' => AgencyAuctionSettings::advertisingOnlyFor($agencyId),
             // §12.3 — "surfaces the top under-bidder with their number so the
             // agent can negotiate from a known position." Task auto-creation
             // for every registered bidder is a follow-up (needs a generic
@@ -66,6 +67,45 @@ class AuctionLotController extends Controller
             fn ($svc) => $svc->recordHammer($lot, (float) $data['hammer_price'], now(), auth()->id()),
             'Hammer recorded.',
         );
+    }
+
+    /**
+     * Advertising-only mode (.ai/specs/auctions-advertising-mode.md §5): the
+     * sale happened elsewhere, so the agent just records the outcome. The
+     * state machine is NOT bypassed — a catalogued lot is walked through
+     * open → hammer → result inside one transaction, so the history, the
+     * property status and the deal-creation event all behave exactly as they
+     * do after a Sale Room sale.
+     */
+    public function recordResult(Request $request, AuctionLot $lot)
+    {
+        $data = $request->validate([
+            'outcome' => 'required|in:sold,passed_in,withdrawn',
+            'hammer_price' => 'required_if:outcome,sold|nullable|numeric|min:0.01',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        return $this->run($lot, function ($svc) use ($lot, $data) {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($svc, $lot, $data) {
+                if ($data['outcome'] === 'withdrawn') {
+                    $svc->withdraw($lot, auth()->id(), $data['reason'] ?? null);
+                    return;
+                }
+                if ($lot->status === AuctionLot::STATUS_CATALOGUED) {
+                    $svc->openForBids($lot, auth()->id());
+                    $lot->refresh();
+                }
+                if ($lot->status === AuctionLot::STATUS_OPEN_FOR_BIDS) {
+                    $svc->startHammer($lot, auth()->id());
+                    $lot->refresh();
+                }
+                if ($data['outcome'] === 'sold') {
+                    $svc->recordHammer($lot, (float) $data['hammer_price'], now(), auth()->id());
+                } else {
+                    $svc->markPassedIn($lot, auth()->id(), $data['reason'] ?? null);
+                }
+            });
+        }, 'Result recorded.');
     }
 
     public function confirm(AuctionLot $lot)

@@ -191,7 +191,17 @@ class ListingResource extends JsonResource
             'venue' => $auction->venue_name,
             'registration_opens_at' => optional($auction->registration_opens_at)->toIso8601String(),
             'registration_closes_at' => optional($auction->registration_closes_at)->toIso8601String(),
-            'registration_url' => route('public.auctions.register.show', $auction->id),
+            'registration_url' => $auction->external_registration_url
+                ?: (\App\Models\AgencyAuctionSettings::advertisingOnlyFor((int) $auction->agency_id)
+                    ? route('public.auctions.show', $auction->id)
+                    : route('public.auctions.register.show', $auction->id)),
+            'auctioneer' => [
+                'company' => $auction->isInternal() ? null : $auction->auctioneer_company,
+                'licence_no' => $auction->isInternal() ? null : $auction->auctioneer_licence_no,
+                'phone' => $auction->auctioneer_phone,
+                'email' => $auction->auctioneer_email,
+            ],
+            'public_url' => route('public.auctions.show', $auction->id),
             'registration_open' => $auction->isRegistrationOpen(),
             'guide_price_min' => $lot->guide_price_min !== null ? (float) $lot->guide_price_min : null,
             'guide_price_max' => $lot->guide_price_max !== null ? (float) $lot->guide_price_max : null,

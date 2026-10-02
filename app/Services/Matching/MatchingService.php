@@ -710,6 +710,13 @@ class MatchingService
             });
         }
 
+        // AT-432 — a buyer who will not bid at an auction (open_to_auction = false)
+        // is never matched to an auction lot. Default true, so every existing
+        // wishlist is unaffected.
+        if ($property->isAuction()) {
+            $query->where('open_to_auction', true);
+        }
+
         $query->where(function (Builder $q) use ($price) {
             $q->whereNull('price_min')->orWhere('price_min', '<=', $price);
         });

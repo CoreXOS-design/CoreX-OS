@@ -27,6 +27,44 @@ class AuctionSettingsController extends Controller
         ]);
     }
 
+    /**
+     * Onboarding-wizard saver (.ai/specs/agency-onboarding-setup.md §6.1). The
+     * wizard step posts only the handful of auction settings it renders, so —
+     * unlike update() — every write here is guarded with $request->has() and a
+     * field the step never showed is never touched. Creating the row on first
+     * save is safe: every other column stays NULL = documented default.
+     */
+    public function updateWizard(Request $request)
+    {
+        $agencyId = (int) auth()->user()->effectiveAgencyId();
+        abort_unless(auth()->user()->hasPermission('auctions.manage_settings'), 403);
+
+        $data = $request->validate([
+            'auction_advertising_only' => 'sometimes|boolean',
+            'auction_auctioneer_mode' => 'sometimes|in:internal,external,both',
+            'auction_reserve_visibility' => 'sometimes|in:private,disclosed_on_the_day,published',
+            'auction_guide_price_enabled' => 'sometimes|boolean',
+        ]);
+
+        $write = [];
+        if ($request->has('auction_advertising_only')) {
+            $write['advertising_only'] = $request->boolean('auction_advertising_only');
+        }
+        if ($request->has('auction_auctioneer_mode')) {
+            $write['auctioneer_mode'] = $data['auction_auctioneer_mode'];
+        }
+        if ($request->has('auction_reserve_visibility')) {
+            $write['reserve_visibility'] = $data['auction_reserve_visibility'];
+        }
+        if ($request->has('auction_guide_price_enabled')) {
+            $write['guide_price_enabled'] = $request->boolean('auction_guide_price_enabled');
+        }
+
+        if ($write) {
+            AgencyAuctionSettings::updateOrCreate(['agency_id' => $agencyId], $write);
+        }
+    }
+
     public function update(Request $request)
     {
         $agencyId = (int) auth()->user()->effectiveAgencyId();
@@ -81,7 +119,7 @@ class AuctionSettingsController extends Controller
         // form (every field renders here, unlike the wizard's subset) — coerce
         // explicitly so an unchecked box is stored as false, not left null.
         foreach ([
-            'online_auto_extend_enabled', 'proxy_bidding_enabled', 'absentee_bids_enabled',
+            'advertising_only', 'online_auto_extend_enabled', 'proxy_bidding_enabled', 'absentee_bids_enabled',
             'phone_bidding_enabled', 'bid_retraction_allowed', 'buyers_premium_vat_inclusive',
             'registration_required', 'require_fica_before_paddle', 'registration_deposit_required',
             'require_signed_rules_before_paddle', 'entity_bidders_allowed', 'guide_price_enabled',

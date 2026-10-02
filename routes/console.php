@@ -165,6 +165,9 @@ Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
 // closeExpiredOnlineLots() docblock for why only 'online' auctions qualify).
 Schedule::command('auctions:close-expired-lots')->everyMinute()->withoutOverlapping();
 
+// AT-432 addendum — .ai/specs/auctions-advertising-mode.md §7: reminders to people who enquired about a lot.
+Schedule::command('auctions:send-reminders')->hourly()->withoutOverlapping();
+
 // AT-118 — Communications Access Gate: midnight reset of all live grants
 // (closes the never-closed-session loophole) + expire stale pending requests.
 Schedule::command('comms-access:reset')->dailyAt('00:00')->withoutOverlapping();

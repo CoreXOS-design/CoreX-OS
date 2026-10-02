@@ -12,7 +12,7 @@
     </div>
 @endif
 
-<form method="POST" action="{{ $isEdit ? route('corex.auctions.update', $auction) : route('corex.auctions.store') }}" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
+<form method="POST" action="{{ $isEdit ? route('corex.auctions.update', $auction) : route('corex.auctions.store') }}" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
     @csrf
     @if($isEdit) @method('PUT') @endif
 
@@ -106,6 +106,32 @@
     <div>
         <label class="block text-xs text-gray-500">Venue Address</label>
         <input type="text" name="venue_address" value="{{ old('venue_address', $auction->venue_address) }}" class="corex-input w-full">
+    </div>
+
+    <div class="sm:col-span-2 border-t border-gray-100 pt-3">
+        <p class="text-xs font-semibold text-gray-600 mb-2">Public advert — how buyers reach the auctioneer</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-500">Register-to-bid link (the auctioneer's own page, if they take registrations)</label>
+                <input type="url" name="external_registration_url" value="{{ old('external_registration_url', $auction->external_registration_url) }}" placeholder="https://" class="corex-input w-full">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500">Auctioneer phone</label>
+                <input type="text" name="auctioneer_phone" value="{{ old('auctioneer_phone', $auction->auctioneer_phone) }}" class="corex-input w-full">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500">Auctioneer email</label>
+                <input type="email" name="auctioneer_email" value="{{ old('auctioneer_email', $auction->auctioneer_email) }}" class="corex-input w-full">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500">Rules of Auction (PDF) @if($auction->rules_file_name)<span class="text-gray-400">— current: {{ $auction->rules_file_name }}</span>@endif</label>
+                <input type="file" name="rules_file" accept="application/pdf" class="corex-input w-full">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500">Conditions of Sale (PDF) @if($auction->conditions_file_name)<span class="text-gray-400">— current: {{ $auction->conditions_file_name }}</span>@endif</label>
+                <input type="file" name="conditions_file" accept="application/pdf" class="corex-input w-full">
+            </div>
+        </div>
     </div>
 
     <div class="sm:col-span-2">

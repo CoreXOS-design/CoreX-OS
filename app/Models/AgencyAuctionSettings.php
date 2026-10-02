@@ -98,6 +98,7 @@ class AgencyAuctionSettings extends Model
     public const DEFAULT_DEFAULT_ATTORNEY_PROVIDER_ID = null;
 
     protected $fillable = [
+        'advertising_only',
         'agency_id',
         'auctioneer_mode', 'external_auctioneer_required_fields',
         'bidding_modes_enabled', 'default_bidding_mode',
@@ -117,6 +118,7 @@ class AgencyAuctionSettings extends Model
     ];
 
     protected $casts = [
+        'advertising_only' => 'boolean',
         'external_auctioneer_required_fields' => 'array',
         'bidding_modes_enabled' => 'array',
         'online_auto_extend_enabled' => 'boolean',
@@ -156,6 +158,19 @@ class AgencyAuctionSettings extends Model
         }
 
         return static::where('agency_id', $agencyId)->first();
+    }
+
+    /**
+     * Advertising-only mode (.ai/specs/auctions-advertising-mode.md): Auctions
+     * is a place to ADVERTISE auction stock; the sale itself (Sale Room,
+     * bidder register, deposits) is run elsewhere. Default ON.
+     */
+    public const DEFAULT_ADVERTISING_ONLY = true;
+
+    public static function advertisingOnlyFor(?int $agencyId): bool
+    {
+        $row = self::rowFor($agencyId);
+        return $row && $row->advertising_only !== null ? (bool) $row->advertising_only : self::DEFAULT_ADVERTISING_ONLY;
     }
 
     public static function auctioneerModeFor(?int $agencyId): string

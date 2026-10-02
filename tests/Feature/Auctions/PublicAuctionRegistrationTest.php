@@ -38,6 +38,8 @@ final class PublicAuctionRegistrationTest extends TestCase
         parent::setUp();
 
         $this->agency = Agency::create(['name' => 'Public Reg Test Agency', 'slug' => 'public-reg-'.uniqid()]);
+        // These tests cover CoreX running the sale — advertising-only (the default) switches it off.
+        \App\Models\AgencyAuctionSettings::updateOrCreate(['agency_id' => $this->agency->id], ['advertising_only' => false]);
         $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
         $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $branch->id]);
         $property = Property::create([

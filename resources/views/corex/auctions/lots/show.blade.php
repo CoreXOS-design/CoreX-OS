@@ -42,7 +42,20 @@
 
     @permission('auctions.edit')
     <div class="flex flex-wrap gap-2">
-        @if($lot->status === 'catalogued')
+        @if($advertisingOnly && in_array($lot->status, ['catalogued', 'open_for_bids', 'under_the_hammer'], true))
+        <form method="POST" action="{{ route('corex.auctions.lots.record-result', $lot) }}" class="flex flex-wrap gap-2 items-end border rounded p-3 w-full">
+            @csrf
+            <div><label class="block text-xs text-gray-500">Result of the sale</label>
+                <select name="outcome" class="corex-input" onchange="this.form.hammer_price.disabled = this.value !== 'sold'">
+                    <option value="sold">Sold</option><option value="passed_in">Passed in</option><option value="withdrawn">Withdrawn</option>
+                </select></div>
+            <div><label class="block text-xs text-gray-500">Sold price (R)</label><input type="number" name="hammer_price" step="0.01" class="corex-input"></div>
+            <div><label class="block text-xs text-gray-500">Note (optional)</label><input type="text" name="reason" class="corex-input"></div>
+            <button type="submit" class="corex-btn-primary">Record result</button>
+            <p class="text-xs text-gray-400 w-full">The sale was run elsewhere — record what happened and the public advert will show it.</p>
+        </form>
+        @endif
+        @if(! $advertisingOnly && $lot->status === 'catalogued')
         <form method="POST" action="{{ route('corex.auctions.lots.open', $lot) }}">@csrf<button type="submit" class="corex-btn-primary">Open for Bids</button></form>
         @endif
         @if($lot->status === 'open_for_bids')

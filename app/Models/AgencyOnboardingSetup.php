@@ -39,6 +39,7 @@ class AgencyOnboardingSetup extends Model
         'commission',     // 5  — Commission & revenue share
         'proforma',       // 5a — Proforma invoices (gated: proforma-invoices feature)
         'properties',     // 6  — Properties & listings
+        'auctions',       // 6a — Auctions (gated: auctions feature) — AT-432
         'presentations',  // 7  — Presentations / CMA
         'matches',        // 8  — Matches
         'market_intelligence', // 8a — Market Intelligence / Prospecting Setup (gated: prospecting feature)
@@ -119,6 +120,7 @@ class AgencyOnboardingSetup extends Model
             'compliance'           => 'compliance',
             'proforma'             => 'proforma-invoices',
             'market_intelligence'  => 'prospecting',
+            'auctions'             => 'auctions',
         ];
 
         return array_map(

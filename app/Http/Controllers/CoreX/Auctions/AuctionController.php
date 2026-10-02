@@ -166,6 +166,7 @@ class AuctionController extends Controller
             'auction' => $auction->load(['branch', 'auctioneerUser', 'auctioneerContact', 'lots.property']),
             'canSeeReserve' => $canSeeReserve,
             'canPublish' => auth()->user()->hasPermission('auctions.publish'),
+            'advertisingOnly' => AgencyAuctionSettings::advertisingOnlyFor($agencyId),
             'statusLabels' => PropertySettingItem::auctionLotStatusLabelsFor($agencyId),
         ]);
     }
@@ -260,6 +261,14 @@ class AuctionController extends Controller
     /** §9 step 5. The actual property-status/audit-trail work is AuctionLotStatusService's — this is a thin controller action. */
     public function publish(Auction $auction)
     {
+        // Seller authority + FFC + external-auctioneer details must be in place
+        // BEFORE the catalogue (and the public page) goes live — see
+        // AuctionPublishGate. The status service stays a pure state machine.
+        $blockers = app(\App\Services\Auctions\AuctionPublishGate::class)->blockers($auction);
+        if (! empty($blockers)) {
+            return back()->withErrors(['auction' => 'Cannot publish yet:'])->with('publish_blockers', $blockers);
+        }
+
         $published = (new AuctionLotStatusService())->publishCatalogue($auction, auth()->id());
 
         if (empty($published)) {
@@ -289,11 +298,27 @@ class AuctionController extends Controller
             'venue_name' => 'nullable|string|max:255',
             'venue_address' => 'nullable|string|max:500',
             'notes' => 'nullable|string',
+            'external_registration_url' => 'nullable|url|max:500',
+            'auctioneer_phone' => 'nullable|string|max:40',
+            'auctioneer_email' => 'nullable|email|max:255',
+            'rules_file' => 'nullable|file|mimes:pdf|max:10240',
+            'conditions_file' => 'nullable|file|mimes:pdf|max:10240',
         ]);
 
         $enabledModes = AgencyAuctionSettings::biddingModesEnabledFor($agencyId);
         if (! in_array($data['bidding_mode'], $enabledModes, true)) {
             abort(422, 'That bidding mode is not enabled for this agency (Settings → Auctions).');
+        }
+
+        // Uploaded PDFs are stored on the private disk and served only through
+        // the public auction page's document route (published catalogues only).
+        foreach (['rules' => 'rules_file', 'conditions' => 'conditions_file'] as $kind => $input) {
+            if ($request->hasFile($input)) {
+                $file = $request->file($input);
+                $data[$kind.'_file_path'] = $file->store("auctions/{$agencyId}/{$kind}", 'local');
+                $data[$kind.'_file_name'] = $file->getClientOriginalName();
+            }
+            unset($data[$input]);
         }
 
         return $data;

@@ -46,7 +46,8 @@ class Auction extends Model
         'auctioneer_licence_no', 'starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at',
         'venue_name', 'venue_address', 'venue_lat', 'venue_lng', 'is_online_streamed', 'stream_url',
         'status', 'rules_document_id', 'conditions_document_id', 'catalogue_published_at', 'notes',
-        'created_by_id',
+        'created_by_id', 'external_registration_url', 'auctioneer_phone', 'auctioneer_email',
+        'rules_file_path', 'rules_file_name', 'conditions_file_path', 'conditions_file_name',
     ];
 
     protected $casts = [

@@ -265,6 +265,12 @@ by oversight — do not reinstate them without asking:
   settings page.
 - **"Invite your team".** Onboarding configures the agency; adding people stays in User
   Management.
+- **Auctions — the sale-running settings (AT-432, 2026-10-02).** The wizard's Auctions step
+  carries only the four settings that decide how an agency *advertises* auctions
+  (advertising-only, who conducts, reserve visibility, guide price). Fees, bidding modes,
+  proxy bidding, registration/deposit rules, purchase-deposit and settlement terms stay on
+  Settings → Auctions: they only matter once an agency has switched "Advertising only" off,
+  and they are expert knobs. **Recorded as a decision for Johan to confirm — not the lane's call.**
 - **"Public website" toggle (`website_enabled`)** (Johan, 2026-08-12 — alongside the
   "features on by default" change below). Taking the agency's public site live is a
   deliberate action, never an onboarding default — removed from the capabilities step's
