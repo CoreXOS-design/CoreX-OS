@@ -1,11 +1,11 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="corex-auctions w-full h-full flex flex-col p-4 gap-4">
-    <div class="flex items-center justify-between">
+<div class="corex-auctions w-full h-full flex flex-col gap-4">
+    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
         <div>
-            <a href="{{ route('corex.auctions.show', $auction) }}" class="text-sm text-gray-500 underline">&larr; {{ $auction->title }}</a>
-            <h1 class="text-xl font-semibold">Sale Room</h1>
+            <a href="{{ route('corex.auctions.show', $auction) }}" class="text-sm text-muted underline">&larr; {{ $auction->title }}</a>
+            <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Sale Room</h1>
         </div>
         <div class="flex gap-1 text-xs">
             @foreach($lots as $l)
@@ -17,22 +17,22 @@
         </div>
     </div>
 
-    @if($errors->any())<div class="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{{ $errors->first() }}</div>@endif
+    @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-crimson,#dc2626) 12%,transparent);color:var(--ds-crimson,#dc2626);">{{ $errors->first() }}</div>@endif
 
     @if(!$lot)
-        <div class="text-center py-16 text-gray-500">No lot is ready for the floor — catalogue and publish a lot first.</div>
+        <div class="text-center py-16 text-muted">No lot is ready for the floor — catalogue and publish a lot first.</div>
     @else
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1">
             {{-- Current lot, large --}}
-            <div class="lg:col-span-2 rounded border p-6 flex flex-col gap-4">
+            <div class="lg:col-span-2 rounded-md p-6 flex flex-col gap-4" style="background:var(--surface);border:1px solid var(--border);">
                 <div>
-                    <div class="text-xs text-gray-500">Lot {{ $lot->lot_number }} — {{ ucwords(str_replace('_', ' ', $lot->status)) }}</div>
+                    <div class="text-xs text-muted">Lot {{ $lot->lot_number }} — {{ ucwords(str_replace('_', ' ', $lot->status)) }}</div>
                     <div class="text-2xl font-semibold">{{ $lot->property?->buildDisplayAddress() ?? ('Property #'.$lot->property_id) }}</div>
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 text-center">
                     <div>
-                        <div class="text-xs text-gray-500">
+                        <div class="text-xs text-muted">
                             Current Bid
                             @if($currentHighBid && $currentHighBid->channel !== 'in_room')
                                 <span id="room-online-badge" class="ml-1 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold">ONLINE</span>
@@ -41,25 +41,25 @@
                             @endif
                         </div>
                         <div id="room-current-bid" class="text-3xl font-bold">{{ $currentHighBid ? 'R '.number_format($currentHighBid->amount, 0) : '—' }}</div>
-                        <div id="room-current-bid-detail" class="text-xs text-gray-500">
+                        <div id="room-current-bid-detail" class="text-xs text-muted">
                             @if($currentHighBid)Paddle {{ $currentHighBid->bidder?->paddle_number }} — {{ $currentHighBid->bidder?->contact?->full_name }}@endif
                         </div>
                     </div>
                     <div>
-                        <div class="text-xs text-gray-500">Next Increment</div>
+                        <div class="text-xs text-muted">Next Increment</div>
                         <div id="room-next-increment" class="text-3xl font-bold">{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : '—' }}</div>
                     </div>
                     <div>
-                        <div class="text-xs text-gray-500">Bidders</div>
+                        <div class="text-xs text-muted">Bidders</div>
                         <div id="room-bidder-count" class="text-3xl font-bold">{{ $bidderCount }}</div>
                     </div>
                 </div>
                 @if($auction->bidding_mode !== 'in_room' && $lot && in_array($lot->status, ['open_for_bids', 'under_the_hammer']))
-                <div id="room-online-notice" class="text-xs text-gray-500 hidden">Live feed — updates every 5s. An online bid just landed; refresh the page before knocking down.</div>
+                <div id="room-online-notice" class="text-xs text-muted hidden">Live feed — updates every 5s. An online bid just landed; refresh the page before knocking down.</div>
                 @endif
 
                 @if($canSeeReserve)
-                <div class="text-sm text-gray-500">Reserve: {{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : 'No reserve' }}</div>
+                <div class="text-sm text-muted">Reserve: {{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : 'No reserve' }}</div>
                 @endif
 
                 {{-- Lot status controls --}}
@@ -77,12 +77,12 @@
                 <form method="POST" action="{{ route('corex.auctions.room.bid', [$auction, $lot]) }}" class="flex gap-2 items-end" autocomplete="off">
                     @csrf
                     <div>
-                        <label class="block text-xs text-gray-500">Paddle #</label>
-                        <input type="text" name="paddle_number" autofocus class="corex-input text-lg" style="width:8rem">
+                        <label class="prop-label">Paddle #</label>
+                        <input type="text" name="paddle_number" autofocus class="prop-input text-lg" style="width:8rem">
                     </div>
                     <div>
-                        <label class="block text-xs text-gray-500">Amount (blank = next increment)</label>
-                        <input type="number" name="amount" step="0.01" class="corex-input" placeholder="{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : 'Type a starting amount' }}">
+                        <label class="prop-label">Amount (blank = next increment)</label>
+                        <input type="number" name="amount" step="0.01" class="prop-input" placeholder="{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : 'Type a starting amount' }}">
                     </div>
                     <button type="submit" class="corex-btn-primary">Bid</button>
                 </form>
@@ -91,7 +91,7 @@
                     @if($canRetract && $currentHighBid)
                     <form method="POST" action="{{ route('corex.auctions.room.bid.retract', [$auction, $lot]) }}" onsubmit="return confirm('Retract the last bid?')" class="flex gap-2 items-end">
                         @csrf
-                        <input type="text" name="reason" placeholder="Reason" class="corex-input text-xs">
+                        <input type="text" name="reason" placeholder="Reason" class="prop-input text-xs">
                         <button type="submit" class="corex-btn-outline text-xs">Retract Last Bid</button>
                     </form>
                     @endif
@@ -108,7 +108,7 @@
                     </form>
                     <form method="POST" action="{{ route('corex.auctions.room.hammer.pass-in', [$auction, $lot]) }}" onsubmit="return confirm('No bid reached the reserve — pass this lot in?')" class="flex gap-2 items-end">
                         @csrf
-                        <input type="text" name="reason" placeholder="Reason (optional)" class="corex-input text-xs">
+                        <input type="text" name="reason" placeholder="Reason (optional)" class="prop-input text-xs">
                         <button type="submit" class="corex-btn-outline">Pass In</button>
                     </form>
                 </div>
@@ -116,7 +116,7 @@
             </div>
 
             {{-- Bid history --}}
-            <div class="rounded border p-4">
+            <div class="rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
                 <h2 class="font-medium mb-2 text-sm">Bid History</h2>
                 <div id="room-bid-history" class="flex flex-col gap-1 text-sm max-h-96 overflow-y-auto">
                     @forelse($bidHistory as $bid)
@@ -125,7 +125,7 @@
                         <span>R {{ number_format($bid->amount, 0) }}</span>
                     </div>
                     @empty
-                    <p class="text-gray-500">No bids yet.</p>
+                    <p class="text-muted">No bids yet.</p>
                     @endforelse
                 </div>
 
@@ -186,7 +186,7 @@
                         + '<span>#' + (b.bidder_paddle_number ?? '?') + ' (' + b.channel + ')</span>'
                         + '<span>' + fmt(b.amount) + '</span>'
                         + '</div>';
-                }).join('') || '<p class="text-gray-500">No bids yet.</p>';
+                }).join('') || '<p class="text-muted">No bids yet.</p>';
             }
         }
     }

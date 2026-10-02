@@ -91,4 +91,35 @@ final class AuctionPropertyFormChoiceTest extends TestCase
         $this->auctionsOn(true);
         $this->actingAs($this->admin)->get(route('corex.auctions.index'))->assertOk()->assertSee('corex-auctions', false);
     }
+
+    public function test_every_restyled_staff_page_still_renders(): void
+    {
+        $this->auctionsOn(true);
+        \App\Models\AgencyAuctionSettings::updateOrCreate(['agency_id' => $this->agency->id], ['advertising_only' => false]);
+        $this->actingAs($this->admin);
+        $auction = Auction::create([
+            'agency_id' => $this->agency->id, 'reference' => 'AUC-SMOKE-'.uniqid(), 'title' => 'Smoke auction',
+            'bidding_mode' => 'in_room', 'auctioneer_kind' => 'internal', 'starts_at' => now()->addDays(5),
+        ]);
+        $property = Property::create([
+            'title' => 'Smoke lot', 'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id,
+            'status' => 'active', 'listing_type' => 'sale',
+        ]);
+        $lot = app(AuctionLotAttacher::class)->attach($auction, $property);
+
+        foreach ([
+            route('corex.auctions.index'),
+            route('corex.auctions.create'),
+            route('corex.auctions.edit', $auction),
+            route('corex.auctions.show', $auction),
+            route('corex.auctions.lots.show', $lot),
+            route('corex.auctions.results'),
+            route('corex.auctions.bidders.index', $auction),
+            route('corex.auctions.bidders.create', $auction),
+            route('corex.auctions.room.show', $auction),
+            route('corex.settings.auctions.show'),
+        ] as $url) {
+            $this->get($url)->assertOk();
+        }
+    }
 }
