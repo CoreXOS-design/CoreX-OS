@@ -45,6 +45,14 @@
                 @endforeach
             </ul>
         @endif
+        {{-- Legal documents buyers must read — only linkable once the catalogue is public (the public route 404s before that). --}}
+        @if($ai['publicUrl'] && ($auction->rules_file_path || $auction->conditions_file_path))
+            <h3 class="text-navy mt-6 text-lg font-light">Please read before the sale</h3>
+            <ul class="mt-2 divide-y divide-slate-200 rounded-sm border border-slate-200 bg-slate-50 text-sm">
+                @if($auction->rules_file_path)<li class="px-5 py-3"><a class="text-marine underline" target="_blank" rel="noopener" href="{{ route('public.auctions.document', [$auction->id, 'rules']) }}">Rules of Auction (PDF)</a></li>@endif
+                @if($auction->conditions_file_path)<li class="px-5 py-3"><a class="text-marine underline" target="_blank" rel="noopener" href="{{ route('public.auctions.document', [$auction->id, 'conditions']) }}">Conditions of Sale (PDF)</a></li>@endif
+            </ul>
+        @endif
         @if($ai['registerUrl'])
             <a href="{{ $ai['registerUrl'] }}" target="_blank" rel="noopener" class="mt-4 inline-block rounded-sm bg-navy px-5 py-2.5 text-sm font-semibold text-white">Register to bid</a>
         @endif

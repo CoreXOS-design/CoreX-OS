@@ -38,11 +38,57 @@
         @endif
     </div>@endif
 
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
-        <div><span class="text-muted">Bidding mode</span><br>{{ ucfirst(str_replace('_', ' ', $auction->bidding_mode)) }}</div>
-        <div><span class="text-muted">Auctioneer</span><br>{{ $auction->isInternal() ? $auction->auctioneerUser?->name : ($auction->auctioneer_company ?? $auction->auctioneerContact?->name) }}</div>
-        <div><span class="text-muted">Venue</span><br>{{ $auction->venue_name ?? '—' }}</div>
-        <div><span class="text-muted">Branch</span><br>{{ $auction->branch?->name ?? '—' }}</div>
+    @php
+        $lbl = 'text-xs uppercase tracking-wider';
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $docs = [
+            'rules' => ['Rules of Auction', $auction->rules_file_path, $auction->rules_file_name],
+            'conditions' => ['Conditions of Sale', $auction->conditions_file_path, $auction->conditions_file_name],
+        ];
+        $venue = trim(($auction->venue_name ?? '').($auction->venue_name && $auction->venue_address ? ', ' : '').($auction->venue_address ?? ''));
+    @endphp
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div class="xl:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-4 text-sm rounded-md p-4 content-start" style="background:var(--surface);border:1px solid var(--border);">
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Auction date</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->starts_at?->format('D, d M Y \a\t H:i') ?? '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Venue</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $venue ?: '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Bidding mode</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ ucfirst(str_replace('_', ' ', $auction->bidding_mode)) }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Auctioneer</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->isInternal() ? ($auction->auctioneerUser?->name ?? '—') : ($auction->auctioneer_company ?: ($auction->auctioneerContact?->name ?? '—')) }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Licence no.</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->auctioneer_licence_no ?: '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Auctioneer phone</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->auctioneer_phone ?: '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Auctioneer email</div><div class="font-medium mt-0.5 break-all" style="color:var(--text-primary);">{{ $auction->auctioneer_email ?: '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Registration opens</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->registration_opens_at?->format('d M Y, H:i') ?? '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Registration closes</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->registration_closes_at?->format('d M Y, H:i') ?? '—' }}</div></div>
+            <div class="col-span-2 lg:col-span-3"><div class="{{ $lbl }}" style="color:var(--text-muted);">Register-to-bid link</div><div class="font-medium mt-0.5 break-all" style="color:var(--text-primary);">@if($auction->external_registration_url)<a href="{{ $auction->external_registration_url }}" target="_blank" rel="noopener" class="underline">{{ $auction->external_registration_url }}</a>@else — @endif</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Branch</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->branch?->name ?? '—' }}</div></div>
+            <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Catalogue</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->isCataloguePublished() ? 'Published '.$auction->catalogue_published_at->format('d M Y') : 'Not published' }}</div></div>
+            @if($auction->notes)
+            <div class="col-span-2 lg:col-span-3"><div class="{{ $lbl }}" style="color:var(--text-muted);">Notes</div><div class="mt-0.5 whitespace-pre-line" style="color:var(--text-primary);">{{ $auction->notes }}</div></div>
+            @endif
+        </div>
+
+        <div class="rounded-md overflow-hidden content-start" style="background:var(--surface);border:1px solid var(--border);">
+            <div class="px-4 py-3 text-sm font-bold" style="color:var(--text-primary);">Documents</div>
+            @foreach($docs as $kind => [$title, $path, $name])
+                @php $exists = filled($path) && $disk->exists($path); @endphp
+                <div class="px-4 py-3 text-sm" style="border-top:1px solid var(--border);">
+                    <div class="font-medium" style="color:var(--text-primary);">{{ $title }}</div>
+                    @if(! filled($path))
+                        <div class="text-xs mt-0.5" style="color:var(--text-muted);">Not uploaded.</div>
+                    @elseif(! $exists)
+                        <div class="text-xs mt-0.5" style="color:var(--ds-crimson,#dc2626);">{{ $name }} — the file is missing. Upload it again on the Edit page.</div>
+                    @else
+                        <div class="text-xs mt-0.5 break-all" style="color:var(--text-muted);">{{ $name }}</div>
+                        <div class="flex gap-2 mt-2">
+                            <a href="{{ route('corex.auctions.document', [$auction, $kind]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.auctions.document', [$auction, $kind, 'download' => 1]) }}" class="corex-btn-outline text-xs">Download</a>
+                        </div>
+                    @endif
+                </div>
+            @endforeach
+            @permission('auctions.edit')
+            <div class="px-4 py-3" style="border-top:1px solid var(--border);"><a href="{{ route('corex.auctions.edit', $auction) }}" class="text-xs underline" style="color:var(--text-muted);">Replace documents</a></div>
+            @endpermission
+        </div>
     </div>
 
     <div>

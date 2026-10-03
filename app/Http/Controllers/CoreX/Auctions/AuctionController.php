@@ -262,6 +262,26 @@ class AuctionController extends Controller
         return redirect()->route('corex.auctions.show', $auction)->with('status', count($published).' lot(s) published to the catalogue.');
     }
 
+    /**
+     * Staff view/download of the uploaded Rules of Auction / Conditions of Sale PDFs.
+     * The public route only serves a published catalogue, so staff need their own
+     * (agency-scoped via route-model binding) to check a document before publishing.
+     */
+    public function document(Request $request, Auction $auction, string $kind)
+    {
+        abort_unless(in_array($kind, ['rules', 'conditions'], true), 404);
+
+        $path = $auction->{$kind.'_file_path'};
+        abort_if(blank($path) || ! \Illuminate\Support\Facades\Storage::disk('local')->exists($path), 404, 'This document file could not be found — upload it again on the Edit page.');
+
+        $name = $auction->{$kind.'_file_name'} ?: ($kind.'.pdf');
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+
+        return $request->boolean('download')
+            ? $disk->download($path, $name, ['Content-Type' => 'application/pdf'])
+            : $disk->response($path, $name, ['Content-Type' => 'application/pdf']);
+    }
+
     private function validateAuction(Request $request, int $agencyId): array
     {
         $data = $request->validate([
@@ -299,7 +319,15 @@ class AuctionController extends Controller
         foreach (['rules' => 'rules_file', 'conditions' => 'conditions_file'] as $kind => $input) {
             if ($request->hasFile($input)) {
                 $file = $request->file($input);
-                $data[$kind.'_file_path'] = $file->store("auctions/{$agencyId}/{$kind}", 'local');
+                $stored = $file->store("auctions/{$agencyId}/{$kind}", 'local');
+                // store() returns false (not an exception) when the disk can't be written —
+                // saving that as a path produced a document that "exists" but never opens.
+                if ($stored === false) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        $input => 'The file could not be saved on the server — please try again, and tell support if it keeps happening.',
+                    ]);
+                }
+                $data[$kind.'_file_path'] = $stored;
                 $data[$kind.'_file_name'] = $file->getClientOriginalName();
             }
             unset($data[$input]);

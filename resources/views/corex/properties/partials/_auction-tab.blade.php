@@ -46,6 +46,19 @@
         {!! $row('Result', e($lot->hammer_price ? 'R '.number_format((float) $lot->hammer_price, 0, '.', ' ') : '—')) !!}
     </div>
 
+    @if($auction->rules_file_path || $auction->conditions_file_path)
+    <div class="rounded-md p-4 flex flex-wrap items-center gap-3" style="background:var(--surface);border:1px solid var(--border);">
+        <span class="text-sm font-bold" style="color:var(--text-primary);">Documents</span>
+        @foreach(['rules' => ['Rules of Auction', $auction->rules_file_path], 'conditions' => ['Conditions of Sale', $auction->conditions_file_path]] as $kind => [$dt, $dp])
+            @if($dp)
+            @permission('auctions.view')
+            <a href="{{ route('corex.auctions.document', [$auction, $kind]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">{{ $dt }} (PDF)</a>
+            @endpermission
+            @endif
+        @endforeach
+    </div>
+    @endif
+
     <div class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
         <div class="px-4 py-3 text-sm font-bold" style="color:var(--text-primary);">Viewings</div>
         @forelse($ai['viewings'] as $v)

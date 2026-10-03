@@ -4045,6 +4045,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/results/export', [\App\Http\Controllers\CoreX\Auctions\AuctionResultController::class, 'export'])->middleware('permission:auctions.results.export')->name('results.export');
 
         Route::get('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'show'])->name('show');
+        Route::get('/{auction}/documents/{kind}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'document'])->whereIn('kind', ['rules', 'conditions'])->middleware('permission:auctions.view')->name('document');
         Route::get('/{auction}/edit', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'edit'])->middleware('permission:auctions.edit')->name('edit');
         Route::put('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'update'])->middleware('permission:auctions.edit')->name('update');
         Route::delete('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'archive'])->middleware('permission:auctions.archive')->name('archive');
