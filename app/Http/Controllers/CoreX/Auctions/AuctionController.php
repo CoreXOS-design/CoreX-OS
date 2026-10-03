@@ -23,7 +23,7 @@ class AuctionController extends Controller
     public function index(Request $request)
     {
         $search = trim((string) $request->query('search', ''));
-        $status = (array) $request->query('status', []);
+        $status = array_values(array_filter((array) $request->query('status', []), fn ($v) => $v !== '' && $v !== null));
         $biddingMode = trim((string) $request->query('bidding_mode', ''));
         $auctioneerKind = trim((string) $request->query('auctioneer_kind', ''));
         $branchId = $request->query('branch_id', '');

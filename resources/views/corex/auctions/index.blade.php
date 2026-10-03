@@ -2,62 +2,73 @@
 
 @section('corex-content')
 <div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
-        <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Auction Diary</h1>
-        @permission('auctions.create')
-        <a href="{{ route('corex.auctions.create') }}" class="corex-btn-primary">+ New Auction</a>
-        @endpermission
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Auction Diary</h1>
+                <p class="text-xs" style="color:var(--text-muted);">Plan, advertise and track your auctions.</p>
+            </div>
+            @permission('auctions.create')
+            <a href="{{ route('corex.auctions.create') }}" class="corex-btn-primary">+ New Auction</a>
+            @endpermission
+        </div>
     </div>
 
     @if(session('status'))
         <div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>
     @endif
 
-    <form method="GET" class="flex flex-wrap items-end gap-3 text-sm rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
-        <div>
-            <label class="prop-label">Search</label>
-            <input type="text" name="search" value="{{ $filters['search'] }}" placeholder="Reference, title, venue, auctioneer" class="list-header-filter">
-        </div>
-        <div>
-            <label class="prop-label">Status</label>
-            <select name="status[]" multiple class="list-header-filter min-w-[10rem]" style="height:auto;">
+    <style>
+        .auction-filter-date { color-scheme: light; }
+        html.dark .auction-filter-date { color-scheme: dark; }
+    </style>
+    <div class="rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+        <form method="GET" action="{{ route('corex.auctions.index') }}" class="flex flex-wrap items-center gap-3">
+            {{-- Search --}}
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ $filters['search'] }}" placeholder="Search reference, title, venue, auctioneer…"
+                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md"
+                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+            </div>
+
+            <select name="status[]" onchange="this.form.submit()" class="list-header-filter" title="Status">
+                <option value="">All statuses</option>
                 @foreach($statusOptions as $s)
                     <option value="{{ $s }}" @selected(in_array($s, $filters['status']))>{{ ucwords(str_replace('_', ' ', $s)) }}</option>
                 @endforeach
             </select>
-        </div>
-        <div>
-            <label class="prop-label">Bidding Mode</label>
-            <select name="bidding_mode" class="list-header-filter">
-                <option value="">Any</option>
+
+            <select name="bidding_mode" onchange="this.form.submit()" class="list-header-filter" title="Bidding mode">
+                <option value="">All bidding modes</option>
                 @foreach(['in_room' => 'In-room', 'online' => 'Online', 'hybrid' => 'Hybrid'] as $val => $label)
                     <option value="{{ $val }}" @selected($filters['biddingMode'] === $val)>{{ $label }}</option>
                 @endforeach
             </select>
-        </div>
-        <div>
-            <label class="prop-label">From</label>
-            <input type="date" name="date_from" value="{{ $filters['dateFrom'] }}" class="list-header-filter">
-        </div>
-        <div>
-            <label class="prop-label">To</label>
-            <input type="date" name="date_to" value="{{ $filters['dateTo'] }}" class="list-header-filter">
-        </div>
-        <div>
-            <label class="prop-label">Sort</label>
-            <select name="sort" class="list-header-filter">
-                @foreach(['starts_at' => 'Auction date', 'reference' => 'Reference', 'title' => 'Title', 'status' => 'Status', 'created_at' => 'Created'] as $val => $label)
+
+            <div class="inline-flex items-center gap-2 text-xs" style="color:var(--text-muted);">
+                <span>From</span>
+                <input type="date" name="date_from" value="{{ $filters['dateFrom'] }}" onchange="this.form.submit()" class="list-header-filter auction-filter-date" title="Auction date from">
+                <span>To</span>
+                <input type="date" name="date_to" value="{{ $filters['dateTo'] }}" onchange="this.form.submit()" class="list-header-filter auction-filter-date" title="Auction date to">
+            </div>
+
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter" title="Sort by">
+                @foreach(['starts_at' => 'Sort: Auction date', 'reference' => 'Sort: Reference', 'title' => 'Sort: Title', 'status' => 'Sort: Status', 'created_at' => 'Sort: Created'] as $val => $label)
                     <option value="{{ $val }}" @selected($filters['sort'] === $val)>{{ $label }}</option>
                 @endforeach
             </select>
-            <select name="dir" class="list-header-filter">
-                <option value="asc" @selected($filters['dir'] === 'asc')>Asc</option>
-                <option value="desc" @selected($filters['dir'] === 'desc')>Desc</option>
+            <select name="dir" onchange="this.form.submit()" class="list-header-filter" title="Sort direction">
+                <option value="asc" @selected($filters['dir'] === 'asc')>Oldest / A-Z first</option>
+                <option value="desc" @selected($filters['dir'] === 'desc')>Newest / Z-A first</option>
             </select>
-        </div>
-        <button type="submit" class="corex-btn-outline">Apply</button>
-        <a href="{{ route('corex.auctions.index', ['clear' => 1]) }}" class="corex-btn-outline">Clear</a>
-    </form>
+
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            <a href="{{ route('corex.auctions.index', ['clear' => 1]) }}" class="text-xs underline" style="color:var(--text-muted);">Clear</a>
+        </form>
+    </div>
 
     @if($auctions->isEmpty())
         <div class="text-center py-16 text-muted">
