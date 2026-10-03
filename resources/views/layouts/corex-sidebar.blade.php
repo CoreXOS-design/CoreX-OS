@@ -219,7 +219,6 @@
         // the generic real-estate matcher below (which would otherwise claim
         // corex.properties.* first).
         request()->routeIs('corex.auctions.*')
-        || request()->routeIs('corex.settings.auctions.*')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false))
     ) {
         $activeGroup = 'auctions';
@@ -1209,9 +1208,6 @@
                 <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results') ? 'active' : '' }}">Results</a>
                 @endpermission
 
-                @permission('auctions.manage_settings')
-                <a href="{{ route('corex.settings.auctions.show') }}" class="corex-nav-subitem {{ request()->routeIs('corex.settings.auctions.*') ? 'active' : '' }}">Auction Settings</a>
-                @endpermission
             </div>
         </div>
         @endif
