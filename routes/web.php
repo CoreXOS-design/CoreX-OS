@@ -445,6 +445,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/auctions/lots/{lot}/feed', [\App\Http\Controllers\Api\V1\Auctions\AuctionLotFeedController::class, 'show'])
             ->middleware(['permission:access_auctions', 'agency.required', 'feature:auctions'])->name('auctions.lots.feed');
 
+        // Auctions — property typeahead for "Attach a Property" (address / title search).
+        Route::get('/auctions/{auction}/property-search', [\App\Http\Controllers\Api\V1\Auctions\AuctionPropertySearchController::class, 'index'])
+            ->middleware(['permission:auctions.create', 'agency.required', 'feature:auctions'])->name('auctions.property-search');
+
         // ── Agency Access Authorization (cross-agency consent flow) ──
         // See .ai/specs/agency-access-authorization-spec.md
         Route::prefix('agency-access')->name('agency-access.')->group(function () {

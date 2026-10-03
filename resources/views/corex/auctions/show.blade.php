@@ -95,35 +95,73 @@
     </div>
 
     @permission('auctions.create')
-    <div class="max-w-lg rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-        <h2 class="font-medium mb-2">Attach a Property</h2>
-        <form method="POST" action="{{ route('corex.auctions.lots.add', $auction) }}" class="grid grid-cols-2 gap-3 text-sm">
+    <div class="w-full rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);"
+         x-data="{
+            q: '', results: [], picked: null, open: false, busy: false, t: null,
+            search() {
+                clearTimeout(this.t);
+                if (this.q.trim().length < 2) { this.results = []; this.open = false; return; }
+                this.t = setTimeout(async () => {
+                    this.busy = true;
+                    try {
+                        const r = await fetch('{{ route('api.v1.auctions.property-search', $auction) }}?q=' + encodeURIComponent(this.q.trim()), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                        this.results = r.ok ? await r.json() : [];
+                    } catch (e) { this.results = []; }
+                    this.busy = false; this.open = true;
+                }, 250);
+            },
+            pick(p) { this.picked = p; this.q = ''; this.results = []; this.open = false; },
+            clear() { this.picked = null; }
+         }" @click.outside="open = false">
+        <h2 class="font-medium mb-3">Attach a Property</h2>
+        <form method="POST" action="{{ route('corex.auctions.lots.add', $auction) }}" class="flex flex-col gap-3 text-sm">
             @csrf
-            <div class="col-span-2">
-                <label class="prop-label">Property ID *</label>
-                <input type="number" name="property_id" required class="prop-input w-full">
-                <p class="text-xs text-muted mt-1">Find the property's ID from <a href="{{ route('corex.properties.index') }}" target="_blank" class="underline">Properties</a>.</p>
+            <input type="hidden" name="property_id" :value="picked ? picked.id : ''">
+
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="relative flex-1" style="min-width:16rem;">
+                    <label class="prop-label">Property *</label>
+                    <input type="text" x-model="q" @input="search()" @focus="open = results.length > 0" autocomplete="off"
+                           placeholder="Search by address or title…" class="prop-input w-full">
+                    <div x-show="open" x-cloak class="absolute left-0 right-0 z-50 mt-1 rounded-md border shadow-lg overflow-y-auto"
+                         style="max-height:16rem;background:var(--surface-1, var(--surface));border-color:var(--border);">
+                        <template x-for="p in results" :key="p.id">
+                            <button type="button" @click="pick(p)" class="w-full text-left px-3 py-2 hover:opacity-80" style="border-bottom:1px solid var(--border);color:var(--text-primary);">
+                                <span x-text="p.label" class="block text-sm font-medium"></span>
+                                <span class="block text-xs" style="color:var(--text-muted);"><span x-text="p.title || ''"></span><span x-show="p.status"> · <span x-text="p.status"></span></span></span>
+                            </button>
+                        </template>
+                        <div x-show="!busy && results.length === 0" class="px-3 py-2 text-xs" style="color:var(--text-muted);">No matching properties.</div>
+                    </div>
+                </div>
+                @if($canSeeReserve)
+                <div style="width:9rem;">
+                    <label class="prop-label">Reserve Price</label>
+                    <input type="number" name="reserve_price" step="0.01" class="prop-input w-full">
+                </div>
+                @endif
+                <div style="width:9rem;">
+                    <label class="prop-label">Opening Bid</label>
+                    <input type="number" name="opening_bid" step="0.01" class="prop-input w-full">
+                </div>
+                <div style="width:9rem;">
+                    <label class="prop-label">Guide Price Min</label>
+                    <input type="number" name="guide_price_min" step="0.01" class="prop-input w-full">
+                </div>
+                <div style="width:9rem;">
+                    <label class="prop-label">Guide Price Max</label>
+                    <input type="number" name="guide_price_max" step="0.01" class="prop-input w-full">
+                </div>
+                <button type="submit" class="corex-btn-primary" :disabled="!picked" :style="!picked ? 'opacity:.5;cursor:not-allowed;' : ''">Add Lot</button>
             </div>
-            @if($canSeeReserve)
-            <div>
-                <label class="prop-label">Reserve Price</label>
-                <input type="number" name="reserve_price" step="0.01" class="prop-input w-full">
-            </div>
-            @endif
-            <div>
-                <label class="prop-label">Opening Bid</label>
-                <input type="number" name="opening_bid" step="0.01" class="prop-input w-full">
-            </div>
-            <div>
-                <label class="prop-label">Guide Price Min</label>
-                <input type="number" name="guide_price_min" step="0.01" class="prop-input w-full">
-            </div>
-            <div>
-                <label class="prop-label">Guide Price Max</label>
-                <input type="number" name="guide_price_max" step="0.01" class="prop-input w-full">
-            </div>
-            <div class="col-span-2">
-                <button type="submit" class="corex-btn-primary">Add Lot</button>
+
+            {{-- Chosen property, shown beneath the search --}}
+            <div x-show="picked" x-cloak class="flex items-center justify-between gap-3 rounded-md px-3 py-2" style="border:1px solid var(--border);background:var(--surface-2, var(--surface));">
+                <div>
+                    <div class="text-sm font-medium" style="color:var(--text-primary);" x-text="picked && picked.label"></div>
+                    <div class="text-xs" style="color:var(--text-muted);"><span x-text="picked && picked.title"></span><span x-show="picked && picked.status"> · <span x-text="picked && picked.status"></span></span></div>
+                </div>
+                <button type="button" @click="clear()" class="corex-btn-outline text-xs">Remove</button>
             </div>
         </form>
     </div>
