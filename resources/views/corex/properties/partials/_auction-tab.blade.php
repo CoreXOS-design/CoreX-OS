@@ -12,7 +12,7 @@
     </div>
 @else
     @php $auction = $ai['auction']; $lot = $ai['lot']; @endphp
-    <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-3" data-tour="prop-auction-header">
         <div>
             <h2 class="text-base font-bold" style="color:var(--text-primary);">{{ $auction->title }}</h2>
             <p class="text-xs" style="color:var(--text-muted);">Lot {{ $lot->lot_number }} · {{ ucwords(str_replace('_', ' ', $lot->status)) }} · Auction {{ ucwords(str_replace('_', ' ', $auction->status)) }}</p>
@@ -28,7 +28,7 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
+    <div data-tour="prop-auction-details" class="grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
         {!! $row('Auction date', e($auction->starts_at?->format('D, d M Y \a\t H:i') ?? '—')) !!}
         {!! $row('Venue', e(trim(($auction->venue_name ?? '').($auction->venue_name && $auction->venue_address ? ', ' : '').($auction->venue_address ?? '')) ?: '—')) !!}
         {!! $row('Bidding', e(['in_room' => 'In-room', 'online' => 'Online', 'hybrid' => 'In-room and online'][$auction->bidding_mode] ?? '—')) !!}
@@ -39,7 +39,7 @@
         {!! $row('Registration', e($auction->registration_opens_at ? $auction->registration_opens_at->format('d M, H:i').' – '.($auction->registration_closes_at?->format('d M, H:i') ?? '—') : ($auction->registration_closes_at ? 'Closes '.$auction->registration_closes_at->format('d M, H:i') : '—'))) !!}
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
+    <div data-tour="prop-auction-price" class="grid grid-cols-2 lg:grid-cols-4 gap-4 rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
         {!! $row('Reserve', $ai['showReserve'] ? e($lot->reserve_price !== null ? ((float) $lot->reserve_price > 0 ? 'R '.number_format((float) $lot->reserve_price, 0, '.', ' ') : 'No reserve') : 'Not stated') : 'Hidden') !!}
         {!! $row('Guide price', e(($lot->guide_price_min || $lot->guide_price_max) ? 'R '.number_format((float) ($lot->guide_price_min ?: $lot->guide_price_max), 0, '.', ' ').(($lot->guide_price_min && $lot->guide_price_max && $lot->guide_price_max != $lot->guide_price_min) ? ' – R '.number_format((float) $lot->guide_price_max, 0, '.', ' ') : '') : '—').($ai['guideEnabled'] ? '' : ' <span class="text-xs" style="color:var(--text-muted);">(not shown publicly)</span>')) !!}
         {!! $row('Opening bid', e($lot->opening_bid ? 'R '.number_format((float) $lot->opening_bid, 0, '.', ' ') : '—')) !!}
@@ -47,7 +47,7 @@
     </div>
 
     @if($auction->rules_file_path || $auction->conditions_file_path)
-    <div class="rounded-md p-4 flex flex-wrap items-center gap-3" style="background:var(--surface);border:1px solid var(--border);">
+    <div data-tour="prop-auction-docs" class="rounded-md p-4 flex flex-wrap items-center gap-3" style="background:var(--surface);border:1px solid var(--border);">
         <span class="text-sm font-bold" style="color:var(--text-primary);">Documents</span>
         @foreach(['rules' => ['Rules of Auction', $auction->rules_file_path], 'conditions' => ['Conditions of Sale', $auction->conditions_file_path]] as $kind => [$dt, $dp])
             @if($dp)
@@ -59,7 +59,7 @@
     </div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <div data-tour="prop-auction-viewings" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
         <div class="px-4 py-3 text-sm font-bold" style="color:var(--text-primary);">Viewings</div>
         @forelse($ai['viewings'] as $v)
             <div class="px-4 py-2.5 text-sm flex flex-wrap justify-between gap-2" style="border-top:1px solid var(--border);color:var(--text-primary);">

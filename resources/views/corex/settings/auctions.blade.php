@@ -6,9 +6,14 @@
 
 @section('corex-content')
 <div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
-        <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Settings — Auctions</h1>
-        <p class="text-xs" style="color:var(--text-muted);">Who runs your auctions, where bidding happens, and how the agency is paid.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="aset-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Settings — Auctions</h1>
+                <p class="text-xs" style="color:var(--text-muted);">Who runs your auctions, where bidding happens, and how the agency is paid.</p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
@@ -21,7 +26,7 @@
     <form method="POST" action="{{ route('corex.settings.auctions.update') }}" class="flex flex-col gap-4 w-full">
         @csrf
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-mode">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">How your agency uses Auctions</h2>
             <label class="flex items-start gap-2 text-sm">
                 <input type="checkbox" name="advertising_only" value="1" class="mt-1" @checked(\App\Models\AgencyAuctionSettings::advertisingOnlyFor($agencyId))>
@@ -29,7 +34,7 @@
             </label>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-auctioneer">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Who runs the auction</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
@@ -44,7 +49,7 @@
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-bidding">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Where bidding happens</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div class="sm:col-span-2 xl:col-span-4">
@@ -81,7 +86,7 @@
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-fees">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">How the agency is paid</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
@@ -123,7 +128,7 @@
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-registration">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Bidder registration requirements</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div><label><input type="checkbox" name="registration_required" value="1" @checked(optional($settings)->registration_required ?? $S::DEFAULT_REGISTRATION_REQUIRED)> Registration required to bid</label></div>
@@ -164,7 +169,7 @@
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-reserve">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Reserve, guide and confirmation</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
@@ -188,7 +193,7 @@
             </div>
         </section>
 
-        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+        <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="aset-deposit">
             <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Deposit and settlement on the day</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
@@ -219,7 +224,7 @@
         </section>
 
         <div>
-            <button type="submit" class="corex-btn-primary">Save Auction Settings</button>
+            <button type="submit" class="corex-btn-primary" data-tour="aset-save">Save Auction Settings</button>
         </div>
     </form>
 </div>

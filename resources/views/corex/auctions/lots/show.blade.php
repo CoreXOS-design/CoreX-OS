@@ -2,7 +2,7 @@
 
 @section('corex-content')
 <div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="lot-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <a href="{{ route('corex.auctions.show', $lot->auction) }}" class="text-xs underline" style="color:var(--text-muted);">&larr; {{ $lot->auction->title }}</a>
@@ -15,14 +15,17 @@
                     @endif
                 </h1>
             </div>
-            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold self-start md:self-auto" style="background:color-mix(in srgb,var(--brand-button,#0ea5e9) 15%,transparent);color:var(--text-primary);border:1px solid var(--border);">{{ $statusLabels[$lot->status] ?? $lot->status }}</span>
+            <div class="flex items-center gap-2 self-start md:self-auto">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <span data-tour="lot-status" class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold" style="background:color-mix(in srgb,var(--brand-button,#0ea5e9) 15%,transparent);color:var(--text-primary);border:1px solid var(--border);">{{ $statusLabels[$lot->status] ?? $lot->status }}</span>
+            </div>
         </div>
     </div>
 
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
     @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-crimson,#dc2626) 12%,transparent);color:var(--ds-crimson,#dc2626);">{{ $errors->first() }}</div>@endif
 
-    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4 text-sm rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
+    <div data-tour="lot-facts" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4 text-sm rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
         @if($canSeeReserve)<div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Reserve</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : '—' }}</span></div>@endif
         <div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Guide</span><br><span class="font-medium" style="color:var(--text-primary);">
             @if($lot->guide_price_min || $lot->guide_price_max)
@@ -71,7 +74,7 @@
     @permission('auctions.edit')
     <div class="flex flex-wrap gap-2">
         @if($advertisingOnly && in_array($lot->status, ['catalogued', 'open_for_bids', 'under_the_hammer'], true))
-        <form method="POST" action="{{ route('corex.auctions.lots.record-result', $lot) }}" class="flex flex-wrap gap-2 items-end rounded-md p-3 w-full" style="background:var(--surface);border:1px solid var(--border);">
+        <form method="POST" action="{{ route('corex.auctions.lots.record-result', $lot) }}" class="flex flex-wrap gap-2 items-end rounded-md p-3 w-full" style="background:var(--surface);border:1px solid var(--border);" data-tour="lot-record-result">
             @csrf
             <div><label class="prop-label">Result of the sale</label>
                 <select name="outcome" class="prop-input" onchange="this.form.hammer_price.disabled = this.value !== 'sold'">
@@ -154,7 +157,7 @@
     </div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <div data-tour="lot-viewings" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
         <div class="px-4 pt-4 pb-3">
             <h2 class="text-sm font-bold" style="color:var(--text-primary);">Viewings</h2>
             <p class="text-xs mt-0.5" style="color:var(--text-muted);">Scheduled viewing windows before the sale. Published viewings appear on the calendar and, once live, the public lot page.</p>
@@ -186,7 +189,7 @@
         </table>
 </div>
         @permission('auctions.edit')
-        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-3 items-end px-4 py-4" style="border-top:1px solid var(--border);">
+        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-3 items-end px-4 py-4" style="border-top:1px solid var(--border);" data-tour="lot-viewing-form">
             @csrf
             <div style="min-width:17rem;">
                 <label class="prop-label">Starts *</label>
@@ -206,7 +209,7 @@
         @endpermission
     </div>
 
-    <div>
+    <div data-tour="lot-history">
         <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">History</h2>
         <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
 <table class="min-w-full text-sm">

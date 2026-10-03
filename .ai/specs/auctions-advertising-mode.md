@@ -116,3 +116,8 @@ Found by driving the whole flow in Chrome on QA2; each has a test in `AuctionCon
   shared one with the public page views and refused a buyer who had browsed a few lots.
 - **Public lot page:** whole numbers and singular/plural for rooms ("2 Bathrooms", "1 Garage"), suburb and
   town shown once when they are the same, and viewings hidden once the lot is sold / passed in / withdrawn.
+- **Guided tours** (`app/Support/Tours/defs/auctions.php`, anchors `au-…` / `aset-…` / `lot-…` / `prop-auction-…`): Auction Diary,
+  Set up an auction (create + edit), Work an auction (details, PDFs, attach, publish), Manage a lot, Auction Settings,
+  Auction Results, Auction properties; plus an "Auction tab" section in the Property page tour. Each has the click-through tour,
+  the hands-on Advanced Guide and Spot Help sections. Steps for conditional UI (record-result form, document links, publish
+  button) are skipped by the engine when not on screen. Rule: a new auction screen ships its tour + anchors in the same change.

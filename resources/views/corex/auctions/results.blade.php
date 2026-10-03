@@ -2,14 +2,22 @@
 
 @section('corex-content')
 <div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
-        <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Auction Results</h1>
-        @permission('auctions.results.export')
-        <a href="{{ route('corex.auctions.results.export', $filters) }}" class="corex-btn-outline">Export CSV</a>
-        @endpermission
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="au-res-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Auction Results</h1>
+                <p class="text-xs" style="color:var(--text-muted);">What happened to every lot: sold, passed in or withdrawn.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @permission('auctions.results.export')
+                <a href="{{ route('corex.auctions.results.export', $filters) }}" class="corex-btn-outline" data-tour="au-res-export">Export CSV</a>
+                @endpermission
+            </div>
+        </div>
     </div>
 
-    <form method="GET" class="flex flex-wrap items-end gap-3 text-sm rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+    <form method="GET" data-tour="au-res-filters" class="flex flex-wrap items-end gap-3 text-sm rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
         <div>
             <label class="prop-label">Search</label>
             <input type="text" name="search" value="{{ $filters['search'] }}" placeholder="Lot #, address, suburb, buyer, paddle" class="list-header-filter">
@@ -57,7 +65,7 @@
     @if($lots->isEmpty())
         <div class="text-center py-16 text-muted">No results yet — results appear here as lots are knocked down.</div>
     @else
-        <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
+        <div data-tour="au-res-table" class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
 <table class="min-w-full text-sm">
             <thead>
                 <tr style="background:var(--surface-2);">

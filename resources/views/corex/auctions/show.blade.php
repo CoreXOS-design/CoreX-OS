@@ -7,7 +7,8 @@
             <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">{{ $auction->title }}</h1>
             <p class="text-xs" style="color:var(--text-muted);">{{ $auction->reference }} · {{ ucwords(str_replace('_', ' ', $auction->status)) }} · {{ $auction->starts_at?->format('d M Y H:i') }}</p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 items-center" data-tour="au-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($auction->isCataloguePublished())
             <a href="{{ route('public.auctions.show', $auction->id) }}" target="_blank" class="corex-btn-outline">View public page</a>
             @endif
@@ -25,7 +26,7 @@
             @if($canPublish && $auction->lots->where('status', 'draft')->isNotEmpty())
             <form method="POST" action="{{ route('corex.auctions.publish', $auction) }}" onsubmit="return confirm('Publish the catalogue? Every draft lot goes On Auction and becomes publicly marketable.')">
                 @csrf
-                <button type="submit" class="corex-btn-primary">Publish Catalogue</button>
+                <button type="submit" class="corex-btn-primary" data-tour="au-publish">Publish Catalogue</button>
             </form>
             @endif
         </div>
@@ -48,7 +49,7 @@
         $venue = trim(($auction->venue_name ?? '').($auction->venue_name && $auction->venue_address ? ', ' : '').($auction->venue_address ?? ''));
     @endphp
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div class="xl:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-4 text-sm rounded-md p-4 content-start" style="background:var(--surface);border:1px solid var(--border);">
+        <div data-tour="au-info" class="xl:col-span-2 grid grid-cols-2 lg:grid-cols-3 gap-4 text-sm rounded-md p-4 content-start" style="background:var(--surface);border:1px solid var(--border);">
             <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Auction date</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $auction->starts_at?->format('D, d M Y \a\t H:i') ?? '—' }}</div></div>
             <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Venue</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ $venue ?: '—' }}</div></div>
             <div><div class="{{ $lbl }}" style="color:var(--text-muted);">Bidding mode</div><div class="font-medium mt-0.5" style="color:var(--text-primary);">{{ ucfirst(str_replace('_', ' ', $auction->bidding_mode)) }}</div></div>
@@ -66,7 +67,7 @@
             @endif
         </div>
 
-        <div class="rounded-md overflow-hidden content-start" style="background:var(--surface);border:1px solid var(--border);">
+        <div data-tour="au-docs" class="rounded-md overflow-hidden content-start" style="background:var(--surface);border:1px solid var(--border);">
             <div class="px-4 py-3 text-sm font-bold" style="color:var(--text-primary);">Documents</div>
             @foreach($docs as $kind => [$title, $path, $name])
                 @php $exists = filled($path) && $disk->exists($path); @endphp
@@ -91,7 +92,7 @@
         </div>
     </div>
 
-    <div>
+    <div data-tour="au-lots">
         <h2 class="font-medium mb-2">Lots</h2>
         @if($auction->lots->isEmpty())
             <p class="text-muted text-sm">No lots yet — attach a property below.</p>
@@ -147,7 +148,7 @@
     </div>
 
     @permission('auctions.create')
-    <div class="w-full rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);"
+    <div class="w-full rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);" data-tour="au-attach"
          x-data="{
             q: '', results: [], picked: null, open: false, busy: false, t: null,
             search() {
@@ -171,7 +172,7 @@
             <input type="hidden" name="property_id" :value="picked ? picked.id : ''">
 
             <div class="flex flex-wrap items-end gap-3">
-                <div class="relative flex-1" style="min-width:16rem;">
+                <div class="relative flex-1" style="min-width:16rem;" data-tour="au-attach-search">
                     <label class="prop-label">Property *</label>
                     <input type="text" x-model="q" @input="search()" @focus="open = results.length > 0" autocomplete="off"
                            placeholder="Search by address or title…" class="prop-input w-full">
@@ -192,7 +193,7 @@
                     <input type="number" name="reserve_price" step="0.01" class="prop-input w-full">
                 </div>
                 @endif
-                <div style="width:9rem;">
+                <div style="width:9rem;" data-tour="au-attach-prices">
                     <label class="prop-label">Opening Bid</label>
                     <input type="number" name="opening_bid" step="0.01" class="prop-input w-full">
                 </div>
@@ -204,11 +205,11 @@
                     <label class="prop-label">Guide Price Max</label>
                     <input type="number" name="guide_price_max" step="0.01" class="prop-input w-full">
                 </div>
-                <button type="submit" class="corex-btn-primary" :disabled="!picked" :style="!picked ? 'opacity:.5;cursor:not-allowed;' : ''">Add Lot</button>
+                <button type="submit" data-tour="au-attach-add" class="corex-btn-primary" :disabled="!picked" :style="!picked ? 'opacity:.5;cursor:not-allowed;' : ''">Add Lot</button>
             </div>
 
             {{-- Chosen property, shown beneath the search --}}
-            <div x-show="picked" x-cloak class="flex items-center justify-between gap-3 rounded-md px-3 py-2" style="border:1px solid var(--border);background:var(--surface-2, var(--surface));">
+            <div x-show="picked" x-cloak data-tour="au-attach-picked" class="flex items-center justify-between gap-3 rounded-md px-3 py-2" style="border:1px solid var(--border);background:var(--surface-2, var(--surface));">
                 <div>
                     <div class="text-sm font-medium" style="color:var(--text-primary);" x-text="picked && picked.label"></div>
                     <div class="text-xs" style="color:var(--text-muted);"><span x-text="picked && picked.title"></span><span x-show="picked && picked.status"> · <span x-text="picked && picked.status"></span></span></div>

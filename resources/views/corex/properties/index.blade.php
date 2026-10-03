@@ -414,21 +414,21 @@
                  what this control (or a hand-edited URL) says, so a static
                  label here is honest, not merely decorative. --}}
             @if($isAuctionEntry ?? false)
-                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows auction properties only">Auctions only</span>
+                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows auction properties only" data-tour="au-prop-lens">Auctions only</span>
                 {{-- AT-432 (§8.2) — lens-only filters: which auction, lot status, reserve met. --}}
-                <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction">
+                <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction" data-tour="au-prop-auction">
                     <option value="">All auctions</option>
                     @foreach($auctionOptions as $ao)
                     <option value="{{ $ao->id }}" {{ $auctionFilters['auctionId'] === (string) $ao->id ? 'selected' : '' }}>{{ $ao->reference }} — {{ $ao->title }} ({{ $ao->starts_at?->format('d M Y') }})</option>
                     @endforeach
                 </select>
-                <select name="lot_status" onchange="this.form.submit()" class="list-header-filter" title="Lot status">
+                <select name="lot_status" onchange="this.form.submit()" class="list-header-filter" title="Lot status" data-tour="au-prop-lotstatus">
                     <option value="">Any lot status</option>
                     @foreach($lotStatusLabels as $slug => $label)
                     <option value="{{ $slug }}" {{ $auctionFilters['lotStatus'] === (string) $slug ? 'selected' : '' }}>{{ $label }}</option>
                     @endforeach
                 </select>
-                <select name="reserve_met" onchange="this.form.submit()" class="list-header-filter" title="Reserve">
+                <select name="reserve_met" onchange="this.form.submit()" class="list-header-filter" title="Reserve" data-tour="au-prop-reserve">
                     <option value="">Reserve: any</option>
                     <option value="1" {{ $auctionFilters['reserveMet'] === '1' ? 'selected' : '' }}>Reserve met</option>
                     <option value="0" {{ $auctionFilters['reserveMet'] === '0' ? 'selected' : '' }}>Reserve not met</option>

@@ -12,7 +12,7 @@
     </div>
 @endif
 
-<form method="POST" action="{{ $isEdit ? route('corex.auctions.update', $auction) : route('corex.auctions.store') }}" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 w-full rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+<form method="POST" action="{{ $isEdit ? route('corex.auctions.update', $auction) : route('corex.auctions.store') }}" enctype="multipart/form-data" data-tour="au-form" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 w-full rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
     @csrf
     @if($isEdit) @method('PUT') @endif
 
@@ -24,11 +24,11 @@
         </div>
     @endif
 
-    <div>
+    <div data-tour="au-reference">
         <label class="prop-label">Reference *</label>
         <input type="text" name="reference" value="{{ old('reference', $auction->reference) }}" required maxlength="40" class="prop-input w-full" placeholder="AUC-2026-014">
     </div>
-    <div>
+    <div data-tour="au-title">
         <label class="prop-label">Title *</label>
         <input type="text" name="title" value="{{ old('title', $auction->title) }}" required maxlength="255" class="prop-input w-full">
     </div>
@@ -52,7 +52,7 @@
         </select>
     </div>
 
-    <div>
+    <div data-tour="au-bidding">
         <label class="prop-label">Bidding Mode *</label>
         <select name="bidding_mode" required class="prop-input w-full">
             @foreach(['in_room' => 'In-room', 'online' => 'Online', 'hybrid' => 'Hybrid'] as $val => $label)
@@ -65,7 +65,7 @@
         @endif
     </div>
 
-    <div>
+    <div data-tour="au-auctioneer">
         <label class="prop-label">Auctioneer *</label>
         <div class="flex gap-3 text-sm mb-1">
             @if($auctioneerMode !== 'external')
@@ -85,37 +85,37 @@
         <input type="text" name="auctioneer_licence_no" value="{{ old('auctioneer_licence_no', $auction->auctioneer_licence_no) }}" placeholder="Licence no." class="prop-input w-full">
     </div>
 
-    <div>
+    <div data-tour="au-date">
         <label class="prop-label">Auction Date/Time *</label>
         @include('corex.auctions._datetime', ['name' => 'starts_at', 'label' => 'Auction Date/Time', 'value' => $auction->starts_at, 'required' => true])
     </div>
 
-    <div>
+    <div data-tour="au-reg-open">
         <label class="prop-label">Registration Opens</label>
         @include('corex.auctions._datetime', ['name' => 'registration_opens_at', 'label' => 'Registration Opens', 'value' => $auction->registration_opens_at])
     </div>
-    <div>
+    <div data-tour="au-reg-close">
         <label class="prop-label">Registration Closes</label>
         @include('corex.auctions._datetime', ['name' => 'registration_closes_at', 'label' => 'Registration Closes', 'value' => $auction->registration_closes_at])
     </div>
 
-    <div>
+    <div data-tour="au-venue-name">
         <label class="prop-label">Venue Name</label>
         <input type="text" name="venue_name" value="{{ old('venue_name', $auction->venue_name) }}" class="prop-input w-full">
     </div>
-    <div>
+    <div data-tour="au-venue-addr">
         <label class="prop-label">Venue Address</label>
         <input type="text" name="venue_address" value="{{ old('venue_address', $auction->venue_address) }}" class="prop-input w-full">
     </div>
 
-    <div class="sm:col-span-2 xl:col-span-3 border-t border-gray-100 pt-3">
+    <div class="sm:col-span-2 xl:col-span-3 border-t border-gray-100 pt-3" data-tour="au-advert">
         <p class="text-xs font-semibold text-gray-600 mb-2">Public advert — how buyers reach the auctioneer</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="sm:col-span-2">
+            <div class="sm:col-span-2" data-tour="au-reg-url">
                 <label class="prop-label">Register-to-bid link (the auctioneer's own page, if they take registrations)</label>
                 <input type="url" name="external_registration_url" value="{{ old('external_registration_url', $auction->external_registration_url) }}" placeholder="https://" class="prop-input w-full">
             </div>
-            <div>
+            <div data-tour="au-contact">
                 <label class="prop-label">Auctioneer phone</label>
                 <input type="text" name="auctioneer_phone" value="{{ old('auctioneer_phone', $auction->auctioneer_phone) }}" class="prop-input w-full">
             </div>
@@ -123,11 +123,11 @@
                 <label class="prop-label">Auctioneer email</label>
                 <input type="email" name="auctioneer_email" value="{{ old('auctioneer_email', $auction->auctioneer_email) }}" class="prop-input w-full">
             </div>
-            <div>
+            <div data-tour="au-rules">
                 <label class="prop-label">Rules of Auction (PDF) @if($auction->rules_file_name)<span class="text-muted">— current: {{ $auction->rules_file_name }}</span>@endif</label>
                 <input type="file" name="rules_file" accept="application/pdf" class="prop-input w-full">
             </div>
-            <div>
+            <div data-tour="au-conditions">
                 <label class="prop-label">Conditions of Sale (PDF) @if($auction->conditions_file_name)<span class="text-muted">— current: {{ $auction->conditions_file_name }}</span>@endif</label>
                 <input type="file" name="conditions_file" accept="application/pdf" class="prop-input w-full">
             </div>
@@ -139,7 +139,7 @@
         <textarea name="notes" rows="3" class="prop-input w-full">{{ old('notes', $auction->notes) }}</textarea>
     </div>
 
-    <div class="sm:col-span-2 xl:col-span-3 flex gap-2">
+    <div class="sm:col-span-2 xl:col-span-3 flex gap-2" data-tour="au-save">
         <button type="submit" class="corex-btn-primary">{{ $isEdit ? 'Save' : 'Create Auction' }}</button>
         <a href="{{ $isEdit ? route('corex.auctions.show', $auction) : route('corex.auctions.index') }}" class="corex-btn-outline">Cancel</a>
     </div>
