@@ -1,29 +1,38 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="corex-auctions w-full h-full flex flex-col gap-6">
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
-        <div>
-        <a href="{{ route('corex.auctions.show', $lot->auction) }}" class="text-sm text-muted underline">&larr; {{ $lot->auction->title }}</a>
-        <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Lot {{ $lot->lot_number }} — {{ $lot->property?->buildDisplayAddress() ?? ('Property #'.$lot->property_id) }}</h1>
-        <p class="text-xs" style="color:var(--text-muted);">Status: {{ $statusLabels[$lot->status] ?? $lot->status }}</p>
+<div class="corex-auctions w-full h-full flex flex-col gap-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('corex.auctions.show', $lot->auction) }}" class="text-xs underline" style="color:var(--text-muted);">&larr; {{ $lot->auction->title }}</a>
+                <h1 class="text-base font-bold leading-tight mt-1" style="color:var(--text-primary);">
+                    Lot {{ $lot->lot_number }} —
+                    @if($lot->property)
+                        <a href="{{ route('corex.properties.show', $lot->property_id) }}" target="_blank" rel="noopener" class="underline" title="Open property in a new tab">{{ $lot->property->buildDisplayAddress() }}</a>
+                    @else
+                        {{ 'Property #'.$lot->property_id }}
+                    @endif
+                </h1>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold self-start md:self-auto" style="background:color-mix(in srgb,var(--brand-button,#0ea5e9) 15%,transparent);color:var(--text-primary);border:1px solid var(--border);">{{ $statusLabels[$lot->status] ?? $lot->status }}</span>
         </div>
     </div>
 
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
     @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-crimson,#dc2626) 12%,transparent);color:var(--ds-crimson,#dc2626);">{{ $errors->first() }}</div>@endif
 
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
-        @if($canSeeReserve)<div><span class="text-muted">Reserve</span><br>{{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : '—' }}</div>@endif
-        <div><span class="text-muted">Guide</span><br>
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4 text-sm rounded-md p-4" style="background:var(--surface);border:1px solid var(--border);">
+        @if($canSeeReserve)<div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Reserve</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : '—' }}</span></div>@endif
+        <div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Guide</span><br><span class="font-medium" style="color:var(--text-primary);">
             @if($lot->guide_price_min || $lot->guide_price_max)
                 R {{ number_format($lot->guide_price_min ?? 0, 0) }} – R {{ number_format($lot->guide_price_max ?? 0, 0) }}
             @else — @endif
-        </div>
-        <div><span class="text-muted">Hammer Price</span><br>{{ $lot->hammer_price ? 'R '.number_format($lot->hammer_price, 0) : '—' }}</div>
-        @if($lot->hammer_at)<div><span class="text-muted">Hammer At</span><br>{{ $lot->hammer_at->format('d M Y H:i') }}</div>@endif
-        @if(! is_null($lot->reserve_met))<div><span class="text-muted">Reserve Met</span><br>{{ $lot->reserve_met ? 'Yes' : 'No' }}</div>@endif
-        @if($lot->confirmation_deadline)<div><span class="text-muted">Confirmation Due</span><br>{{ $lot->confirmation_deadline->format('d M Y H:i') }}</div>@endif
+        </span></div>
+        <div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Hammer Price</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->hammer_price ? 'R '.number_format($lot->hammer_price, 0) : '—' }}</span></div>
+        @if($lot->hammer_at)<div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Hammer At</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->hammer_at->format('d M Y H:i') }}</span></div>@endif
+        @if(! is_null($lot->reserve_met))<div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Reserve Met</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->reserve_met ? 'Yes' : 'No' }}</span></div>@endif
+        @if($lot->confirmation_deadline)<div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Confirmation Due</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->confirmation_deadline->format('d M Y H:i') }}</span></div>@endif
     </div>
 
     @if($lot->status === 'sold')
@@ -104,7 +113,7 @@
 
     @if($lot->status === 'passed_in' && $topUnderBidders->isNotEmpty())
     <div class="rounded-md p-4" style="background:color-mix(in srgb,var(--ds-amber,#f59e0b) 12%,transparent);border:1px solid color-mix(in srgb,var(--ds-amber,#f59e0b) 40%,transparent);">
-        <h2 class="font-medium mb-2">Top Under-Bidders — §12.3</h2>
+        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Top Under-Bidders — §12.3</h2>
         <p class="text-sm text-muted mb-2">Every one of these bid but did not win — the strongest, most qualified leads this passed-in lot produced. Negotiate from the top down.</p>
         <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
 <table class="min-w-full text-sm">
@@ -129,7 +138,7 @@
     @endif
 
     <div>
-        <h2 class="font-medium mb-2">Viewings — §5.6</h2>
+        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Viewings — §5.6</h2>
         <p class="text-sm text-muted mb-2">Scheduled viewing windows before the sale. Published viewings appear on the calendar and, once live, the public lot page.</p>
         <div class="rounded-md overflow-x-auto mb-3" style="background:var(--surface);border:1px solid var(--border);">
 <table class="min-w-full text-sm">
@@ -146,7 +155,7 @@
                         @permission('auctions.edit')
                         <form method="POST" action="{{ route('corex.auctions.lots.viewings.destroy', [$lot, $viewing]) }}" onsubmit="return confirm('Remove this viewing?')">
                             @csrf @method('DELETE')
-                            <button type="submit" class="text-xs text-red-600 underline">Remove</button>
+                            <button type="submit" class="text-xs underline" style="color:var(--ds-crimson,#dc2626);">Remove</button>
                         </form>
                         @endpermission
                     </td>
@@ -158,17 +167,17 @@
         </table>
 </div>
         @permission('auctions.edit')
-        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-2 items-end">
+        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-3 items-end rounded-md p-3" style="background:var(--surface);border:1px solid var(--border);">
             @csrf
-            <div>
+            <div style="min-width:17rem;">
                 <label class="prop-label">Starts *</label>
-                <input type="datetime-local" name="starts_at" required class="prop-input">
+                @include('corex.auctions._datetime', ['name' => 'starts_at', 'label' => 'Starts', 'value' => null, 'required' => true])
             </div>
-            <div>
+            <div style="min-width:17rem;">
                 <label class="prop-label">Ends *</label>
-                <input type="datetime-local" name="ends_at" required class="prop-input">
+                @include('corex.auctions._datetime', ['name' => 'ends_at', 'label' => 'Ends', 'value' => null, 'required' => true])
             </div>
-            <label class="flex items-center gap-1 text-sm"><input type="checkbox" name="is_by_appointment" value="1"> By appointment</label>
+            <label class="flex items-center gap-1 text-sm pb-2"><input type="checkbox" name="is_by_appointment" value="1"> By appointment</label>
             <div>
                 <label class="prop-label">Notes</label>
                 <input type="text" name="notes" class="prop-input" placeholder="Optional">
@@ -179,7 +188,7 @@
     </div>
 
     <div>
-        <h2 class="font-medium mb-2">History</h2>
+        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">History</h2>
         <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
 <table class="min-w-full text-sm">
             <thead><tr style="background:var(--surface-2);"><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">When</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">From</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">To</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">By</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Reason</th></tr></thead>
