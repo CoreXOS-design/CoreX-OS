@@ -306,6 +306,8 @@
                 </section>
             @endif
 
+            @include('corex.properties.partials._auction-preview')
+
             {{-- Bond calculator — sales only. A tenant takes no bond out on a rental,
                  and the sale `price` column is 0/null on a rental anyway, so on a
                  rental this section rendered a repayment schedule for a purchase
@@ -385,7 +387,7 @@
 
                 {{-- Price card --}}
                 <div class="rounded-sm border border-slate-200 bg-slate-50 p-6" id="enquire">
-                    <p class="text-marine text-xs font-semibold tracking-[0.2em] uppercase">{{ $property->price_on_application ? 'Price' : ($isRental ? 'Monthly rental' : 'Asking price') }}</p>
+                    <p class="text-marine text-xs font-semibold tracking-[0.2em] uppercase">{{ $property->price_on_application ? 'Price' : ($isRental ? 'Monthly rental' : ($property->isAuction() ? 'Auction' : 'Asking price')) }}</p>
                     <p class="text-brand-red mt-2 text-2xl font-semibold num">
                         {{ $property->formattedPrice() }}{{ ($isRental && ! $property->price_on_application) ? ' / month' : '' }}
                     </p>

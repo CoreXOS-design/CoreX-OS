@@ -1301,6 +1301,7 @@
             @foreach([
                 ['key'=>'overview',  'label'=>'Overview'],
                 ['key'=>'info',      'label'=>'Info'],
+                ['key'=>'auction',   'label'=>'Auction'],
                 ['key'=>'gallery',   'label'=>'Gallery'],
                 ['key'=>'rental',    'label'=>'Rental'],
                 ['key'=>'rental-images', 'label'=>'Rental Images'],
@@ -1312,6 +1313,10 @@
                 ['key'=>'core-matches', 'label'=>'Core Matches'],
             ] as $tab)
             @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
+                @continue
+            @endif
+            {{-- Auction tab only for a property that is on auction. --}}
+            @if($tab['key'] === 'auction' && ($isNew || ! $property->isAuction()))
                 @continue
             @endif
             @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
@@ -3608,6 +3613,13 @@
                 @endif
             </div>
         </div>
+
+        {{-- AUCTION TAB — the auction + lot this property is linked to (only when on auction) --}}
+        @if(! $isNew && $property->isAuction())
+        <div x-show="activeTab === 'auction'" x-cloak class="p-6 space-y-4">
+            @include('corex.properties.partials._auction-tab')
+        </div>
+        @endif
 
         {{-- ── GALLERY TAB ────────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'gallery'" x-cloak class="p-6 space-y-6"
