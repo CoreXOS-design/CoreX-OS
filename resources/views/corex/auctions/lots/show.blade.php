@@ -35,6 +35,23 @@
         @if($lot->confirmation_deadline)<div><span class="text-xs uppercase tracking-wider" style="color:var(--text-muted);">Confirmation Due</span><br><span class="font-medium" style="color:var(--text-primary);">{{ $lot->confirmation_deadline->format('d M Y H:i') }}</span></div>@endif
     </div>
 
+    @if(in_array($lot->status, ['draft', 'catalogued'], true))
+    @permission('auctions.edit')
+    <form method="POST" action="{{ route('corex.auctions.lots.prices.update', $lot) }}" class="flex flex-wrap gap-2 items-end rounded-md p-3" style="background:var(--surface);border:1px solid var(--border);">
+        @csrf
+        @method('PUT')
+        @if($canSeeReserve)
+        <div><label class="prop-label">Reserve Price (R)</label><input type="number" name="reserve_price" step="0.01" min="0" value="{{ old('reserve_price', $lot->reserve_price !== null ? (float) $lot->reserve_price : '') }}" class="prop-input"></div>
+        @endif
+        <div><label class="prop-label">Opening Bid (R)</label><input type="number" name="opening_bid" step="0.01" min="0" value="{{ old('opening_bid', $lot->opening_bid !== null ? (float) $lot->opening_bid : '') }}" class="prop-input"></div>
+        <div><label class="prop-label">Guide Price Min (R)</label><input type="number" name="guide_price_min" step="0.01" min="0" value="{{ old('guide_price_min', $lot->guide_price_min !== null ? (float) $lot->guide_price_min : '') }}" class="prop-input"></div>
+        <div><label class="prop-label">Guide Price Max (R)</label><input type="number" name="guide_price_max" step="0.01" min="0" value="{{ old('guide_price_max', $lot->guide_price_max !== null ? (float) $lot->guide_price_max : '') }}" class="prop-input"></div>
+        <button type="submit" class="corex-btn-primary">Save prices</button>
+        @if($canSeeReserve)<p class="text-xs text-muted w-full">Enter 0 as the reserve if the lot is sold without reserve.</p>@endif
+    </form>
+    @endpermission
+    @endif
+
     @if($lot->status === 'sold')
     @permission('auctions.edit')
     <div>

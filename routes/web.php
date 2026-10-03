@@ -4055,6 +4055,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{auction}/publish', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'publish'])->middleware('permission:auctions.publish')->name('publish');
 
         Route::get('/lots/{lot}', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'show'])->name('lots.show');
+        Route::put('/lots/{lot}/prices', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'updatePrices'])->middleware('permission:auctions.edit')->name('lots.prices.update');
         Route::post('/lots/{lot}/open-for-bids', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openForBids'])->middleware('permission:auctions.edit')->name('lots.open');
         Route::post('/lots/{lot}/start-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'startHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.start');
         Route::post('/lots/{lot}/record-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'recordHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.record');
@@ -5275,12 +5276,14 @@ Route::prefix('register-to-bid')->group(function () {
 // .ai/specs/auctions-advertising-mode.md §4 — the public page for a published
 // auction catalogue, each lot, the Rules/Conditions PDFs, and the enquiry form.
 // Keyed by the auction's id like register-to-bid above (public once published);
-// every action is throttled.
+// every action is throttled. The enquiry limit carries its own counter name —
+// unnamed, it shares one counter with the page views above it and a buyer who
+// browses a few lots is refused when they enquire.
 Route::prefix('auction-catalogue')->middleware('throttle:60,1')->group(function () {
     Route::get('/{auction}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'show'])->name('public.auctions.show');
     Route::get('/{auction}/lots/{lot}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'lotPage'])->name('public.auctions.lot');
     Route::get('/{auction}/documents/{kind}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'document'])->name('public.auctions.document');
-    Route::post('/{auction}/lots/{lot}/enquire', [\App\Http\Controllers\Public\AuctionPublicController::class, 'enquire'])->middleware('throttle:10,1')->name('public.auctions.enquire');
+    Route::post('/{auction}/lots/{lot}/enquire', [\App\Http\Controllers\Public\AuctionPublicController::class, 'enquire'])->middleware('throttle:10,1,auction-enquiry')->name('public.auctions.enquire');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

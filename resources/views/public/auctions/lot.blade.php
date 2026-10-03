@@ -2,6 +2,8 @@
 @php
     $property = $lot->property;
     $images = $property?->publicGalleryUrls() ?? [];
+    // 2.0 -> 2, 2.5 stays 2.5; the label follows the count (1 Garage, 2 Garages).
+    $room = fn ($n, string $label) => '<strong>'.(float) $n.'</strong> '.((float) $n === 1.0 ? $label : \Illuminate\Support\Str::plural($label));
 @endphp
 @section('title', 'Lot '.$lot->lot_number.' — '.($property?->headline ?: $property?->title ?: $auction->title))
 @if(!empty($images))@section('og_image', $images[0])@endif
@@ -19,19 +21,19 @@
         <div>
             <div class="text-xs text-slate-400">Lot {{ $lot->lot_number }}</div>
             <h1 class="text-2xl font-bold">{{ $property?->headline ?: $property?->title ?: $property?->address }}</h1>
-            <div class="text-slate-500">{{ collect([$property?->suburb, $property?->city])->filter()->implode(', ') }}</div>
+            <div class="text-slate-500">{{ collect([$property?->suburb, $property?->city])->filter()->unique()->implode(', ') }}</div>
         </div>
         @include('public.auctions._lot-facts')
         <div class="flex flex-wrap gap-5 text-sm border-y border-slate-200 py-3">
-            @if($property?->beds)<div><strong>{{ $property->beds }}</strong> Bedrooms</div>@endif
-            @if($property?->baths)<div><strong>{{ $property->baths }}</strong> Bathrooms</div>@endif
-            @if($property?->garages)<div><strong>{{ $property->garages }}</strong> Garages</div>@endif
+            @if($property?->beds)<div>{!! $room($property->beds, 'Bedroom') !!}</div>@endif
+            @if($property?->baths)<div>{!! $room($property->baths, 'Bathroom') !!}</div>@endif
+            @if($property?->garages)<div>{!! $room($property->garages, 'Garage') !!}</div>@endif
             @if($property?->size_m2)<div><strong>{{ $property->size_m2 }}</strong> m² floor</div>@endif
             @if($property?->erf_size_m2)<div><strong>{{ $property->erf_size_m2 }}</strong> m² erf</div>@endif
         </div>
         <p class="text-sm whitespace-pre-line">{{ $property?->description }}</p>
 
-        @if($lot->upcomingViewings->isNotEmpty())
+        @if(! in_array($lot->status, \App\Models\AuctionLot::CONCLUDED_STATUSES, true) && $lot->upcomingViewings->isNotEmpty())
         <div>
             <h2 class="font-semibold mb-1">Viewings</h2>
             <ul class="text-sm text-slate-600 space-y-1">

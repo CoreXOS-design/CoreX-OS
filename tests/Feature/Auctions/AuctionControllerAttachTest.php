@@ -142,4 +142,104 @@ final class AuctionControllerAttachTest extends TestCase
 
         $this->assertNotSoftDeleted($lot->refresh());
     }
+
+    private function makeAuction(string $reference): Auction
+    {
+        return Auction::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'reference' => $reference,
+            'title' => 'Auction '.$reference, 'bidding_mode' => 'in_room', 'auctioneer_kind' => 'internal',
+            'starts_at' => now()->addDays(10),
+        ]);
+    }
+
+    /** QA2 2026-10-03 — the next lot number ignored removed lots while the unique index still counted them: a 500. */
+    public function test_a_property_can_be_attached_again_after_its_lot_was_removed(): void
+    {
+        $property = $this->makeProperty();
+        $auction = $this->makeAuction('AUC-REATTACH');
+
+        $this->post(route('corex.auctions.lots.add', $auction), ['property_id' => $property->id]);
+        $this->delete(route('corex.auctions.lots.remove', [$auction, $auction->lots()->first()]));
+
+        $this->post(route('corex.auctions.lots.add', $auction), ['property_id' => $property->id, 'reserve_price' => 0])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect(route('corex.auctions.show', $auction));
+
+        $lot = $auction->lots()->sole();
+        $this->assertSame(2, $lot->lot_number);
+        $this->assertTrue($property->refresh()->isAuction());
+    }
+
+    public function test_a_property_open_in_another_auction_cannot_be_attached_until_it_is_released_there(): void
+    {
+        $property = $this->makeProperty();
+        $first = $this->makeAuction('AUC-FIRST');
+        $second = $this->makeAuction('AUC-SECOND');
+
+        $this->post(route('corex.auctions.lots.add', $first), ['property_id' => $property->id]);
+
+        $this->post(route('corex.auctions.lots.add', $second), ['property_id' => $property->id])
+            ->assertSessionHasErrors('property_id');
+        $this->assertSame(0, $second->lots()->count());
+        $this->assertSame([], $this->getJson(route('api.v1.auctions.property-search', $second).'?q=Attach')->assertOk()->json());
+
+        $this->delete(route('corex.auctions.lots.remove', [$first, $first->lots()->first()]));
+
+        $this->post(route('corex.auctions.lots.add', $second), ['property_id' => $property->id])
+            ->assertSessionHasNoErrors();
+        $this->assertSame(1, $second->lots()->count());
+    }
+
+    public function test_rentals_and_concluded_listings_are_neither_offered_nor_accepted(): void
+    {
+        $auction = $this->makeAuction('AUC-ELIGIBLE');
+        $sale = $this->makeProperty();
+        $rental = $this->makeProperty();
+        $rental->forceFill(['listing_type' => 'rental'])->save();
+        $sold = $this->makeProperty();
+        $sold->forceFill(['status' => 'sold'])->save();
+
+        $offered = collect($this->getJson(route('api.v1.auctions.property-search', $auction).'?q=Attach')->assertOk()->json())->pluck('id')->all();
+        $this->assertSame([$sale->id], $offered);
+
+        foreach ([$rental, $sold] as $refused) {
+            $this->post(route('corex.auctions.lots.add', $auction), ['property_id' => $refused->id])
+                ->assertSessionHasErrors('property_id');
+        }
+        $this->assertSame(0, $auction->lots()->count());
+    }
+
+    public function test_lot_prices_can_be_corrected_until_bidding_opens(): void
+    {
+        $auction = $this->makeAuction('AUC-PRICES');
+        $this->post(route('corex.auctions.lots.add', $auction), ['property_id' => $this->makeProperty()->id]);
+        $lot = $auction->lots()->first();
+
+        $this->put(route('corex.auctions.lots.prices.update', $lot), [
+            'reserve_price' => 0, 'opening_bid' => 900000, 'guide_price_min' => 1200000, 'guide_price_max' => 1600000,
+        ])->assertSessionHasNoErrors()->assertRedirect(route('corex.auctions.lots.show', $lot));
+
+        $lot->refresh();
+        $this->assertNotNull($lot->reserve_price);
+        $this->assertEquals(0, (float) $lot->reserve_price);
+        $this->assertEquals(900000, (float) $lot->opening_bid);
+        $this->assertEquals(1600000, (float) $lot->guide_price_max);
+
+        $this->put(route('corex.auctions.lots.prices.update', $lot), ['guide_price_min' => 2000000, 'guide_price_max' => 1000000])
+            ->assertSessionHasErrors('guide_price_max');
+        $this->assertEquals(1200000, (float) $lot->refresh()->guide_price_min);
+
+        $lot->forceFill(['status' => AuctionLot::STATUS_SOLD])->save();
+        $this->put(route('corex.auctions.lots.prices.update', $lot), ['opening_bid' => 1])
+            ->assertSessionHasErrors('lot');
+        $this->assertEquals(900000, (float) $lot->refresh()->opening_bid);
+    }
+
+    /** Unnamed, the enquiry limit shared one counter with the public page views and refused buyers who had browsed. */
+    public function test_the_public_enquiry_limit_has_its_own_counter(): void
+    {
+        $middleware = app('router')->getRoutes()->getByName('public.auctions.enquire')->gatherMiddleware();
+
+        $this->assertContains('throttle:10,1,auction-enquiry', $middleware);
+    }
 }

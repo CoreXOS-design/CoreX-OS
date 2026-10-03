@@ -48,6 +48,45 @@ class AuctionLotController extends Controller
         ]);
     }
 
+    /**
+     * Reserve / guide / opening bid can be corrected until bidding opens — the publish gate asks for a
+     * reserve statement, and removing and re-adding the lot must not be the only way to give one.
+     * The reserve is written only for a user who may see it; for anyone else the field is never
+     * rendered, and an absent field must not blank what is stored.
+     */
+    public function updatePrices(Request $request, AuctionLot $lot)
+    {
+        if (! in_array($lot->status, [AuctionLot::STATUS_DRAFT, AuctionLot::STATUS_CATALOGUED], true)) {
+            return back()->withErrors(['lot' => 'Prices can only be changed before bidding opens on the lot.']);
+        }
+
+        $data = $request->validate([
+            'reserve_price' => 'nullable|numeric|min:0',
+            'opening_bid' => 'nullable|numeric|min:0',
+            'guide_price_min' => 'nullable|numeric|min:0',
+            'guide_price_max' => 'nullable|numeric|min:0',
+        ]);
+
+        $guideMin = $data['guide_price_min'] ?? null;
+        $guideMax = $data['guide_price_max'] ?? null;
+        if ($guideMin !== null && $guideMax !== null && (float) $guideMax < (float) $guideMin) {
+            return back()->withErrors(['guide_price_max' => 'The guide price maximum cannot be lower than the minimum.'])->withInput();
+        }
+
+        $canSeeReserve = AgencyAuctionSettings::reserveVisibilityFor((int) $lot->agency_id) === 'published'
+            || auth()->user()->hasPermission('auctions.reserve.view');
+
+        $lot->opening_bid = $data['opening_bid'] ?? null;
+        $lot->guide_price_min = $guideMin;
+        $lot->guide_price_max = $guideMax;
+        if ($canSeeReserve && $request->has('reserve_price')) {
+            $lot->reserve_price = $data['reserve_price'] ?? null;
+        }
+        $lot->save();
+
+        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', 'Lot prices updated.');
+    }
+
     public function openForBids(AuctionLot $lot)
     {
         return $this->run($lot, fn ($svc) => $svc->openForBids($lot, auth()->id()), 'Lot opened for bids.');

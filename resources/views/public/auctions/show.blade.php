@@ -12,7 +12,7 @@
             <div class="space-y-1">
                 <div class="text-xs text-slate-400">Lot {{ $lot->lot_number }}</div>
                 <div class="font-semibold">{{ $lot->property?->headline ?: $lot->property?->title ?: $lot->property?->address }}</div>
-                <div class="text-sm text-slate-500">{{ collect([$lot->property?->suburb, $lot->property?->city])->filter()->implode(', ') }}</div>
+                <div class="text-sm text-slate-500">{{ collect([$lot->property?->suburb, $lot->property?->city])->filter()->unique()->implode(', ') }}</div>
                 @include('public.auctions._lot-facts', ['lot' => $lot])
             </div>
         </a>

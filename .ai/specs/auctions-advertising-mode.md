@@ -99,3 +99,20 @@ passes when satisfied. 3. Public pages reachable without login only after publis
   "Price on Application" when the flag is on, so every consumer (preview, header, cards, brochure, match cards,
   portals' display strings, mobile `price_display`) hides the amount. The Pricing Details popup fields are linked
   to `#prop-update-form` via `form=` (the popup is teleported to `<body>`) and count toward the dirty/Save tracker.
+
+## 13. QA2 walkthrough fixes 2026-10-03 (Andre)
+Found by driving the whole flow in Chrome on QA2; each has a test in `AuctionControllerAttachTest`.
+- **Re-attach after remove:** the next lot number counts removed (archived) lots, so removing a lot and
+  attaching again no longer hits the unique auction + lot-number index. Lot numbers are never reused.
+- **Edit lot prices:** the lot page has a Reserve / Opening bid / Guide min / Guide max form
+  (`PUT corex/auctions/lots/{lot}/prices`, `auctions.edit`) while the lot is Draft or Catalogued. The reserve
+  field is shown to, and written for, only a user who may see the reserve. Guide max may not be below guide min.
+- **One open auction per property:** `AuctionLotAttacher::blockReason()` refuses a property that is still an
+  open lot in another auction that is not closed / settled / cancelled, a rental, or a listing marked sold,
+  sold by 3rd party, transferred, withdrawn, expired, cancelled, let out, rented, archived, unavailable or not
+  selling. The Attach a Property search applies the same rule (`constrainToEligible()`), so it never offers
+  what the server would refuse. Draft and prospecting listings stay eligible (the publish gate covers mandate).
+- **Enquiry rate limit:** the enquiry limit (10 a minute) has its own counter (`auction-enquiry`); before, it
+  shared one with the public page views and refused a buyer who had browsed a few lots.
+- **Public lot page:** whole numbers and singular/plural for rooms ("2 Bathrooms", "1 Garage"), suburb and
+  town shown once when they are the same, and viewings hidden once the lot is sold / passed in / withdrawn.

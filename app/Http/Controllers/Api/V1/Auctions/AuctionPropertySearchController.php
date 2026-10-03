@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Api\V1\Auctions;
 use App\Http\Controllers\Controller;
 use App\Models\Auction;
 use App\Models\Property;
+use App\Services\Auctions\AuctionLotAttacher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
  * Typeahead for "Attach a Property" on the auction page. Uses the canonical
  * Property::searchAddress() (address, unit/complex, title) and the user's own/
- * branch/agency visibility, and leaves out properties already lots in this auction.
+ * branch/agency visibility, and leaves out properties already lots in this auction and
+ * anything AuctionLotAttacher would refuse (rentals, concluded listings, a property
+ * still open in another auction).
  */
 class AuctionPropertySearchController extends Controller
 {
@@ -24,7 +27,7 @@ class AuctionPropertySearchController extends Controller
 
         $attached = $auction->lots()->pluck('property_id');
 
-        $results = Property::query()
+        $results = AuctionLotAttacher::constrainToEligible(Property::query(), $auction)
             ->visibleTo($request->user())
             ->where('agency_id', $auction->agency_id)
             ->whereNotIn('id', $attached)
