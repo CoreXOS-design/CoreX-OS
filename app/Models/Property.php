@@ -2167,6 +2167,13 @@ class Property extends Model
 
     public function formattedPrice(): string
     {
+        // Price On Application hides the amount EVERYWHERE this is shown (live preview,
+        // property header/cards, brochure, match cards, portals' display strings) — the
+        // one place that decides, so no view has to remember to check the flag.
+        if ($this->price_on_application) {
+            return 'Price on Application';
+        }
+
         return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
     }
 
