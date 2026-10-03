@@ -113,7 +113,7 @@
 
     @if($lot->status === 'passed_in' && $topUnderBidders->isNotEmpty())
     <div class="rounded-md p-4" style="background:color-mix(in srgb,var(--ds-amber,#f59e0b) 12%,transparent);border:1px solid color-mix(in srgb,var(--ds-amber,#f59e0b) 40%,transparent);">
-        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Top Under-Bidders — §12.3</h2>
+        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Top Under-Bidders</h2>
         <p class="text-sm text-muted mb-2">Every one of these bid but did not win — the strongest, most qualified leads this passed-in lot produced. Negotiate from the top down.</p>
         <div class="rounded-md overflow-x-auto" style="background:var(--surface);border:1px solid var(--border);">
 <table class="min-w-full text-sm">
@@ -137,10 +137,12 @@
     </div>
     @endif
 
-    <div>
-        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Viewings — §5.6</h2>
-        <p class="text-sm text-muted mb-2">Scheduled viewing windows before the sale. Published viewings appear on the calendar and, once live, the public lot page.</p>
-        <div class="rounded-md overflow-x-auto mb-3" style="background:var(--surface);border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+        <div class="px-4 pt-4 pb-3">
+            <h2 class="text-sm font-bold" style="color:var(--text-primary);">Viewings</h2>
+            <p class="text-xs mt-0.5" style="color:var(--text-muted);">Scheduled viewing windows before the sale. Published viewings appear on the calendar and, once live, the public lot page.</p>
+        </div>
+        <div class="overflow-x-auto">
 <table class="min-w-full text-sm">
             <thead><tr style="background:var(--surface-2);"><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Starts</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Ends</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Type</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Notes</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Agent</th><th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);"></th></tr></thead>
             <tbody>
@@ -161,13 +163,13 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="6" class="py-2 text-muted">No viewings scheduled yet.</td></tr>
+                <tr style="border-top:1px solid var(--border);"><td colspan="6" class="px-4 py-6 text-center text-sm" style="color:var(--text-muted);">No viewings scheduled yet.</td></tr>
                 @endforelse
             </tbody>
         </table>
 </div>
         @permission('auctions.edit')
-        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-3 items-end rounded-md p-3" style="background:var(--surface);border:1px solid var(--border);">
+        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-3 items-end px-4 py-4" style="border-top:1px solid var(--border);">
             @csrf
             <div style="min-width:17rem;">
                 <label class="prop-label">Starts *</label>
