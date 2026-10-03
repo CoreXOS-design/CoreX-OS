@@ -12,14 +12,14 @@
     </div>
 @endif
 
-<form method="POST" action="{{ $isEdit ? route('corex.auctions.update', $auction) : route('corex.auctions.store') }}" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
+<form method="POST" action="{{ $isEdit ? route('corex.auctions.update', $auction) : route('corex.auctions.store') }}" enctype="multipart/form-data" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 w-full rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
     @csrf
     @if($isEdit) @method('PUT') @endif
 
     @if(!$isEdit && ($prefillProperty ?? null))
         {{-- §9 steps 1-2 combined — see AuctionController::store()'s attachPropertyAsLot() call. --}}
         <input type="hidden" name="property_id" value="{{ $prefillProperty->id }}">
-        <div class="sm:col-span-2 rounded bg-blue-50 text-blue-800 px-4 py-2 text-sm">
+        <div class="sm:col-span-2 xl:col-span-3 rounded bg-blue-50 text-blue-800 px-4 py-2 text-sm">
             This auction will start with <strong>{{ $prefillProperty->buildDisplayAddress() }}</strong> as Lot 1.
         </div>
     @endif
@@ -87,16 +87,16 @@
 
     <div>
         <label class="prop-label">Auction Date/Time *</label>
-        <input type="datetime-local" name="starts_at" value="{{ old('starts_at', $auction->starts_at?->format('Y-m-d\TH:i')) }}" required class="prop-input w-full">
+        @include('corex.auctions._datetime', ['name' => 'starts_at', 'label' => 'Auction Date/Time', 'value' => $auction->starts_at, 'required' => true])
     </div>
 
     <div>
         <label class="prop-label">Registration Opens</label>
-        <input type="datetime-local" name="registration_opens_at" value="{{ old('registration_opens_at', $auction->registration_opens_at?->format('Y-m-d\TH:i')) }}" class="prop-input w-full">
+        @include('corex.auctions._datetime', ['name' => 'registration_opens_at', 'label' => 'Registration Opens', 'value' => $auction->registration_opens_at])
     </div>
     <div>
         <label class="prop-label">Registration Closes</label>
-        <input type="datetime-local" name="registration_closes_at" value="{{ old('registration_closes_at', $auction->registration_closes_at?->format('Y-m-d\TH:i')) }}" class="prop-input w-full">
+        @include('corex.auctions._datetime', ['name' => 'registration_closes_at', 'label' => 'Registration Closes', 'value' => $auction->registration_closes_at])
     </div>
 
     <div>
@@ -108,7 +108,7 @@
         <input type="text" name="venue_address" value="{{ old('venue_address', $auction->venue_address) }}" class="prop-input w-full">
     </div>
 
-    <div class="sm:col-span-2 border-t border-gray-100 pt-3">
+    <div class="sm:col-span-2 xl:col-span-3 border-t border-gray-100 pt-3">
         <p class="text-xs font-semibold text-gray-600 mb-2">Public advert — how buyers reach the auctioneer</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="sm:col-span-2">
@@ -134,12 +134,12 @@
         </div>
     </div>
 
-    <div class="sm:col-span-2">
+    <div class="sm:col-span-2 xl:col-span-3">
         <label class="prop-label">Notes</label>
         <textarea name="notes" rows="3" class="prop-input w-full">{{ old('notes', $auction->notes) }}</textarea>
     </div>
 
-    <div class="sm:col-span-2 flex gap-2">
+    <div class="sm:col-span-2 xl:col-span-3 flex gap-2">
         <button type="submit" class="corex-btn-primary">{{ $isEdit ? 'Save' : 'Create Auction' }}</button>
         <a href="{{ $isEdit ? route('corex.auctions.show', $auction) : route('corex.auctions.index') }}" class="corex-btn-outline">Cancel</a>
     </div>
