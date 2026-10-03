@@ -2081,10 +2081,9 @@
                                            class="prop-input"
                                            style="border-top-right-radius:0; border-bottom-right-radius:0; border-right:none;">
                                     <button type="button" @click="showPriceModal = true"
-                                            class="px-2 rounded-r-md flex items-center justify-center transition-colors hover:opacity-80"
-                                            style="background:var(--brand-button); border:1px solid var(--brand-button);"
+                                            class="price-detail-btn px-2 rounded-r-md flex items-center justify-center transition-colors"
                                             title="Pricing details">
-                                        <svg class="w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
+                                        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                                     </button>
                                 </div>
                                 @if($property->price_on_application)
@@ -2104,6 +2103,16 @@
                                 <input type="number" name="special_levy" value="{{ old('special_levy', $property->special_levy) }}" min="0" placeholder="—" class="prop-input prop-field-money">
                             </div>
 
+                            <style>
+                                .poa-toggle { width:2.25rem; height:1.25rem; }
+                                .poa-track { position:absolute; inset:0; border-radius:9999px; background:var(--surface-2); border:1px solid var(--border); transition:background .15s, border-color .15s; }
+                                .poa-knob { position:absolute; left:2px; top:2px; width:1rem; height:1rem; border-radius:9999px; background:var(--text-muted); transition:transform .15s, background .15s; }
+                                .poa-toggle input:checked ~ .poa-track { background:var(--brand-button); border-color:var(--brand-button); }
+                                .poa-toggle input:checked ~ .poa-knob { transform:translateX(1rem); background:#fff; }
+                                .poa-toggle input:focus-visible ~ .poa-track { outline:2px solid var(--brand-icon); outline-offset:2px; }
+                                .price-detail-btn { background:var(--surface-2); border:1px solid var(--border); color:var(--brand-icon); }
+                                .price-detail-btn:hover { background:var(--surface); }
+                            </style>
                             {{-- Price Details Modal --}}
                             <template x-teleport="body">
                                 <div x-show="showPriceModal" x-cloak
@@ -2136,14 +2145,16 @@
                                             {{-- Price On Application --}}
                                             <div class="flex items-center justify-between gap-3">
                                                 <label class="text-xs font-semibold" style="color:var(--text-secondary);">Price On Application</label>
-                                                <label class="relative inline-flex items-center cursor-pointer">
-                                                    <input type="checkbox" name="price_on_application" value="1"
+                                                {{-- The modal is teleported to <body>, outside #prop-update-form, so every field in it
+                                                     carries form="prop-update-form" or it is silently never saved. The hidden 0 lets an
+                                                     un-ticked toggle actually clear the flag (an unchecked box submits nothing). --}}
+                                                <input type="hidden" name="price_on_application" value="0" form="prop-update-form">
+                                                <label class="poa-toggle relative inline-flex items-center cursor-pointer">
+                                                    <input type="checkbox" name="price_on_application" value="1" form="prop-update-form"
                                                            {{ old('price_on_application', $property->price_on_application) ? 'checked' : '' }}
-                                                           class="sr-only peer">
-                                                    <div class="w-9 h-5 rounded-full peer transition-colors"
-                                                         style="background:var(--surface-2); border:1px solid var(--border);"
-                                                         :class="{ '!bg-[var(--brand-button)]': $el.previousElementSibling.checked }"></div>
-                                                    <div class="absolute left-[2px] top-[2px] bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-full shadow-sm"></div>
+                                                           class="sr-only">
+                                                    <span class="poa-track"></span>
+                                                    <span class="poa-knob"></span>
                                                 </label>
                                             </div>
 
@@ -2170,7 +2181,7 @@
                                             ] as [$field, $label, $hint])
                                             <div class="flex items-center justify-between gap-3">
                                                 <label class="text-xs font-semibold" style="color:var(--text-secondary);">{{ $label }}</label>
-                                                <input type="number" name="{{ $field }}" value="{{ old($field, $property->$field) }}"
+                                                <input type="number" name="{{ $field }}" form="prop-update-form" value="{{ old($field, $property->$field) }}"
                                                        placeholder="{{ $hint }}" min="0" step="0.01"
                                                        class="w-32 rounded-md px-3 py-1.5 text-xs text-right"
                                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
@@ -2182,7 +2193,7 @@
                                             {{-- Show / Primary Display --}}
                                             <div class="flex items-center justify-between gap-3">
                                                 <label class="text-xs font-semibold" style="color:var(--text-secondary);">Show</label>
-                                                <select name="primary_price_display" class="w-48 rounded-md px-3 py-1.5 text-xs"
+                                                <select name="primary_price_display" form="prop-update-form" class="w-48 rounded-md px-3 py-1.5 text-xs"
                                                         style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                                                     @foreach(['monthly' => 'Monthly Price as Primary', 'daily' => 'Daily Price as Primary', 'weekly' => 'Weekly Price as Primary', 'yearly' => 'Yearly Price as Primary'] as $val => $lbl)
                                                     <option value="{{ $val }}" {{ old('primary_price_display', $property->primary_price_display ?? 'monthly') === $val ? 'selected' : '' }}>{{ $lbl }}</option>
