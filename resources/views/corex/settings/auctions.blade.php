@@ -5,11 +5,11 @@
 @endphp
 
 @section('corex-content')
-<div class="corex-auctions w-full h-full flex flex-col gap-6">
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
+<div class="corex-auctions w-full h-full flex flex-col gap-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Settings — Auctions</h1>
+        <p class="text-xs" style="color:var(--text-muted);">Who runs your auctions, where bidding happens, and how the agency is paid.</p>
     </div>
-    <p class="text-xs" style="color:var(--text-muted);">.ai/specs/auctions.md §4 — who runs your auctions, where bidding happens, and how the agency is paid.</p>
 
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
     @if($errors->any())
@@ -18,11 +18,11 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.settings.auctions.update') }}" class="flex flex-col gap-4 max-w-4xl">
+    <form method="POST" action="{{ route('corex.settings.auctions.update') }}" class="flex flex-col gap-4 w-full">
         @csrf
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">How your agency uses Auctions</h2>
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">How your agency uses Auctions</h2>
             <label class="flex items-start gap-2 text-sm">
                 <input type="checkbox" name="advertising_only" value="1" class="mt-1" @checked(\App\Models\AgencyAuctionSettings::advertisingOnlyFor($agencyId))>
                 <span><strong>Advertising only</strong> — Auctions is where we advertise auction properties. The sale itself is run elsewhere, so the Sale Room, bidder register and online registration are switched off. Untick to run the sale from CoreX.</span>
@@ -30,8 +30,8 @@
         </section>
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">Who runs the auction</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Who runs the auction</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
                     <label class="prop-label">Auctioneer mode</label>
                     <select name="auctioneer_mode" class="prop-input w-full">
@@ -45,9 +45,9 @@
         </section>
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">Where bidding happens</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div class="sm:col-span-2">
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Where bidding happens</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
+                <div class="sm:col-span-2 xl:col-span-4">
                     <label class="prop-label">Bidding modes enabled</label>
                     @php $enabledModes = optional($settings)->bidding_modes_enabled ?? $S::DEFAULT_BIDDING_MODES_ENABLED; @endphp
                     @foreach(['in_room' => 'In-room', 'online' => 'Online', 'hybrid' => 'Hybrid'] as $val => $label)
@@ -82,8 +82,8 @@
         </section>
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">How the agency is paid</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">How the agency is paid</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
                     <label class="prop-label">Fee model</label>
                     <select name="fee_model" class="prop-input w-full">
@@ -124,8 +124,8 @@
         </section>
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">Bidder registration requirements</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Bidder registration requirements</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div><label><input type="checkbox" name="registration_required" value="1" @checked(optional($settings)->registration_required ?? $S::DEFAULT_REGISTRATION_REQUIRED)> Registration required to bid</label></div>
                 <div>
                     <label class="prop-label">Registration opens (days before)</label>
@@ -165,8 +165,8 @@
         </section>
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">Reserve, guide and confirmation</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Reserve, guide and confirmation</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
                     <label class="prop-label">Reserve visibility</label>
                     <select name="reserve_visibility" class="prop-input w-full">
@@ -181,7 +181,7 @@
                     <label class="prop-label">Confirmation period (days)</label>
                     <input type="number" name="confirmation_period_days" min="1" max="60" value="{{ optional($settings)->confirmation_period_days ?? $S::DEFAULT_CONFIRMATION_PERIOD_DAYS }}" class="prop-input w-full">
                 </div>
-                <div class="sm:col-span-3">
+                <div class="sm:col-span-2 xl:col-span-4">
                     <label class="prop-label">Vendor bidding disclosure (printed on every catalogue/advert — confirm wording with your attorney before first live use)</label>
                     <textarea name="vendor_bidding_disclosure" rows="2" class="prop-input w-full">{{ optional($settings)->vendor_bidding_disclosure ?? $S::DEFAULT_VENDOR_BIDDING_DISCLOSURE }}</textarea>
                 </div>
@@ -189,8 +189,8 @@
         </section>
 
         <section class="rounded-md p-5" style="background:var(--surface);border:1px solid var(--border);">
-            <h2 class="font-medium mb-3">Deposit and settlement on the day</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Deposit and settlement on the day</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
                 <div>
                     <label class="prop-label">Purchase deposit mode</label>
                     <select name="purchase_deposit_mode" class="prop-input w-full">
