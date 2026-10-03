@@ -75,3 +75,27 @@ All additive and nullable/defaulted.
 passes when satisfied. 3. Public pages reachable without login only after publish; reserve rules respected.
 4. Enquiry creates a Contact + lead for the listing agent. 5. Record result updates lot + public badge.
 6. Reminder sent once. 7. Wizard step appears only with the feature on and saves without wiping other settings.
+
+## 12. Follow-ups built 2026-10-03 (Johan, QA2 testing)
+- **Forms:** auction date / registration open / close and lot viewings use a date picker + time picker
+  (`corex/auctions/_datetime.blade.php`, theme-aware); Create/Edit/Diary/Lot/Settings pages use the standard
+  banner header and full-width layout; Diary filters match Contacts/Properties (single-status select, auto-apply).
+- **Attach a Property** (auction page): search by address or title (`GET /api/v1/auctions/{auction}/property-search`,
+  `permission:auctions.create`, scoped with `Property::visibleTo`, excludes properties already in the auction),
+  pick one, it shows beneath the search. Server rules: one lot per property per auction (`AuctionLotAttacher::attach`
+  is idempotent; `addLot` returns a validation error), and `addLot`/`store` honour own/branch/agency visibility.
+- **Auction page** shows every detail and a Documents panel with View / Download for the Rules of Auction and
+  Conditions of Sale (`GET corex/auctions/{auction}/documents/{rules|conditions}[?download=1]`, `auctions.view`,
+  agency-scoped; works before publishing, unlike the public route). A failed upload now raises a validation error
+  instead of saving path "0".
+- **Property page:** a property with `sale_method = auction` gets an **Auction** tab (auction, lot, auctioneer,
+  registration window, reserve/guide/opening bid/result, viewings, document links) and the **live preview** shows an
+  "Auction details" section (same disclosure rules as the public advert: reserve amount only when reserve visibility
+  = published; PDFs linked only once the catalogue is published). Data: `App\Services\Auctions\PropertyAuctionInfo`.
+  The preview status badge reads "On Auction", the price card label "Auction".
+- **Settings:** Auction settings are reached from Settings (Modules -> Auctions); the sidebar "Auction Settings"
+  link was removed. Needs `auctions.manage_settings` AND access to Settings.
+- **Price On Application** (property-wide, not auction-specific): `Property::formattedPrice()` returns
+  "Price on Application" when the flag is on, so every consumer (preview, header, cards, brochure, match cards,
+  portals' display strings, mobile `price_display`) hides the amount. The Pricing Details popup fields are linked
+  to `#prop-update-form` via `form=` (the popup is teleported to `<body>`) and count toward the dirty/Save tracker.

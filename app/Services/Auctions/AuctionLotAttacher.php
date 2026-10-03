@@ -28,6 +28,13 @@ class AuctionLotAttacher
 
     public function attach(Auction $auction, Property $property, array $priceFields = []): AuctionLot
     {
+        // Idempotent: a property is one lot in a given auction. Every entry point (catalogue builder,
+        // Send to Auction, the New Property forms) goes through here, so a repeat/double-submit can
+        // never create a second lot for the same property.
+        if ($existing = $auction->lots()->where('property_id', $property->id)->first()) {
+            return $existing;
+        }
+
         $nextLotNumber = (int) ($auction->lots()->max('lot_number') ?? 0) + 1;
 
         $lot = AuctionLot::create([

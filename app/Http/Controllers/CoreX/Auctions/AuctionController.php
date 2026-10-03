@@ -124,7 +124,7 @@ class AuctionController extends Controller
         // with no lot behind it. Re-validated against this agency (never
         // trust the hidden field alone).
         if ($propertyId = $request->input('property_id')) {
-            $property = Property::where('id', $propertyId)->where('agency_id', $agencyId)->first();
+            $property = Property::visibleTo($request->user())->where('id', $propertyId)->where('agency_id', $agencyId)->first();
             if ($property) {
                 $this->attachPropertyAsLot($auction, $property, $request->only(['reserve_price', 'guide_price_min', 'guide_price_max', 'opening_bid']));
             }
@@ -203,7 +203,13 @@ class AuctionController extends Controller
             'opening_bid' => 'nullable|numeric|min:0',
         ]);
 
-        $property = Property::where('id', $validated['property_id'])->where('agency_id', $auction->agency_id)->firstOrFail();
+        // Own / branch / agency scoping is enforced here too, not just in the picker — a property the
+        // user may not see cannot be attached by posting its id directly.
+        $property = Property::visibleTo($request->user())->where('id', $validated['property_id'])->where('agency_id', $auction->agency_id)->firstOrFail();
+
+        if ($auction->lots()->where('property_id', $property->id)->exists()) {
+            return back()->withErrors(['property_id' => 'That property is already a lot in this auction.'])->withInput();
+        }
 
         $lot = $this->attachPropertyAsLot($auction, $property, $validated);
 
