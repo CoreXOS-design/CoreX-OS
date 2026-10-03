@@ -6601,13 +6601,21 @@
         e.preventDefault(); e.returnValue = '';
     });
 
+    // A field belongs to the form if it is nested in it OR linked via form="prop-update-form"
+    // (the Pricing Details popup is teleported to <body>, so its fields are linked, not nested).
+    function belongsToForm(el) {
+        if (!el) return false;
+        if (el.closest && el.closest('#prop-update-form')) return true;
+        return !!(el.form && el.form.id === 'prop-update-form');
+    }
+
     // Recompute dirty on every input/change in the form
     document.addEventListener('input', function (e) {
-        if (!e.target.closest || !e.target.closest('#prop-update-form')) return;
+        if (!belongsToForm(e.target)) return;
         recompute();
     }, true);
     document.addEventListener('change', function (e) {
-        if (!e.target.closest || !e.target.closest('#prop-update-form')) return;
+        if (!belongsToForm(e.target)) return;
         recompute();
     }, true);
 
