@@ -66,7 +66,13 @@
                 @foreach($auction->lots as $lot)
                 <tr style="border-top:1px solid var(--border);">
                     <td class="px-4 py-2.5">{{ $lot->lot_number }}</td>
-                    <td class="px-4 py-2.5">{{ $lot->property?->buildDisplayAddress() ?? ('Property #'.$lot->property_id) }}</td>
+                    <td class="px-4 py-2.5">
+                        @if($lot->property)
+                            <a href="{{ route('corex.properties.show', $lot->property_id) }}" target="_blank" rel="noopener" class="underline" style="color:var(--text-primary);" title="Open property in a new tab">{{ $lot->property->buildDisplayAddress() }}</a>
+                        @else
+                            {{ 'Property #'.$lot->property_id }}
+                        @endif
+                    </td>
                     @if($canSeeReserve)<td class="px-4 py-2.5">{{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : '—' }}</td>@endif
                     <td class="px-4 py-2.5">
                         @if($lot->guide_price_min || $lot->guide_price_max)
