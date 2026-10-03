@@ -22,7 +22,8 @@
     // rental reads "To Let", never "For Sale". Concluded and interim states mean the
     // same thing on both sides of the sale/rental line, so they ignore listing type.
     $isRental = $property->isRental();
-    $liveLabel = $isRental ? 'To Let' : 'For Sale';
+    // AT-432 — a property being sold at auction is advertised "On Auction", not "For Sale".
+    $liveLabel = $isRental ? 'To Let' : ($property->isAuction() ? 'On Auction' : 'For Sale');
 
     $statusMap = [
         // Live — advertised as available.
