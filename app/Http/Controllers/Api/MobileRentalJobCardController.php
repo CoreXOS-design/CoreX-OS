@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Controller;
 use App\Models\RentalJobCard;
 use App\Models\RentalJobCardTask;
@@ -14,21 +15,22 @@ use Illuminate\Http\Request;
  * .ai/specs/rental-work-orders.md §14 (AT-442 req #10) — mobile mirror of
  * the job card screen for Andre's app: read, tick a task, upload a photo.
  * Same {"message": ...} error convention and Sanctum bearer auth as every
- * other /api/v1/mobile/* controller; same own/branch/all scoping as the web
- * screen (RentalJobCard::scopeVisibleTo()) — a job card id outside the
- * requesting user's scope 404s, never a hidden-link-only guard.
+ * other /api/v1/mobile/* controller.
+ *
+ * Scoping is TWO layers, same as the web screen: route-model-binding's
+ * global AgencyScope 404s a cross-agency id before this class is ever
+ * reached; guardRentalRecordScope() (AT-439's AuthorizesRentalRecordScope,
+ * same trait the web RentalJobCardController uses) then 403s a SAME-agency
+ * id outside the requesting user's own/branch ceiling — a hidden-link-only
+ * guard would have missed exactly that second case.
  */
 class MobileRentalJobCardController extends Controller
 {
-    private function guard(Request $request, RentalJobCard $jobCard): void
-    {
-        $visible = RentalJobCard::query()->visibleTo($request->user())->whereKey($jobCard->id)->exists();
-        abort_unless($visible, 404);
-    }
+    use AuthorizesRentalRecordScope;
 
     public function show(Request $request, RentalJobCard $rentalJobCard): JsonResponse
     {
-        $this->guard($request, $rentalJobCard);
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
         $rentalJobCard->load(['property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem', 'workOrder.photos']);
 
         return response()->json($this->payload($rentalJobCard));
@@ -36,7 +38,7 @@ class MobileRentalJobCardController extends Controller
 
     public function update(Request $request, RentalJobCard $rentalJobCard): JsonResponse
     {
-        $this->guard($request, $rentalJobCard);
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
         $validated = $request->validate(['access_notes' => ['nullable', 'string']]);
         $rentalJobCard->update($validated);
@@ -46,7 +48,7 @@ class MobileRentalJobCardController extends Controller
 
     public function tickTask(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardTask $task): JsonResponse
     {
-        $this->guard($request, $rentalJobCard);
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
         abort_unless($task->rental_job_card_id === $rentalJobCard->id, 404);
 
         $service->toggleTask($rentalJobCard, $task, $request->user());
@@ -56,7 +58,7 @@ class MobileRentalJobCardController extends Controller
 
     public function storePhoto(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): JsonResponse
     {
-        $this->guard($request, $rentalJobCard);
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
         $validated = $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',

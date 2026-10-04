@@ -391,6 +391,10 @@ return [
             // required-numeric validation would reject a request that
             // omits the threshold).
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateCapturePricesOnJobCards'],
+            // Conductor's ruling, AT-442 follow-up — own narrow saver, same
+            // discipline as the one directly above; the worker's printed
+            // copy and the owner's quote PDF are not the same audience.
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowPricesOnPrintedJobCard'],
             // Shipped-field tick grid (rentals-field-config.blade.php partial) —
             // narrow, has()/submitted-marker-guarded savers, same independence
             // pattern as every other saver on this step.
@@ -460,6 +464,12 @@ return [
              'label' => 'Capture prices on job cards',
              'explain' => 'When your own maintenance team works a job (not an outside supplier), their job card can record a unit price and total for each part/labour line, or just the quantities with no money attached.',
              'affects' => 'Whether price and total columns appear anywhere on an internal job card. On by default — turn it off if you\'d rather job cards stayed a pure work record with no pricing.'],
+            // Conductor's ruling, AT-442 follow-up — the worker's printed
+            // copy and the owner's quote PDF are not the same audience.
+            ['key' => 'show_prices_on_printed_job_card', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show prices on the printed job card',
+             'explain' => 'The job card your maintenance worker takes on site can print with or without prices showing next to the parts and labour lines.',
+             'affects' => 'Whether the printed copy a worker carries shows prices, or just tasks, parts and quantities. Off by default — the quote you send the owner always shows prices either way, this only affects the worker\'s own printed copy.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()

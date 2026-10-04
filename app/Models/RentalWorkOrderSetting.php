@@ -19,6 +19,14 @@ class RentalWorkOrderSetting extends Model
     public const DEFAULT_COMPLETION_REQUIRES_PHOTO = false;
     /** AT-442 — whether prices are used at all on internal job cards. Default ON. */
     public const DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS = true;
+    /**
+     * AT-442 follow-up, conductor's ruling — the worker's PRINTED copy and
+     * the owner's quote PDF are not the same audience. Default OFF: the
+     * printed job card shows tasks/parts/quantities, no prices, unless an
+     * agency switches this on. Never gates the owner quote PDF (always
+     * shows prices when capture_prices_on_job_cards is on).
+     */
+    public const DEFAULT_SHOW_PRICES_ON_PRINTED_JOB_CARD = false;
 
     protected $fillable = [
         'agency_id',
@@ -26,6 +34,7 @@ class RentalWorkOrderSetting extends Model
         'overdue_reminder_days',
         'no_approval_spend_threshold',
         'capture_prices_on_job_cards',
+        'show_prices_on_printed_job_card',
     ];
 
     protected $casts = [
@@ -33,6 +42,7 @@ class RentalWorkOrderSetting extends Model
         'overdue_reminder_days' => 'integer',
         'no_approval_spend_threshold' => 'decimal:2',
         'capture_prices_on_job_cards' => 'boolean',
+        'show_prices_on_printed_job_card' => 'boolean',
     ];
 
     /**
@@ -104,5 +114,16 @@ class RentalWorkOrderSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('capture_prices_on_job_cards');
 
         return $value !== null ? (bool) $value : self::DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS;
+    }
+
+    /** AT-442 follow-up — gates ONLY the worker-facing printed job card, never the owner quote PDF. */
+    public static function showPricesOnPrintedJobCardFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SHOW_PRICES_ON_PRINTED_JOB_CARD;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('show_prices_on_printed_job_card');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_SHOW_PRICES_ON_PRINTED_JOB_CARD;
     }
 }

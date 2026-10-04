@@ -2980,6 +2980,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // as RentalInspectionSettingsController's auto-pair-photos/auto-send-report routes.
     Route::post('/settings/rental-work-orders/capture-prices-on-job-cards', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateCapturePricesOnJobCards'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.capture-prices-on-job-cards');
+    // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
+    Route::post('/settings/rental-work-orders/show-prices-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowPricesOnPrintedJobCard'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-prices-on-printed-job-card');
     // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
     // the property Rental Details tab. Price type (Part 3) and lease type
     // (Part 4) lists join this same page as they're built.

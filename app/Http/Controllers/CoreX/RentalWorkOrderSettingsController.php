@@ -27,6 +27,7 @@ class RentalWorkOrderSettingsController extends Controller
             'noApprovalSpendThreshold' => RentalWorkOrderSetting::spendThresholdFor($agencyId),
             'defaultNoApprovalSpendThreshold' => RentalWorkOrderSetting::DEFAULT_NO_APPROVAL_SPEND_THRESHOLD,
             'capturePricesOnJobCards' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($agencyId),
+            'showPricesOnPrintedJobCard' => RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($agencyId),
         ]);
     }
 
@@ -71,5 +72,27 @@ class RentalWorkOrderSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Job card pricing setting saved.');
+    }
+
+    /**
+     * Conductor's ruling, AT-442 follow-up — the worker's printed copy and
+     * the owner's quote PDF are not the same audience; own narrow saver,
+     * same has()-guard discipline as updateCapturePricesOnJobCards() above.
+     */
+    public function updateShowPricesOnPrintedJobCard(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('show_prices_on_printed_job_card')) {
+            return redirect()->route('corex.settings.rental-work-orders.edit')
+                ->withErrors(['show_prices_on_printed_job_card' => 'That did not save — please try again.']);
+        }
+
+        RentalWorkOrderSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['show_prices_on_printed_job_card' => $request->boolean('show_prices_on_printed_job_card')],
+        );
+
+        return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Printed job card pricing setting saved.');
     }
 }

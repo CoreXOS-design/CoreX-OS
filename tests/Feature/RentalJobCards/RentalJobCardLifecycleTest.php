@@ -179,6 +179,41 @@ final class RentalJobCardLifecycleTest extends TestCase
         $this->assertNotEquals('999.00', (string) $jobCard->fresh()->total_amount);
     }
 
+    /**
+     * Conductor's ruling, AT-442 follow-up — the worker's printed copy and
+     * the owner's quote PDF are not the same audience. Prices are
+     * captured either way; only the PRINTED job card additionally checks
+     * show_prices_on_printed_job_card (default off).
+     */
+    public function test_printed_job_card_hides_prices_by_default_but_the_owner_quote_always_shows_them(): void
+    {
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true]);
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        app(RentalJobCardService::class)->addLine($jobCard, [
+            'rental_catalogue_item_id' => $this->catalogueItem(['default_price' => 450])->id, 'quantity' => 1,
+        ], $this->admin);
+        $jobCard->refresh();
+
+        $pdfService = app(\App\Services\Rentals\RentalDocumentPdfService::class);
+
+        $printHtml = view('corex.rental-job-cards.print', [
+            'jobCard' => $jobCard, 'pricesOn' => false, 'logo' => null, 'agencyName' => 'Test Agency',
+        ])->render();
+        $this->assertStringNotContainsString('450.00', $printHtml);
+
+        // Turn the print setting on — now it shows.
+        $printHtmlOn = view('corex.rental-job-cards.print', [
+            'jobCard' => $jobCard, 'pricesOn' => true, 'logo' => null, 'agencyName' => 'Test Agency',
+        ])->render();
+        $this->assertStringContainsString('450.00', $printHtmlOn);
+
+        // The owner quote PDF is never gated by show_prices_on_printed_job_card.
+        $quoteHtml = view('corex.rental-job-cards.quote-pdf', [
+            'jobCard' => $jobCard, 'pricesOn' => true, 'logo' => null, 'agencyName' => 'Test Agency',
+        ])->render();
+        $this->assertStringContainsString('450.00', $quoteHtml);
+    }
+
     public function test_a_free_text_line_works_with_no_catalogue_item(): void
     {
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);

@@ -88,9 +88,19 @@ class RentalDocumentPdfService
         $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks', 'lines', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
+        // AT-442 follow-up, conductor's ruling — the worker's printed copy
+        // needs BOTH settings on to show a price: prices must be captured
+        // at all (capture_prices_on_job_cards), AND the agency has chosen
+        // to show them on this specific, worker-facing document
+        // (show_prices_on_printed_job_card, default off). The owner quote
+        // PDF (jobCardQuotePdf() above) is a different document for a
+        // different audience and is never gated by the second setting.
+        $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id)
+            && \App\Models\RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($jobCard->agency_id);
+
         $pdf = Pdf::loadView('corex.rental-job-cards.print', [
             'jobCard' => $jobCard,
-            'pricesOn' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
+            'pricesOn' => $pricesOn,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
         ])->setPaper('a4', 'portrait');
