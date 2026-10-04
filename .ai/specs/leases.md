@@ -634,3 +634,202 @@ the reasoning that justifies doing leases first at all, made explicit.
   decision that resurfaces once Lease exists; not re-decided here.
 - Partial tenant substitution mid-lease (§3.2) — not requested, not built.
 - `rental_properties` (schema D)'s disposition (§6) — flagged as a scoping question, not decided.
+
+---
+
+## 12. Lease Hub (AT-440, added 2026-10-04) — lease detail becomes the tenancy file
+
+**Status:** SPEC ONLY. Approved design, Johan, 4 Oct 2026. Master spec: `.ai/specs/rentals-rebuild.md`
+(read its §1 shared standards first — list standard and context bar are not restated here).
+**Closes the §11 "property-status-flip" open item above** — see §12.5: it resurfaced exactly as this
+section predicted, and is resolved here using the Property model's own existing status governance,
+not a new mechanism.
+
+### 12.1 What changes and why
+Today a lease's `show()` page is a CRUD detail view — rent, dates, tenant, not much else (§7 of this
+spec). Johan's instruction: the lease detail becomes **the tenancy file** — the one screen that
+answers "what has happened on this tenancy, what needs to happen next, and is there anything open
+right now" without an agent having to check four other screens. Nothing about the existing CRUD
+(§2-§7 above) changes; this section adds to the `show()` page, it does not replace it.
+
+### 12.2 Layout (full-width, not a narrow centre column — Screen rule from the task brief)
+- **Header:** address, status (live, reflecting §12.5), tenant name(s), rent, term (start–end or
+  "month-to-month"). **Actions:** Print tenancy report, Edit, Report a fault.
+- **Rental context bar** (master spec §1.2) — Lease chip highlighted.
+- **Lifecycle strip:** `Application → Approved → Lease signed → In-inspection → Tenancy →
+  Renewal/notice → Out-inspection`, each node's done/current/pending state **derived from data**, not
+  a stored field:
+  | Node | Done when | Current when | Pending when |
+  |---|---|---|---|
+  | Application | `rental_applications` row linked via `leases.rental_application_id` has `status=approved` | that application exists and is not yet approved | no linked application (lease created directly) |
+  | Approved | application approved | — (instantaneous with Application done) | — |
+  | Lease signed | a signed e-sign document exists OR lease was manually marked active with terms captured | lease is `draft` | — |
+  | In-inspection | an in-type `rental_inspections` row with `status=completed` exists for this lease | lease is `active` with no completed in-inspection yet | — |
+  | Tenancy | lease `status=active` and in-inspection completed | — | — |
+  | Renewal/notice | a renewal lease (`leases.previous_lease_id` — new column, §12.5.5) exists, OR notice recorded (§12.5.3) | lease `end_date` within the agency's reminder-lead-time setting (`LeaseSetting::expiryNoticeWindowDaysFor()`, already live, `LeaseSetting.php:58-67`) | lease active, outside that window |
+  | Out-inspection | an out-type `rental_inspections` row with `status=completed` exists | lease `status` in (`notice_given`,`ended`) with no completed out-inspection yet | — |
+- **Tenancy log:** one chronological, searchable, type-filterable list of everything on the tenancy —
+  application events, lease create/edit/escalation, inspections, faults, work orders, job cards
+  (Stage 4), documents, notices (Stage 7). This is the evidence trail for the out-inspection. Search:
+  free text over each entry's description. Filter: by type (the list above) and date range. No
+  pagination cap below 500 rows (a full tenancy's log is expected to be small; if this assumption
+  breaks on real data, paginate — flagged, not built defensively here per BUILD_STANDARD §0's "don't
+  over-engineer for a case that doesn't exist yet").
+- **Next-step card:** single next action derived from lifecycle-strip state, e.g. no completed
+  in-inspection on an active lease → "Start in-inspection" (links straight into the inspection flow,
+  pre-filled with this lease). One action, not a list — if two are equally due, the earliest-dated
+  one wins; tie-break on lifecycle-strip order above.
+- **Lease terms card:** rent, deposit, landlord spend limit (`properties.rental_no_approval_spend_threshold`,
+  already live), notice window opens (derived: `end_date` minus the agency's tenant-notice-period
+  setting, Stage 6), landlord(s) (via `Property::sellerOwnerContact()`/`contactsForRole('landlord')` —
+  audit Part 3 item G, the existing derive-don't-duplicate mechanism, unchanged here), lease document
+  view/print.
+- **Open items card:** open fault reports + open work orders for this lease, count + direct links.
+- **Property's Rental tab gains occupancy history** (§12.6).
+
+### 12.3 Search / sort / filter / pagination on the Tenancy log (per BUILD_STANDARD §1b)
+- **Search fields:** entry description, actor name.
+- **Sort:** date (default: newest first).
+- **Filter:** entry type (multi-select: application / lease / inspection / fault / work order / job
+  card / document / notice), date range.
+- **Pagination:** 50/page if the log exceeds 500 rows (see note in §12.2).
+- **Empty state:** "Nothing recorded yet on this tenancy" — a brand-new lease has a genuinely empty
+  log, distinct from a filtered-to-nothing result ("No {type} entries in this date range").
+
+### 12.4 Scoping, permissions, API
+- Own/branch/agency scoping: unchanged from §7/§8 above — the Lease Hub is the existing `show()`
+  route with more content, not a new route, so it inherits the per-record guard added in
+  `rentals-foundation-at439.md` §4.1.
+- No new permission key — reuses `leases.view` to see the hub, existing action keys
+  (`leases.create`/`.renew`/`.cancel`) continue to gate the actions shown.
+- **API:** `GET /api/v1/leases/{lease}/tenancy-log` (JSON, same scope guard, paginated) — the screen's
+  own tenancy-log panel consumes this; Andre's mobile app calls the same endpoint for a tenant/agent
+  mobile tenancy view. Named per CLAUDE.md non-negotiable #7 (versioned, `->name()`'d, appears in the
+  `/admin/api` catalogue automatically).
+
+### 12.5 Property status follows the lease (Johan's ruling, 4 Oct 2026)
+
+**Builds on the EXISTING, already-settled status mechanism — nothing new is designed here:**
+- Agency-configurable status list: `PropertySettingItem` (`group='property_status'`,
+  `app/Models/PropertySettingItem.php:29`) — agencies add/rename/deactivate their own status options;
+  CoreX does not hardcode a status enum.
+- Vocabulary guard + audit + domain event, already wired: `PropertyObserver::updated()` validates any
+  dirty `status` against `Property::isAllowedStatus()` (AT-307 guard, `app/Observers/PropertyObserver.php:139-175`),
+  then calls `PropertyAuditService::logStatusChange($property, $old, $new)` (line 480-481) and fires
+  the already-catalogued `Property\PropertyStatusChanged` domain event
+  (`corex-domain-events-spec.md:305`, consumed today by `FlagPropertyAsOnBooks` and
+  `NotifyExpiredMandateBranchManager`).
+- The "leased out" status already exists and is already live: **`let_out`** (confirmed real,
+  currently-live `property_status` option — `rentals-shared-screens.md` §5.2, 70 real agency-1
+  properties carry it today). **No new status is introduced for the base leased-out case.**
+
+**What this section adds:** the code paths that *drive* a status change automatically, firing through
+the exact mechanism above (never bypassing it, never writing `properties.status` directly without
+going through the model save that triggers the observer).
+
+1. **Lease becomes active → property status set to the agency's configured "leased out" status**
+   (default `let_out`, but see §12.5.4 — agency-configurable which status value this is, since a
+   second agency may have renamed or not have `let_out` in its own `PropertySettingItem` list).
+   Fires from `LeaseActivationService::activate()` (the existing activation service, audit Part 3) —
+   after the existing overlap-prevention guard succeeds, it additionally calls
+   `$property->update(['status' => $agency->leasedOutStatusValue()])` (new settings accessor, §12.5.4),
+   which runs through the normal `Property::save()` path and therefore through the observer/audit/
+   event chain above unchanged.
+
+2. **A lease CAN be created/activated on a Withdrawn property.** Real scenario: owner withdrew, a
+   qualifying tenant appears, owner agrees to let again. `LeaseActivationService::activate()` does
+   **not** block this. The UI, at the moment of creating/activating a lease on a property whose
+   current status is `withdrawn` (or any other non-`let_out` status), shows a confirmation dialog:
+   > "This property is withdrawn. Are you sure you want to use it for this lease?"
+   On confirm, activation proceeds exactly as in point 1 — the status change to "leased out" is
+   automatic, there is no separate manual re-activation step the agent must also perform. On cancel,
+   activation does not proceed (lease stays `draft`).
+
+3. **Status keeps following what CoreX learns during the lease — the full transition table:**
+
+   | Event | New property status (agency-configured value) | Advertise? | Availability-from date |
+   |---|---|---|---|
+   | Lease created, not yet active (`draft`) | unchanged (whatever it was) | unchanged | — |
+   | Lease activated | "leased out" (default `let_out`) | **No** — must not stay advertised (§12.5.6) | — |
+   | Tenant gives notice / landlord gives notice, move-out date known (new `leases.notice_date`/`notice_given_by` columns) | "notice given" (new, agency-configured status, default label "Notice Given") | **Yes** — advertising starts now, ahead of vacancy | = day after lease `end_date` (e.g. lease ends 31 Oct → available-from 1 Nov) |
+   | Renewal signed (Stage 6) — new lease term linked, old term closed | "leased out" (stays, or re-set if it had drifted) | No | — |
+   | Lease becomes month-to-month (no fixed end date, explicit agent action) | "leased out" (stays) | No | — |
+   | Lease end date passes with no renewal/notice recorded and no out-inspection yet | unchanged automatically (flagged in the Command Centre as overdue, Stage 3) — **no silent automatic flip to vacant without evidence the tenant actually left** | No change | — |
+   | Lease ended (out-inspection completed, property confirmed vacant) | "vacant"/agency's normal pre-let status (e.g. `draft`/`to_let` — agency-configured, §12.5.4) | Yes, if the agency wants it back on market immediately | today's date (available now) |
+   | Lease cancelled (early termination, any cause) | same as "lease ended" row | Yes | the recorded cancellation/vacate date |
+
+   Every automatic change in this table writes to the property audit trail via the existing
+   `PropertyAuditService::logStatusChange()` call, with a cause string identifying it as lease-driven
+   (e.g. `"Lease #{id} activated"`, `"Tenant notice recorded on Lease #{id}"`, `"Lease #{id} ended —
+   out-inspection completed"`) — distinguishing it from a manual agent-initiated status change in the
+   same audit log, per CLAUDE.md non-negotiable #1's spirit of a legible record, not per any new
+   requirement on `PropertyAuditService` itself (it already accepts a free-text reason).
+
+4. **Agency settings (new, every one surfaced in the Setup Wizard per CLAUDE.md non-negotiable #10a):**
+   - `leased_out_status_value` — which of the agency's own `property_status` items means "leased
+     out." Default: `let_out` if present in that agency's list, else the agency must pick one during
+     onboarding (no silent fallback to a status that doesn't exist for them).
+   - `notice_given_status_value` — which status value means "notice given, re-advertising." New
+     `PropertySettingItem` row seeded per agency (not hardcoded), default label "Notice Given."
+   - `post_tenancy_status_value` — which status a property reverts to once a lease ends/cancels with
+     no renewal. Default: whatever the agency's normal pre-let status already is (commonly `draft` or
+     `to_let` — read from the agency's existing list, not assumed).
+   - Per-transition **on/off toggles**, each defaulting ON: `auto_status_on_lease_active`,
+     `auto_status_on_notice_given`, `auto_status_on_lease_ended`. An agency that wants to keep full
+     manual control over property status can turn any of these off individually; CoreX then performs
+     every other part of the lease lifecycle (lifecycle strip, tenancy log, next-step card) unchanged
+     — only the automatic property-status write is skipped, and the next-step card surfaces "Update
+     property status" as a manual action instead.
+
+5. **Portal syndication consequences, stated explicitly (per instruction):**
+   - **"Leased out" must not stay advertised.** The existing portal-sync machinery already reads
+     `Property::isOnMarket()`/the status-driven on-market predicate (`Property.php:1943-1965`) to
+     decide what stays live on P24/PP/the website — a status change to the agency's configured
+     "leased out" value is already sufficient to pull the listing, through the existing mechanism,
+     with no new portal-sync code. This spec does not add a second, parallel "should this be
+     advertised" check.
+   - **"Notice given" re-advertises, with the availability date carried through.** The existing
+     `advertise` boolean + availability-date fields already added to the Rental tab
+     (`property_rental_details_custom_fields` migration, 2026-09-21 — confirmed existing column) are
+     the vehicle: setting status to "notice given" sets `advertise=true` and the availability-from
+     date per the table in point 3. The portal payload for a "notice given" property states the
+     availability date explicitly (existing field on the rental advert block per `rental-property-tab.md`)
+     — a prospective tenant sees "available from 1 Nov," not a bare live listing with no date.
+   - **New lease on a withdrawn property (point 2)**: the property leaves "withdrawn" and its
+     withdrawn-mandate implications (not separately advertised while withdrawn, per existing
+     withdrawn-status behaviour) the instant the lease activates — same mechanism, no special case.
+
+### 12.6 Property's Rental tab gains occupancy history
+New read-only section on the existing Rental tab: every **past** lease on this property (status
+`ended`/`cancelled`), newest first — tenant name(s), term, end reason (ended/cancelled/non-renewed),
+link to that lease's own hub (§12.2). This is the "who stayed when" record the audit found missing
+(audit Part 1 item 3, Part 5 top-gap #7) — the active-lease partial planned but never built is
+superseded by linking straight to the Lease Hub for the current lease, rather than duplicating its
+summary on the Property tab a second time (Screen rule: no fact shown twice).
+
+### 12.7 Acceptance criteria (additive to §7's existing CRUD acceptance criteria)
+- [ ] Lease `show()` renders the full Lease Hub layout (§12.2) for every lease, including one with
+      no application, no inspections, and no faults/work-orders yet (the brand-new-lease empty case).
+- [ ] Lifecycle strip's done/current/pending states are derived live, never a stored enum that can
+      drift from reality.
+- [ ] Tenancy log search/sort/filter/pagination/empty-state all work per §12.3.
+- [ ] Activating a lease on a `withdrawn` property shows the confirmation dialog and proceeds
+      correctly on confirm; status changes automatically, no separate manual step required.
+- [ ] Every automatic status transition in §12.5.3's table fires through `PropertyObserver`/
+      `PropertyAuditService`/`PropertyStatusChanged` — never a direct `DB::table('properties')->update()`.
+- [ ] Each of the three new agency settings (§12.5.4) is in the Setup Wizard with `explain` +
+      `affects` copy, and each per-transition toggle defaults ON and is independently switchable.
+- [ ] Turning a toggle OFF stops that one automatic write and surfaces the manual next-step action
+      instead, without breaking any other part of the Lease Hub.
+- [ ] A property moved to "leased out" drops off P24/PP/website through the existing on-market
+      predicate, with no new portal-sync code required.
+- [ ] A property moved to "notice given" re-advertises with the correct availability-from date
+      visible in the portal payload.
+- [ ] Property's Rental tab shows occupancy history for every past lease, linking to each one's hub.
+
+### 12.8 Open questions for Johan
+- **§12.5.4 default status mapping**: this spec proposes `let_out` as the default "leased out" value
+  and leaves "notice given"/"post-tenancy" to be set per-agency with no universal default beyond
+  "whatever the agency's existing pre-let status is" — confirm this is acceptable, or state a
+  universal default label for agencies that have never configured either.
+
