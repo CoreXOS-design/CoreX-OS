@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
@@ -24,6 +25,8 @@ use Illuminate\View\View;
  */
 class RentalInspectionController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /**
      * 2026-09-20 — the list screen had no way to start an inspection at all;
      * an agent had to already know to go to a property's Rental Images tab.
@@ -77,6 +80,16 @@ class RentalInspectionController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
+
+        // AT-439 — own/branch/all "Showing:" control, same pattern as
+        // RentalApplicationController::index()/LeaseController::index().
+        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_inspections');
+        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
 
         $sort = $request->get('sort', 'scheduled_for');
         $direction = $request->get('direction', 'desc');
@@ -177,11 +190,15 @@ class RentalInspectionController extends Controller
             'tileCounts' => $tileCounts,
             'scheduled' => $scheduled,
             'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
         ]);
     }
 
     public function show(Request $request, RentalInspection $rentalInspection): View
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->load([
             'property', 'lease.tenants.contact',
             'observations.item', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
@@ -277,6 +294,8 @@ class RentalInspectionController extends Controller
      */
     public function form(Request $request, RentalInspection $rentalInspection, RentalInspectionFormPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->loadMissing(['property', 'lease.tenants.contact', 'createdBy']);
 
         $form = $service->generate($rentalInspection, $request->user());
@@ -297,6 +316,8 @@ class RentalInspectionController extends Controller
      */
     public function report(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
             'observations.item.room', 'observations.item', 'signatures.partyContact',
@@ -325,6 +346,8 @@ class RentalInspectionController extends Controller
      */
     public function printForSignature(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
             'observations.item.room', 'observations.item', 'signatures.partyContact',
@@ -349,6 +372,8 @@ class RentalInspectionController extends Controller
      */
     public function next(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
         ]);
@@ -371,6 +396,8 @@ class RentalInspectionController extends Controller
      */
     public function generatePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->generatePublicLink();
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)
@@ -379,6 +406,8 @@ class RentalInspectionController extends Controller
 
     public function revokePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->revokePublicLink();
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)
@@ -387,6 +416,8 @@ class RentalInspectionController extends Controller
 
     public function cancel(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
@@ -408,6 +439,8 @@ class RentalInspectionController extends Controller
      */
     public function destroy(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->forceFill(['archived_by_user_id' => $request->user()->id])->save();
         $rentalInspection->delete();
 
@@ -417,6 +450,8 @@ class RentalInspectionController extends Controller
     public function restore(Request $request, int $rentalInspection): RedirectResponse
     {
         $inspection = RentalInspection::withTrashed()->findOrFail($rentalInspection);
+        $this->guardRentalRecordScope($inspection, 'rental_inspections', $inspection->property?->branch_id);
+
         $inspection->restore();
         $inspection->forceFill(['archived_by_user_id' => null])->save();
 

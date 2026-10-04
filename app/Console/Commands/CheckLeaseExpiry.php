@@ -2,90 +2,96 @@
 
 namespace App\Console\Commands;
 
-use App\Mail\Signatures\LeaseExpirationMail;
-use App\Models\Docuperfect\LeaseRecord;
-use App\Models\User;
-use App\Notifications\LeaseExpirationAlert;
+use App\Models\Lease;
+use App\Models\LeaseSetting;
+use App\Notifications\LeaseExpiryAlert;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 
+/**
+ * AT-439 — repointed from the legacy DocuPerfect `LeaseRecord` table (2
+ * test-artifact rows, no real tenancy data) to the real rentals `Lease`
+ * model (the spine every other rentals feature — fault reports, work
+ * orders, inventory, inspections — already hangs off). Confirmed via a
+ * read-only check before this change: zero overlap between the 2
+ * `lease_records` rows and any `leases` row (`migrated_from_table`/
+ * `source_document_id` cross-reference), so repointing here does not
+ * double-alert on anything that exists today.
+ *
+ * `Lease` has no intermediate "expiring_soon" status (only
+ * draft/active/expired/cancelled) — this command never invents one; a
+ * lease stays 'active' right up until its end_date passes, at which
+ * point it flips straight to 'expired'. The agency's own configurable
+ * notice window (LeaseSetting::expiryNoticeWindowDaysFor(), already
+ * live on the Lease Settings screen and the onboarding wizard — this
+ * command is the only thing that was never calling it) decides how far
+ * out the tiered alerts below start firing, PER LEASE'S OWN agency_id —
+ * not a single global window, so each agency's own setting governs its
+ * own leases. Console commands run with no authenticated user, so
+ * Lease's own AgencyScope is a no-op here already (confirmed:
+ * AgencyScope::applyInner() returns immediately when Auth::user() is
+ * null) — withoutGlobalScopes() below is explicit about that rather
+ * than relying on the implicit console behaviour, matching
+ * LeaseSetting's own existing convention.
+ */
 class CheckLeaseExpiry extends Command
 {
     protected $signature = 'signatures:check-lease-expiry';
 
-    protected $description = 'Check for expiring leases and update status (90/60/30/0 day alerts)';
+    protected $description = 'Check real rentals leases for expiry and send tiered 60/30/0-day alerts to the agent (per-agency notice window)';
 
     public function handle(): int
     {
-        $this->info('Checking lease expiry dates...');
+        $this->info('Checking real rentals lease expiry dates...');
 
         $expired = 0;
-        $expiringSoon = 0;
         $alerts = 0;
 
-        // Mark leases that have expired
-        $newlyExpired = LeaseRecord::where('status', LeaseRecord::STATUS_ACTIVE)
-            ->whereNotNull('lease_end_date')
-            ->where('lease_end_date', '<', now())
+        // Flip anything whose end_date has already passed — active leases only,
+        // a draft/cancelled lease was never counting down to anything.
+        $newlyExpired = Lease::withoutGlobalScopes()
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->whereNotNull('end_date')
+            ->where('end_date', '<', now()->startOfDay())
             ->get();
 
         foreach ($newlyExpired as $lease) {
-            $lease->update(['status' => LeaseRecord::STATUS_EXPIRED]);
-            $this->line("  EXPIRED: {$lease->property_address} (ended {$lease->lease_end_date->format('Y-m-d')})");
-            $this->sendLeaseAlert($lease, 'expired', 0);
+            $lease->update(['status' => Lease::STATUS_EXPIRED]);
+            $address = $lease->property?->title ?? 'Unknown property';
+            $this->line("  EXPIRED: {$address} (ended {$lease->end_date->format('Y-m-d')})");
+            if ($this->sendLeaseAlert($lease, 'expired', 0)) {
+                $alerts++;
+            }
             $expired++;
-            $alerts++;
         }
 
-        // Also check expiring_soon leases that have now expired
-        $expiredSoon = LeaseRecord::where('status', LeaseRecord::STATUS_EXPIRING_SOON)
-            ->whereNotNull('lease_end_date')
-            ->where('lease_end_date', '<', now())
+        // Still active, end_date in the future — alert anything inside ITS
+        // OWN agency's notice window. Grouped per-lease (not per-agency bulk
+        // query) because the window boundary differs lease-by-lease.
+        $stillActive = Lease::withoutGlobalScopes()
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->whereNotNull('end_date')
+            ->where('end_date', '>=', now()->startOfDay())
             ->get();
 
-        foreach ($expiredSoon as $lease) {
-            $lease->update(['status' => LeaseRecord::STATUS_EXPIRED]);
-            $this->line("  EXPIRED: {$lease->property_address} (ended {$lease->lease_end_date->format('Y-m-d')})");
-            $this->sendLeaseAlert($lease, 'expired', 0);
-            $expired++;
-            $alerts++;
-        }
+        foreach ($stillActive as $lease) {
+            $windowDays = LeaseSetting::expiryNoticeWindowDaysFor($lease->agency_id);
+            $daysLeft = (int) now()->startOfDay()->diffInDays($lease->end_date, false);
 
-        // Mark leases as expiring_soon (within 90 days) and send tiered alerts
-        $soonExpiring = LeaseRecord::where('status', LeaseRecord::STATUS_ACTIVE)
-            ->whereNotNull('lease_end_date')
-            ->where('lease_end_date', '<=', now()->addDays(90))
-            ->where('lease_end_date', '>=', now())
-            ->get();
+            if ($daysLeft > $windowDays) {
+                continue; // outside this lease's OWN agency's configured notice window
+            }
 
-        foreach ($soonExpiring as $lease) {
-            $daysLeft = $lease->daysUntilExpiry();
-            $lease->update(['status' => LeaseRecord::STATUS_EXPIRING_SOON]);
-
-            $level = $this->getAlertLevel($daysLeft);
-            $this->line("  {$level}: {$lease->property_address} expires in {$daysLeft} days");
-            $this->sendLeaseAlert($lease, $level, $daysLeft);
-            $expiringSoon++;
-            $alerts++;
-        }
-
-        // Re-alert existing expiring_soon leases at threshold crossings
-        $existingExpiring = LeaseRecord::where('status', LeaseRecord::STATUS_EXPIRING_SOON)
-            ->whereNotNull('lease_end_date')
-            ->where('lease_end_date', '>=', now())
-            ->get();
-
-        foreach ($existingExpiring as $lease) {
-            $daysLeft = $lease->daysUntilExpiry();
             $level = $this->getAlertLevel($daysLeft);
             if ($this->sendLeaseAlert($lease, $level, $daysLeft)) {
+                $address = $lease->property?->title ?? 'Unknown property';
+                $this->line("  {$level}: {$address} expires in {$daysLeft} days");
                 $alerts++;
             }
         }
 
-        $this->info("Done. Expired: {$expired}, Expiring soon: {$expiringSoon}, Alerts sent: {$alerts}");
+        $this->info("Done. Expired: {$expired}, Alerts sent: {$alerts}");
 
         return 0;
     }
@@ -101,35 +107,40 @@ class CheckLeaseExpiry extends Command
     }
 
     /**
-     * Send lease alert with cache-based dedup.
-     * Returns true if alert was actually sent (not a duplicate).
+     * Cache-based dedup, same shape as the legacy command's own
+     * sendLeaseAlert() — a distinct cache-key prefix ('lease_v2_alert_',
+     * vs the legacy 'lease_alert_') so this never collides with any key
+     * the still-separately-running legacy LeaseRecord command has
+     * already written for a numerically-identical-but-unrelated id.
+     * Returns true only if an alert was actually sent (not a duplicate,
+     * not skipped for lack of a recipient).
      */
-    private function sendLeaseAlert(LeaseRecord $lease, string $level, int $daysLeft): bool
+    private function sendLeaseAlert(Lease $lease, string $level, int $daysLeft): bool
     {
-        // Dedup: don't send same level alert within 7 days
-        $cacheKey = "lease_alert_{$lease->id}_{$level}";
+        $cacheKey = "lease_v2_alert_{$lease->id}_{$level}";
         if (Cache::has($cacheKey)) {
             return false;
         }
 
         try {
-            $lease->loadMissing('document');
-            $owner = $lease->document ? User::find($lease->document->owner_id) : null;
+            // Recipient stays the agent, same as the legacy command — never
+            // the tenant or landlord. The real Lease model's own equivalent
+            // of "the document's owner" is whichever agent created it.
+            $agent = $lease->createdByUser;
 
-            if (!$owner) {
+            if (!$agent) {
                 return false;
             }
 
-            // Send database notification
-            $owner->notify(new LeaseExpirationAlert(
+            $agent->notify(new LeaseExpiryAlert(
                 lease: $lease,
                 level: $level,
                 daysLeft: $daysLeft,
             ));
 
-            // No email to agents — lease expiry handled via in-app notification only (LeaseExpirationAlert above)
+            // No email — in-app notification only, same as the legacy
+            // command (LeaseExpirationMail stays dead code; not revived here).
 
-            // Cache to prevent duplicate alerts for 7 days
             Cache::put($cacheKey, true, now()->addDays(7));
 
             return true;
@@ -139,6 +150,7 @@ class CheckLeaseExpiry extends Command
                 'level' => $level,
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }

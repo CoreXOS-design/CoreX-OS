@@ -178,6 +178,29 @@ class Lease extends Model
     }
 
     /**
+     * AT-439 §G — derived, never duplicated onto this model (see the class
+     * docblock above: "owner already known via the existing owner/landlord
+     * contact link"). N-party: returns EVERY landlord-side contact linked
+     * to the property, never collapses to a single guess — a joint-owned
+     * rental can have more than one. Expressed through the property's own
+     * canonical contact-role keys ('landlord'/'lessor' —
+     * Property::pivotRolesForContactRole()'s vocabulary, the same keys the
+     * e-sign wizard's role picker already uses) rather than re-hardcoding
+     * the underlying contact_property.role strings here a second time.
+     */
+    public function landlordContacts(): \Illuminate\Support\Collection
+    {
+        if (!$this->property) {
+            return collect();
+        }
+
+        return $this->property->contactsForRole('landlord')
+            ->merge($this->property->contactsForRole('lessor'))
+            ->unique('id')
+            ->values();
+    }
+
+    /**
      * leases.md §7 — OWN/BRANCH/AGENCY scoping, layered on top of the hard
      * AgencyScope boundary. Same PermissionService::getDataScope() +
      * clampScope() convention already used by rental_applications, so the

@@ -206,6 +206,14 @@
         //     index()/allView() action on the way in.
         request()->routeIs('corex.rental-applications.*')
         || request()->routeIs('corex.rentals.properties.index', 'corex.rentals.pipeline.index', 'corex.rentals.core-matches.*', 'corex.rentals.contacts.index')
+        // AT-441 — this screen's own route pattern, added so its OWN nav
+        // entry (just above) auto-opens the panel.
+        || request()->routeIs('corex.rentals.command-centre.*')
+        // AT-439 — the five other Rentals-panel screens (Leases, Rental Inspections,
+        // Rental Fault Types, Rental Fault Reports, Rental Work Orders) had no
+        // $activeGroup match at all, so the panel never auto-opened on their own
+        // list OR detail pages even though their nav links live in this same panel.
+        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
         || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
         || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
@@ -1099,6 +1107,14 @@
                      scoping) that was never meant to merge into the shared
                      list — see RentalApplicationController::index()'s own
                      docblock on why. --}}
+                {{-- .ai/specs/rental-command-centre.md — AT-441. FIRST item in this
+                     panel per Johan's approved design (2026-10-04): the one screen
+                     that shows every rental property's state across the whole
+                     module at a glance. Same-day nav entry per non-negotiable #2. --}}
+                @permission('rental_command_centre.view')
+                <a href="{{ route('corex.rentals.command-centre.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.command-centre.*') ? 'active' : '' }}">Command Centre</a>
+                @endpermission
+
                 @permission('rental_applications.view')
                 <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
                 @endpermission

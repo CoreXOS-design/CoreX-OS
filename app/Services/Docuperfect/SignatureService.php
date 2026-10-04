@@ -13,7 +13,9 @@ use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\LeaseRecord;
 use App\Models\Lease;
 use App\Models\LeaseTenant;
+use App\Services\Rentals\LeaseActivationService;
 use App\Services\Rentals\TenantContactResolver;
+use Illuminate\Validation\ValidationException;
 use App\Models\Docuperfect\Signature;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
@@ -5478,6 +5480,28 @@ class SignatureService
      * confident address-matching against the real `properties` table
      * instead. No confident match = no Lease created here; an agent can
      * always create one manually from the property's Rental tab.
+     *
+     * AT-439 — before creating a new row, checks for an existing DRAFT
+     * lease on the SAME property to promote instead of creating a second,
+     * disconnected row for the same real-world tenancy. Matching, in
+     * order: (1) a draft already linked to the SAME tenant the signed
+     * document resolves — takes priority so a draft an agent already tied
+     * to a DIFFERENT, known tenant (e.g. a renewal being prepared
+     * alongside the still-current lease) is never silently reassigned; (2)
+     * failing that, a draft with NO tenant linked at all yet (the common
+     * case — a draft started manually before any tenant was decided),
+     * ONLY when exactly one such open draft exists on the property — an
+     * ambiguous multi-draft property is never guessed at. If a match is
+     * found, that draft is PROMOTED (its terms + source_document_id are
+     * set from the signed document and it is activated). Promotion goes
+     * through LeaseActivationService::activate() — the same one-active-
+     * lease-per-property guard every other activation path already uses —
+     * inside a DB transaction; if another lease is already active on this
+     * property (a genuine conflict, not the common case), the draft's
+     * terms/source_document_id are still saved so the document is linked,
+     * but its status is left exactly as it was rather than letting an
+     * uncaught ValidationException escape into the e-sign completion
+     * cascade (BUILD_STANDARD §4 — no raw exception reaches a user path).
      */
     public function createLeaseFromSignedDocument(SignatureTemplate $template): ?Lease
     {
@@ -5501,39 +5525,88 @@ class SignatureService
 
         $startDate = $fields['lease_start_date'] ?? now()->toDateString();
         $endDate = $fields['lease_end_date'] ?? null;
+        $rentalAmount = $fields['rental_amount'] ?? 0;
 
-        $lease = Lease::withoutGlobalScopes()->create([
-            'agency_id' => $property->agency_id,
-            'branch_id' => $property->branch_id,
-            'property_id' => $property->id,
-            'status' => Lease::STATUS_ACTIVE,
-            'rental_amount' => $fields['rental_amount'] ?? 0,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'source' => 'esign_document',
-            'source_document_id' => $document->id,
-        ]);
-
-        if ($tenant) {
-            $tenantContact = app(TenantContactResolver::class)->matchOrCreate(
+        // Resolved up front (rather than only after a brand-new Lease is
+        // created, as before) so the draft-match-by-tenant lookup below can
+        // use the SAME resolved contact a freshly-created Lease would get.
+        $tenantContact = $tenant
+            ? app(TenantContactResolver::class)->matchOrCreate(
                 $property->agency_id,
                 $property->branch_id,
                 $tenant['name'] ?? null,
                 $tenant['email'] ?? null,
-            );
+            )
+            : null;
 
-            if ($tenantContact) {
-                LeaseTenant::create([
-                    'lease_id' => $lease->id,
-                    'contact_id' => $tenantContact->id,
-                    'is_primary' => true,
-                ]);
-            }
+        // Tenant-linked drafts take priority (never silently hijack a draft
+        // an agent already tied to a DIFFERENT, known tenant). Only when no
+        // tenant-matched draft exists do we fall back to an UNTENANTED
+        // draft on this property (the common case — a draft started
+        // manually before any tenant was decided) — and only when exactly
+        // one such open draft exists, so an ambiguous multi-draft property
+        // is never guessed at.
+        $draftLeasesQuery = fn () => Lease::withoutGlobalScopes()
+            ->where('property_id', $property->id)
+            ->where('status', Lease::STATUS_DRAFT);
+
+        $draftLease = $tenantContact
+            ? $draftLeasesQuery()->whereHas('tenants', fn ($q) => $q->where('contact_id', $tenantContact->id))->latest('id')->first()
+            : null;
+
+        if (!$draftLease) {
+            $openDrafts = $draftLeasesQuery()->whereDoesntHave('tenants')->get();
+            $draftLease = $openDrafts->count() === 1 ? $openDrafts->first() : null;
+        }
+
+        if ($draftLease) {
+            $lease = DB::transaction(function () use ($draftLease, $rentalAmount, $startDate, $endDate, $document) {
+                $draftLease->forceFill([
+                    'rental_amount' => $rentalAmount,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'source' => 'esign_document',
+                    'source_document_id' => $document->id,
+                ])->save();
+
+                try {
+                    return app(LeaseActivationService::class)->activate($draftLease);
+                } catch (ValidationException $e) {
+                    Log::warning('createLeaseFromSignedDocument: draft lease linked to signed document but NOT activated — another lease is already active on this property', [
+                        'lease_id' => $draftLease->id,
+                        'property_id' => $draftLease->property_id,
+                        'document_id' => $document->id,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    return $draftLease->fresh();
+                }
+            });
+        } else {
+            $lease = Lease::withoutGlobalScopes()->create([
+                'agency_id' => $property->agency_id,
+                'branch_id' => $property->branch_id,
+                'property_id' => $property->id,
+                'status' => Lease::STATUS_ACTIVE,
+                'rental_amount' => $rentalAmount,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'source' => 'esign_document',
+                'source_document_id' => $document->id,
+            ]);
+        }
+
+        if ($tenantContact && !LeaseTenant::where('lease_id', $lease->id)->where('contact_id', $tenantContact->id)->exists()) {
+            LeaseTenant::create([
+                'lease_id' => $lease->id,
+                'contact_id' => $tenantContact->id,
+                'is_primary' => true,
+            ]);
         }
 
         SignatureAuditLog::log(
             $template,
-            'lease_created_from_document',
+            $draftLease ? 'lease_promoted_from_document' : 'lease_created_from_document',
             SignatureAuditLog::ACTOR_SYSTEM,
             'System',
             metadata: ['lease_id' => $lease->id, 'property_id' => $property->id],
