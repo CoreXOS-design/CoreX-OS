@@ -210,6 +210,11 @@ return [
         // (logging/editing the work order itself).
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
 
+        // ── Rental Reports (AT-443) — .ai/specs/rentals-reports.md. Access-only —
+        // reports are read-only, no separate create/edit/archive action exists on
+        // this screen (same pattern as rental_command_centre.view).
+        ['key' => 'rental_reports.view', 'label' => 'View Rental Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_reports', 'sort_order' => 1],
+
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.
         ['key' => 'rental_details.manage_settings', 'label' => 'Manage Rental Details Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_details', 'sort_order' => 1],

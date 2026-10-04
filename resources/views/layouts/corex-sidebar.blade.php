@@ -213,6 +213,10 @@
         // list — that is cc1's own AT-439 fix, out of this ticket's scope,
         // not touched here; reported, not fixed.
         || request()->routeIs('corex.rentals.command-centre.*')
+        // AT-443 — this screen's own route pattern, same reasoning as
+        // AT-441's own entry immediately above (its own nav entry, below,
+        // must auto-open this panel).
+        || request()->routeIs('corex.rentals.reports.*')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
         || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
         || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
@@ -1112,6 +1116,12 @@
                      module at a glance. Same-day nav entry per non-negotiable #2. --}}
                 @permission('rental_command_centre.view')
                 <a href="{{ route('corex.rentals.command-centre.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.command-centre.*') ? 'active' : '' }}">Command Centre</a>
+                @endpermission
+
+                {{-- .ai/specs/rentals-reports.md — AT-443. Same-day nav entry per
+                     non-negotiable #2. --}}
+                @permission('rental_reports.view')
+                <a href="{{ route('corex.rentals.reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.reports.*') ? 'active' : '' }}">Reports</a>
                 @endpermission
 
                 @permission('rental_applications.view')

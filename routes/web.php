@@ -3262,6 +3262,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/print', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'print'])->name('corex.rentals.command-centre.print');
     });
 
+    // .ai/specs/rentals-reports.md — AT-443. One screen (picker + chosen
+    // report), read-only — creates/edits/archives nothing. Property History
+    // and the Landlord Activity single-record print live under the same
+    // prefix since they are reached from this same screen (spec §5).
+    Route::prefix('rentals/reports')->middleware('permission:rental_reports.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalReportController::class, 'index'])->name('corex.rentals.reports.index');
+        Route::get('/print', [\App\Http\Controllers\CoreX\RentalReportController::class, 'print'])->name('corex.rentals.reports.print');
+        Route::get('/pdf', [\App\Http\Controllers\CoreX\RentalReportController::class, 'pdf'])->name('corex.rentals.reports.pdf');
+        Route::get('/export', [\App\Http\Controllers\CoreX\RentalReportController::class, 'export'])->name('corex.rentals.reports.export');
+        Route::get('/property-history', [\App\Http\Controllers\CoreX\RentalReportController::class, 'propertyHistory'])->name('corex.rentals.reports.property-history');
+        Route::get('/property-history/print', [\App\Http\Controllers\CoreX\RentalReportController::class, 'propertyHistoryPrint'])->name('corex.rentals.reports.property-history.print');
+        Route::get('/property-history/pdf', [\App\Http\Controllers\CoreX\RentalReportController::class, 'propertyHistoryPdf'])->name('corex.rentals.reports.property-history.pdf');
+        Route::get('/landlord-activity/pdf', [\App\Http\Controllers\CoreX\RentalReportController::class, 'landlordActivityPdf'])->name('corex.rentals.reports.landlord-activity.pdf');
+    });
+
     // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
     // is not linked to a property, a tenant is linked to a LEASE, and the
     // lease is linked to the property."
