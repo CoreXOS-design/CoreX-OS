@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Services\RentalInspectionComparisonService;
@@ -22,6 +23,8 @@ use Illuminate\View\View;
  */
 class RentalInspectionComparisonController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     public function __construct(private readonly RentalInspectionComparisonService $comparison)
     {
     }
@@ -34,6 +37,7 @@ class RentalInspectionComparisonController extends Controller
     public function show(Request $request, RentalInspection $rentalInspection): View
     {
         abort_unless($rentalInspection->type === RentalInspection::TYPE_OUT, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $rentalInspection->load('property', 'lease.tenants.contact');
         $inInspection = $this->comparison->matchingInInspection($rentalInspection);
@@ -49,6 +53,7 @@ class RentalInspectionComparisonController extends Controller
     public function recordFinding(Request $request, RentalInspection $rentalInspection, RentalInspectionItem $rentalInspectionItem): RedirectResponse
     {
         abort_unless($rentalInspection->type === RentalInspection::TYPE_OUT, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'disposition' => ['required', 'in:wear_and_tear,flagged'],

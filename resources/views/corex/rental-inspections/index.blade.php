@@ -42,6 +42,21 @@
         </div>
     </div>
 
+    {{-- AT-439 — own/branch/all "Showing:" control, same component/markup as
+         rental-applications' own. --}}
+    @if(count($scopeOptions) > 1)
+    <div class="flex items-center gap-2">
+        <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
+        <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+            @foreach($scopeOptions as $i => $sc)
+            <a href="{{ route('corex.rental-inspections.index', array_merge(request()->except(['scope', 'page']), ['scope' => $sc])) }}"
+               class="px-3 py-1.5 text-xs font-semibold"
+               style="{{ $i > 0 ? 'border-left: 1px solid var(--border);' : '' }} {{ $resolvedScope === $sc ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ ucfirst($sc) }}</a>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
     {{-- §39, 2026-09-28 — Johan: a summary tiles row, exactly the FICA/
          rental-applications pattern reused verbatim (compliance/fica/
          index.blade.php's own tab-tile row, byte-for-byte the same markup/

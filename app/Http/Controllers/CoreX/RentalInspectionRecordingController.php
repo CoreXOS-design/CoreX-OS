@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\DocumentType;
 use App\Models\Property;
 use App\Models\PropertyRoom;
@@ -40,6 +41,8 @@ use Illuminate\Validation\Rule;
  */
 class RentalInspectionRecordingController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /**
      * GET /corex/properties/{property}/rental-inspection-tab — the data
      * layer the rebuilt tab (§4) reads from: this property's items (every
@@ -119,6 +122,7 @@ class RentalInspectionRecordingController extends Controller
     public function next(Request $request, Property $property, RentalInspection $rentalInspection): JsonResponse
     {
         abort_if($rentalInspection->property_id !== $property->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
@@ -469,6 +473,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function updateDetails(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'electricity_meter_reading' => ['nullable', 'string', 'max:100'],
             'water_meter_reading' => ['nullable', 'string', 'max:100'],
@@ -497,6 +503,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeObservation(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         // 2026-09-21, Johan from Retha's real paper form — the condition
         // vocabulary itself (which states exist, which need a reason) is
         // agency-configurable (RentalInspectionSetting::conditionStatesFor()),
@@ -546,6 +554,7 @@ class RentalInspectionRecordingController extends Controller
     public function markRoomNa(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
         abort_if($room->property_id !== $rentalInspection->property_id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
         abort_unless(
@@ -589,6 +598,7 @@ class RentalInspectionRecordingController extends Controller
     public function markRoomGood(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
         abort_if($room->property_id !== $rentalInspection->property_id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $baselineKey = RentalInspectionSetting::baselineConditionKeyFor($rentalInspection->agency_id);
 
@@ -630,6 +640,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function markAllGood(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $baselineKey = RentalInspectionSetting::baselineConditionKeyFor($rentalInspection->agency_id);
 
         $source = match ($rentalInspection->type) {
@@ -671,6 +683,7 @@ class RentalInspectionRecordingController extends Controller
     public function storeRoomNote(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
         abort_if($room->property_id !== $rentalInspection->property_id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate(['note' => ['required', 'string', 'max:4000']]);
 
@@ -694,6 +707,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function updateOverallNotes(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate(['overall_notes' => ['nullable', 'string', 'max:4000']]);
 
         $rentalInspection->update(['overall_notes' => $validated['overall_notes'] ?? null]);
@@ -714,6 +729,7 @@ class RentalInspectionRecordingController extends Controller
     public function storePhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionObservation $observation): JsonResponse
     {
         abort_if($observation->rental_inspection_id !== $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
@@ -775,6 +791,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhotos(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
@@ -911,6 +929,7 @@ class RentalInspectionRecordingController extends Controller
     public function tagPhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
@@ -947,6 +966,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function tagPhotosBulk(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'photo_ids' => ['required', 'array', 'min:1'],
             'photo_ids.*' => ['integer'],
@@ -976,6 +997,7 @@ class RentalInspectionRecordingController extends Controller
     public function untagPhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $photo->untag($request->user());
 
@@ -994,6 +1016,7 @@ class RentalInspectionRecordingController extends Controller
     public function archivePhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $photo->archive($request->user());
 
@@ -1152,6 +1175,7 @@ class RentalInspectionRecordingController extends Controller
     public function resolveDiscrepancy(Request $request, RentalInspection $rentalInspection, RentalInspectionDiscrepancy $discrepancy): JsonResponse
     {
         abort_if($discrepancy->rental_inspection_id !== $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'accepted_observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
@@ -1190,6 +1214,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeSignature(Request $request, RentalInspection $rentalInspection, SignedDocumentDistributionService $distributionService): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'party_role' => ['required', 'string', 'in:' . implode(',', [
                 RentalInspectionSignature::PARTY_TENANT,
@@ -1274,6 +1300,7 @@ class RentalInspectionRecordingController extends Controller
     public function supersedeWetInkSignature(Request $request, RentalInspection $rentalInspection, RentalInspectionSignature $signature, SignedDocumentDistributionService $distributionService): JsonResponse
     {
         abort_unless((int) $signature->rental_inspection_id === (int) $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'wet_ink_file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
@@ -1377,6 +1404,8 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/rental-inspections/{inspection}/start-awaiting-signature */
     public function startAwaitingSignature(RentalInspection $rentalInspection): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         try {
             $rentalInspection->startAwaitingSignature();
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
@@ -1408,6 +1437,8 @@ class RentalInspectionRecordingController extends Controller
         \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
         \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         try {
             $rentalInspection->markCompleted();
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
@@ -1443,6 +1474,8 @@ class RentalInspectionRecordingController extends Controller
         \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
         \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         if ($rentalInspection->status !== RentalInspection::STATUS_COMPLETED) {
             return response()->json(['message' => 'This inspection is not yet completed.'], 409);
         }

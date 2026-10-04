@@ -2176,3 +2176,91 @@ gating completion, the completion→work-order sync, archive/restore, cross-agen
 mobile-API-scope 404, and a full internal-job end-to-end scenario) — 26 tests, 80 assertions, plus a
 live Tinker run against throwaway records proving the same end-to-end path on real (non-test)
 infrastructure.
+
+### 14.13 Record-scope guard — applied to every new non-index route (AT-442 follow-up, 2026-10-04)
+
+Per the conductor's instruction after AT-439 landed its `AuthorizesRentalRecordScope` trait (§ below):
+`guardRentalRecordScope()` was added to the top of every job-card action that receives an existing
+bound record — web (`RentalJobCardController`) and the mobile API
+(`MobileRentalJobCardController`) alike, same `'rental_job_cards'` permission key, branch resolved via
+`$rentalJobCard->property?->branch_id` (matching `RentalFaultReport`/`RentalWorkOrder`'s own
+`scopeVisibleTo()` — the property's branch, never the job card's own unused `branch_id` column).
+`index()`/`create()`/`store()` are unguarded (no existing record; `index()` already filters via
+`scopeVisibleTo()`). The parts & labour catalogue (`rental_catalogue_items`) is agency-level, not
+own/branch-scoped — gated by permission only (`rental_catalogue.view`/`.manage`), no record guard,
+same as `AgencyServiceType`'s own screen. Proven by test: a same-agency user outside the acting
+user's own/branch scope gets a real 403 (not the 404 a cross-agency request gets via the global
+`AgencyScope` — two different mechanisms, two different test cases).
+
+### 14.14 Prices on the PRINTED job card — separate agency setting, default OFF (2026-10-04)
+
+Settled by the conductor: the worker's printed copy and the owner's quote PDF are not the same
+audience and do not show the same thing by default. **New**,
+`rental_work_order_settings.show_prices_on_printed_job_card` (boolean, default **false**) —
+`RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($agencyId)`. Gates ONLY
+`RentalDocumentPdfService::jobCardPrintPdf()` (the worker-facing print, §14.2's own printable job
+card) — when off, that document shows tasks, parts, and quantities with no price/total column at
+all, regardless of `capture_prices_on_job_cards`. The owner-facing quote PDF
+(`jobCardQuotePdf()`, §14.5, what `sendToOwnerAsQuote()` mails/attaches) is **never** gated by this
+setting — it always shows prices whenever `capture_prices_on_job_cards` is on, because the owner is
+being asked to approve a cost; hiding it there would defeat the document's own purpose. Setup Wizard
+entry (default off) + dedicated settings-page toggle, same `has()`-guarded-checkbox discipline as
+`capture_prices_on_job_cards` itself — own narrow saver, never folded into another toggle's.
+
+### 14.15 The one pre-existing, unrelated test failure (reported, not fixed, per non-negotiable #2)
+
+`tests/Feature/RentalWorkOrders/RentalWorkOrderLifecycleTest.php::
+test_completion_requires_a_completed_photo_when_setting_is_on` — fails on a file this build never
+touched, exercising `RentalWorkOrder::complete()`/`completionRequiresPhotoFor()`, neither of which
+this build modified. Failure: `Session is missing expected key [errors]. Failed asserting that false
+is true.` at line 242. Confirmed unrelated by direct inspection of the diff, not a stash-compare (see
+the build's own report for why) — flagged for whoever owns that file, not resolved here.
+
+---
+
+## AT-439 (Rentals rebuild 1/7, "Foundation") — Own/Branch/All scope, Fault Reports + Work Orders, 2026-10-04
+
+Built strictly from `/tmp/rentals-stage1-investigation.md` item C. `RentalFaultReportController::
+index()` and `RentalWorkOrderController::index()` already called `->visibleTo($user, $request->get
+('scope'))` (own/branch/all query-layer scoping existed on both); neither had a UI control to let a
+user with a wider ceiling choose a narrower/wider view, and — more seriously — neither `show()`/
+`pdf()` (nor any other non-index action taking the bound record) independently re-checked that
+scope, so a user whose list was scoped to `own`/`branch` could still open or mutate ANY fault
+report/work order in the agency by direct URL/ID. (The `pdf()` docblock on both controllers had
+already, honestly, documented this as "same query-layer scoping as show() above" — a known, not
+hidden, gap.)
+
+**Fixed as a class** (see `leases.md` §12 for the full rationale — this is the same fix, same new
+trait, applied here too): `App\Http\Controllers\Concerns\AuthorizesRentalRecordScope::
+guardRentalRecordScope()` is now called at the top of every non-index action on both controllers
+that receives a bound record —
+
+- `RentalFaultReportController`: `show`, `pdf`, `update`, `requestApproval`, `recordApproval`,
+  `setOutcome`, `raiseWorkOrder`, `cancel`, `destroy`, `restore`, `storePhoto` (11 routes).
+- `RentalWorkOrderController`: `show`, `pdf`, `update`, `assignSupplier`, `recordApproval`,
+  `startProgress`, `complete`, `addNote`, `cancel`, `destroy`, `restore`, `storePhoto` (12 routes).
+
+For both models the guard's "branch" check resolves via the record's PROPERTY's `branch_id`
+(`$record->property?->branch_id`) — matching exactly what `RentalFaultReport::scopeVisibleTo()`/
+`RentalWorkOrder::scopeVisibleTo()` already check (`whereHas('property', ...)`), NOT either model's
+own `branch_id` column. **Note for a future pass, reported not fixed here (out of scope for AT-439
+Part 1):** both `rental_fault_reports` and `rental_work_orders` carry their OWN `branch_id` column,
+which their own `scopeVisibleTo()` never reads — an existing inconsistency, not something this build
+introduced or corrected.
+
+The out-of-scope sibling controllers that also receive these same bound records — `RentalWorkOrderQuoteController`
+(quotes CRUD/select/download), `RentalInspectionRecordingController`/`RentalInspectionComparisonController`/
+`RentalInspectionScanController`/`RentalInspectionPhotoNoteController` (see `rental-inspections.md`'s
+own AT-439 addendum) — were NOT touched; they carry the identical gap and are reported, not fixed,
+per this build's explicit scope lock.
+
+**UI**: the same "Showing: Own | Branch | All" pill control `rental-applications`/`leases` already
+use now renders on `corex/rental-fault-reports/index.blade.php` and
+`corex/rental-work-orders/index.blade.php`.
+
+### Files changed (AT-439)
+
+- `app/Http/Controllers/CoreX/RentalFaultReportController.php` — scope control + 11 guarded routes
+- `resources/views/corex/rental-fault-reports/index.blade.php` — "Showing:" control
+- `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — scope control + 12 guarded routes
+- `resources/views/corex/rental-work-orders/index.blade.php` — "Showing:" control

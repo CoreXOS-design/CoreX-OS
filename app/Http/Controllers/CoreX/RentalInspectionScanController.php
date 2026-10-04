@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionScan;
 use App\Models\RentalInspectionSetting;
@@ -23,6 +24,8 @@ use Illuminate\View\View;
  */
 class RentalInspectionScanController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     public function __construct(private RentalInspectionScanReaderService $reader)
     {
     }
@@ -38,6 +41,8 @@ class RentalInspectionScanController extends Controller
      */
     public function store(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $request->validate([
             'scan' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,heic,heif', 'max:20480'],
         ]);
@@ -74,6 +79,7 @@ class RentalInspectionScanController extends Controller
     public function review(RentalInspection $rentalInspection, RentalInspectionScan $scan): View
     {
         abort_if($scan->rental_inspection_id !== $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $scan->load(['marks.item.room']);
         $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
@@ -96,6 +102,7 @@ class RentalInspectionScanController extends Controller
     public function apply(Request $request, RentalInspection $rentalInspection, RentalInspectionScan $scan): RedirectResponse
     {
         abort_if($scan->rental_inspection_id !== $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'condition_keys' => ['required', 'array'],
@@ -137,6 +144,7 @@ class RentalInspectionScanController extends Controller
     public function download(RentalInspection $rentalInspection, RentalInspectionScan $scan)
     {
         abort_if($scan->rental_inspection_id !== $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
         abort_unless(Storage::disk('local')->exists($scan->storage_path), 404);
 
         return Storage::disk('local')->download($scan->storage_path, $scan->original_filename);
@@ -146,6 +154,7 @@ class RentalInspectionScanController extends Controller
     public function destroy(Request $request, RentalInspection $rentalInspection, RentalInspectionScan $scan): RedirectResponse
     {
         abort_if($scan->rental_inspection_id !== $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $scan->archive($request->user());
 

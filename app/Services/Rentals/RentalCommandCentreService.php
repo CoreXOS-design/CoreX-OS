@@ -63,6 +63,30 @@ class RentalCommandCentreService
     private const RENTAL_LISTING_TYPES = ['rental', 'to_let', 'to-let', 'lease'];
 
     /**
+     * THE ONE definition of "open" for a fault report, matching
+     * RentalFaultReportController::index()'s own "open_no_work_order"
+     * exception tile (§39) exactly — resolved/cancelled/declined are the
+     * only statuses that screen treats as closed. Used here for the row
+     * column, the tile total, AND the tile's table filter, so none of the
+     * three can drift from the other or from that screen's own vocabulary.
+     */
+    public const FAULT_OPEN_STATUSES_EXCLUDED = [
+        RentalFaultReport::STATUS_RESOLVED,
+        RentalFaultReport::STATUS_CANCELLED,
+        RentalFaultReport::STATUS_DECLINED,
+    ];
+
+    /**
+     * THE ONE definition of "open" for a work order, matching
+     * RentalWorkOrderController::index()'s own per-status tiles (reported/
+     * ordered/in_progress are everything completed/cancelled is not).
+     */
+    public const WORK_ORDER_OPEN_STATUSES_EXCLUDED = [
+        RentalWorkOrder::STATUS_COMPLETED,
+        RentalWorkOrder::STATUS_CANCELLED,
+    ];
+
+    /**
      * The user's real ceiling for this screen — identical mechanism to
      * every other rentals list (PermissionService::getDataScope() +
      * clampScope(), the DeedsCaptureController reference pattern).
@@ -178,13 +202,13 @@ class RentalCommandCentreService
             ])
             ->selectRaw(
                 '(SELECT COUNT(*) FROM rental_fault_reports rfr WHERE rfr.property_id = properties.id '
-                . 'AND rfr.deleted_at IS NULL AND rfr.status NOT IN (?, ?)) as open_faults_count',
-                [RentalFaultReport::STATUS_RESOLVED, RentalFaultReport::STATUS_CANCELLED]
+                . 'AND rfr.deleted_at IS NULL AND rfr.status NOT IN (?, ?, ?)) as open_faults_count',
+                self::FAULT_OPEN_STATUSES_EXCLUDED
             )
             ->selectRaw(
                 '(SELECT COUNT(*) FROM rental_work_orders rwo WHERE rwo.property_id = properties.id '
                 . 'AND rwo.deleted_at IS NULL AND rwo.status NOT IN (?, ?)) as open_work_orders_count',
-                [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED]
+                self::WORK_ORDER_OPEN_STATUSES_EXCLUDED
             )
             ->selectRaw(
                 '(SELECT MAX(ri.completed_at) FROM rental_inspections ri WHERE ri.property_id = properties.id '
@@ -246,8 +270,6 @@ class RentalCommandCentreService
             'active_end_date',
             'active_month_to_month',
             'pending_renewal_draft_count',
-            'open_faults_count',
-            'open_work_orders_count',
             'open_inspections_count',
             'active_lease_completed_in_inspections',
         ]);
@@ -286,14 +308,6 @@ class RentalCommandCentreService
                 $counts['month_to_month']++;
             }
 
-            if ((int) $row->open_faults_count > 0) {
-                $counts['open_faults']++;
-            }
-
-            if ((int) $row->open_work_orders_count > 0) {
-                $counts['open_work_orders']++;
-            }
-
             // "Inspections due" — a UNION (this property counted once),
             // never a sum of the two buckets, to avoid double-counting the
             // common case where a lease is both "has a scheduled, not yet
@@ -305,6 +319,28 @@ class RentalCommandCentreService
                 $counts['inspections_due']++;
             }
         }
+
+        // "Open faults"/"Open work orders" — the TOTAL count of open
+        // records in scope (what Johan calls "the sum of the per-row
+        // column"), never the count of PROPERTIES that have ≥1. Computed
+        // as independent, direct counts against the same property-id
+        // scope predicate every other source on this screen uses — not a
+        // SUM() of the row-level column above, but mathematically
+        // identical to one; a direct count is simpler to audit and avoids
+        // re-deriving the open-status set in two places.
+        $counts['open_faults'] = $this->applyPropertyIdScope(
+            RentalFaultReport::query()->whereNotIn('status', self::FAULT_OPEN_STATUSES_EXCLUDED),
+            $user,
+            $scope,
+            'property_id'
+        )->count();
+
+        $counts['open_work_orders'] = $this->applyPropertyIdScope(
+            RentalWorkOrder::query()->whereNotIn('status', self::WORK_ORDER_OPEN_STATUSES_EXCLUDED),
+            $user,
+            $scope,
+            'property_id'
+        )->count();
 
         return $counts;
     }
@@ -327,6 +363,20 @@ class RentalCommandCentreService
                         $sub->selectRaw(1)->from('lease_tenants')
                             ->join('contacts', 'contacts.id', '=', 'lease_tenants.contact_id')
                             ->whereColumn('lease_tenants.lease_id', 'properties.active_lease_id')
+                            ->where(function ($c) use ($search) {
+                                $c->where('contacts.first_name', 'like', "%{$search}%")
+                                    ->orWhere('contacts.last_name', 'like', "%{$search}%");
+                            });
+                    })
+                    // Landlord — same source Property::sellerOwnerContact()
+                    // uses (contact_property pivot, seller-side role), since
+                    // Lease has no landlord accessor of its own yet.
+                    ->orWhereExists(function ($sub) use ($search) {
+                        $sub->selectRaw(1)->from('contact_property')
+                            ->join('contacts', 'contacts.id', '=', 'contact_property.contact_id')
+                            ->whereColumn('contact_property.property_id', 'properties.id')
+                            ->whereNull('contact_property.deleted_at')
+                            ->whereIn('contact_property.role', ['seller', 'owner', 'landlord', 'lessor'])
                             ->where(function ($c) use ($search) {
                                 $c->where('contacts.first_name', 'like', "%{$search}%")
                                     ->orWhere('contacts.last_name', 'like', "%{$search}%");
@@ -410,9 +460,17 @@ class RentalCommandCentreService
         return $query;
     }
 
+    /**
+     * Default sort is 'lease_end' ascending (leases ending soonest first),
+     * with a NULL end_date (vacant/month-to-month) always LAST regardless
+     * of direction — never a plain `ORDER BY active_end_date` on its own,
+     * which would put every vacant unit FIRST under MySQL's default
+     * NULL-sorts-first ascending behaviour, exactly the bug this guards
+     * against.
+     */
     public function applySort(Builder $query, ?string $sort, ?string $direction): Builder
     {
-        $sort = in_array($sort, self::SORT_COLUMNS, true) ? $sort : 'address';
+        $sort = in_array($sort, self::SORT_COLUMNS, true) ? $sort : 'lease_end';
         $direction = $direction === 'desc' ? 'desc' : 'asc';
 
         $column = match ($sort) {
@@ -423,6 +481,10 @@ class RentalCommandCentreService
             'last_inspection' => 'last_inspection_at',
             default => 'title',
         };
+
+        if ($column === 'active_end_date') {
+            $query->orderByRaw('active_end_date IS NULL');
+        }
 
         return $query->orderBy($column, $direction)->orderBy('id', $direction);
     }
@@ -454,15 +516,19 @@ class RentalCommandCentreService
             $user,
             $scope,
             'property_id'
-        )->get()->each(function (Lease $lease) use (&$items, $today) {
+        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today) {
             $items->push([
                 'type' => 'review_renewal',
                 'urgency' => 3,
-                'age_days' => $today->diffInDays($lease->end_date, false) * -1,
+                // Negative-and-hidden by design: a future deadline is not
+                // "N days old" (the blade's age badge only shows when
+                // age_days > 0), but still needs a signed value so the
+                // within-tier sort below puts the SOONEST deadline first.
+                'age_days' => -1 * (int) abs($today->diffInDays($lease->end_date)),
                 'property' => $lease->property,
                 'lease' => $lease,
                 'label' => 'Review renewal',
-                'detail' => 'Lease ends ' . $lease->end_date?->format('Y-m-d'),
+                'detail' => 'Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
                 'route_params' => ['lease' => $lease->id],
             ]);
@@ -476,21 +542,24 @@ class RentalCommandCentreService
             $user,
             $scope,
             'property_id'
-        )->get()->each(function (Lease $lease) use (&$items, $today) {
+        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today) {
             $items->push([
                 'type' => 'record_outcome',
                 'urgency' => 1,
-                'age_days' => $today->diffInDays($lease->end_date),
+                'age_days' => (int) abs($today->diffInDays($lease->end_date)),
                 'property' => $lease->property,
                 'lease' => $lease,
                 'label' => 'Record outcome',
-                'detail' => 'Lease end date passed ' . $lease->end_date?->format('Y-m-d'),
+                'detail' => 'Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
                 'route_params' => ['lease' => $lease->id],
             ]);
         });
 
-        // C — fault report awaiting owner approval.
+        // C — fault report awaiting owner approval. Names the specific
+        // fault (title) so two rows on the same property are distinguishable
+        // — the bug this fix exists for (two identical "Fault awaiting
+        // owner approval" rows, same property, no way to tell them apart).
         $this->applyPropertyIdScope(
             RentalFaultReport::query()->where('status', RentalFaultReport::STATUS_AWAITING_APPROVAL)
                 ->with('property'),
@@ -501,24 +570,27 @@ class RentalCommandCentreService
             $items->push([
                 'type' => 'fault_awaiting_approval',
                 'urgency' => 2,
-                'age_days' => $fault->reported_at ? $today->diffInDays($fault->reported_at) : 0,
+                'age_days' => $fault->reported_at ? (int) abs($today->diffInDays($fault->reported_at)) : 0,
                 'property' => $fault->property,
                 'lease' => null,
                 'label' => 'Open',
-                'detail' => 'Fault awaiting owner approval',
+                'detail' => $fault->title,
                 'route' => 'corex.rental-fault-reports.show',
                 'route_params' => ['rentalFaultReport' => $fault->id],
             ]);
         });
 
-        // D — work order overdue (open, reported longer ago than the
-        // agency's own overdue_reminder_days setting — already live,
-        // reused, not a new setting).
+        // D — work order overdue. Reuses RentalWorkOrder::scopeOverdue()
+        // directly — the SAME scope RentalWorkOrderController::index()'s own
+        // "Overdue" tile and ?overdue=1 filter use (status IN
+        // [ordered,in_progress], updated_at threshold) — NOT a hand-rolled
+        // reported_at check. A merely "reported" (not yet ordered) work
+        // order is open (counted in the open_work_orders tile) but is not
+        // "overdue" in this codebase's own vocabulary; using a different
+        // definition here than the list screen already uses is exactly the
+        // kind of drift this fix round exists to close.
         $this->applyPropertyIdScope(
-            RentalWorkOrder::query()
-                ->whereNotIn('status', [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED])
-                ->where('reported_at', '<=', now()->subDays($overdueDays))
-                ->with('property'),
+            RentalWorkOrder::query()->overdue($overdueDays)->with('property'),
             $user,
             $scope,
             'property_id'
@@ -526,11 +598,11 @@ class RentalCommandCentreService
             $items->push([
                 'type' => 'work_order_overdue',
                 'urgency' => 1,
-                'age_days' => $wo->reported_at ? $today->diffInDays($wo->reported_at) : 0,
+                'age_days' => $wo->updated_at ? (int) abs($today->diffInDays($wo->updated_at)) : 0,
                 'property' => $wo->property,
                 'lease' => null,
                 'label' => 'Open',
-                'detail' => 'Work order overdue',
+                'detail' => $wo->title,
                 'route' => 'corex.rental-work-orders.show',
                 'route_params' => ['rentalWorkOrder' => $wo->id],
             ]);
@@ -550,15 +622,15 @@ class RentalCommandCentreService
             $user,
             $scope,
             'property_id'
-        )->get()->each(function (Lease $lease) use (&$items, $today) {
+        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today) {
             $items->push([
                 'type' => 'start_inspection',
                 'urgency' => 3,
-                'age_days' => $lease->start_date ? $today->diffInDays($lease->start_date) : 0,
+                'age_days' => $lease->start_date ? (int) abs($today->diffInDays($lease->start_date)) : 0,
                 'property' => $lease->property,
                 'lease' => $lease,
                 'label' => 'Start inspection',
-                'detail' => 'No completed in-inspection on this tenancy',
+                'detail' => 'Tenant: ' . $lease->tenantNames(),
                 // RentalInspectionController::create() (cc1-owned, AT-439)
                 // does not read a property_id query param today — this is
                 // reported in this ticket's finish report, not fixed here

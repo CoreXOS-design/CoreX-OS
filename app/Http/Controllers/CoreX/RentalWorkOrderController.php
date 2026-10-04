@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalWorkOrder;
@@ -23,6 +24,8 @@ use Illuminate\View\View;
  */
 class RentalWorkOrderController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /**
      * Search: property address, tenant name, supplier name, title/description.
      * Sort: reported_at (default, most-recent-first), status, property.
@@ -31,6 +34,16 @@ class RentalWorkOrderController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
+
+        // AT-439 — own/branch/all "Showing:" control, same pattern as
+        // RentalApplicationController::index()/LeaseController::index().
+        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_work_orders');
+        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
 
         $sort = $request->get('sort', 'reported_at');
         $direction = $request->get('direction', 'desc');
@@ -143,6 +156,8 @@ class RentalWorkOrderController extends Controller
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
         ]);
     }
 
@@ -215,6 +230,8 @@ class RentalWorkOrderController extends Controller
 
     public function show(Request $request, RentalWorkOrder $rentalWorkOrder): View
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $rentalWorkOrder->load([
             'property', 'lease.tenants.contact', 'inspectionItem', 'supplier',
             'reportedByContact', 'reportedByUser', 'reportedFaultReport', 'cancelledByUser',
@@ -240,6 +257,8 @@ class RentalWorkOrderController extends Controller
      */
     public function pdf(RentalWorkOrder $rentalWorkOrder, RentalDocumentPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $pdf = $service->workOrderPdf($rentalWorkOrder);
 
         return request()->boolean('dl')
@@ -250,6 +269,8 @@ class RentalWorkOrderController extends Controller
     /** Editable only while status='reported' — the reportable facts, not the lifecycle. */
     public function update(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         abort_unless($rentalWorkOrder->status === RentalWorkOrder::STATUS_REPORTED, 409, 'This work order has moved on and can no longer be edited here.');
 
         $validated = $request->validate([
@@ -266,6 +287,8 @@ class RentalWorkOrderController extends Controller
 
     public function assignSupplier(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $validated = $request->validate([
             'agency_service_provider_id' => ['required', 'exists:agency_service_providers,id'],
             'trade_type' => ['nullable', 'string', 'max:60'],
@@ -288,6 +311,8 @@ class RentalWorkOrderController extends Controller
      */
     public function recordApproval(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $validated = $request->validate([
             'decision' => ['required', 'in:' . implode(',', [
                 \App\Models\RentalApproval::DECISION_APPROVED,
@@ -313,6 +338,8 @@ class RentalWorkOrderController extends Controller
 
     public function startProgress(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         try {
             $rentalWorkOrder->startProgress($request->user());
         } catch (\LogicException $e) {
@@ -324,6 +351,8 @@ class RentalWorkOrderController extends Controller
 
     public function complete(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $validated = $request->validate([
             'paid_by' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::PAID_BY_OWNER,
@@ -348,6 +377,8 @@ class RentalWorkOrderController extends Controller
 
     public function addNote(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $validated = $request->validate(['note' => ['required', 'string']]);
 
         $rentalWorkOrder->addNote($validated['note'], $request->user());
@@ -357,6 +388,8 @@ class RentalWorkOrderController extends Controller
 
     public function cancel(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $validated = $request->validate(['cancel_reason' => ['required', 'string', 'max:500']]);
 
         try {
@@ -370,6 +403,8 @@ class RentalWorkOrderController extends Controller
 
     public function destroy(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         if (!$rentalWorkOrder->isDeletable()) {
             return back()->withErrors(['rental_work_order' => 'This work order has evidence logged against it and cannot be deleted — cancel it instead.']);
         }
@@ -382,6 +417,8 @@ class RentalWorkOrderController extends Controller
     public function restore(Request $request, int $rentalWorkOrder): RedirectResponse
     {
         $workOrder = RentalWorkOrder::withTrashed()->findOrFail($rentalWorkOrder);
+        $this->guardRentalRecordScope($workOrder, 'rental_work_orders', $workOrder->property?->branch_id);
+
         $workOrder->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order restored.');
@@ -390,6 +427,8 @@ class RentalWorkOrderController extends Controller
     /** §3.4 — 'reported' and 'in_progress' photo types upload the same way; 'completed' feeds the completion gate. */
     public function storePhoto(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
         $validated = $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'photo_type' => ['required', 'in:' . implode(',', [
