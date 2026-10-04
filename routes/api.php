@@ -426,6 +426,19 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/leases/{lease}/tenancy-log', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyLog'])
             ->middleware('permission:leases.view')->name('v1.leases.tenancy-log');
 
+        // .ai/specs/rental-renewals.md §10 — JSON mirror of the Lease Hub's
+        // renewal/one-click-outcome web actions, for Andre's mobile app.
+        Route::middleware('permission:leases.renew')->prefix('leases/{lease}/renewal')->group(function () {
+            Route::post('/draft', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftCopyForward'])->name('v1.leases.renewal.draft');
+            Route::post('/draft-from-template', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftFromTemplate'])->name('v1.leases.renewal.draft-from-template');
+            Route::post('/upload', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'uploadRenewal'])->name('v1.leases.renewal.upload');
+            Route::post('/month-to-month', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'monthToMonth'])->name('v1.leases.renewal.month-to-month');
+            Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');
+            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
+            Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
+        });
+
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
         Route::get('/logged-user', function (Request $request) {
@@ -542,6 +555,17 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // property already has coords (used after street_number / street_name
         // edits to overwrite stale suburb-centroid pins).
         Route::post('/properties/{property}/geocode',        [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('v1.properties.geocode');
+
+        // .ai/specs/rental-work-orders.md §14 (AT-442 req #10) — the
+        // internal job-card mirror for Andre's app: read, tick a task,
+        // upload a photo. Same scoping as the web screen
+        // (RentalJobCard::scopeVisibleTo()), enforced in the controller.
+        Route::prefix('mobile/rental-job-cards')->group(function () {
+            Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->name('v1.mobile.rental-job-cards.show');
+            Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->name('v1.mobile.rental-job-cards.update');
+            Route::post('/{rentalJobCard}/tasks/{task}/tick', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'tickTask'])->name('v1.mobile.rental-job-cards.tasks.tick');
+            Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->name('v1.mobile.rental-job-cards.photos.store');
+        });
 
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {

@@ -90,6 +90,25 @@
             </div>
         </div>
 
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Tenant notice period</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days' notice a tenant is expected to give</label>
+                    <input type="number" name="tenant_notice_period_days" value="{{ old('tenant_notice_period_days', $tenantNoticePeriodDays) }}"
+                           min="1" max="365" required
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $tenantNoticePeriodDaysDefault }} days. A sensible South African
+                        convention, not a legal minimum CoreX enforces — change it to match your own
+                        lease wording at any time.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>

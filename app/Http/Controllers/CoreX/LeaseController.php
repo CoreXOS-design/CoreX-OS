@@ -363,12 +363,28 @@ class LeaseController extends Controller
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
+        // .ai/specs/rental-renewals.md §15 (GATE 2) row 7 — only an active
+        // term ever flipped the property to "leased out" in the first
+        // place (LeaseActivationService::flipPropertyToLeasedOut()); a
+        // draft cancelled before activation never touched the property, so
+        // there is nothing to restore.
+        $wasActive = $lease->status === Lease::STATUS_ACTIVE;
+
         $lease->update([
             'status' => Lease::STATUS_CANCELLED,
             'cancelled_at' => now(),
             'cancelled_by_user_id' => $request->user()->id,
             'cancel_reason' => $validated['cancel_reason'],
         ]);
+
+        if ($wasActive && \App\Models\LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($lease->agency_id)) {
+            app(\App\Services\Rentals\PropertyStatusFollowsLeaseService::class)->restorePreLetStatus(
+                $lease,
+                "Lease #{$lease->id} cancelled",
+                now()->toDateString(),
+                $request->user(),
+            );
+        }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease cancelled.');
     }

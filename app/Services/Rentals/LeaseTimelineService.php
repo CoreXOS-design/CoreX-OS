@@ -26,7 +26,7 @@ use Illuminate\Support\Collection;
  */
 class LeaseTimelineService
 {
-    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order'];
+    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice'];
 
     /**
      * @return array{entries: Collection, total: int}
@@ -75,7 +75,8 @@ class LeaseTimelineService
             ->merge($this->leaseEntries($lease))
             ->merge($this->inspectionEntries($lease))
             ->merge($this->faultEntries($lease))
-            ->merge($this->workOrderEntries($lease));
+            ->merge($this->workOrderEntries($lease))
+            ->merge($this->renewalEventEntries($lease));
 
         return $entries->sortByDesc('occurred_at')->values();
     }
@@ -210,6 +211,32 @@ class LeaseTimelineService
                 $workOrder->status,
                 'corex.rental-work-orders.show',
                 $workOrder->id,
+            );
+        })->all();
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §8 — renewal draft/activation and the
+     * one-click outcomes (month-to-month, notice given/reversed). Reads
+     * the append-only LeaseEvent log, NOT the lease's own live columns —
+     * a reversal clears notice_date/is_month_to_month but must not erase
+     * the fact that the event happened (unlike escalations/cancellation
+     * above, which are safe to derive live because nothing ever un-sets
+     * them).
+     */
+    private function renewalEventEntries(Lease $lease): array
+    {
+        $noticeTypes = [\App\Models\LeaseEvent::TYPE_NOTICE_RECORDED, \App\Models\LeaseEvent::TYPE_NOTICE_REVERSED];
+
+        return $lease->events->map(function (\App\Models\LeaseEvent $event) use ($noticeTypes, $lease) {
+            return $this->entry(
+                in_array($event->event_type, $noticeTypes, true) ? 'notice' : 'lease',
+                (string) $event->occurred_at,
+                $event->description,
+                $event->actorUser?->name,
+                $event->event_type,
+                'corex.leases.show',
+                $lease->id,
             );
         })->all();
     }

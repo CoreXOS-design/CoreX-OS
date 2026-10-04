@@ -2929,6 +2929,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
     Route::post('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'update'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.update');
+    // .ai/specs/rental-renewals.md §5(b)/§9 — GATE 1: which imported DocuPerfect
+    // templates an agency treats as its rental lease/renewal/addendum documents.
+    Route::prefix('rental-lease-templates')->middleware('permission:rental_lease_templates.manage_settings')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'index'])->name('corex.rental-lease-templates.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'create'])->name('corex.rental-lease-templates.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'store'])->name('corex.rental-lease-templates.store');
+        Route::get('/{rentalLeaseTemplate}/edit', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'edit'])->name('corex.rental-lease-templates.edit');
+        Route::put('/{rentalLeaseTemplate}', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'update'])->name('corex.rental-lease-templates.update');
+        Route::delete('/{rentalLeaseTemplate}', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'destroy'])->name('corex.rental-lease-templates.destroy');
+        Route::post('/{rentalLeaseTemplate}/restore', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'restore'])->name('corex.rental-lease-templates.restore');
+    });
     // .ai/specs/agency-onboarding-rentals-step.md §8 — fault-report and out-inspection
     // signing windows, agency-configurable, both default 7 days.
     Route::get('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'edit'])
@@ -2976,6 +2987,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.edit');
     Route::post('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'update'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.update');
+    // AT-442 — its own narrow saver, same one-concern-per-endpoint discipline
+    // as RentalInspectionSettingsController's auto-pair-photos/auto-send-report routes.
+    Route::post('/settings/rental-work-orders/capture-prices-on-job-cards', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateCapturePricesOnJobCards'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.capture-prices-on-job-cards');
+    // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
+    Route::post('/settings/rental-work-orders/show-prices-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowPricesOnPrintedJobCard'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-prices-on-printed-job-card');
     // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
     // the property Rental Details tab. Price type (Part 3) and lease type
     // (Part 4) lists join this same page as they're built.
@@ -3299,6 +3317,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
             ->middleware('permission:leases.renew')->name('corex.leases.escalate');
+
+        // .ai/specs/rental-renewals.md §9 — renewal + one-click outcome actions.
+        // All gated by the existing leases.renew key — no new permission needed.
+        Route::middleware('permission:leases.renew')->prefix('{lease}/renewal')->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'create'])->name('corex.leases.renewal.create');
+            Route::post('/draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'draftCopyForward'])->name('corex.leases.renewal.draft');
+            Route::post('/draft-from-template', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'draftFromTemplate'])->name('corex.leases.renewal.draft-from-template');
+            Route::post('/upload', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'uploadRenewal'])->name('corex.leases.renewal.upload');
+            Route::post('/month-to-month', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'monthToMonth'])->name('corex.leases.renewal.month-to-month');
+            Route::post('/month-to-month/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseMonthToMonth'])->name('corex.leases.renewal.month-to-month.reverse');
+            Route::post('/tenant-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'tenantNotice'])->name('corex.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->name('corex.leases.renewal.landlord-notice');
+            Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->name('corex.leases.renewal.notice.reverse');
+        });
+
         Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])
             ->middleware('permission:leases.create')->name('corex.leases.destroy');
         Route::post('/{lease}/restore', [\App\Http\Controllers\CoreX\LeaseController::class, 'restore'])
@@ -3658,6 +3691,87 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Private disk, gated — NOT the public-disk photo pattern. §3.4c.
         Route::get('/{rentalWorkOrder}/quotes/{quote}/download', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'download'])
             ->middleware('deny_assistant_download')->name('corex.rental-work-orders.quotes.download');
+    });
+
+    // AT-442 — the agency's own parts & labour catalogue. Settings-area
+    // screen, one key for the whole CRUD surface, same single-key shape
+    // as rental_fault_types.create.
+    Route::prefix('rental-catalogue-items')->middleware('permission:rental_catalogue.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'index'])->name('corex.rental-catalogue-items.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'create'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'store'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.store');
+        Route::get('/{rentalCatalogueItem}/edit', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'edit'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.edit');
+        Route::put('/{rentalCatalogueItem}', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'update'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.update');
+        Route::delete('/{rentalCatalogueItem}', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'archive'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.archive');
+        Route::post('/{rentalCatalogueItem}/restore', [\App\Http\Controllers\CoreX\RentalCatalogueItemController::class, 'restore'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.restore');
+    });
+
+    // .ai/specs/rental-work-orders.md §14 (AT-442) — internal job cards. A
+    // job card BUILDS its own work order (store()/raise-work-order above
+    // with assignment_type=internal) — this group is everything that
+    // happens to a job card once it exists.
+    Route::prefix('rental-job-cards')->middleware('permission:rental_job_cards.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'index'])->name('corex.rental-job-cards.index');
+        Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'printList'])->name('corex.rental-job-cards.print-list');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'create'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'store'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.store');
+        Route::get('/{rentalJobCard}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'show'])->name('corex.rental-job-cards.show');
+        Route::get('/{rentalJobCard}/print', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'print'])->name('corex.rental-job-cards.print');
+        Route::put('/{rentalJobCard}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'update'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.update');
+        Route::post('/{rentalJobCard}/assign-crew', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'assignCrew'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.assign-crew');
+        Route::post('/{rentalJobCard}/schedule', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'schedule'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.schedule');
+        Route::post('/{rentalJobCard}/start', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'start'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.start');
+
+        Route::post('/{rentalJobCard}/tasks', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'storeTask'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.store');
+        Route::post('/{rentalJobCard}/tasks/{task}/toggle', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'toggleTask'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.toggle');
+        Route::post('/{rentalJobCard}/tasks/reorder', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'reorderTasks'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.reorder');
+        Route::delete('/{rentalJobCard}/tasks/{task}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'destroyTask'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.destroy');
+        Route::post('/{rentalJobCard}/tasks/{task}/restore', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'restoreTask'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.restore');
+
+        Route::post('/{rentalJobCard}/lines', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'storeLine'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.lines.store');
+        Route::put('/{rentalJobCard}/lines/{line}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'updateLine'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.lines.update');
+        Route::delete('/{rentalJobCard}/lines/{line}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'destroyLine'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.lines.destroy');
+        Route::post('/{rentalJobCard}/lines/{line}/restore', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'restoreLine'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.lines.restore');
+
+        Route::post('/{rentalJobCard}/send-quote', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'sendQuote'])
+            ->middleware('permission:rental_job_cards.send_quote')->name('corex.rental-job-cards.send-quote');
+        Route::post('/{rentalJobCard}/worker-sign-off', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'workerSignOff'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.worker-sign-off');
+        Route::post('/{rentalJobCard}/agent-sign-off', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'agentSignOff'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.agent-sign-off');
+        Route::post('/{rentalJobCard}/tenant-confirm', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'tenantConfirm'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.tenant-confirm');
+        Route::post('/{rentalJobCard}/complete', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'complete'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.complete');
+        Route::post('/{rentalJobCard}/cancel', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'cancel'])
+            ->middleware('permission:rental_job_cards.cancel')->name('corex.rental-job-cards.cancel');
+        Route::delete('/{rentalJobCard}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'destroy'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.destroy');
+        Route::post('/{rentalJobCard}/restore', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'restore'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.restore');
+        Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'storePhoto'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.photos.store');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,

@@ -5570,6 +5570,28 @@ class SignatureService
                 ])->save();
 
                 try {
+                    // .ai/specs/rental-renewals.md §6/§14 (AT-444, item 6) — a
+                    // renewal draft (previous_lease_id already set, built by
+                    // RenewalDraftService::copyForward()/draftFromTemplate())
+                    // goes through LeaseRenewalService::activateRenewalTerm()
+                    // instead of calling LeaseActivationService::activate()
+                    // directly here — that method ALSO records the
+                    // escalation on the new term before activating, which a
+                    // bare activate() call never did. Reused, not duplicated:
+                    // activateRenewalTerm() itself calls activate() inside.
+                    // Falls back to the plain activate() path (unchanged
+                    // behaviour) when no acting user can be resolved — this
+                    // completion cascade runs with no authenticated session,
+                    // so the document's own owner stands in, same actor this
+                    // method's CheckLeaseExpiry sibling already uses.
+                    if ($draftLease->previous_lease_id) {
+                        $actingUser = User::find($document->owner_id);
+                        if ($actingUser) {
+                            return app(\App\Services\Rentals\LeaseRenewalService::class)
+                                ->activateRenewalTerm($draftLease, $actingUser);
+                        }
+                    }
+
                     return app(LeaseActivationService::class)->activate($draftLease);
                 } catch (ValidationException $e) {
                     Log::warning('createLeaseFromSignedDocument: draft lease linked to signed document but NOT activated — another lease is already active on this property', [

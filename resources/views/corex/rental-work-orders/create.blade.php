@@ -19,6 +19,15 @@
             </div>
         @endif
 
+        {{-- AT-442 req #1 — "who does the work" is the FIRST choice on every work order. --}}
+        <div>
+            <label class="text-xs font-medium">Who does the work?</label>
+            <div class="flex gap-4 mt-1 text-sm">
+                <label class="flex items-center gap-1"><input type="radio" name="assignment_type" value="outside_supplier" checked> Outside supplier</label>
+                <label class="flex items-center gap-1"><input type="radio" name="assignment_type" value="internal"> Our maintenance team</label>
+            </div>
+        </div>
+
         <div>
             <label class="text-xs font-medium">Property</label>
             @if($property)

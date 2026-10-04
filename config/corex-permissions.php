@@ -150,6 +150,11 @@ return [
         ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
         ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
 
+        // .ai/specs/rental-renewals.md §5(b), GATE 1 (approved 2026-10-04) —
+        // which imported DocuPerfect templates an agency treats as its
+        // rental lease/renewal/addendum documents.
+        ['key' => 'rental_lease_templates.manage_settings', 'label' => 'Manage Rental Lease Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 7],
+
         // ── Rental Inspections (rental-inspections.md) ──
         ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],
         ['key' => 'rental_inspections.create',             'label' => 'Record Inspections & Observations',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 2],
@@ -214,6 +219,25 @@ return [
         // reports are read-only, no separate create/edit/archive action exists on
         // this screen (same pattern as rental_command_centre.view).
         ['key' => 'rental_reports.view', 'label' => 'View Rental Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_reports', 'sort_order' => 1],
+
+        // ── Rental Parts & Labour Catalogue (rental-work-orders.md §14, AT-442) ──
+        ['key' => 'rental_catalogue.view',   'label' => 'View Rental Catalogue',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_catalogue', 'sort_order' => 1],
+        // One key for the whole CRUD surface — same single-key shape as
+        // rental_fault_types.create / deals_v2.manage_suppliers.
+        ['key' => 'rental_catalogue.manage', 'label' => 'Manage Rental Catalogue', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_catalogue', 'sort_order' => 2],
+
+        // ── Rental Job Cards (rental-work-orders.md §14, AT-442) — the internal
+        // counterpart to an outside-supplier work order. ──
+        ['key' => 'rental_job_cards.view',   'label' => 'View Rental Job Cards',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_job_cards', 'sort_order' => 1],
+        ['key' => 'rental_job_cards.create', 'label' => 'Log & Edit Job Cards',    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 2],
+        // Sending a quote to the owner moves money past the approval gate —
+        // same weight-of-decision reasoning as rental_work_orders.manage_quotes.
+        ['key' => 'rental_job_cards.send_quote', 'label' => 'Send Job Card Quotes to Owner', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 3],
+        // Worker/agent/tenant sign-off and completing the job card are the
+        // point evidence becomes final — same reasoning as
+        // rental_work_orders.complete/.record_approval.
+        ['key' => 'rental_job_cards.sign_off', 'label' => 'Sign Off & Complete Job Cards', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 4],
+        ['key' => 'rental_job_cards.cancel',     'label' => 'Cancel Job Cards',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 5],
 
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.

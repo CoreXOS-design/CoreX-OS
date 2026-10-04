@@ -4,6 +4,7 @@ namespace App\Services\Rentals;
 
 use App\Models\Lease;
 use App\Models\RentalFaultReport;
+use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
 use App\Services\Rentals\LeaseHubService;
 use App\Services\Rentals\LeaseTimelineService;
@@ -96,6 +97,57 @@ class RentalDocumentPdfService
     public function leaseTenancyReportFilename(Lease $lease): string
     {
         return $this->safeFilename('Tenancy Report - ' . $this->addressOrFallback($lease->property, 'Lease ' . $lease->id));
+    }
+
+    /** AT-442 req #5 — the quote PDF generated from a job card and sent to the owner. */
+    public function jobCardQuotePdf(RentalJobCard $jobCard)
+    {
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'lines', 'workOrder.agency', 'workOrder.branch']);
+        $workOrder = $jobCard->workOrder;
+
+        $pdf = Pdf::loadView('corex.rental-job-cards.quote-pdf', [
+            'jobCard' => $jobCard,
+            'pricesOn' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
+            'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
+            'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    /** Req #6 — the printable job card: address, access notes, tenant contact, tasks, lines, sign-off lines. */
+    public function jobCardPrintPdf(RentalJobCard $jobCard)
+    {
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks', 'lines', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
+        $workOrder = $jobCard->workOrder;
+
+        // AT-442 follow-up, conductor's ruling — the worker's printed copy
+        // needs BOTH settings on to show a price: prices must be captured
+        // at all (capture_prices_on_job_cards), AND the agency has chosen
+        // to show them on this specific, worker-facing document
+        // (show_prices_on_printed_job_card, default off). The owner quote
+        // PDF (jobCardQuotePdf() above) is a different document for a
+        // different audience and is never gated by the second setting.
+        $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id)
+            && \App\Models\RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($jobCard->agency_id);
+
+        $pdf = Pdf::loadView('corex.rental-job-cards.print', [
+            'jobCard' => $jobCard,
+            'pricesOn' => $pricesOn,
+            'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
+            'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function jobCardFilename(RentalJobCard $jobCard): string
+    {
+        return $this->safeFilename('Job Card - ' . $this->addressOrFallback($jobCard->property, 'Job Card ' . $jobCard->id));
     }
 
     /** Same dompdf options as PropertyBrochureService::pdf() — one convention, not two. */

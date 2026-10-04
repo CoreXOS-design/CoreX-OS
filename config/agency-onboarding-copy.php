@@ -384,6 +384,17 @@ return [
             // saver validates and writes ONLY no_approval_spend_threshold —
             // never merged into either saver above.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
+            // AT-442 — own narrow saver, same has()-guarded checkbox
+            // discipline as RentalInspectionSettingsController's own
+            // auto_pair_photos_enabled/auto_send_report_enabled toggles —
+            // never folded into update() above (that saver's own
+            // required-numeric validation would reject a request that
+            // omits the threshold).
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateCapturePricesOnJobCards'],
+            // Conductor's ruling, AT-442 follow-up — own narrow saver, same
+            // discipline as the one directly above; the worker's printed
+            // copy and the owner's quote PDF are not the same audience.
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowPricesOnPrintedJobCard'],
             // Shipped-field tick grid (rentals-field-config.blade.php partial) —
             // narrow, has()/submitted-marker-guarded savers, same independence
             // pattern as every other saver on this step.
@@ -408,6 +419,12 @@ return [
              'label' => 'Warn me this many days before a lease expires',
              'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
              'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
+            // .ai/specs/rental-renewals.md §2 — AT-444. Same saver (LeaseSettingsController::update,
+            // already registered above) — one more has()-guarded field on the same step.
+            ['key' => 'tenant_notice_period_days', 'source' => 'leases', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days\' notice a tenant is expected to give',
+             'explain' => 'A sensible South African convention for how much notice a tenant gives before moving out — not a legal minimum CoreX enforces.',
+             'affects' => 'The notice-window figure shown on the Lease Hub and used when recording a tenant\'s notice to vacate. 30 days suits most agencies — change it to match your own lease wording.'],
             ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'label' => 'Days a tenant has to report a fault after moving in',
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
@@ -445,9 +462,20 @@ return [
              'explain' => 'The moment an inventory completes (every required party has signed or been dispositioned), CoreX emails the signed report to the seller/landlord (and tenant(s), when the inventory has a lease) from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inventory and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
-             'label' => 'No-approval spend threshold (R)',
+             'label' => 'No-approval spend limit (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
              'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+            // AT-442 — whether prices are used at all on internal job cards.
+            ['key' => 'capture_prices_on_job_cards', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Capture prices on job cards',
+             'explain' => 'When your own maintenance team works a job (not an outside supplier), their job card can record a unit price and total for each part/labour line, or just the quantities with no money attached.',
+             'affects' => 'Whether price and total columns appear anywhere on an internal job card. On by default — turn it off if you\'d rather job cards stayed a pure work record with no pricing.'],
+            // Conductor's ruling, AT-442 follow-up — the worker's printed
+            // copy and the owner's quote PDF are not the same audience.
+            ['key' => 'show_prices_on_printed_job_card', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show prices on the printed job card',
+             'explain' => 'The job card your maintenance worker takes on site can print with or without prices showing next to the parts and labour lines.',
+             'affects' => 'Whether the printed copy a worker carries shows prices, or just tasks, parts and quantities. Off by default — the quote you send the owner always shows prices either way, this only affects the worker\'s own printed copy.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()

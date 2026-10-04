@@ -26,6 +26,11 @@ class Lease extends Model
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_CANCELLED = 'cancelled';
 
+    // rental-renewals.md §7 — who gave notice. Free-form string, not an enum
+    // class of its own — matches the 'source' column's own convention.
+    public const NOTICE_BY_TENANT = 'tenant';
+    public const NOTICE_BY_LANDLORD = 'landlord';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -48,6 +53,12 @@ class Lease extends Model
         'cancel_reason',
         'migrated_from_table',
         'migrated_from_id',
+        'notice_date',
+        'notice_given_by',
+        'notice_note',
+        'move_out_date',
+        'notice_readvertised',
+        'renewal_draft_flow_id',
     ];
 
     protected $casts = [
@@ -57,6 +68,9 @@ class Lease extends Model
         'end_date' => 'date',
         'is_month_to_month' => 'boolean',
         'cancelled_at' => 'datetime',
+        'notice_date' => 'date',
+        'move_out_date' => 'date',
+        'notice_readvertised' => 'boolean',
     ];
 
     public function property(): BelongsTo
@@ -125,6 +139,55 @@ class Lease extends Model
     }
 
     /**
+     * rental-renewals.md §8 — append-only renewal/outcome event log, newest
+     * last. Secondary `id` sort breaks ties when two events land in the
+     * same second (occurred_at alone is not a reliable tiebreak — MySQL
+     * does not guarantee insertion order for equal ORDER BY keys).
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(LeaseEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /**
+     * rental-renewals.md §7 — true once notice (by either party) has been
+     * recorded and not since reversed. Used by the Lease Hub next-step
+     * card and by the one-click outcome buttons' own state (no point
+     * offering "Tenant gave notice" again once notice is already on file).
+     */
+    public function hasActiveNotice(): bool
+    {
+        return $this->notice_date !== null;
+    }
+
+    /**
+     * AT-439 §G — derived, never duplicated onto this model. Resolution per
+     * cc1's 2026-10-04 QA1-outage fix (96b4f3ca0): this is the ONLY
+     * definition of this method — do not re-add a fallback to
+     * Property::sellerOwnerContact() here. NOTE: three callers
+     * (LeaseController::show()'s Lease Terms card,
+     * RentalDocumentPdfService::leaseTenancyReportPdf(), and the shared
+     * rental-context-bar component) previously relied on a fallback here
+     * to sellerOwnerContact() when no landlord/lessor pivot role was
+     * tagged — that fallback is gone with this method and none of the
+     * three call sites have their own replacement yet, so a property
+     * whose owner is linked only as seller/owner will show "no landlord"
+     * on those three screens. Flagged to the conductor 2026-10-04; not
+     * fixed here — out of this branch's scope and cc1's resolution to own.
+     */
+    public function landlordContacts(): \Illuminate\Support\Collection
+    {
+        if (!$this->property) {
+            return collect();
+        }
+
+        return $this->property->contactsForRole('landlord')
+            ->merge($this->property->contactsForRole('lessor'))
+            ->unique('id')
+            ->values();
+    }
+
+    /**
      * Whether this lease can still be soft-deleted through the ordinary CRUD
      * path (leases.md §2 — deletable only while nothing has attached yet).
      * A lease with any escalation history has evidence on it and may only
@@ -140,29 +203,6 @@ class Lease extends Model
         $names = $this->tenants->map(fn (LeaseTenant $t) => $t->contact?->full_name)->filter();
 
         return $names->isEmpty() ? 'No tenant linked' : $names->implode(', ');
-    }
-
-    /**
-     * AT-439 §G — derived, never duplicated onto this model (see the class
-     * docblock above: "owner already known via the existing owner/landlord
-     * contact link"). N-party: returns EVERY landlord-side contact linked
-     * to the property, never collapses to a single guess — a joint-owned
-     * rental can have more than one. Expressed through the property's own
-     * canonical contact-role keys ('landlord'/'lessor' —
-     * Property::pivotRolesForContactRole()'s vocabulary, the same keys the
-     * e-sign wizard's role picker already uses) rather than re-hardcoding
-     * the underlying contact_property.role strings here a second time.
-     */
-    public function landlordContacts(): \Illuminate\Support\Collection
-    {
-        if (!$this->property) {
-            return collect();
-        }
-
-        return $this->property->contactsForRole('landlord')
-            ->merge($this->property->contactsForRole('lessor'))
-            ->unique('id')
-            ->values();
     }
 
     /**

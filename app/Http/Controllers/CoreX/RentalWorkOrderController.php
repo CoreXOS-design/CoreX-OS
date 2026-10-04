@@ -173,13 +173,26 @@ class RentalWorkOrderController extends Controller
         ]);
     }
 
-    /** A work order raised DIRECTLY — not from a fault report. See RentalFaultReportController::raiseWorkOrder(). */
+    /**
+     * A work order raised DIRECTLY — not from a fault report. See
+     * RentalFaultReportController::raiseWorkOrder().
+     *
+     * AT-442 req #1 — "who does the work" is the FIRST choice. When
+     * assignment_type='internal', this creates the work order AND its
+     * linked job card together (RentalJobCardService::createForProperty())
+     * rather than a bare work order — the two are built together, never a
+     * work order that later needs a job card bolted on.
+     */
     public function store(Request $request, RentalWorkOrderService $service): RedirectResponse
     {
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
             'lease_id' => ['nullable', 'exists:leases,id'],
             'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            'assignment_type' => ['nullable', 'in:' . implode(',', [
+                RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+                RentalWorkOrder::ASSIGNMENT_INTERNAL,
+            ])],
             'reported_by_type' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::REPORTED_BY_TENANT,
                 RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
@@ -197,8 +210,14 @@ class RentalWorkOrderController extends Controller
         $property = Property::findOrFail($validated['property_id']);
         $user = $request->user();
 
+        if (($validated['assignment_type'] ?? RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            $jobCard = app(\App\Services\Rentals\RentalJobCardService::class)->createForProperty($property, $validated, $user);
+
+            return redirect()->route('corex.rental-job-cards.show', $jobCard)->with('success', 'Work order logged — job card created.');
+        }
+
         $attributes = $validated;
-        unset($attributes['property_id']);
+        unset($attributes['property_id'], $attributes['assignment_type']);
         $attributes['created_by_user_id'] = $user->id;
         if ($validated['reported_by_type'] === RentalWorkOrder::REPORTED_BY_AGENT_NOTICED) {
             $attributes['reported_by_user_id'] = $user->id;
