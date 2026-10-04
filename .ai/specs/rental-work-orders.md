@@ -1916,3 +1916,52 @@ data that's gone stale by the time it arrives — here, most concretely, a work 
 reported against a lease that's since ended) apply identically and are not re-argued in full here; the
 server-side answer is the same: never discard real evidence because something moved on, tell the app
 plainly what changed.
+
+---
+
+## AT-439 (Rentals rebuild 1/7, "Foundation") — Own/Branch/All scope, Fault Reports + Work Orders, 2026-10-04
+
+Built strictly from `/tmp/rentals-stage1-investigation.md` item C. `RentalFaultReportController::
+index()` and `RentalWorkOrderController::index()` already called `->visibleTo($user, $request->get
+('scope'))` (own/branch/all query-layer scoping existed on both); neither had a UI control to let a
+user with a wider ceiling choose a narrower/wider view, and — more seriously — neither `show()`/
+`pdf()` (nor any other non-index action taking the bound record) independently re-checked that
+scope, so a user whose list was scoped to `own`/`branch` could still open or mutate ANY fault
+report/work order in the agency by direct URL/ID. (The `pdf()` docblock on both controllers had
+already, honestly, documented this as "same query-layer scoping as show() above" — a known, not
+hidden, gap.)
+
+**Fixed as a class** (see `leases.md` §12 for the full rationale — this is the same fix, same new
+trait, applied here too): `App\Http\Controllers\Concerns\AuthorizesRentalRecordScope::
+guardRentalRecordScope()` is now called at the top of every non-index action on both controllers
+that receives a bound record —
+
+- `RentalFaultReportController`: `show`, `pdf`, `update`, `requestApproval`, `recordApproval`,
+  `setOutcome`, `raiseWorkOrder`, `cancel`, `destroy`, `restore`, `storePhoto` (11 routes).
+- `RentalWorkOrderController`: `show`, `pdf`, `update`, `assignSupplier`, `recordApproval`,
+  `startProgress`, `complete`, `addNote`, `cancel`, `destroy`, `restore`, `storePhoto` (12 routes).
+
+For both models the guard's "branch" check resolves via the record's PROPERTY's `branch_id`
+(`$record->property?->branch_id`) — matching exactly what `RentalFaultReport::scopeVisibleTo()`/
+`RentalWorkOrder::scopeVisibleTo()` already check (`whereHas('property', ...)`), NOT either model's
+own `branch_id` column. **Note for a future pass, reported not fixed here (out of scope for AT-439
+Part 1):** both `rental_fault_reports` and `rental_work_orders` carry their OWN `branch_id` column,
+which their own `scopeVisibleTo()` never reads — an existing inconsistency, not something this build
+introduced or corrected.
+
+The out-of-scope sibling controllers that also receive these same bound records — `RentalWorkOrderQuoteController`
+(quotes CRUD/select/download), `RentalInspectionRecordingController`/`RentalInspectionComparisonController`/
+`RentalInspectionScanController`/`RentalInspectionPhotoNoteController` (see `rental-inspections.md`'s
+own AT-439 addendum) — were NOT touched; they carry the identical gap and are reported, not fixed,
+per this build's explicit scope lock.
+
+**UI**: the same "Showing: Own | Branch | All" pill control `rental-applications`/`leases` already
+use now renders on `corex/rental-fault-reports/index.blade.php` and
+`corex/rental-work-orders/index.blade.php`.
+
+### Files changed (AT-439)
+
+- `app/Http/Controllers/CoreX/RentalFaultReportController.php` — scope control + 11 guarded routes
+- `resources/views/corex/rental-fault-reports/index.blade.php` — "Showing:" control
+- `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — scope control + 12 guarded routes
+- `resources/views/corex/rental-work-orders/index.blade.php` — "Showing:" control

@@ -6679,3 +6679,65 @@ unrelated system behaviour, not a bug in this build. Fixed by having the fixture
 the Ceiling item genuinely unpaired on first view) get a clean starting state; check #26 (the explicit
 Auto-pair button) is unaffected either way, per that setting's own docblock ("always runs on request
 regardless of this setting").
+
+---
+
+## AT-439 (Rentals rebuild 1/7, "Foundation") — Own/Branch/All scope, 2026-10-04
+
+Built strictly from `/tmp/rentals-stage1-investigation.md` item C. Same finding and same fix as
+`leases.md` §12 and `rental-work-orders.md`'s own AT-439 addendum (one shared trait, BUILD_STANDARD
+§6 — "fix the class, not the instance"): `RentalInspectionController::index()` already called
+`->visibleTo($user, $request->get('scope'))`, with no UI control and no per-record guard on any
+other action. Fixed:
+
+- **UI**: the "Showing: Own | Branch | All" pill control now renders on
+  `corex/rental-inspections/index.blade.php`.
+- **Per-record guard**: `App\Http\Controllers\Concerns\AuthorizesRentalRecordScope::
+  guardRentalRecordScope()` now runs at the top of every `RentalInspectionController` action that
+  receives a bound `$rentalInspection` — `show`, `form`, `report`, `printForSignature`, `next`,
+  `generatePublicLink`, `revokePublicLink`, `cancel`, `destroy`, `restore` (10 routes). "Branch"
+  resolves via `$rentalInspection->property?->branch_id`, matching `RentalInspection::
+  scopeVisibleTo()`'s own `whereHas('property', ...)` check exactly.
+
+**Follow-on, same day: the four sibling controllers, brought into scope.** Originally reported
+rather than fixed (they receive a bound `RentalInspection`, or a record reached through one, with
+the identical gap), then explicitly pulled into AT-439 Part 1 as the same bug class. Same trait,
+same `property?->branch_id` branch resolution, applied to every non-public action:
+
+- **`RentalInspectionRecordingController`** (tab recording) — 20 routes: `next`, `updateDetails`,
+  `storeObservation`, `markRoomNa`, `markRoomGood`, `markAllGood`, `storeRoomNote`,
+  `updateOverallNotes`, `storePhoto`, `storePhotos`, `tagPhoto`, `tagPhotosBulk`, `untagPhoto`,
+  `archivePhoto`, `resolveDiscrepancy`, `storeSignature`, `supersedeWetInkSignature`,
+  `startAwaitingSignature`, `complete`, `resendReport`.
+- **`RentalInspectionComparisonController`** (deposit comparison) — 2 routes: `show`,
+  `recordFinding`.
+- **`RentalInspectionScanController`** (OMR scan review/download) — 5 routes: `store`, `review`,
+  `apply`, `download`, `destroy`.
+- **`RentalInspectionPhotoNoteController`** — 4 routes: `store`, `update`, `archive`, `restore`.
+
+**Deliberately left unguarded, and why**: this controller's own Property-scoped-only actions
+(`tabData`, `updateScreenPreference`, `start`, `storeItem`, `assignType`, `retireItem`,
+`restoreItem`, `renameItem`, `reorderItems`, `applyDefaultRoomOrder`, `reorderRooms`,
+`seedFromAdvertising`, `storePhotoMatch`, `destroyPhotoMatch`, `autoPairPhotoMatches`) never
+receive a bound `RentalInspection` — they take a `Property` — so they are a different concern,
+outside this specific trait's remit, and were left as-is. More importantly:
+**`App\Http\Controllers\RentalInspectionPublicController::show()` — the tenant/landlord-facing
+public inspection report link — was NOT touched and must never be.** It is a top-level (not
+`CoreX`) controller reached by someone with no CoreX session at all, looked up purely by an
+expiring public token (`RentalInspection::findByPublicToken()`, `withoutGlobalScopes()`, no
+route-model-binding at all) — `auth()->user()` is null for every request this controller serves,
+so running it through `guardRentalRecordScope()` would 403 every legitimate public viewer, not
+just an attacker. Confirmed this is the ONLY public-facing inspection route: there is no separate
+public signing-capture endpoint in this codebase — every signature/disposition
+(`storeSignature()`/`supersedeWetInkSignature()`) is captured by an AUTHENTICATED agent asserting
+it on a party's behalf (per those methods' own docblocks), never submitted directly by the tenant/
+landlord through a public link.
+
+### Files changed (AT-439)
+
+- `app/Http/Controllers/CoreX/RentalInspectionController.php` — scope control + 10 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — 20 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionComparisonController.php` — 2 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionScanController.php` — 5 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionPhotoNoteController.php` — 4 guarded routes
+- `resources/views/corex/rental-inspections/index.blade.php` — "Showing:" control

@@ -941,4 +941,38 @@ The second half is required, not optional: `esign_role='lessor'` contacts are un
 - `app/Http/Controllers/CoreX/ContactController.php` — `$isRentalEntry` detection + session lens flag, lock applied post-query-string, `$typeFilterOptions` (dropdown narrowed on this entry point), conditional `properties` eager-load
 - `app/Http/Controllers/CoreX/ContactExportController.php` — `?rental=1` lock in `buildQuery()`
 - `resources/views/corex/contacts/index.blade.php` — lens-aware title/subtitle, narrowed type dropdown, rental-role badges per row, `?rental=1` on the export links, lens-aware empty state
+
+---
+
+## AT-439 (Rentals rebuild 1/7, "Foundation") — Rentals panel auto-open fix, 2026-10-04
+
+Built strictly from `/tmp/rentals-stage1-investigation.md` item A. On `/corex/leases`,
+`/corex/rental-inspections`, `/corex/rental-fault-types`, `/corex/rental-fault-reports`, and
+`/corex/rental-work-orders` (list AND detail pages), the Rentals nav panel never auto-opened and its
+toggle never got the `active` class — the `$activeGroup` resolver in `corex-sidebar.blade.php`
+(lines 111-301, one shared `if/elseif` chain matching `request()->routeIs(...)` patterns) had these
+five route-name families simply absent from the `rental-applications` group's own matcher, even
+though all five have their own live nav links inside that exact same panel (the AT-401 comment
+already documents this exact defect class for an earlier batch of entry points — this batch was
+never added to that fix). The investigation could NOT reproduce the originally-reported symptom of
+"Deal Register Settings renders instead" — no pattern anywhere in the file, including the
+`deal-register-settings` branch, matches any of these five route families; with `$activeGroup`
+resolving to `null`, every panel (Deal Register Settings included) renders collapsed, not open. That
+narrower, demonstrated defect — the Rentals panel never auto-opening on these five screens — is what
+was fixed.
+
+**Fix**: added `corex.leases.*`, `corex.rental-inspections.*`, `corex.rental-fault-types.*`,
+`corex.rental-fault-reports.*`, `corex.rental-work-orders.*` to the `rental-applications` group's
+`routeIs(...)` matcher (the same list `corex.rental-applications.*` and
+`corex.rentals.properties.index` etc. already live in). Confirmed none of the five new patterns
+collides with any pattern in an earlier `elseif` branch (the chain short-circuits top-to-bottom, so
+only the FIRST matching branch ever wins) — a purely additive, low-risk change confined to this one
+file. The legacy "Rentals" group (lines ~2879-2909, Alpine key `rentals`, nested under System
+Developer → Hidden — the subject of this spec's own standing "KNOWN, DELIBERATE, PENDING
+RECONCILIATION, do NOT fold together on your own initiative" note) was NOT touched.
+
+### Files changed (AT-439)
+
+- `resources/views/layouts/corex-sidebar.blade.php` — five route patterns added to the
+  `rental-applications` group's `$activeGroup` matcher
 - `resources/views/layouts/corex-sidebar.blade.php` — new Contacts subitem inside Rentals, top-level Rentals group active-check extended, main Contacts nav item's mutual-exclusion extended

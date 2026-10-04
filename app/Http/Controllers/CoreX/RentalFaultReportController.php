@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
@@ -25,6 +26,8 @@ use Illuminate\View\View;
  */
 class RentalFaultReportController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /**
      * Search: property address, title/description. Sort: reported_at
      * (default, most-recent-first), property, status. Filter: status,
@@ -35,6 +38,16 @@ class RentalFaultReportController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
+
+        // AT-439 — own/branch/all "Showing:" control, same pattern as
+        // RentalApplicationController::index()/LeaseController::index().
+        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_fault_reports');
+        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
 
         $sort = $request->get('sort', 'reported_at');
         $direction = $request->get('direction', 'desc');
@@ -146,6 +159,8 @@ class RentalFaultReportController extends Controller
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
         ]);
     }
 
@@ -225,6 +240,8 @@ class RentalFaultReportController extends Controller
 
     public function show(Request $request, RentalFaultReport $rentalFaultReport): View
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $rentalFaultReport->load([
             'property', 'lease.tenants.contact', 'inspectionItem', 'faultType',
             // 'workOrder' — added in Stage 4 once App\Models\RentalWorkOrder
@@ -242,6 +259,8 @@ class RentalFaultReportController extends Controller
      */
     public function pdf(RentalFaultReport $rentalFaultReport, RentalDocumentPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $pdf = $service->faultReportPdf($rentalFaultReport);
 
         return request()->boolean('dl')
@@ -257,6 +276,8 @@ class RentalFaultReportController extends Controller
      */
     public function update(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         abort_unless($rentalFaultReport->status === RentalFaultReport::STATUS_REPORTED, 409, 'This fault report has moved on and can no longer be edited here.');
 
         $validated = $request->validate([
@@ -276,6 +297,8 @@ class RentalFaultReportController extends Controller
      */
     public function requestApproval(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         try {
             $rentalFaultReport->requestApproval($request->user());
         } catch (\LogicException $e) {
@@ -293,6 +316,8 @@ class RentalFaultReportController extends Controller
      */
     public function recordApproval(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $validated = $request->validate([
             'decision' => ['required', 'in:' . implode(',', [
                 \App\Models\RentalApproval::DECISION_APPROVED,
@@ -337,6 +362,8 @@ class RentalFaultReportController extends Controller
      */
     public function setOutcome(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $validated = $request->validate([
             'outcome' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::OUTCOME_REPAIRED,
@@ -372,6 +399,8 @@ class RentalFaultReportController extends Controller
      */
     public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $validated = $request->validate([
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
@@ -389,6 +418,8 @@ class RentalFaultReportController extends Controller
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
@@ -400,6 +431,8 @@ class RentalFaultReportController extends Controller
 
     public function destroy(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         if (!$rentalFaultReport->isDeletable()) {
             return back()->withErrors(['rental_fault_report' => 'This fault report has photos or a linked work order and cannot be deleted — cancel it instead.']);
         }
@@ -412,6 +445,8 @@ class RentalFaultReportController extends Controller
     public function restore(Request $request, int $rentalFaultReport): RedirectResponse
     {
         $faultReport = RentalFaultReport::withTrashed()->findOrFail($rentalFaultReport);
+        $this->guardRentalRecordScope($faultReport, 'rental_fault_reports', $faultReport->property?->branch_id);
+
         $faultReport->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-fault-reports.show', $faultReport)->with('success', 'Fault report restored.');
@@ -423,6 +458,8 @@ class RentalFaultReportController extends Controller
      */
     public function storePhoto(Request $request, RentalFaultReport $rentalFaultReport): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'client_idempotency_key' => 'nullable|uuid',
