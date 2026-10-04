@@ -3253,6 +3253,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
     });
 
+    // .ai/specs/rental-command-centre.md — AT-441. Read-only cross-entity
+    // dashboard; every action button navigates into the owning screen's own
+    // permission-gated route (leases/*, rental-fault-reports/*, rental-work-
+    // orders/*, rental-inspections/*) — no write routes live here.
+    Route::prefix('rentals/command-centre')->middleware('permission:rental_command_centre.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'index'])->name('corex.rentals.command-centre.index');
+        Route::get('/print', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'print'])->name('corex.rentals.command-centre.print');
+    });
+
     // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
     // is not linked to a property, a tenant is linked to a LEASE, and the
     // lease is linked to the property."
