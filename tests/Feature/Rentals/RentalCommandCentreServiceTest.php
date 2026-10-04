@@ -13,6 +13,7 @@ use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalInspection;
 use App\Models\RentalWorkOrder;
+use App\Models\RentalCommandCentreUserPreference;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\Rentals\RentalCommandCentreService;
@@ -545,6 +546,108 @@ final class RentalCommandCentreServiceTest extends TestCase
         $results = $this->service->tableQuery($agent, 'all', ['q' => 'Landlordtestsurname'])->get();
         self::assertCount(1, $results);
         self::assertSame($property->id, $results->first()->id);
+    }
+
+    /**
+     * Layout fix round 2 — the "Open" column merges the two separate
+     * open_faults/open_work_orders sort keys into one 'open_total' key
+     * (sorted by the combined count) since the table now shows one
+     * compact "2 F · 2 WO" column instead of two separate ones.
+     */
+    public function test_open_total_sort_orders_by_combined_faults_and_work_orders(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $low = $this->makeRentalProperty($agency, $branch, $agent);
+        $high = $this->makeRentalProperty($agency, $branch, $agent);
+
+        // low: 1 open fault, 0 work orders = 1 total.
+        $this->makeFaultReport($agency, $branch, $low, RentalFaultReport::STATUS_REPORTED);
+        // high: 1 open fault + 2 open work orders = 3 total.
+        $this->makeFaultReport($agency, $branch, $high, RentalFaultReport::STATUS_REPORTED);
+        $this->makeWorkOrder($agency, $branch, $high, RentalWorkOrder::STATUS_REPORTED, now());
+        $this->makeWorkOrder($agency, $branch, $high, RentalWorkOrder::STATUS_ORDERED, now());
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $query = $this->service->tableQuery($agent, 'all', []);
+        $this->service->applySort($query, 'open_total', 'desc');
+        $ids = $query->get()->pluck('id')->values()->all();
+
+        self::assertSame([$high->id, $low->id], $ids);
+    }
+
+    /**
+     * The row column feeding the merged "Open" column's link targets
+     * (corex.rental-fault-reports.index / .rental-work-orders.index, both
+     * filtered by property_id) must count the exact same "open" set the
+     * tiles use — otherwise the table cell and the list it links to would
+     * disagree on what's open.
+     */
+    public function test_open_column_row_values_match_the_shared_open_definition(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_RESOLVED);
+        $this->makeWorkOrder($agency, $branch, $property, RentalWorkOrder::STATUS_ORDERED, now());
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $row = $this->service->tableQuery($agent, 'all', [])->where('id', $property->id)
+            ->first(['id', 'open_faults_count', 'open_work_orders_count']);
+
+        self::assertSame(1, (int) $row->open_faults_count);
+        self::assertSame(1, (int) $row->open_work_orders_count);
+
+        $directFaults = RentalFaultReport::where('property_id', $property->id)
+            ->whereNotIn('status', RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED)->count();
+        $directWO = RentalWorkOrder::where('property_id', $property->id)
+            ->whereNotIn('status', RentalCommandCentreService::WORK_ORDER_OPEN_STATUSES_EXCLUDED)->count();
+        self::assertSame($directFaults, (int) $row->open_faults_count);
+        self::assertSame($directWO, (int) $row->open_work_orders_count);
+    }
+
+    /**
+     * Conductor browser-verification fix round 2 — a lease whose property
+     * has since been archived (soft-deleted) must still appear in the
+     * queue, labelled "Unknown property", with its action button still
+     * opening the LEASE so the agent can fix the record — never silently
+     * dropped from the queue.
+     */
+    public function test_queue_row_with_no_linked_property_still_shows_and_links_to_the_lease(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $lease = $this->makeActiveLease($agency, $branch, $property, ['end_date' => now()->addDays(5)->toDateString()]);
+
+        $property->delete(); // soft delete — Lease::property() then resolves to null.
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $item = $this->service->queueItems($agent, 'all')->first(fn ($i) => $i['type'] === 'review_renewal' && $i['lease']->id === $lease->id);
+
+        self::assertNotNull($item, 'the row must not be silently dropped when its property is gone');
+        self::assertNull($item['property']);
+        self::assertSame('corex.leases.show', $item['route']);
+        self::assertSame($lease->id, $item['route_params']['lease']);
+    }
+
+    public function test_rental_command_centre_user_preference_persists_queue_collapsed_state(): void
+    {
+        [, , $agent] = $this->makeAgencyBranchAgent();
+
+        self::assertFalse(RentalCommandCentreUserPreference::stateFor($agent->id)['queue_collapsed']);
+
+        RentalCommandCentreUserPreference::setFor($agent->id, 'queue_collapsed', true);
+
+        self::assertTrue(RentalCommandCentreUserPreference::stateFor($agent->id)['queue_collapsed']);
+
+        // A second user's preference is independent.
+        $otherAgent = User::factory()->create(['role' => 'agent']);
+        self::assertFalse(RentalCommandCentreUserPreference::stateFor($otherAgent->id)['queue_collapsed']);
     }
 
     // ───────────────────────────── fixtures ─────────────────────────────
