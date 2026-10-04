@@ -924,10 +924,13 @@ append-only `lease_events` table (not on the lease row itself, so a reversal nev
 event happened — see `rental-renewals.md` §14 for the full reasoning).
 
 **§12.5.3's property-status side effects (the "Advertise? Yes" column, the re-advertise-with-
-availability-date behaviour) are explicitly NOT built by this** — writing `notice_date` does not touch
-`properties.status` in any way. That remains item 7 of AT-444's own task brief, under its own WAIT
-gate — see `rental-renewals.md` §14 for the full transition table and the portal-syndication findings,
-pending Johan's go-ahead.
+availability-date behaviour) are now built too**, under GATE 2 (approved by the conductor 2026-10-04,
+same day) — see `rental-renewals.md` §15 for the full transition table, the three agency settings, and
+the portal-syndication findings. Johan's one change to the original design: no new property status is
+introduced; the existing status mechanism is driven directly (`Property::isAllowedStatus()` /
+`isOnMarket()`), with the agency's configured on-market status for row 2 and the property's own
+captured pre-let status (falling back to that same setting) for rows 6/7 — two genuinely different
+rules, not one shared expression.
 
 `LeaseHubService::nextStep()`'s "Review renewal"/"Record outcome" now link to the real renewal screen
 (`corex.leases.renewal.create`) instead of AT-440's own lease-edit placeholder, and are suppressed once
@@ -967,8 +970,18 @@ previously queried `Docuperfect\LeaseRecord` (2 test-artifact rows) — the real
 hang off) got no automated expiry alert at all. Fixed: the command now queries `Lease` directly
 (`withoutGlobalScopes()`, explicit — console commands run with no authenticated user so `AgencyScope`
 is already a no-op here, same as `LeaseSetting`'s own existing convention, but made explicit rather
-than relied-on). A lease flips `active` → `expired` the moment its `end_date` passes (no intermediate
-"expiring soon" status exists on `Lease`, and none is invented here). The agency's own
+than relied-on). **Expiry is never automatic (Johan's ruling, corrected 2026-10-04 after an
+unscoped verification run of an earlier version of this command auto-flipped three real QA1
+leases to `expired`)** — a lease whose `end_date` has passed stays `active` and is only ever
+FLAGGED, via the same alert, for the agent to record the real outcome (renewed / month-to-month /
+notice / ended); the status change happens only when the agent acts, through
+`LeaseRenewalService`/`LeaseActivationService` (AT-444), never from this command (no intermediate
+"expiring soon" status exists on `Lease` either, and none is invented here). The command also
+iterates agencies EXPLICITLY (`foreach (Agency::all() as $agency)`, each iteration naming
+`agency_id` in its own query) rather than one bulk `withoutGlobalScopes()` query implicitly
+spanning every agency at once — the explicit loop is what makes the scope visible at the call
+site, after the unscoped-bulk-query shape is exactly what let a verification run touch real data
+across the whole table in one call. The agency's own
 `LeaseSetting::expiryNoticeWindowDaysFor($lease->agency_id)` — already live on the Lease Settings
 screen and the onboarding wizard, just never called from this command — now gates how far out the
 tiered urgent(≤30)/warning(≤60)/notice alerts start firing, resolved PER LEASE'S OWN `agency_id`, so

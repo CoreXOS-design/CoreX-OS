@@ -205,6 +205,12 @@
         //     session('corex.lens.*'), set by the owning controller's
         //     index()/allView() action on the way in.
         request()->routeIs('corex.rental-applications.*')
+        // AT-442 — this feature's own two new route families, added here so
+        // their own nav entries correctly auto-expand the Rentals panel
+        // (the pre-existing gap for leases/rental-inspections/rental-fault-
+        // reports/rental-work-orders/rental-fault-types is AT-439's own
+        // scope, not touched here).
+        || request()->routeIs('corex.rental-job-cards.*', 'corex.rental-catalogue-items.*')
         || request()->routeIs('corex.rentals.properties.index', 'corex.rentals.pipeline.index', 'corex.rentals.core-matches.*', 'corex.rentals.contacts.index')
         // AT-441 — this screen's own route pattern, added so its OWN nav
         // entry (just above) auto-opens the panel.
@@ -1155,6 +1161,13 @@
                      orders themselves. Same-day nav entry per non-negotiable #2. --}}
                 @permission('rental_work_orders.view')
                 <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
+                @endpermission
+
+                {{-- .ai/specs/rental-work-orders.md §14 (AT-442) — the internal
+                     counterpart to an outside-supplier work order. Same-day nav
+                     entry per non-negotiable #2. --}}
+                @permission('rental_job_cards.view')
+                <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-job-cards.*') ? 'active' : '' }}">Job Cards</a>
                 @endpermission
 
                 @if($user->isRentalApplicationAuthoriser())

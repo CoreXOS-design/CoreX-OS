@@ -123,6 +123,11 @@
                     $can('rental_work_orders.manage_settings')
                         ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
                         : null,
+                    // AT-442 — the agency's own parts & labour catalogue consumed
+                    // by internal job cards.
+                    $can('rental_catalogue.manage')
+                        ? ['key'=>'rental-catalogue-items', 'label'=>'Parts & Labour Catalogue', 'type'=>'link', 'href'=>route('corex.rental-catalogue-items.index'), 'keywords'=>'job card labour part catalogue price unit maintenance']
+                        : null,
                     $can('rental_details.manage_settings')
                         ? ['key'=>'rental-details-settings', 'label'=>'Rental Details', 'type'=>'link', 'href'=>route('corex.settings.rental-details.edit'), 'keywords'=>'rental tab custom fields lets assist price type lease type advert block description']
                         : null,

@@ -550,6 +550,17 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // edits to overwrite stale suburb-centroid pins).
         Route::post('/properties/{property}/geocode',        [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('v1.properties.geocode');
 
+        // .ai/specs/rental-work-orders.md §14 (AT-442 req #10) — the
+        // internal job-card mirror for Andre's app: read, tick a task,
+        // upload a photo. Same scoping as the web screen
+        // (RentalJobCard::scopeVisibleTo()), enforced in the controller.
+        Route::prefix('mobile/rental-job-cards')->group(function () {
+            Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->name('v1.mobile.rental-job-cards.show');
+            Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->name('v1.mobile.rental-job-cards.update');
+            Route::post('/{rentalJobCard}/tasks/{task}/tick', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'tickTask'])->name('v1.mobile.rental-job-cards.tasks.tick');
+            Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->name('v1.mobile.rental-job-cards.photos.store');
+        });
+
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {
             Route::get('/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('v1.mobile.p24.provinces');

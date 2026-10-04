@@ -161,38 +161,30 @@ class Lease extends Model
     }
 
     /**
-     * AT-440 (Lease Hub) — "landlord via the derived accessor cc1 is adding
-     * in AT-439... if it has not landed when you get there, resolve
-     * landlords from the property contact-role pivot through a small
-     * method you can later swap — do not add a column." Deliberately NOT a
-     * stored column — leases.md's own docblock (§G of the Stage-1
-     * investigation) is explicit the landlord is derived from the
-     * Property's contact link, never duplicated onto the Lease. Checks
-     * BOTH 'landlord' and 'lessor' pivot roles (Property::sellerOwnerContact()'s
-     * own vocabulary), falling back to sellerOwnerContact()'s single-result
-     * collapse when neither role is tagged but the property has exactly one
-     * contact — the same precedent RentalFaultReportController::create()
-     * already uses for this exact fact.
+     * AT-439 §G — derived, never duplicated onto this model. Resolution per
+     * cc1's 2026-10-04 QA1-outage fix (96b4f3ca0): this is the ONLY
+     * definition of this method — do not re-add a fallback to
+     * Property::sellerOwnerContact() here. NOTE: three callers
+     * (LeaseController::show()'s Lease Terms card,
+     * RentalDocumentPdfService::leaseTenancyReportPdf(), and the shared
+     * rental-context-bar component) previously relied on a fallback here
+     * to sellerOwnerContact() when no landlord/lessor pivot role was
+     * tagged — that fallback is gone with this method and none of the
+     * three call sites have their own replacement yet, so a property
+     * whose owner is linked only as seller/owner will show "no landlord"
+     * on those three screens. Flagged to the conductor 2026-10-04; not
+     * fixed here — out of this branch's scope and cc1's resolution to own.
      */
     public function landlordContacts(): \Illuminate\Support\Collection
     {
-        $property = $this->property;
-        if (!$property) {
+        if (!$this->property) {
             return collect();
         }
 
-        $contacts = $property->contactsForRole('landlord')
-            ->merge($property->contactsForRole('lessor'))
+        return $this->property->contactsForRole('landlord')
+            ->merge($this->property->contactsForRole('lessor'))
             ->unique('id')
             ->values();
-
-        if ($contacts->isNotEmpty()) {
-            return $contacts;
-        }
-
-        $fallback = $property->sellerOwnerContact();
-
-        return $fallback ? collect([$fallback]) : collect();
     }
 
     /**

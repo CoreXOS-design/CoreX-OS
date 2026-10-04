@@ -29,6 +29,14 @@ use Tests\TestCase;
  * re-run, and correctly serves two DIFFERENT agencies' own windows in one
  * run — and that the untouched legacy LeaseRecord path still fires its
  * own, separate, unmodified alert.
+ *
+ * AT-439 hotfix, 2026-10-04 — also proves the command never changes
+ * `status`: an unscoped verification run of an earlier version of this
+ * command auto-flipped three real QA1 leases to 'expired'. Johan's
+ * ruling: expiry is never automatic. The command iterates agencies
+ * explicitly (never a single bulk query spanning all of them silently)
+ * and only ever flags/alerts an overdue lease — the status change is the
+ * agent's own act, through a recorded outcome.
  */
 final class CheckLeaseExpiryCommandTest extends TestCase
 {
@@ -65,7 +73,15 @@ final class CheckLeaseExpiryCommandTest extends TestCase
         Notification::assertNothingSent(fn ($n) => $n instanceof \Illuminate\Notifications\Messages\MailMessage);
     }
 
-    public function test_an_expired_lease_flips_status_and_alerts_once(): void
+    /**
+     * AT-439 hotfix, 2026-10-04 — Johan's ruling after an unscoped
+     * verification run of an earlier version of this command auto-flipped
+     * real QA1 leases: expiry is NEVER automatic. A lease past its
+     * end_date stays 'active' and is flagged via the alert for the agent
+     * to record the real outcome; the status change only happens when the
+     * agent acts (LeaseRenewalService/LeaseActivationService, AT-444).
+     */
+    public function test_an_overdue_lease_is_flagged_but_never_auto_expired(): void
     {
         [$agency, $branch, $agent, $property] = $this->makeAgencyBranchAgentProperty();
         LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 60]);
@@ -75,7 +91,7 @@ final class CheckLeaseExpiryCommandTest extends TestCase
         Notification::fake();
         $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
 
-        self::assertSame(Lease::STATUS_EXPIRED, $lease->fresh()->status);
+        self::assertSame(Lease::STATUS_ACTIVE, $lease->fresh()->status, 'This command must NEVER change lease status — only the agent, via a recorded outcome, does.');
         Notification::assertSentTo($agent, LeaseExpiryAlert::class, fn (LeaseExpiryAlert $n) => $n->level === 'expired');
     }
 

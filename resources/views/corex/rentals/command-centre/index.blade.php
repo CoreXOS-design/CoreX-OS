@@ -11,13 +11,39 @@
     permission-gated route — this screen never creates, edits, or archives
     anything itself.
 
-    LAYOUT (conductor browser-verification fix, 2026-10-04 — approved
-    mockup): on wide screens the needs-action queue (~40%) sits LEFT of the
-    property table (~60%) so the table — the main working surface — is
-    never pushed off screen by a tall queue. On narrow screens the two
-    stack; the queue collapses to its own header count + the first 5 rows
-    (CSS-only, `lg:table-row` on rows 6-8 — no second query, no added
-    helper text).
+    LAYOUT (conductor browser-verification fix round 2, 2026-10-04): a
+    flex row, not a grid — the needs-action queue is a FIXED narrow column
+    (flex-basis 300px, capped at 28% of the row so it never crowds the
+    table on an in-between width), the table takes the REST via flex-1.
+    This replaces round 1's grid-col-span-2/3 split, which gave the queue
+    a full 40% and squeezed the table's columns at normal laptop widths
+    (~1125px content). The queue also collapses (header + toggle stay,
+    rows hide) — when collapsed it drops out of the flex row entirely so
+    the table takes the full width. State remembered per user, server-
+    side (RentalCommandCentreUserPreference — same reason a laptop-width
+    preference can't live in localStorage alone: it has to still be right
+    the next time this same user opens the screen, on any device).
+    Deliberately no Alpine anywhere on this page — plain vanilla JS below,
+    and native <details> for the row actions menu — so this page carries
+    none of the x-data/quote-escaping risk STANDARDS.md's render-gate
+    sections exist to catch.
+
+    LAYOUT round 3 (2026-10-04): at 1280px+ with the queue OPEN, the table
+    was still clipped on the right (Agent cut off, Actions off-screen —
+    the agent could not reach row actions without collapsing the queue).
+    Fixed two ways: (1) Agent moved OFF its own column, into a small muted
+    second line under Tenant(s) — one fewer column frees real width
+    rather than fighting for it; (2) the Actions column is
+    `position: sticky; right: 0` on both the header and body cells (with
+    an opaque background so scrolled content doesn't show through) — it
+    now stays reachable regardless of how wide the rest of the row gets,
+    inside the table's own existing `overflow-x-auto` wrapper (so any
+    residual horizontal scroll stays local to the table, never the page).
+    The Property cell's 2-line clamp was also under-filling (truncating
+    after roughly one line's worth of text) — widened from 260px to
+    340px and given explicit `line-height`/`max-height`/`white-space:
+    normal` alongside `-webkit-line-clamp` so two FULL lines render
+    before the ellipsis, not a narrower, height-ambiguous clamp.
 --}}
 
 @php
@@ -77,37 +103,43 @@
         @endforeach
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+    <div class="flex flex-col lg:flex-row gap-4 items-start" id="rcc-layout">
 
         {{-- §3.2 — needs-action queue. One row per item, named by its own
-             record (fault/work-order title, or lease tenant), one action
-             button each, opening THAT specific record. ~40% width on wide
-             screens; collapses to its first 5 rows on narrow screens. --}}
-        <div class="lg:col-span-2 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="px-4 py-2 text-sm font-semibold" style="border-bottom: 1px solid var(--border);">Needs action ({{ $queue->total() }})</div>
+             record (fault/work-order title, or lease tenant), one compact
+             action button each, opening THAT specific record. Fixed
+             narrow column on wide screens (300px, capped 28%); collapses
+             to its first 5 rows on narrow screens. Collapse/expand state
+             remembered per user. --}}
+        <div id="rcc-queue-collapsed-bar" class="{{ $queueCollapsed ? 'flex' : 'hidden' }} w-full lg:w-auto items-center">
+            <button type="button" onclick="corexRccSetQueueCollapsed(false)" class="corex-btn-outline text-xs">Needs action ({{ $queue->total() }}) — Expand</button>
+        </div>
+
+        <div id="rcc-queue-panel" class="{{ $queueCollapsed ? 'hidden' : '' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="px-3 py-2 flex items-center justify-between gap-2" style="border-bottom: 1px solid var(--border);">
+                <span class="text-sm font-semibold">Needs action ({{ $queue->total() }})</span>
+                <button type="button" onclick="corexRccSetQueueCollapsed(true)" class="text-xs flex-shrink-0" style="color: var(--text-muted);">Collapse</button>
+            </div>
             <div>
                 @forelse($queue as $i => $item)
-                <div class="px-4 py-2.5 flex items-start justify-between gap-3 {{ $i >= 5 ? 'hidden lg:flex' : '' }}" style="border-bottom: 1px solid var(--border);">
+                <div class="px-3 py-2 flex items-center justify-between gap-2 {{ $i >= 5 ? 'hidden lg:flex' : '' }}" style="border-bottom: 1px solid var(--border);">
                     <div class="min-w-0">
-                        <div class="text-sm font-medium truncate">{{ $item['property']?->buildDisplayAddress() ?? 'Unknown property' }}</div>
-                        <div class="text-xs truncate" style="color: var(--text-muted);">{{ $item['detail'] }}</div>
-                        @if($item['age_days'] > 0)
-                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $item['age_days'] }} day{{ $item['age_days'] === 1 ? '' : 's' }}</div>
-                        @endif
+                        <div class="text-xs font-medium truncate">{{ $item['detail'] }}{{ $item['age_days'] > 0 ? ' · ' . $item['age_days'] . 'd' : '' }}</div>
+                        <div class="text-[11px] truncate" style="color: var(--text-muted);">{{ $item['property']?->buildDisplayAddress() ?? 'Unknown property' }}</div>
                     </div>
-                    <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-xs flex-shrink-0">{{ $item['label'] }}</a>
+                    <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-[11px] px-2 py-1 flex-shrink-0">{{ $item['label'] }}</a>
                 </div>
                 @empty
-                <div class="px-4 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
                 @endforelse
             </div>
             @if($queue->hasPages())
-            <div class="px-4 py-2">{{ $queue->links() }}</div>
+            <div class="px-3 py-2">{{ $queue->links() }}</div>
             @endif
         </div>
 
         {{-- §3.3/§4 — full table: search, status/agent/branch/date filters, sort, pagination, empty state. --}}
-        <div class="lg:col-span-3 space-y-4">
+        <div class="w-full lg:flex-1 min-w-0 space-y-4">
             <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="scope" value="{{ $scope }}">
                 @if($filters['tile'])<input type="hidden" name="tile" value="{{ $filters['tile'] }}">@endif
@@ -168,40 +200,61 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="border-bottom: 1px solid var(--border);">
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink('address') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('address') }}</a></th>
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                            <th class="text-left px-4 py-2">Tenant(s)</th>
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink('open_faults') }}" style="color: var(--text-muted);">Open faults{{ $sortIndicator('open_faults') }}</a></th>
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink('open_work_orders') }}" style="color: var(--text-muted);">Open work orders{{ $sortIndicator('open_work_orders') }}</a></th>
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
-                            <th class="text-left px-4 py-2">Agent</th>
-                            <th></th>
+                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('address') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('address') }}</a></th>
+                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
+                            <th class="text-left px-3 py-2">Tenant(s)</th>
+                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
+                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('open_total') }}" style="color: var(--text-muted);" title="Open faults · open work orders">Open{{ $sortIndicator('open_total') }}</a></th>
+                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; right: 0; background: var(--surface);"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($properties as $property)
                         <tr style="border-bottom: 1px solid var(--border);" data-qa="rcc-row-{{ $property->id }}">
-                            <td class="px-4 py-2">{{ $property->buildDisplayAddress() }}</td>
-                            <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($property->status) }}">{{ $humanise($property->status) }}</span></td>
-                            <td class="px-4 py-2">{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</td>
-                            <td class="px-4 py-2">{{ $property->active_end_date ? \Illuminate\Support\Carbon::parse($property->active_end_date)->format('Y-m-d') : ($property->active_month_to_month ? 'Month-to-month' : '—') }}</td>
-                            <td class="px-4 py-2">{{ (int) $property->open_faults_count }}</td>
-                            <td class="px-4 py-2">{{ (int) $property->open_work_orders_count }}</td>
-                            <td class="px-4 py-2">{{ $property->last_inspection_at ? \Illuminate\Support\Carbon::parse($property->last_inspection_at)->format('Y-m-d') : 'Never' }}</td>
-                            <td class="px-4 py-2">{{ $property->agent?->name ?? '—' }}</td>
-                            <td class="px-4 py-2 text-right whitespace-nowrap">
-                                @if($property->active_lease_id)
-                                <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="corex-btn-outline text-xs">Open lease</a>
+                            <td class="px-3 py-2" style="max-width: 340px;">
+                                <span title="{{ $property->buildDisplayAddress() }}" style="display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; line-height: 1.3; max-height: 2.6em;">{{ $property->buildDisplayAddress() }}</span>
+                            </td>
+                            <td class="px-3 py-2"><span class="ds-badge {{ $statusBadgeClass($property->status) }}">{{ $humanise($property->status) }}</span></td>
+                            <td class="px-3 py-2">
+                                <div>{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
+                                {{-- Agent — merged into this cell (round 3 layout fix) to free a whole
+                                     column's width for the sticky Actions column at 1280px with the
+                                     queue open. --}}
+                                <div class="text-[11px]" style="color: var(--text-muted);">{{ $property->agent?->name ?? '—' }}</div>
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap">{{ $property->active_end_date ? \Illuminate\Support\Carbon::parse($property->active_end_date)->format('Y-m-d') : ($property->active_month_to_month ? 'Month-to-month' : '—') }}</td>
+                            <td class="px-3 py-2 whitespace-nowrap">
+                                @if((int) $property->open_faults_count > 0)
+                                    <a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_faults_count }} F</a>
+                                @else
+                                    <span style="color: var(--text-muted);">0 F</span>
                                 @endif
-                                <a href="{{ route('corex.properties.show', $property->id) }}" class="corex-btn-outline text-xs">Open property</a>
-                                <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="corex-btn-outline text-xs">Report fault</a>
-                                <a href="{{ route('corex.rental-work-orders.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="corex-btn-outline text-xs">New work order</a>
-                                <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">Start inspection</a>
+                                ·
+                                @if((int) $property->open_work_orders_count > 0)
+                                    <a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_work_orders_count }} WO</a>
+                                @else
+                                    <span style="color: var(--text-muted);">0 WO</span>
+                                @endif
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap">{{ $property->last_inspection_at ? \Illuminate\Support\Carbon::parse($property->last_inspection_at)->format('Y-m-d') : 'Never' }}</td>
+                            <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;">
+                                <details class="relative inline-block">
+                                    <summary class="corex-btn-outline text-xs cursor-pointer list-none" style="display: inline-block;">Actions ▾</summary>
+                                    <div class="absolute right-0 z-10 mt-1 rounded-md text-xs" style="background: var(--surface); border: 1px solid var(--border); min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
+                                        @if($property->active_lease_id)
+                                        <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open lease</a>
+                                        @endif
+                                        <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
+                                        <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>
+                                        <a href="{{ route('corex.rental-work-orders.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">New work order</a>
+                                        <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Start inspection</a>
+                                    </div>
+                                </details>
                             </td>
                         </tr>
                         @empty
-                        <tr><td colspan="9" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(!$hasAnyRentalProperties)
                                 No rental properties yet. Mark a property as a rental listing to see it here.
                             @else
@@ -217,4 +270,23 @@
         </div>
     </div>
 </div>
+
+<script>
+function corexRccSetQueueCollapsed(collapsed) {
+    document.getElementById('rcc-queue-panel').classList.toggle('hidden', collapsed);
+    var bar = document.getElementById('rcc-queue-collapsed-bar');
+    bar.classList.toggle('hidden', !collapsed);
+    bar.classList.toggle('flex', collapsed);
+
+    fetch('{{ route('corex.rentals.command-centre.preference') }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ preference_key: 'queue_collapsed', value: collapsed })
+    });
+}
+</script>
 @endsection

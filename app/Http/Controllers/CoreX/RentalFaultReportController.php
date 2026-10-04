@@ -397,6 +397,14 @@ class RentalFaultReportController extends Controller
      * exists — this is one specific agency's choice to make on one
      * specific approved report, not a required step.
      */
+    /**
+     * AT-442 req #4 — one click, pre-filled with property/lease/fault/
+     * description. assignment_type decides which path: outside_supplier
+     * (unchanged) or internal (creates the linked job card in the same
+     * action, via RentalJobCardService::createFromFaultReport() — which
+     * itself calls THIS SAME RentalWorkOrderService::fromFaultReport(),
+     * never a second implementation of the agency_appoints route).
+     */
     public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
@@ -405,9 +413,20 @@ class RentalFaultReportController extends Controller
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
             'description' => ['required', 'string'],
+            'assignment_type' => ['nullable', 'in:' . implode(',', [
+                \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+                \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
+            ])],
         ]);
 
         try {
+            if (($validated['assignment_type'] ?? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+                $jobCard = app(\App\Services\Rentals\RentalJobCardService::class)
+                    ->createFromFaultReport($rentalFaultReport, $validated, $request->user());
+
+                return redirect()->route('corex.rental-job-cards.show', $jobCard)->with('success', 'Work order raised — job card created.');
+            }
+
             $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);

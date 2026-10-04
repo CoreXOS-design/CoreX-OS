@@ -45,6 +45,15 @@ expiry commands could both fire on one real lease (audit's own stated risk). Sin
 `Docuperfect\LeaseController::renew()`'s and `SignatureService::createLeaseRecord()`'s writes into
 `lease_records` before this stage ships, that risk is closed by sequencing, not by new code here.
 
+**Correction, 2026-10-04 (Johan's ruling, same day) — expiry is never automatic.** An earlier
+version of the Stage-1 repoint flipped `status` straight to `expired` the moment `end_date` passed;
+an unscoped verification run of that version auto-expired three real QA1 leases. `CheckLeaseExpiry`
+now only ever FLAGS an overdue lease via the alert — it never writes `status`. The status
+transition is this stage's own responsibility: it happens when the agent records one of the three
+one-click outcomes above (renewed via a path (a)/(b)/(c) draft, month-to-month, or notice/ended),
+never from the reminder command. The command also iterates agencies explicitly rather than one
+bulk query spanning all of them — the same incident's root cause.
+
 ## 4. The e-sign importer mapping (agency-level, one-time setup, multiple templates)
 Each agency loads its own lease template(s) through the **existing e-sign importer** (the same
 mechanism `.ai/specs/rental-documents-spec.md` already documents the templates for — this spec does

@@ -1,7 +1,7 @@
 # Rental Command Centre (AT-441)
 
 **Status:** BUILT. Landed on QA1, 2026-10-04. Conductor browser-verification fix round landed same
-day — see §10.
+day — see §10. A second fix round (layout at normal laptop width) landed same day too — see §11.
 **Ticket:** AT-441. **Date:** 2026-10-04. **Pillar:** Property (primary — every row is a property),
 Contact (tenant, read-only context via the active lease), Agent (`User`, who acts from the queue).
 **Master spec:** `.ai/specs/rentals-rebuild.md` — read its §1 (shared standards) first.
@@ -90,12 +90,13 @@ does not read that parameter today — it always renders its own full property p
 harmless (ignored) and forward-compatible the day that controller is extended to read it.
 
 ### 3.3 Full table — every rental property, any state
-Built exactly per the brief: address, status, tenant(s), lease end/month-to-month, open faults
-count, open work orders count, last inspection date, agent, row actions. Row actions use ONLY
-existing routes (`corex.leases.show`, `corex.properties.show`, `corex.rental-fault-reports.create`,
-`corex.rental-work-orders.create`, `corex.rental-inspections.create`) — "Renew" and "Record notice"
-do not exist as routes yet (AT-444), so they are omitted from the row actions entirely, per the
-brief's own instruction, rather than rendered as dead buttons.
+Built exactly per the brief: address, status, tenant(s), lease end/month-to-month, a merged "Open"
+column (§11.2), last inspection date, agent, a single "Actions ▾" menu (§11.3) in place of inline
+links. Actions use ONLY existing routes (`corex.leases.show`, `corex.properties.show`,
+`corex.rental-fault-reports.create`, `corex.rental-work-orders.create`,
+`corex.rental-inspections.create`) — "Renew" and "Record notice" do not exist as routes yet
+(AT-444), so they are omitted entirely, per the brief's own instruction, rather than rendered as
+dead buttons.
 
 ---
 
@@ -106,7 +107,10 @@ brief's own instruction, rather than rendered as dead buttons.
   — via the `contact_property` pivot, role IN (`seller`,`owner`,`landlord`,`lessor`), the same
   source `Property::sellerOwnerContact()` uses (`Lease` has no landlord accessor of its own yet).
 - **Sort columns:** address, **lease end date (default, ascending, empty last — fixed 2026-10-04,
-  §10.4)**, status, open-faults count, open-work-orders count, last-inspection date.
+  §10.4)**, status, **open total (§11.2 — replaces the two separate open-faults/open-work-orders
+  sort keys now that the column itself is merged; still backed by the same two underlying
+  columns, summed via raw SQL since a combined count has no single column name)**, last-inspection
+  date.
 - **Filters:** status (data-driven — distinct values actually present on this agency's rental book,
   never a hardcoded list, per CLAUDE.md non-negotiable #9), agent, branch, lease-end date range —
   all four, per the brief (the draft listed only status + date range; the brief's richer list won).
@@ -267,3 +271,72 @@ sellerOwnerContact()` uses. Test: `test_search_matches_landlord_via_contact_prop
 "Start inspection" still cannot pre-select the property — `RentalInspectionController::create()`
 (cc1-owned, AT-439) doesn't read a `property_id` param. Passed on to Johan per his own instruction
 this round, not re-litigated here.
+
+---
+
+## 11. Layout fix round 2 (2026-10-04) — normal laptop width
+
+Round 1's side-by-side layout (queue ~40%, table ~60% via `grid-cols-5`/`col-span-2`/`col-span-3`)
+was re-verified at a normal laptop content width (~1125px) and found squeezing the table badly:
+address wrapping 4 lines, rows ~115px tall, "Last inspection"/"Agent"/actions clipped off the right
+edge. Fixed with three changes, all in the same screen, same engine:
+
+### 11.1 Layout — flex row, fixed-width queue, collapsible
+Replaced the `grid-cols-5` 40/60 split with a `flex` row: the queue is a FIXED column
+(`lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0` — 300px on anything wide enough, capped at 28%
+of the row on narrower-than-~1070px-content `lg`-width screens so it still can't crowd the table),
+the table takes the rest via `lg:flex-1`. The queue also COLLAPSES: a "Collapse"/"Expand" toggle
+(plain `onclick` + `fetch()`, no Alpine) hides the whole panel — when collapsed it drops out of the
+flex row entirely, so the table gets the FULL width, not just its previous ~60%. State is
+remembered PER USER, server-side: `RentalCommandCentreUserPreference` (new table, migration
+`2026_10_07_090500_create_rental_command_centre_user_preferences_table`), same `user_id` + JSON
+`preference_state` shape as `RentalInspectionScreenPreference` — read in
+`RentalCommandCentreController::buildViewData()`, written via `POST /corex/rentals/command-centre/
+preference` (`updatePreference()`). Below `lg:` (1024px — the existing design-system breakpoint
+already used by this screen's own tile grid; close enough to the brief's "~1100px" that introducing
+a one-off custom breakpoint for this single component was not worth the inconsistency) the queue
+stacks above the table, collapsed to its first 5 rows, same as round 1.
+
+Queue rows are now compact: item name + age on ONE line (`"<title> · <N>d"`), the property address
+underneath in small muted text, the action as a small (`text-[11px] px-2 py-1`) button — not the
+taller three-line-plus-separate-button layout round 1 shipped.
+
+### 11.2 Table — merged "Open" column
+"Open faults" and "Open work orders" (two separate sortable columns) are now ONE "Open" column
+rendered as `"<N> F · <M> WO"`, each number a link when > 0 (plain muted text when 0, nothing to
+click into): `corex.rental-fault-reports.index`/`corex.rental-work-orders.index`, both filtered
+`?property_id=`. The row's own underlying counts (`open_faults_count`/`open_work_orders_count`) are
+unchanged — same `FAULT_OPEN_STATUSES_EXCLUDED`/`WORK_ORDER_OPEN_STATUSES_EXCLUDED` definition as
+§10.1, so the column and the list it links to can never disagree on what's open. Sorting the merged
+column uses a new `'open_total'` key (`RentalCommandCentreService::SORT_COLUMNS`), ordering by the
+raw-SQL sum of both columns (a combined count has no single column name, so `orderBy()` doesn't
+apply — `orderByRaw()` does, with `$direction` pre-sanitised to the literal `'asc'`/`'desc'` before
+interpolation, same as every other sort key). The separate `'open_faults'`/`'open_work_orders'`
+sort keys are left in `SORT_COLUMNS` (not removed) for API/back-compat; the web screen's own column
+header now only exposes `'open_total'`.
+Tests: `test_open_total_sort_orders_by_combined_faults_and_work_orders`,
+`test_open_column_row_values_match_the_shared_open_definition`.
+
+### 11.3 Table — row actions collapse into one menu
+The five inline action links (Open lease, Open property, Report fault, New work order, Start
+inspection) are now a single `<details>`/`<summary>` "Actions ▾" menu — native HTML, zero JS,
+deliberately not Alpine (this screen has stayed Alpine-free throughout, sidestepping the
+quote-escaping/x-data class of bug STANDARDS.md's render-gate sections exist to catch). The
+Property cell is capped to 2 lines (`-webkit-line-clamp: 2`) with the full address in a `title=`
+tooltip, rather than wrapping onto 3-4 lines and inflating row height.
+
+### 11.4 Queue rows with no linked property
+Explicitly kept, not filtered out: a lease whose property has since been archived (soft-deleted)
+still produces a queue row — `property` resolves to `null` (Eloquent's default `BelongsTo` already
+respects `Property`'s own `SoftDeletes` global scope), rendered as "Unknown property" with
+"Tenant: No tenant linked" if the lease also has none, and the row's action button still opens the
+LEASE (`corex.leases.show`) — it was already wired this way for the three lease-based rules before
+this round; this round adds the explicit test proving it, per the brief's instruction to confirm
+rather than assume. Test: `test_queue_row_with_no_linked_property_still_shows_and_links_to_the_lease`.
+
+### Schema snapshot
+`database/schema/mysql-schema.sql` refreshed per CLAUDE.md non-negotiable #12a (new migration
+added) — the dump also picked up several OTHER lanes' migrations that had landed on `origin/QA1`
+since the snapshot was last refreshed (the snapshot represents the full migration state, not just
+this ticket's own addition); DEFINER clauses stripped per the same non-negotiable's standing
+gotcha.
