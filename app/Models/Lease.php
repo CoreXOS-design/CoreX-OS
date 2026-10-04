@@ -57,6 +57,7 @@ class Lease extends Model
         'notice_given_by',
         'notice_note',
         'move_out_date',
+        'notice_readvertised',
         'renewal_draft_flow_id',
     ];
 
@@ -69,6 +70,7 @@ class Lease extends Model
         'cancelled_at' => 'datetime',
         'notice_date' => 'date',
         'move_out_date' => 'date',
+        'notice_readvertised' => 'boolean',
     ];
 
     public function property(): BelongsTo

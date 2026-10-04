@@ -2,12 +2,11 @@
 
 {{--
     .ai/specs/rental-renewals.md §4-§9 — AT-444's "one small screen": the
-    agent enters the new term/rent and either sends a renewal (copy-forward
-    draft or manual upload) or records a one-click outcome. Path (b) —
-    drafting fresh from an agency lease template — is not offered here yet;
-    that's item 5's own WAIT gate. None of the actions below send anything
-    by themselves — every path still ends with an explicit agent action on
-    the next screen (the e-sign wizard, or this form's own submit).
+    agent enters the new term/rent and either sends a renewal (copy-forward,
+    draft-from-template, or manual upload) or records a one-click outcome.
+    None of the actions below send anything by themselves — every path
+    still ends with an explicit agent action on the next screen (the e-sign
+    wizard, or this form's own submit).
 --}}
 
 @section('content')
@@ -27,39 +26,41 @@
         </div>
     @endif
 
-    {{-- Renewal: new term entry, shared by the copy-forward and manual-upload paths. --}}
+    {{--
+        Renewal term entry. Each send path is its own self-contained form
+        (same pattern as the manual-upload card below) carrying its own
+        copy of the term fields — simplest way to let several distinct
+        submit targets (copy-forward, N templates) share one visual block
+        without a single <form> trying to serve multiple actions.
+    --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Renew this lease</h2>
 
-        <div class="grid grid-cols-2 gap-3">
-            <div>
-                <label class="text-xs font-medium">New rent (R)</label>
-                <input form="renewal-term-form" type="number" name="rental_amount" step="0.01" min="0" required value="{{ $lease->rental_amount }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-            </div>
-            <div>
-                <label class="text-xs font-medium">Deposit (R)</label>
-                <input form="renewal-term-form" type="number" name="deposit_amount" step="0.01" min="0" value="{{ $lease->deposit_amount }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-            </div>
-            <div>
-                <label class="text-xs font-medium">New start date</label>
-                <input form="renewal-term-form" type="date" name="start_date" required value="{{ $lease->end_date ? $lease->end_date->copy()->addDay()->toDateString() : '' }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-            </div>
-            <div>
-                <label class="text-xs font-medium">New end date</label>
-                <input form="renewal-term-form" type="date" name="end_date" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-            </div>
-        </div>
+        @if($canCopyForward)
+            <form method="POST" action="{{ route('corex.leases.renewal.draft', $lease) }}" class="space-y-3">
+                @csrf
+                @include('corex.leases._renewal-term-fields', ['lease' => $lease])
+                <button type="submit" class="corex-btn-primary text-xs">Prepare e-sign renewal</button>
+            </form>
+        @else
+            <p class="text-xs" style="color: var(--text-muted);">This lease wasn't e-signed through CoreX — use one of your agency's lease templates below, or upload a signed renewal directly.</p>
+        @endif
 
-        <div class="flex flex-wrap gap-2">
-            @if($canCopyForward)
-                <form id="renewal-term-form" method="POST" action="{{ route('corex.leases.renewal.draft', $lease) }}">
+        @foreach($leaseTemplates as $entry)
+            <div class="pt-3" style="border-top: 1px solid var(--border);">
+                <form method="POST" action="{{ route('corex.leases.renewal.draft-from-template', $lease) }}" class="space-y-3">
                     @csrf
-                    <button type="submit" class="corex-btn-primary text-xs">Prepare e-sign renewal</button>
+                    <input type="hidden" name="rental_lease_template_id" value="{{ $entry['template']->id }}">
+                    @include('corex.leases._renewal-term-fields', ['lease' => $lease])
+                    @if(empty($entry['missing']))
+                        <button type="submit" class="corex-btn-secondary text-xs">Draft from "{{ $entry['template']->name }}"</button>
+                    @else
+                        <button type="submit" class="corex-btn-secondary text-xs" disabled style="opacity:0.5;cursor:not-allowed;">Draft from "{{ $entry['template']->name }}"</button>
+                        <p class="text-xs" style="color: var(--ds-crimson);">Missing: {{ implode(', ', $entry['missing']) }}</p>
+                    @endif
                 </form>
-            @else
-                <p class="text-xs" style="color: var(--text-muted);">This lease wasn't e-signed through CoreX — prepare the renewal document outside CoreX, then upload it signed below.</p>
-            @endif
-        </div>
+            </div>
+        @endforeach
     </div>
 
     {{-- Manual upload — path (c), always available. --}}
@@ -82,19 +83,25 @@
 
         @if($lease->hasActiveNotice())
             <div class="flex items-center justify-between text-sm rounded px-3 py-2" style="background: var(--surface-2);">
-                <span>{{ $lease->notice_given_by === 'tenant' ? 'Tenant gave notice' : 'Landlord not renewing' }} — move-out {{ optional($lease->move_out_date)->format('d M Y') }}</span>
+                <span>{{ $lease->notice_given_by === 'tenant' ? 'Tenant gave notice' : 'Landlord not renewing' }} — move-out {{ optional($lease->move_out_date)->format('d M Y') }}{{ $lease->notice_readvertised ? ' — back on the market' : '' }}</span>
                 <form method="POST" action="{{ route('corex.leases.renewal.notice.reverse', $lease) }}">
                     @csrf
                     <button type="submit" class="text-xs" style="color: var(--ds-crimson);">Reverse</button>
                 </form>
             </div>
         @else
+            {{-- .ai/specs/rental-renewals.md §15 (GATE 2) row 2 — the same dialog offers one tick, default from the agency setting. --}}
             <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" class="flex flex-wrap items-end gap-2">
                 @csrf
                 <div>
                     <label class="text-xs font-medium">Move-out date</label>
                     <input type="date" name="move_out_date" required class="rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
+                <label class="flex items-center gap-1 text-xs">
+                    <input type="hidden" name="readvertise" value="0">
+                    <input type="checkbox" name="readvertise" value="1" @checked($autoReadvertiseOnNotice)>
+                    Put back on the market
+                </label>
                 <button type="submit" class="corex-btn-secondary text-xs">Tenant gave notice</button>
             </form>
             <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" class="flex flex-wrap items-end gap-2">
@@ -103,6 +110,11 @@
                     <label class="text-xs font-medium">End date</label>
                     <input type="date" name="move_out_date" required class="rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
+                <label class="flex items-center gap-1 text-xs">
+                    <input type="hidden" name="readvertise" value="0">
+                    <input type="checkbox" name="readvertise" value="1" @checked($autoReadvertiseOnNotice)>
+                    Put back on the market
+                </label>
                 <button type="submit" class="corex-btn-secondary text-xs">Landlord not renewing</button>
             </form>
         @endif

@@ -401,6 +401,12 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 ->name('v1.other-agency-stock.import');
         });
 
+        // AT-441 — .ai/specs/rental-command-centre.md §5. Mirrors the web
+        // screen exactly (same RentalCommandCentreService) — Andre's mobile
+        // app's rentals landing screen calls this.
+        Route::get('/rentals/command-centre', [\App\Http\Controllers\Api\V1\RentalCommandCentreController::class, 'index'])
+            ->middleware('permission:rental_command_centre.view')->name('v1.rentals.command-centre');
+
         // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
         Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
             ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
@@ -418,6 +424,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // renewal/one-click-outcome web actions, for Andre's mobile app.
         Route::middleware('permission:leases.renew')->prefix('leases/{lease}/renewal')->group(function () {
             Route::post('/draft', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftCopyForward'])->name('v1.leases.renewal.draft');
+            Route::post('/draft-from-template', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftFromTemplate'])->name('v1.leases.renewal.draft-from-template');
             Route::post('/upload', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'uploadRenewal'])->name('v1.leases.renewal.upload');
             Route::post('/month-to-month', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'monthToMonth'])->name('v1.leases.renewal.month-to-month');
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');

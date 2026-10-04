@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Http\Controllers\Concerns\AuthorizesLeaseAccess;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\Lease;
+use App\Models\RentalLeaseTemplate;
 use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RenewalDraftService;
 use Illuminate\Http\JsonResponse;
@@ -23,12 +24,12 @@ use Illuminate\Validation\ValidationException;
  */
 class LeaseRenewalApiController extends Controller
 {
-    use AuthorizesLeaseAccess;
+    use AuthorizesRentalRecordScope;
     use ValidatesDocumentUploads;
 
     public function draftCopyForward(Request $request, Lease $lease): JsonResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $terms = $this->validateTerms($request);
 
         try {
@@ -43,9 +44,29 @@ class LeaseRenewalApiController extends Controller
         ]);
     }
 
+    /** §5(b) — GATE 1: draft fresh from the agency's own mapped lease template. */
+    public function draftFromTemplate(Request $request, Lease $lease): JsonResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+        $validated = $request->validate(['rental_lease_template_id' => ['required', 'integer', 'exists:rental_lease_templates,id']]);
+        $terms = $this->validateTerms($request);
+        $rentalLeaseTemplate = RentalLeaseTemplate::findOrFail($validated['rental_lease_template_id']);
+
+        try {
+            $result = app(RenewalDraftService::class)->draftFromTemplate($lease, $rentalLeaseTemplate, $terms, $request->user());
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->errors()], 422);
+        }
+
+        return response()->json([
+            'lease' => $result['lease'],
+            'flow_id' => $result['flow']->id,
+        ]);
+    }
+
     public function uploadRenewal(Request $request, Lease $lease): JsonResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $terms = $this->validateTerms($request);
         $request->validate(['signed_document' => $this->documentUploadRule(20480)]);
 
@@ -87,7 +108,7 @@ class LeaseRenewalApiController extends Controller
 
     public function monthToMonth(Request $request, Lease $lease): JsonResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
 
         $updated = app(LeaseRenewalService::class)->recordMonthToMonth($lease, $validated['note'] ?? null, $request->user());
@@ -97,7 +118,7 @@ class LeaseRenewalApiController extends Controller
 
     public function reverseMonthToMonth(Request $request, Lease $lease): JsonResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         $updated = app(LeaseRenewalService::class)->reverseMonthToMonth($lease, $request->user());
 
@@ -116,14 +137,19 @@ class LeaseRenewalApiController extends Controller
 
     private function recordNotice(Request $request, Lease $lease, string $givenBy): JsonResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate([
             'move_out_date' => ['required', 'date'],
             'note' => ['nullable', 'string', 'max:500'],
+            'readvertise' => ['nullable', 'boolean'],
         ]);
 
+        $readvertise = $request->has('readvertise')
+            ? $request->boolean('readvertise')
+            : \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id);
+
         try {
-            $updated = app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user());
+            $updated = app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $readvertise);
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         }
@@ -133,7 +159,7 @@ class LeaseRenewalApiController extends Controller
 
     public function reverseNotice(Request $request, Lease $lease): JsonResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         $updated = app(LeaseRenewalService::class)->reverseNotice($lease, $request->user());
 

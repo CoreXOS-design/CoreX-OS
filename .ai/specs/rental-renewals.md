@@ -189,21 +189,16 @@ actually landed before relying on it.
   the `properties()` pivot — NOT `leases.source_document_id`, which is reserved for
   `docuperfect_documents.id`, a different ID space), then activates immediately via
   `activateRenewalTerm()`. No e-sign cycle for this path, so "completion" is the upload itself.
-- **§6 e-sign completion → activation — only HALF wired, flagged explicitly.** `activateRenewalTerm()`
-  exists and is the correct, single call site for "a renewal term goes live" — but nothing in the
-  e-sign pipeline calls it yet for the copy-forward/template-draft paths. `SignatureService::
-  createLeaseFromSignedDocument()` (the method that would need to call it on a renewal document's
-  completion) is the exact file cc1's "e-sign draft-promotion" work is in, per the task brief's own
-  lane boundary — this build does not touch it. **Cross-lane dependency, not resolved by this
-  ticket:** once cc1's draft-promotion fix lands (the "promote an existing draft Lease on this property
-  instead of creating a new one" fix, Stage-1 investigation item F), it will find the draft term this
-  build's `copyForward()` creates (status=draft, `previous_lease_id` already set) and should call
-  `LeaseRenewalService::activateRenewalTerm()` on it rather than its own ad-hoc activation — satisfying
-  "reused, not duplicated" structurally, but only once that call is actually wired on cc1's side. Until
-  then, a copy-forward renewal that completes e-sign will create/promote the Lease row but NOT
-  auto-activate it or record its escalation; the agent can still activate it manually via the existing
-  `corex.leases.activate` action (escalation will need to be entered via the existing `escalate()`
-  action in that interim case, not automatically).
+- **§6 e-sign completion → activation — fully wired, 2026-10-04, once AT-439 landed on QA1.**
+  `SignatureService::createLeaseFromSignedDocument()`'s draft-promotion path now checks
+  `$draftLease->previous_lease_id`: if set (a renewal draft, built by `copyForward()`/
+  `draftFromTemplate()`), it calls `LeaseRenewalService::activateRenewalTerm()` instead of a bare
+  `LeaseActivationService::activate()` — recording the escalation as part of completion, not left for
+  the agent to enter separately. The acting user is resolved from the signed document's own
+  `owner_id` (no authenticated session exists in this completion-cascade context); if that resolves to
+  nothing, the code falls back to the plain `activate()` call unchanged, rather than failing the
+  cascade. See §15 below for the full account of this file edit (it is one of the e-sign recipient
+  signing pipeline's gated files) and its test.
 - **§9 routes** — `corex.leases.{lease}.renewal.{create,draft,upload,month-to-month,month-to-month.
   reverse,tenant-notice,landlord-notice,notice.reverse}`, all gated by the existing `leases.renew`
   permission (no new key). A single small screen (`corex/leases/renewal.blade.php`) hosts the term
@@ -214,15 +209,7 @@ actually landed before relying on it.
   reverse,tenant-notice,landlord-notice,notice/reverse}`, same services, same scope guard, JSON
   responses — `App\Http\Controllers\Api\V1\LeaseRenewalApiController`.
 
-**Not built — two WAIT gates, per the task brief, pending Johan's go-ahead:**
-- **Item 5 — agency lease templates + path (b)** (draft-from-template). Investigation and a narrowed
-  proposed design (no `field_mapping JSON` column — unnecessary for how the real templates work) were
-  reported to the conductor; nothing was built.
-- **Item 7 — property status transitions** (§12.5.3's remaining rows, §12.5.4's new settings). The
-  exact transition table and portal-syndication effect of each row were reported to the conductor,
-  including a genuine architectural finding (`Property::OFF_MARKET_STATUSES` is a hardcoded,
-  non-agency-aware PHP constant, which changes what "agency-configurable which status value" can
-  actually mean for the new "notice given" status); nothing was built.
+**Items 5 and 7 — both gates were APPROVED by the conductor, 2026-10-04, and are built. See §15.**
 
 **Correction to §6 of this spec (now superseded by the paragraph above):** `leases.previous_lease_id`
 was NOT a new column this ticket introduced — it already existed. Readers should treat §6's original
@@ -236,3 +223,127 @@ survives reversal), tenant/landlord notice set/reverse with distinct tenancy-log
 copy-forward's eligibility rejection for a non-e-signed lease, copy-forward's pre-filled `Flow` shape
 (recipients/details), the manual-upload path's full create→file→activate chain, cross-agency 404 on
 every renewal action, and the renewal screen rendering for an authorised user.
+
+## 15. GATE 1 (item 5) and GATE 2 (item 7) — approved by the conductor 2026-10-04, built same day
+
+### GATE 1 — agency lease templates + path 5(b), approved exactly as proposed in §14's WAIT-gate report
+
+New `rental_lease_templates` table: `agency_id`, `name`, `docuperfect_template_id` (no FK across the
+Docuperfect boundary, same convention as `leases.source_document_id`), `category` (free string —
+residential/commercial/renewal_addendum), `is_active`, soft-deletes. **No `field_mapping` column** —
+confirmed unnecessary: a `render_type='pdf'` template's own `data-field` attributes already match
+CoreX's canonical vocabulary; a `render_type='web'`/CDS template's mapping already lives on
+`docuperfect_templates.field_mappings`, built via the existing importer.
+
+- **Settings CRUD** — `App\Http\Controllers\CoreX\RentalLeaseTemplateController`, full list-screen
+  floor (search by name, sort name/category/active — default name asc, filter by category + archived,
+  pagination, real empty state, archive/restore). Nav link on the main Settings hub
+  (`corex.rental-lease-templates.index`), gated by the new `rental_lease_templates.manage_settings`
+  permission key. The source-document picker lists only templates this agency can see
+  (`Template::applySharedWith()` — the agency's own + genuinely-ownerless platform globals, the exact
+  visibility rule every other e-sign path already uses) — nothing HFC-specific hardcoded.
+- **Eligibility** — `RenewalDraftService::missingRequiredFields(Lease, RentalLeaseTemplate, array $terms, User)`
+  resolves the SAME `step_data` `copyForward()` builds against `WebTemplateDataService::resolve()`
+  (the authoritative field-resolution service every e-sign path already uses — both the plain
+  `resolve()` and its internal `resolveCdsTemplate()` branch return the same key names:
+  `property_address`, `lessor_name`, `lessee_name`, `rental_amount`, `lease_start`), checks five
+  required keys, returns a human-readable label per blank one. The Lease Hub renewal screen previews
+  this against the lease's CURRENT data (before the agent types new terms) so an agent can see which
+  templates are ready without submitting; `draftFromTemplate()` re-checks against the actually-
+  submitted terms and throws (blocking "send") if anything is still blank.
+- **`RenewalDraftService::draftFromTemplate()`** — same `buildDraftFlow()` as `copyForward()`, pointed
+  at the agency's chosen template instead of the lease's prior document; rejects a template belonging
+  to another agency or an archived one.
+- **Routes**: `corex.leases.{lease}.renewal.draft-from-template` (web) and the API mirror
+  `/api/v1/leases/{lease}/renewal/draft-from-template`.
+
+**Tests**: `tests/Feature/Leases/RentalLeaseTemplateTest.php` — 7 cases covering the full CRUD/list
+floor (search, category filter, archive, restore, empty state), cross-agency template rejection,
+missing-fields detection, successful draft, blocked draft (missing fields), blocked draft (archived
+template).
+
+### GATE 2 — property status transitions, approved WITH Johan's change: no new property status
+
+**The change from §14's own proposed design**: notice is a fact about the LEASE
+(`leases.notice_date`/`move_out_date`), never a property status — `Property::OFF_MARKET_STATUSES` and
+the agency's own `property_status` vocabulary are untouched; no status is added or removed anywhere
+in this build.
+
+**New column**: `properties.status_before_letting` (nullable string) — captured ONCE, the moment
+`LeaseActivationService::flipPropertyToLeasedOut()` first flips a property to `let_out` (a no-op on a
+renewal re-activation, since that method already short-circuits when the property is already
+`let_out`), and cleared again once a tenancy truly ends (rows 6/7) so the next lease cycle captures
+fresh rather than reusing a stale value. New `leases.notice_readvertised` (nullable boolean) — whether
+row 2's tick was applied, so reversing the notice knows whether a property-status change must also be
+undone.
+
+**New service**: `App\Services\Rentals\PropertyStatusFollowsLeaseService` — every method goes through
+the property's normal `save()` (never a direct `DB::table()` write), so `PropertyObserver`/
+`PropertyAuditService`/the portal's own `isOnMarket()` predicate all fire exactly as a manual status
+change would. No new portal-sync code anywhere in this gate.
+
+**The full transition table, as built:**
+
+| Row | Event | New status | Advertise? | Availability date | Built |
+|---|---|---|---|---|---|
+| 1 | Lease activated | `let_out` | No | — | AT-440 (unchanged) |
+| 2 | Notice + readvertise ticked | `status_before_letting` (or the agency's `default_pre_let_status`) | **Yes** | day after move-out | **This gate** |
+| 2 (unticked) | Notice, not readvertised | unchanged (`let_out`) | No | — | **This gate** |
+| 3 | Renewal signed | unchanged (`let_out`) | No | — | Already true — test added, no code |
+| 4 | Month-to-month | unchanged (`let_out`) | No | — | Already true — test added, no code |
+| 5 | End date passed, no outcome | unchanged, agent flagged overdue (Command Centre, cc2) | No | — | Deliberately never automatic |
+| 6 | Out-inspection confirms vacant | `status_before_letting` (or default) | Yes | today | **This gate** |
+| 7 | Lease cancelled | `status_before_letting` (or default) | Yes | cancellation date | **This gate** |
+
+**Portal consequence of each** (no new portal-sync code anywhere — all read `Property::isOnMarket()`,
+which already reads `OFF_MARKET_STATUSES`):
+- Row 1/let_out: off-market on P24 and Private Property (unchanged, AT-440).
+- Row 2 ticked: back on-market on both portals, with the availability date carried through
+  `properties.lease_start_date` — the SAME field `Property24ListingMapper.php:133` already reads as
+  `availabilityDate`, reused rather than inventing a new column. **Pre-existing gap, reported not
+  fixed (non-negotiable #2)**: that P24 mapper line only fires for commercial-typed properties
+  (`str_contains($ptLower, 'commercial')`), and `PrivatePropertyListingMapper.php:82` hardcodes
+  `AvailableFrom` to `now()` unconditionally rather than ever reading a stored value — so a
+  *residential* rental re-advertised by this gate goes back on-market correctly, but neither portal's
+  existing mapper will show the real availability date for it today. Fixing those two mappers is a
+  change to files outside this gate's own scope, not attempted here.
+- Rows 3/4: stays off-market (`let_out`) — confirmed by test, no portal effect.
+- Row 5: no change — by design.
+- Rows 6/7: back on-market, same mechanism as row 2.
+
+**Three agency settings, each independently toggle-able, default ON** (`LeaseSetting`):
+`auto_readvertise_on_notice` (row 2 — also the dialog's own checkbox default),
+`auto_restore_status_on_lease_ended` (row 6), `auto_restore_status_on_lease_cancelled` (row 7); plus
+`default_pre_let_status` (fallback when no `status_before_letting` was ever captured — a lease active
+before this feature shipped — default `'draft'`, seeded `is_default=true` for every agency, not a new
+status). All four surfaced in the Setup Wizard's existing 'leases' step and the Lease Settings page,
+same `has()`-guarded saver pattern as every other setting on that step.
+
+**Row 6's trigger — a model observer, not a controller edit.** `RentalInspectionController` is cc1's
+file (task brief: do not touch). `App\Observers\RentalInspectionCompletionObserver`, registered via
+`RentalInspection::observe()` in `AppServiceProvider` (one new line, no existing registration touched),
+reacts to the model's own `updated` event (`type===out` AND `status` just became `completed`) —
+file-agnostic to whichever controller/service actually performs the write, the same pattern
+`PropertyObserver` already uses for `Property` itself. On fire: marks the lease `STATUS_EXPIRED` (it
+was `active` with no renewal) and calls `restorePreLetStatus()`.
+
+**Row 7's trigger** — `LeaseController::cancel()` (fair game; not off-limits), guarded on
+"was this lease actually `STATUS_ACTIVE` before cancelling" so a draft cancelled pre-activation (which
+never flipped the property in the first place) never touches it.
+
+**Tests**: `tests/Feature/Leases/LeasePropertyStatusTest.php` — 15 cases: row 1's capture + flip +
+`isOnMarket()`, row 2 ticked/unticked/reversed + its toggle, rows 3/4's "no change" invariant + their
+`isOnMarket()` assertions, row 5's "untouched" invariant, row 6 (fires on OUT, ignores IN) + its
+toggle + clearing `status_before_letting`, row 7 (fires on an active lease, no-ops on a never-activated
+draft) + its toggle, and the fallback `default_pre_let_status` path when nothing was ever captured.
+
+### Item 6 — e-sign completion → activation, now fully wired (see §14's entry above for the code)
+
+`SignatureService.php` is one of the e-sign recipient signing pipeline's gated files
+(`.ai/CLAUDE.md`'s pipeline gate). **Test**: a new case added to the EXISTING
+`tests/Feature/Leases/LeaseFromSignedDocumentPromotionTest.php` (AT-439's own test for this method,
+extended rather than duplicated) —
+`test_a_renewal_draft_lease_is_activated_via_activate_renewal_term_and_records_escalation` proves a
+renewal draft's completion activates via `activateRenewalTerm()` (old term expires, `renewed_lease_id`
+chains, AND the escalation is recorded), not the bare `activate()` path the non-renewal case still
+uses.

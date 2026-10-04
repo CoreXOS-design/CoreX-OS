@@ -105,6 +105,17 @@ return [
         ['key' => 'rentals.edit',            'label' => 'Edit',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 40],
         ['key' => 'rentals.archive',         'label' => 'Archive',                         'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 41],
 
+        // ── Rental Command Centre (AT-441) — .ai/specs/rental-command-centre.md.
+        // Access-only: every action button on this screen navigates into the
+        // OWNING screen's own permission-gated action (leases.*, rental_fault_
+        // reports.*, rental_work_orders.*, rental_inspections.*) — this screen
+        // never duplicates or bypasses those gates, so it needs no action keys
+        // of its own. Not added to any role's 'role_defaults' below, matching
+        // leases.view/rental_fault_reports.view/rental_work_orders.view/
+        // rental_inspections.view — assigned per role via Role Manager, not a
+        // fresh-install default.
+        ['key' => 'rental_command_centre.view', 'label' => 'View Rental Command Centre', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_command_centre', 'sort_order' => 1],
+
         // ── Rental Applications (AT-392) ──
         ['key' => 'rental_applications.view',            'label' => 'View Rental Applications',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 1],
         ['key' => 'rental_applications.create',          'label' => 'Create & Send Rental Applications',   'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 2],
@@ -138,6 +149,11 @@ return [
         ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
         ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
         ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
+
+        // .ai/specs/rental-renewals.md §5(b), GATE 1 (approved 2026-10-04) —
+        // which imported DocuPerfect templates an agency treats as its
+        // rental lease/renewal/addendum documents.
+        ['key' => 'rental_lease_templates.manage_settings', 'label' => 'Manage Rental Lease Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 7],
 
         // ── Rental Inspections (rental-inspections.md) ──
         ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],

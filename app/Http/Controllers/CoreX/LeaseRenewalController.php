@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\CoreX;
 
-use App\Http\Controllers\Concerns\AuthorizesLeaseAccess;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Http\Controllers\Controller;
 use App\Models\Document;
 use App\Models\Lease;
+use App\Models\RentalLeaseTemplate;
 use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RenewalDraftService;
 use Illuminate\Http\RedirectResponse;
@@ -28,24 +29,35 @@ use Illuminate\Validation\ValidationException;
  */
 class LeaseRenewalController extends Controller
 {
-    use AuthorizesLeaseAccess;
+    use AuthorizesRentalRecordScope;
     use ValidatesDocumentUploads;
 
     /**
      * .ai/specs/rental-renewals.md §4-§9 — the "one small screen" the agent
      * uses to enter the new term and either send a renewal draft, upload a
-     * signed renewal, or record a one-click outcome. Eligibility for the
-     * copy-forward path (§5(a)) is a simple source check — the template-
-     * draft path (§5(b)) is NOT offered here yet (item 5's own WAIT gate).
+     * signed renewal, or record a one-click outcome. §5(b)'s eligibility
+     * preview (missing fields against the lease's OWN current data, before
+     * the agent has typed new terms) lets the agent see which templates are
+     * ready without yet submitting — the real check re-runs against the
+     * actually-submitted terms in draftFromTemplate() below.
      */
     public function create(Request $request, Lease $lease): \Illuminate\View\View
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $draftService = app(RenewalDraftService::class);
+        $leaseTemplates = RentalLeaseTemplate::active()->with('template')->orderBy('name')->get()
+            ->map(fn (RentalLeaseTemplate $t) => [
+                'template' => $t,
+                'missing' => $draftService->missingRequiredFields($lease, $t, [], $request->user()),
+            ]);
 
         return view('corex.leases.renewal', [
             'lease' => $lease,
             'canCopyForward' => $lease->source === 'esign_document' && (bool) $lease->source_document_id,
+            'leaseTemplates' => $leaseTemplates,
             'tenantNoticePeriodDays' => \App\Models\LeaseSetting::tenantNoticePeriodDaysFor($lease->agency_id),
+            'autoReadvertiseOnNotice' => \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id),
         ]);
     }
 
@@ -56,12 +68,35 @@ class LeaseRenewalController extends Controller
      */
     public function draftCopyForward(Request $request, Lease $lease): RedirectResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         $terms = $this->validateTerms($request);
 
         try {
             $result = app(RenewalDraftService::class)->copyForward($lease, $terms, $request->user());
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors());
+        }
+
+        return redirect()->route('docuperfect.esign.step', ['flow' => $result['flow']->id, 'step' => 2])
+            ->with('success', 'Renewal draft created — review and send when ready.');
+    }
+
+    /**
+     * §5(b) — GATE 1: draft fresh from the agency's own mapped lease
+     * template. Blocked (422, errors returned to the form) if any required
+     * field is still blank on this lease.
+     */
+    public function draftFromTemplate(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $validated = $request->validate(['rental_lease_template_id' => ['required', 'integer', 'exists:rental_lease_templates,id']]);
+        $terms = $this->validateTerms($request);
+        $rentalLeaseTemplate = RentalLeaseTemplate::findOrFail($validated['rental_lease_template_id']);
+
+        try {
+            $result = app(RenewalDraftService::class)->draftFromTemplate($lease, $rentalLeaseTemplate, $terms, $request->user());
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
@@ -78,7 +113,7 @@ class LeaseRenewalController extends Controller
      */
     public function uploadRenewal(Request $request, Lease $lease): RedirectResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         $terms = $this->validateTerms($request);
         $request->validate(['signed_document' => $this->documentUploadRule(20480)]);
@@ -125,7 +160,7 @@ class LeaseRenewalController extends Controller
 
     public function monthToMonth(Request $request, Lease $lease): RedirectResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
 
         app(LeaseRenewalService::class)->recordMonthToMonth($lease, $validated['note'] ?? null, $request->user());
@@ -135,7 +170,7 @@ class LeaseRenewalController extends Controller
 
     public function reverseMonthToMonth(Request $request, Lease $lease): RedirectResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         app(LeaseRenewalService::class)->reverseMonthToMonth($lease, $request->user());
 
@@ -154,14 +189,23 @@ class LeaseRenewalController extends Controller
 
     private function recordNotice(Request $request, Lease $lease, string $givenBy): RedirectResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate([
             'move_out_date' => ['required', 'date'],
             'note' => ['nullable', 'string', 'max:500'],
         ]);
 
+        // .ai/specs/rental-renewals.md §15 (GATE 2) row 2 — the dialog's own
+        // tick, defaulting from the agency setting when the form didn't
+        // render a value at all (never when the box was actually unticked —
+        // the view always renders this checkbox, so has() tells apart "box
+        // absent from this request" from "box present and unticked").
+        $readvertise = $request->has('readvertise')
+            ? $request->boolean('readvertise')
+            : \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id);
+
         try {
-            app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user());
+            app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $readvertise);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }
@@ -171,7 +215,7 @@ class LeaseRenewalController extends Controller
 
     public function reverseNotice(Request $request, Lease $lease): RedirectResponse
     {
-        $this->guardLease($lease);
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         app(LeaseRenewalService::class)->reverseNotice($lease, $request->user());
 

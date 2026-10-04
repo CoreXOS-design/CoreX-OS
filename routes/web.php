@@ -2929,6 +2929,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
     Route::post('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'update'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.update');
+    // .ai/specs/rental-renewals.md §5(b)/§9 — GATE 1: which imported DocuPerfect
+    // templates an agency treats as its rental lease/renewal/addendum documents.
+    Route::prefix('rental-lease-templates')->middleware('permission:rental_lease_templates.manage_settings')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'index'])->name('corex.rental-lease-templates.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'create'])->name('corex.rental-lease-templates.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'store'])->name('corex.rental-lease-templates.store');
+        Route::get('/{rentalLeaseTemplate}/edit', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'edit'])->name('corex.rental-lease-templates.edit');
+        Route::put('/{rentalLeaseTemplate}', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'update'])->name('corex.rental-lease-templates.update');
+        Route::delete('/{rentalLeaseTemplate}', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'destroy'])->name('corex.rental-lease-templates.destroy');
+        Route::post('/{rentalLeaseTemplate}/restore', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'restore'])->name('corex.rental-lease-templates.restore');
+    });
     // .ai/specs/agency-onboarding-rentals-step.md §8 — fault-report and out-inspection
     // signing windows, agency-configurable, both default 7 days.
     Route::get('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'edit'])
@@ -3253,6 +3264,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
     });
 
+    // .ai/specs/rental-command-centre.md — AT-441. Read-only cross-entity
+    // dashboard; every action button navigates into the owning screen's own
+    // permission-gated route (leases/*, rental-fault-reports/*, rental-work-
+    // orders/*, rental-inspections/*) — no write routes live here.
+    Route::prefix('rentals/command-centre')->middleware('permission:rental_command_centre.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'index'])->name('corex.rentals.command-centre.index');
+        Route::get('/print', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'print'])->name('corex.rentals.command-centre.print');
+    });
+
     // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
     // is not linked to a property, a tenant is linked to a LEASE, and the
     // lease is linked to the property."
@@ -3279,6 +3299,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::middleware('permission:leases.renew')->prefix('{lease}/renewal')->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'create'])->name('corex.leases.renewal.create');
             Route::post('/draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'draftCopyForward'])->name('corex.leases.renewal.draft');
+            Route::post('/draft-from-template', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'draftFromTemplate'])->name('corex.leases.renewal.draft-from-template');
             Route::post('/upload', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'uploadRenewal'])->name('corex.leases.renewal.upload');
             Route::post('/month-to-month', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'monthToMonth'])->name('corex.leases.renewal.month-to-month');
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseMonthToMonth'])->name('corex.leases.renewal.month-to-month.reverse');

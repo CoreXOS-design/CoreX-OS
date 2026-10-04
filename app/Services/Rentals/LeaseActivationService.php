@@ -109,6 +109,12 @@ class LeaseActivationService
             return;
         }
 
+        // .ai/specs/rental-renewals.md §15 (GATE 2) — capture what the
+        // property was BEFORE being let, so rows 6/7 can restore it once
+        // the tenancy truly ends. Must happen before $oldStatus below
+        // overwrites $property->status in memory.
+        app(PropertyStatusFollowsLeaseService::class)->captureStatusBeforeLetting($property);
+
         $oldStatus = $property->status;
         $property->status = $leasedOutStatus;
         $property->save();

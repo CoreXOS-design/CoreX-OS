@@ -46,12 +46,27 @@ class LeaseSetting extends Model
     // legal minimum CoreX enforces; an agency-configurable sensible default.
     public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
 
+    // .ai/specs/rental-renewals.md §15 (GATE 2, approved 2026-10-04) — each
+    // transition is independently toggle-able, default ON.
+    public const DEFAULT_AUTO_READVERTISE_ON_NOTICE = true;
+    public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED = true;
+    public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_CANCELLED = true;
+    // 'draft' is seeded is_default=true for every agency (confirmed) — a
+    // safe, agency-neutral fallback when no status_before_letting was ever
+    // captured (a lease active before this feature shipped). NOT a new
+    // status — the agency's own existing 'draft' PropertySettingItem.
+    public const DEFAULT_PRE_LET_STATUS = 'draft';
+
     protected $fillable = [
         'agency_id',
         'expiry_notice_window_days',
         'show_lease_type_field',
         'default_deposit_months',
         'tenant_notice_period_days',
+        'auto_readvertise_on_notice',
+        'auto_restore_status_on_lease_ended',
+        'auto_restore_status_on_lease_cancelled',
+        'default_pre_let_status',
     ];
 
     protected $casts = [
@@ -59,6 +74,9 @@ class LeaseSetting extends Model
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
         'tenant_notice_period_days' => 'integer',
+        'auto_readvertise_on_notice' => 'boolean',
+        'auto_restore_status_on_lease_ended' => 'boolean',
+        'auto_restore_status_on_lease_cancelled' => 'boolean',
     ];
 
     public static function expiryNoticeWindowDaysFor(?int $agencyId): int
@@ -103,5 +121,49 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->tenant_notice_period_days ?? self::DEFAULT_TENANT_NOTICE_PERIOD_DAYS;
+    }
+
+    public static function autoReadvertiseOnNoticeFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_AUTO_READVERTISE_ON_NOTICE;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->auto_readvertise_on_notice ?? self::DEFAULT_AUTO_READVERTISE_ON_NOTICE;
+    }
+
+    public static function autoRestoreStatusOnLeaseEndedFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->auto_restore_status_on_lease_ended ?? self::DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED;
+    }
+
+    public static function autoRestoreStatusOnLeaseCancelledFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_CANCELLED;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->auto_restore_status_on_lease_cancelled ?? self::DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_CANCELLED;
+    }
+
+    public static function defaultPreLetStatusFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_PRE_LET_STATUS;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->default_pre_let_status ?: self::DEFAULT_PRE_LET_STATUS;
     }
 }

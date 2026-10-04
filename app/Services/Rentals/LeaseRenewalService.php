@@ -144,38 +144,61 @@ class LeaseRenewalService
      * renewing": same mechanism, distinguished only by $givenBy for the
      * tenancy log and any future landlord-communication content (§7's own
      * wording — the outcome is identical either way).
+     *
+     * §15 (GATE 2) row 2 — $readvertise is the dialog's own tick ("put this
+     * property back on the market"); the CALLER resolves its default from
+     * LeaseSetting::autoReadvertiseOnNoticeFor() before calling this, so the
+     * service itself stays a pure "do what I'm told" orchestrator. Recorded
+     * on the lease (notice_readvertised) so reverseNotice() below knows
+     * whether a property-status change must also be undone.
      */
-    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user): Lease
+    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, bool $readvertise = false): Lease
     {
         if (!in_array($givenBy, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
             throw ValidationException::withMessages(['notice_given_by' => 'Invalid notice source.']);
         }
 
-        $lease->update([
-            'notice_date' => now()->toDateString(),
-            'notice_given_by' => $givenBy,
-            'move_out_date' => $moveOutDate,
-            'notice_note' => $note,
-        ]);
+        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $readvertise) {
+            $lease->update([
+                'notice_date' => now()->toDateString(),
+                'notice_given_by' => $givenBy,
+                'move_out_date' => $moveOutDate,
+                'notice_note' => $note,
+                'notice_readvertised' => $readvertise,
+            ]);
 
-        $who = $givenBy === Lease::NOTICE_BY_TENANT ? 'Tenant gave notice' : 'Landlord not renewing';
-        $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_RECORDED, "{$who} — move-out {$moveOutDate}" . ($note ? " — {$note}" : ''), $user, ['given_by' => $givenBy, 'move_out_date' => $moveOutDate, 'note' => $note]);
+            $who = $givenBy === Lease::NOTICE_BY_TENANT ? 'Tenant gave notice' : 'Landlord not renewing';
+            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_RECORDED, "{$who} — move-out {$moveOutDate}" . ($note ? " — {$note}" : ''), $user, ['given_by' => $givenBy, 'move_out_date' => $moveOutDate, 'note' => $note, 'readvertise' => $readvertise]);
 
-        return $lease->fresh();
+            if ($readvertise) {
+                app(PropertyStatusFollowsLeaseService::class)->readvertiseOnNotice($lease, $moveOutDate, $user);
+            }
+
+            return $lease->fresh();
+        });
     }
 
     public function reverseNotice(Lease $lease, User $user): Lease
     {
-        $lease->update([
-            'notice_date' => null,
-            'notice_given_by' => null,
-            'move_out_date' => null,
-            'notice_note' => null,
-        ]);
+        return DB::transaction(function () use ($lease, $user) {
+            $wasReadvertised = (bool) $lease->notice_readvertised;
 
-        $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_REVERSED, 'Notice reversed', $user);
+            $lease->update([
+                'notice_date' => null,
+                'notice_given_by' => null,
+                'move_out_date' => null,
+                'notice_note' => null,
+                'notice_readvertised' => null,
+            ]);
 
-        return $lease->fresh();
+            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_REVERSED, 'Notice reversed', $user);
+
+            if ($wasReadvertised) {
+                app(PropertyStatusFollowsLeaseService::class)->reverseReadvertise($lease, $user);
+            }
+
+            return $lease->fresh();
+        });
     }
 
     private function logEvent(Lease $lease, string $type, string $description, User $user, ?array $metadata = null): void
