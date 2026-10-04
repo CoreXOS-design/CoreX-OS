@@ -296,7 +296,7 @@ change would. No new portal-sync code anywhere in this gate.
 | Row | Event | New status | Advertise? | Availability date | Built |
 |---|---|---|---|---|---|
 | 1 | Lease activated | `let_out` | No | — | AT-440 (unchanged) |
-| 2 | Notice + readvertise ticked | `status_before_letting` (or the agency's `default_pre_let_status`) | **Yes** | day after move-out | **This gate** |
+| 2 | Notice + readvertise ticked | the agency's `default_pre_let_status` setting, **always** — never `status_before_letting` | **Yes** | day after move-out | **This gate** |
 | 2 (unticked) | Notice, not readvertised | unchanged (`let_out`) | No | — | **This gate** |
 | 3 | Renewal signed | unchanged (`let_out`) | No | — | Already true — test added, no code |
 | 4 | Month-to-month | unchanged (`let_out`) | No | — | Already true — test added, no code |
@@ -318,15 +318,32 @@ which already reads `OFF_MARKET_STATUSES`):
   change to files outside this gate's own scope, not attempted here.
 - Rows 3/4: stays off-market (`let_out`) — confirmed by test, no portal effect.
 - Row 5: no change — by design.
-- Rows 6/7: back on-market, same mechanism as row 2.
+- Rows 6/7: back on-market, but via a DIFFERENT mechanism than row 2 — see the correction below.
 
 **Three agency settings, each independently toggle-able, default ON** (`LeaseSetting`):
 `auto_readvertise_on_notice` (row 2 — also the dialog's own checkbox default),
 `auto_restore_status_on_lease_ended` (row 6), `auto_restore_status_on_lease_cancelled` (row 7); plus
-`default_pre_let_status` (fallback when no `status_before_letting` was ever captured — a lease active
-before this feature shipped — default `'draft'`, seeded `is_default=true` for every agency, not a new
-status). All four surfaced in the Setup Wizard's existing 'leases' step and the Lease Settings page,
-same `has()`-guarded saver pattern as every other setting on that step.
+`default_pre_let_status`, default `'active'` — chosen deliberately: `'active'` is in
+`Property::systemStatuses()` (hardcoded always-allowed for every agency, Property.php:1776) and is NOT
+in `OFF_MARKET_STATUSES`, so it is safe cross-agency without depending on any agency having configured
+a `'to_let'`-style item.
+
+**Correction, found and fixed during testing — row 2 is NOT "the same mechanism" as rows 6/7, and an
+earlier draft of this section wrongly described it as one shared expression:**
+- **Row 2** (notice + readvertise ticked) ALWAYS uses `default_pre_let_status` directly. It never reads
+  `status_before_letting` — the notice dialog's instruction is unconditional ("put this property back
+  on the market"), and `status_before_letting` can itself hold an off-market value (e.g. a property let
+  directly from `draft`), which would silently violate that instruction.
+- **Rows 6/7** (lease ended / cancelled) restore the property's own captured `status_before_letting`,
+  falling back to `default_pre_let_status` only when nothing was ever captured (a lease active before
+  this feature shipped). This is "restore what it actually was," a genuinely different rule from row
+  2's "put it on-market per the agency's setting."
+- A regression test (`test_row2_uses_the_on_market_setting_even_when_it_differs_from_status_before_letting`)
+  deliberately sets the two to different values so a future conflation of the two mechanisms fails
+  loudly instead of coincidentally passing.
+
+All four settings are surfaced in the Setup Wizard's existing 'leases' step and the Lease Settings
+page, same `has()`-guarded saver pattern as every other setting on that step.
 
 **Row 6's trigger — a model observer, not a controller edit.** `RentalInspectionController` is cc1's
 file (task brief: do not touch). `App\Observers\RentalInspectionCompletionObserver`, registered via
@@ -340,11 +357,12 @@ was `active` with no renewal) and calls `restorePreLetStatus()`.
 "was this lease actually `STATUS_ACTIVE` before cancelling" so a draft cancelled pre-activation (which
 never flipped the property in the first place) never touches it.
 
-**Tests**: `tests/Feature/Leases/LeasePropertyStatusTest.php` — 15 cases: row 1's capture + flip +
-`isOnMarket()`, row 2 ticked/unticked/reversed + its toggle, rows 3/4's "no change" invariant + their
-`isOnMarket()` assertions, row 5's "untouched" invariant, row 6 (fires on OUT, ignores IN) + its
-toggle + clearing `status_before_letting`, row 7 (fires on an active lease, no-ops on a never-activated
-draft) + its toggle, and the fallback `default_pre_let_status` path when nothing was ever captured.
+**Tests**: `tests/Feature/Leases/LeasePropertyStatusTest.php` — 16 cases: row 1's capture + flip +
+`isOnMarket()`, row 2 ticked/unticked/reversed + its toggle + the row-2-vs-rows-6/7 regression test
+above, rows 3/4's "no change" invariant + their `isOnMarket()` assertions, row 5's "untouched"
+invariant, row 6 (fires on OUT, ignores IN) + its toggle + clearing `status_before_letting`, row 7
+(fires on an active lease, no-ops on a never-activated draft) + its toggle, and the fallback
+`default_pre_let_status` path when nothing was ever captured.
 
 ### Item 6 — e-sign completion → activation, now fully wired (see §14's entry above for the code)
 
