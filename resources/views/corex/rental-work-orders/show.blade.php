@@ -33,6 +33,11 @@
         </div>
     </div>
 
+    {{-- AT-439 Part 3, item 2 — the shared rental context bar, handed to
+         this screen by the AT-440 build that created it (its own docblock
+         names this exact include). --}}
+    <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />
+
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
             <div class="col-span-2"><span style="color: var(--text-muted);">Description:</span> {{ $workOrder->description }}</div>

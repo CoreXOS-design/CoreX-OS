@@ -156,7 +156,12 @@
                 @endif
                 <div>
                     <span style="color: var(--text-muted);">Landlord(s):</span>
-                    {{ $landlords->isEmpty() ? 'Not linked' : $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}
+                    @if($landlords->isEmpty())
+                        No landlord linked
+                        <a href="{{ route('corex.properties.show', $lease->property) }}?tab=contacts" class="underline text-xs" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                    @else
+                        {{ $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}
+                    @endif
                 </div>
                 @if($lease->previousLease)
                     <div class="text-xs" style="color: var(--text-muted);">Renewed from <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.</div>

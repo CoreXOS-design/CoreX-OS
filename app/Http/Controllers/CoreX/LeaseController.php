@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\ExportsRentalList;
 use App\Models\Lease;
 use App\Models\LeaseEscalation;
 use App\Models\LeaseTenant;
@@ -28,9 +29,12 @@ use Illuminate\View\View;
 class LeaseController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use ExportsRentalList;
 
     /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
     private const LEASE_EXPIRING_SOON_DAYS = 60;
+
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
     /**
      * The Leases list screen. Search: property address, tenant name(s).
@@ -62,9 +66,83 @@ class LeaseController extends Controller
         }
         $direction = $direction === 'desc' ? 'desc' : 'asc';
 
+        $showArchived = $request->boolean('archived');
+        $query = $this->filteredLeasesQuery($request, $showArchived);
+
+        if ($sort === 'property') {
+            $query->join('properties', 'properties.id', '=', 'leases.property_id')
+                ->orderBy('properties.title', $direction)
+                ->select('leases.*');
+        } else {
+            $query->orderBy("leases.{$sort}", $direction);
+        }
+
+        $hasAnyLeases = Lease::query()->visibleTo($user, $request->get('scope'))->exists();
+
+        $perPage = (int) $request->get('per_page', 25);
+        if (!in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $leases = $query->paginate($perPage)->withQueryString();
+
+        // §39, 2026-09-28 — Johan: a summary tiles row, the same reused
+        // FICA/rental-applications pattern as rental-inspections (§39
+        // there). Status tiles are the real enum (Lease::STATUS_*), not
+        // invented. Exception tile: "Expiring soon" — an active lease
+        // whose end_date falls within the next LEASE_EXPIRING_SOON_DAYS
+        // days. No agency-configurable renewal-reminder-window setting
+        // exists on this model today (checked — nothing to reuse); adding
+        // one is a real setting (Non-negotiable #10a: Setup Wizard entry,
+        // saver, the works) and out of scope for a tiles row. A fixed
+        // 60-day default is used instead, same "sensible fixed default,
+        // no new setting" call as any other unconfigured threshold —
+        // flagged here for Johan if he wants it made configurable later.
+        $leaseTileBase = fn () => Lease::query()->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'total' => $leaseTileBase()->count(),
+            'draft' => $leaseTileBase()->where('leases.status', Lease::STATUS_DRAFT)->count(),
+            'active' => $leaseTileBase()->where('leases.status', Lease::STATUS_ACTIVE)->count(),
+            'expired' => $leaseTileBase()->where('leases.status', Lease::STATUS_EXPIRED)->count(),
+            'cancelled' => $leaseTileBase()->where('leases.status', Lease::STATUS_CANCELLED)->count(),
+            'expiring_soon' => $leaseTileBase()
+                ->where('leases.status', Lease::STATUS_ACTIVE)
+                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)])
+                ->count(),
+        ];
+
+        return view('corex.leases.index', [
+            'leases' => $leases,
+            'sort' => $sort,
+            'direction' => $direction,
+            'hasAnyLeases' => $hasAnyLeases,
+            'showArchived' => $showArchived,
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
+            'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
+        ]);
+    }
+
+    /**
+     * Shared scoped+filtered query, reused by index()/printList()/export()
+     * so the three never drift on what "the current filtered list" means.
+     * Returns an UNSORTED, UNPAGINATED builder — callers apply their own
+     * ordering/pagination on top.
+     */
+    private function filteredLeasesQuery(Request $request, bool $onlyArchived = false)
+    {
+        $user = $request->user();
+
         $query = Lease::query()
             ->visibleTo($user, $request->get('scope'))
             ->with(['property', 'tenants.contact']);
+
+        if ($onlyArchived) {
+            $query->onlyTrashed();
+        }
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -104,52 +182,74 @@ class LeaseController extends Controller
                 ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)]);
         }
 
-        if ($sort === 'property') {
-            $query->join('properties', 'properties.id', '=', 'leases.property_id')
-                ->orderBy('properties.title', $direction)
-                ->select('leases.*');
-        } else {
-            $query->orderBy("leases.{$sort}", $direction);
+        return $query;
+    }
+
+    /** Human-readable active-filter summary for the print-list header/export filename — shared shape across all four rental lists. */
+    private function activeLeaseFiltersSummary(Request $request): array
+    {
+        $out = [];
+        if ($q = $request->get('q')) {
+            $out['Search'] = $q;
         }
+        if ($status = $request->get('status')) {
+            $out['Status'] = ucfirst($status);
+        }
+        if ($request->boolean('expiring_soon')) {
+            $out['Expiring soon'] = 'Yes';
+        }
+        if ($df = $request->get('date_from')) {
+            $out['End date from'] = $df;
+        }
+        if ($dt = $request->get('date_to')) {
+            $out['End date to'] = $dt;
+        }
+        if ($request->boolean('archived')) {
+            $out['Archived'] = 'Yes';
+        }
+        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
+            $request->get('scope'),
+            \App\Services\PermissionService::getDataScope($request->user(), 'leases')
+        ));
 
-        $hasAnyLeases = Lease::query()->visibleTo($user, $request->get('scope'))->exists();
+        return $out;
+    }
 
-        $leases = $query->paginate(25)->withQueryString();
+    /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
+    public function printList(Request $request): View
+    {
+        $leases = $this->filteredLeasesQuery($request, $request->boolean('archived'))
+            ->orderBy('leases.end_date')
+            ->get();
 
-        // §39, 2026-09-28 — Johan: a summary tiles row, the same reused
-        // FICA/rental-applications pattern as rental-inspections (§39
-        // there). Status tiles are the real enum (Lease::STATUS_*), not
-        // invented. Exception tile: "Expiring soon" — an active lease
-        // whose end_date falls within the next LEASE_EXPIRING_SOON_DAYS
-        // days. No agency-configurable renewal-reminder-window setting
-        // exists on this model today (checked — nothing to reuse); adding
-        // one is a real setting (Non-negotiable #10a: Setup Wizard entry,
-        // saver, the works) and out of scope for a tiles row. A fixed
-        // 60-day default is used instead, same "sensible fixed default,
-        // no new setting" call as any other unconfigured threshold —
-        // flagged here for Johan if he wants it made configurable later.
-        $leaseTileBase = fn () => Lease::query()->visibleTo($user, $request->get('scope'));
-        $tileCounts = [
-            'draft' => $leaseTileBase()->where('leases.status', Lease::STATUS_DRAFT)->count(),
-            'active' => $leaseTileBase()->where('leases.status', Lease::STATUS_ACTIVE)->count(),
-            'expired' => $leaseTileBase()->where('leases.status', Lease::STATUS_EXPIRED)->count(),
-            'cancelled' => $leaseTileBase()->where('leases.status', Lease::STATUS_CANCELLED)->count(),
-            'expiring_soon' => $leaseTileBase()
-                ->where('leases.status', Lease::STATUS_ACTIVE)
-                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)])
-                ->count(),
-        ];
-
-        return view('corex.leases.index', [
+        return view('corex.leases.print-list', [
             'leases' => $leases,
-            'sort' => $sort,
-            'direction' => $direction,
-            'hasAnyLeases' => $hasAnyLeases,
-            'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
-            'tileCounts' => $tileCounts,
-            'resolvedScope' => $resolvedScope,
-            'scopeOptions' => $scopeOptions,
+            'printFilters' => $this->activeLeaseFiltersSummary($request),
         ]);
+    }
+
+    /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
+    public function export(Request $request)
+    {
+        $leases = $this->filteredLeasesQuery($request, $request->boolean('archived'))
+            ->orderBy('leases.end_date')
+            ->get();
+
+        $headers = ['Property', 'Tenant(s)', 'Status', 'Start', 'End', 'Rent'];
+        $rows = $leases->map(fn (Lease $lease) => [
+            $lease->property?->buildDisplayAddress() ?? 'Unknown property',
+            $lease->tenantNames(),
+            ucfirst($lease->status),
+            $lease->start_date?->format('Y-m-d') ?? '',
+            $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : ''),
+            number_format((float) $lease->rental_amount, 2),
+        ]);
+
+        $filename = 'leases-' . now()->format('Y-m-d');
+
+        return $request->get('format') === 'csv'
+            ? $this->streamRentalListCsv($filename . '.csv', $headers, $rows)
+            : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
     public function create(Request $request): View

@@ -30,7 +30,7 @@
             <select name="property_id" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 <option value="">Select a property…</option>
                 @foreach($properties as $p)
-                    <option value="{{ $p->id }}" @selected(old('property_id') == $p->id)>{{ $p->buildDisplayAddress() }}</option>
+                    <option value="{{ $p->id }}" @selected(old('property_id', $selectedPropertyId) == $p->id)>{{ $p->buildDisplayAddress() }}</option>
                 @endforeach
             </select>
             @if($properties->isEmpty())

@@ -31,26 +31,8 @@
         @endpermission
     </div>
 
-    {{-- AT-439 — own/branch/all "Showing:" control, same component/markup as
-         rental-applications' own (corex/rental-applications/index.blade.php) —
-         options built from $scopeOptions (the user's real ceiling; a wider
-         pill never renders), highlighted from $resolvedScope. --}}
-    @if(count($scopeOptions) > 1)
-    <div class="flex items-center gap-2">
-        <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
-        <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-            @foreach($scopeOptions as $i => $sc)
-            <a href="{{ route('corex.leases.index', array_merge(request()->except(['scope', 'page']), ['scope' => $sc])) }}"
-               class="px-3 py-1.5 text-xs font-semibold"
-               style="{{ $i > 0 ? 'border-left: 1px solid var(--border);' : '' }} {{ $resolvedScope === $sc ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ ucfirst($sc) }}</a>
-            @endforeach
-        </div>
-    </div>
-    @endif
-
-    {{-- §39, 2026-09-28 — summary tiles row, the same reused FICA/rental-
-         applications tab-tile pattern (compliance/fica/index.blade.php),
-         never a new design. One row, no helper text. --}}
+    {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
+         .ai/specs/rentals-rebuild.md §1.1. First tile = Total. --}}
     @php
         $currentTile = null;
         if (($filters['status'] ?? '') === 'draft') { $currentTile = 'draft'; }
@@ -58,8 +40,10 @@
         elseif (($filters['status'] ?? '') === 'expired') { $currentTile = 'expired'; }
         elseif (($filters['status'] ?? '') === 'cancelled') { $currentTile = 'cancelled'; }
         elseif ($filters['expiring_soon'] ?? false) { $currentTile = 'expiring_soon'; }
+        elseif (!($filters['status'] ?? null)) { $currentTile = 'total'; }
 
         $tileDefs = [
+            'total' => ['label' => 'Total', 'params' => []],
             'draft' => ['label' => 'Draft', 'params' => ['status' => 'draft']],
             'active' => ['label' => 'Active', 'params' => ['status' => 'active']],
             'expired' => ['label' => 'Expired', 'params' => ['status' => 'expired']],
@@ -69,24 +53,34 @@
         $tileClearParams = ['status' => null, 'expiring_soon' => null, 'page' => null];
         $tileHref = fn ($key, $def) => route('corex.leases.index', array_merge(
             request()->except(array_keys($tileClearParams)),
-            $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
+            $key === 'total' || $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
         ));
+        $tiles = collect($tileDefs)->map(fn ($def, $key) => [
+            'key' => $key,
+            'label' => $def['label'],
+            'count' => $tileCounts[$key],
+            'href' => $tileHref($key, $def),
+            'active' => $currentTile === $key,
+        ])->values()->all();
     @endphp
-    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
-        @foreach($tileDefs as $key => $def)
-            @php $active = $currentTile === $key; @endphp
-            <a href="{{ $tileHref($key, $def) }}"
-               class="px-4 py-2 transition-colors"
-               style="{{ $active
-                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
-                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
-                {{ $def['label'] }}
-                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($tileCounts[$key]) }}</span>
-            </a>
-        @endforeach
-    </div>
+    <x-rental-list-controls
+        :tiles="$tiles"
+        :scope-options="$scopeOptions"
+        :resolved-scope="$resolvedScope"
+        route-name="corex.leases.index"
+        :per-page="$perPage"
+        :per-page-options="$perPageOptions"
+        :archivable="true"
+        :archived="$showArchived"
+        :print-url="route('corex.leases.print-list', request()->query())"
+        :export-xlsx-url="route('corex.leases.export', array_merge(request()->query(), ['format' => 'xlsx']))"
+        :export-csv-url="route('corex.leases.export', array_merge(request()->query(), ['format' => 'csv']))"
+    />
 
     <form method="GET" action="{{ route('corex.leases.index') }}" class="flex flex-wrap items-end gap-3">
+        @if($showArchived)
+            <input type="hidden" name="archived" value="1">
+        @endif
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -132,17 +126,34 @@
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="lease-row-{{ $lease->id }}">
                     <td class="px-4 py-2">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
                     <td class="px-4 py-2">{{ $lease->tenantNames() }}</td>
-                    <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ ucfirst($lease->status) }}</span></td>
+                    <td class="px-4 py-2">
+                        @if($showArchived)
+                            <span class="ds-badge ds-badge-muted">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
+                        @else
+                            <span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ ucfirst($lease->status) }}</span>
+                        @endif
+                    </td>
                     <td class="px-4 py-2">{{ $lease->start_date?->format('Y-m-d') }}</td>
                     <td class="px-4 py-2">{{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td>
                     <td class="px-4 py-2">R{{ number_format((float) $lease->rental_amount, 2) }}</td>
                     <td class="px-4 py-2 text-right">
-                        <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">View</a>
+                        @if($showArchived)
+                            @permission('leases.create')
+                            <form method="POST" action="{{ route('corex.leases.restore', $lease->id) }}" class="inline">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                            </form>
+                            @endpermission
+                        @else
+                            <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">View</a>
+                        @endif
                     </td>
                 </tr>
                 @empty
                 <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
-                    @if(!$hasAnyLeases)
+                    @if($showArchived)
+                        No archived leases on this agency.
+                    @elseif(!$hasAnyLeases)
                         No leases yet on this agency. Every rental tenancy starts here — click "New Lease" to add the first one.
                     @else
                         No leases match this search or filter. Try clearing a filter.

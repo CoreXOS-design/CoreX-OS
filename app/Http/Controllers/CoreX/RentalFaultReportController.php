@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\ExportsRentalList;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
@@ -27,6 +28,9 @@ use Illuminate\View\View;
 class RentalFaultReportController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use ExportsRentalList;
+
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
     /**
      * Search: property address, title/description. Sort: reported_at
@@ -57,7 +61,85 @@ class RentalFaultReportController extends Controller
         }
         $direction = $direction === 'asc' ? 'asc' : 'desc';
 
+        $showArchived = $request->boolean('archived');
+        $query = $this->filteredFaultReportsQuery($request, $showArchived);
+
+        $propertyId = $request->get('property_id');
+        $leaseId = $request->get('lease_id');
+
+        if ($sort === 'property') {
+            $query->join('properties', 'properties.id', '=', 'rental_fault_reports.property_id')
+                ->orderBy('properties.title', $direction)
+                ->select('rental_fault_reports.*');
+        } else {
+            $query->orderBy("rental_fault_reports.{$sort}", $direction);
+        }
+
+        $hasAnyFaultReports = RentalFaultReport::query()
+            ->when($showArchived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'))->exists();
+
+        $perPage = (int) $request->get('per_page', 25);
+        if (!in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $faultReports = $query->paginate($perPage)->withQueryString();
+
+        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
+        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
+
+        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
+        // applications pattern (§39 note on RentalInspectionController).
+        // Status tiles are the real enum (RentalFaultReport::STATUS_*).
+        $frTileBase = fn () => RentalFaultReport::query()
+            ->when($showArchived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'total' => $frTileBase()->count(),
+            'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
+            'awaiting_approval' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_AWAITING_APPROVAL)->count(),
+            'approved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_APPROVED)->count(),
+            'declined' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_DECLINED)->count(),
+            'work_order_raised' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_WORK_ORDER_RAISED)->count(),
+            'owner_handling' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_OWNER_HANDLING)->count(),
+            'resolved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_RESOLVED)->count(),
+            'cancelled' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_CANCELLED)->count(),
+            'open_no_work_order' => $frTileBase()
+                ->whereNotIn('rental_fault_reports.status', [
+                    RentalFaultReport::STATUS_RESOLVED,
+                    RentalFaultReport::STATUS_CANCELLED,
+                    RentalFaultReport::STATUS_DECLINED,
+                ])->whereDoesntHave('workOrder')->count(),
+        ];
+
+        return view('corex.rental-fault-reports.index', [
+            'faultReports' => $faultReports,
+            'sort' => $sort,
+            'direction' => $direction,
+            'hasAnyFaultReports' => $hasAnyFaultReports,
+            'showArchived' => $showArchived,
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order']),
+            'filteredProperty' => $filteredProperty,
+            'filteredLease' => $filteredLease,
+            'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
+        ]);
+    }
+
+    /**
+     * Shared scoped+filtered query, reused by index()/printList()/export().
+     * Returns an UNSORTED, UNPAGINATED builder.
+     */
+    private function filteredFaultReportsQuery(Request $request, bool $onlyArchived = false)
+    {
+        $user = $request->user();
+
         $query = RentalFaultReport::query()
+            ->when($onlyArchived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
             ->with(['property', 'lease.tenants.contact', 'createdByUser']);
 
@@ -114,54 +196,75 @@ class RentalFaultReportController extends Controller
             $query->where('rental_fault_reports.reported_at', '<=', $dateTo);
         }
 
-        if ($sort === 'property') {
-            $query->join('properties', 'properties.id', '=', 'rental_fault_reports.property_id')
-                ->orderBy('properties.title', $direction)
-                ->select('rental_fault_reports.*');
-        } else {
-            $query->orderBy("rental_fault_reports.{$sort}", $direction);
+        return $query;
+    }
+
+    private function activeFaultReportFiltersSummary(Request $request): array
+    {
+        $out = [];
+        if ($q = $request->get('q')) {
+            $out['Search'] = $q;
         }
+        if ($status = $request->get('status')) {
+            $out['Status'] = ucfirst(str_replace('_', ' ', $status));
+        }
+        if ($outcome = $request->get('outcome')) {
+            $out['Outcome'] = ucfirst(str_replace('_', ' ', $outcome));
+        }
+        if ($request->boolean('open_no_work_order')) {
+            $out['Open, no work order'] = 'Yes';
+        }
+        if ($df = $request->get('date_from')) {
+            $out['Reported from'] = $df;
+        }
+        if ($dt = $request->get('date_to')) {
+            $out['Reported to'] = $dt;
+        }
+        if ($request->boolean('archived')) {
+            $out['Archived'] = 'Yes';
+        }
+        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
+            $request->get('scope'),
+            \App\Services\PermissionService::getDataScope($request->user(), 'rental_fault_reports')
+        ));
 
-        $hasAnyFaultReports = RentalFaultReport::query()->visibleTo($user, $request->get('scope'))->exists();
+        return $out;
+    }
 
-        $faultReports = $query->paginate(25)->withQueryString();
+    /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
+    public function printList(Request $request): View
+    {
+        $faultReports = $this->filteredFaultReportsQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_fault_reports.reported_at', 'desc')
+            ->get();
 
-        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
-        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
-
-        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
-        // applications pattern (§39 note on RentalInspectionController).
-        // Status tiles are the real enum (RentalFaultReport::STATUS_*).
-        $frTileBase = fn () => RentalFaultReport::query()->visibleTo($user, $request->get('scope'));
-        $tileCounts = [
-            'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
-            'awaiting_approval' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_AWAITING_APPROVAL)->count(),
-            'approved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_APPROVED)->count(),
-            'declined' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_DECLINED)->count(),
-            'work_order_raised' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_WORK_ORDER_RAISED)->count(),
-            'owner_handling' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_OWNER_HANDLING)->count(),
-            'resolved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_RESOLVED)->count(),
-            'cancelled' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_CANCELLED)->count(),
-            'open_no_work_order' => $frTileBase()
-                ->whereNotIn('rental_fault_reports.status', [
-                    RentalFaultReport::STATUS_RESOLVED,
-                    RentalFaultReport::STATUS_CANCELLED,
-                    RentalFaultReport::STATUS_DECLINED,
-                ])->whereDoesntHave('workOrder')->count(),
-        ];
-
-        return view('corex.rental-fault-reports.index', [
+        return view('corex.rental-fault-reports.print-list', [
             'faultReports' => $faultReports,
-            'sort' => $sort,
-            'direction' => $direction,
-            'hasAnyFaultReports' => $hasAnyFaultReports,
-            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order']),
-            'filteredProperty' => $filteredProperty,
-            'filteredLease' => $filteredLease,
-            'tileCounts' => $tileCounts,
-            'resolvedScope' => $resolvedScope,
-            'scopeOptions' => $scopeOptions,
+            'printFilters' => $this->activeFaultReportFiltersSummary($request),
         ]);
+    }
+
+    /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
+    public function export(Request $request)
+    {
+        $faultReports = $this->filteredFaultReportsQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_fault_reports.reported_at', 'desc')
+            ->get();
+
+        $headers = ['Property', 'Title', 'Status', 'Outcome', 'Reported'];
+        $rows = $faultReports->map(fn (RentalFaultReport $fr) => [
+            $fr->property?->buildDisplayAddress() ?? 'Unknown property',
+            $fr->title,
+            ucfirst(str_replace('_', ' ', $fr->status)),
+            $fr->outcome ? ucfirst(str_replace('_', ' ', $fr->outcome)) : '',
+            $fr->reported_at?->format('Y-m-d') ?? '',
+        ]);
+
+        $filename = 'rental-fault-reports-' . now()->format('Y-m-d');
+
+        return $request->get('format') === 'csv'
+            ? $this->streamRentalListCsv($filename . '.csv', $headers, $rows)
+            : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
     /**
