@@ -56,7 +56,10 @@ class RentalCommandCentreController extends Controller
             'tile' => $tile,
         ];
 
-        $sort = $request->get('sort', 'address');
+        // Default per the brief: lease end ascending, soonest first —
+        // never "address" (which put vacant units, with no lease at all,
+        // first under plain alphabetical ordering).
+        $sort = $request->get('sort', 'lease_end');
         $direction = $request->get('direction', 'asc');
 
         $tableQuery = $service->tableQuery($user, $scope, $filters);
@@ -69,8 +72,11 @@ class RentalCommandCentreController extends Controller
             $perPage = $this->resolvePerPage($request);
             $properties = $tableQuery->with('agent')->paginate($perPage)->withQueryString();
 
+            // 8/page — the queue sits in a ~40%-width column beside the
+            // table on wide screens (approved mockup); 20 rows no longer
+            // fits without pushing the table off screen.
             $queueItems = $service->queueItems($user, $scope);
-            $queue = $service->paginateCollection($queueItems, 20, max(1, (int) $request->get('queue_page', 1)), 'queue_page');
+            $queue = $service->paginateCollection($queueItems, 8, max(1, (int) $request->get('queue_page', 1)), 'queue_page');
         }
 
         // Batched tenant-name lookup for the CURRENT page only — one extra
@@ -94,7 +100,7 @@ class RentalCommandCentreController extends Controller
             'tiles' => RentalCommandCentreService::TILES,
             'activeTile' => $tile,
             'filters' => $filters,
-            'sort' => in_array($sort, RentalCommandCentreService::SORT_COLUMNS, true) ? $sort : 'address',
+            'sort' => in_array($sort, RentalCommandCentreService::SORT_COLUMNS, true) ? $sort : 'lease_end',
             'direction' => $direction === 'desc' ? 'desc' : 'asc',
             'properties' => $properties,
             'tenantNamesByLeaseId' => $tenantNamesByLeaseId,
