@@ -4444,6 +4444,45 @@
                     @endif
                 </div>
 
+                {{-- AT-440 Lease Hub — shared rental context bar (leases.md
+                     §12.4 / rentals-foundation-at439.md §5), ONE include, no
+                     per-screen reimplementation. --}}
+                <x-rental-context-bar :property="$property" :lease="$activeLease" current="property" />
+
+                {{-- .ai/specs/leases.md §12.6 — occupancy history: every PAST
+                     lease on this property, newest first. This is the "who
+                     stayed when" record the Stage-1 audit found missing
+                     (audit Part 1 item 3 / Part 5 top-gap #7) — the active-
+                     lease box above answers "who lives here now"; this
+                     answers "who lived here before." Superseded plan: no
+                     second active-lease summary here, linking straight to
+                     the Lease Hub instead (Screen rule: no fact shown twice). --}}
+                @php
+                    $pastLeases = \App\Models\Lease::where('property_id', $property->id)
+                        ->whereIn('status', ['expired', 'cancelled'])
+                        ->with('tenants.contact')
+                        ->orderByDesc('start_date')
+                        ->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <strong>Occupancy history</strong>
+                    @if($pastLeases->isEmpty())
+                        <div style="color: var(--text-muted);">No past tenancies recorded on this property.</div>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($pastLeases as $pastLease)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $pastLease->tenantNames() }}
+                                        — {{ $pastLease->start_date?->format('Y-m-d') }}
+                                        to {{ $pastLease->end_date?->format('Y-m-d') ?? '—' }}
+                                        ({{ ucfirst($pastLease->status) }})</span>
+                                    <a href="{{ route('corex.leases.show', $pastLease) }}" class="text-xs underline">View</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
                 {{-- .ai/specs/rental-work-orders.md §3a/§6a — "Report a Fault"
                      button, Johan's own wording: an agent raises this standing
                      in the property. Lease pre-filled when there's an active
