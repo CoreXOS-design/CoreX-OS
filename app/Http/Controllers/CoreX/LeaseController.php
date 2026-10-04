@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\Lease;
 use App\Models\LeaseEscalation;
 use App\Models\LeaseTenant;
@@ -10,6 +11,10 @@ use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
+use App\Services\Rentals\LeaseHubService;
+use App\Services\Rentals\LeaseTimelineService;
+use App\Services\Rentals\RentalDocumentPdfService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -22,6 +27,8 @@ use Illuminate\View\View;
  */
 class LeaseController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
     private const LEASE_EXPIRING_SOON_DAYS = 60;
 
@@ -33,6 +40,19 @@ class LeaseController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
+
+        // AT-439 — own/branch/all "Showing:" control, same pattern as
+        // RentalApplicationController::index(). $query below still uses
+        // $request->get('scope') directly (Lease::scopeVisibleTo() clamps
+        // it internally against the same ceiling) — $resolvedScope/
+        // $scopeOptions here exist only to drive the toggle UI.
+        $maxScope = \App\Services\PermissionService::getDataScope($user, 'leases');
+        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
 
         $sort = $request->get('sort', 'end_date');
         $direction = $request->get('direction', 'asc');
@@ -127,6 +147,8 @@ class LeaseController extends Controller
             'hasAnyLeases' => $hasAnyLeases,
             'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
             'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
         ]);
     }
 
@@ -197,9 +219,32 @@ class LeaseController extends Controller
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease created.');
     }
 
+    /**
+     * .ai/specs/leases.md §12 — the lease detail becomes the tenancy file.
+     * Johan, 4 Oct 2026: the one screen that answers "what has happened on
+     * this tenancy, what needs to happen next, and is there anything open
+     * right now" without checking four other screens.
+     */
     public function show(Request $request, Lease $lease): View
     {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
         $lease->load(['property', 'tenants.contact', 'escalations.createdByUser', 'previousLease', 'renewedLease']);
+
+        $hubService = app(LeaseHubService::class);
+        $timelineService = app(LeaseTimelineService::class);
+
+        $filters = $request->only(['q', 'type', 'date_from', 'date_to']);
+        $types = array_filter((array) $request->get('type', []));
+        $page = (array) $timelineService->paginatedFor(
+            $lease,
+            $request->get('q'),
+            $types,
+            $request->get('date_from'),
+            $request->get('date_to'),
+            50,
+            (int) $request->get('page', 1)
+        );
 
         return view('corex.leases.show', [
             'lease' => $lease,
@@ -207,7 +252,58 @@ class LeaseController extends Controller
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
             // Johan, 2026-09-22 — agency-configurable, hidden by default.
             'showLeaseType' => \App\Models\LeaseSetting::showLeaseTypeFieldFor($lease->agency_id),
+            'lifecycle' => $hubService->lifecycle($lease),
+            'nextStep' => $hubService->nextStep($lease),
+            'openItemCounts' => $hubService->openItemCounts($lease),
+            'landlords' => $lease->landlordContacts(),
+            'timelineEntries' => $page['entries'],
+            'timelineTotal' => $page['total'],
+            'timelineTypes' => LeaseTimelineService::TYPES,
+            'timelineFilters' => $filters,
         ]);
+    }
+
+    /**
+     * AT-440 — JSON tenancy-log endpoint, same scope guard and same
+     * LeaseTimelineService the screen's own panel uses. Andre's mobile app
+     * calls this same endpoint for a tenant/agent mobile tenancy view
+     * (leases.md §12.4).
+     */
+    public function tenancyLog(Request $request, Lease $lease): JsonResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $timelineService = app(LeaseTimelineService::class);
+        $types = array_filter((array) $request->get('type', []));
+        $page = $timelineService->paginatedFor(
+            $lease,
+            $request->get('q'),
+            $types,
+            $request->get('date_from'),
+            $request->get('date_to'),
+            (int) $request->get('per_page', 50),
+            (int) $request->get('page', 1)
+        );
+
+        return response()->json([
+            'data' => $page['entries']->values(),
+            'total' => $page['total'],
+        ]);
+    }
+
+    /**
+     * .ai/specs/leases.md §12.2 — "Print tenancy report" action in the
+     * header. Same scope guard as show().
+     */
+    public function tenancyReportPdf(Lease $lease, RentalDocumentPdfService $service)
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $pdf = $service->leaseTenancyReportPdf($lease);
+
+        return request()->boolean('dl')
+            ? $pdf->download($service->leaseTenancyReportFilename($lease))
+            : $pdf->stream($service->leaseTenancyReportFilename($lease));
     }
 
     /**
@@ -227,6 +323,8 @@ class LeaseController extends Controller
      */
     public function update(Request $request, Lease $lease): RedirectResponse
     {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
         $validated = $request->validate([
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
             'end_date' => ['nullable', 'date', 'after:' . $lease->start_date->format('Y-m-d')],
@@ -246,6 +344,8 @@ class LeaseController extends Controller
 
     public function activate(Request $request, Lease $lease): RedirectResponse
     {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
         try {
             app(LeaseActivationService::class)->activate($lease);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -257,6 +357,8 @@ class LeaseController extends Controller
 
     public function cancel(Request $request, Lease $lease): RedirectResponse
     {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
@@ -277,6 +379,8 @@ class LeaseController extends Controller
      */
     public function escalate(Request $request, Lease $lease): RedirectResponse
     {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
         $validated = $request->validate([
             'effective_date' => ['required', 'date'],
             'new_rental_amount' => ['required', 'numeric', 'min:0'],
@@ -303,6 +407,8 @@ class LeaseController extends Controller
 
     public function destroy(Request $request, Lease $lease): RedirectResponse
     {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
         if (!$lease->isDeletable()) {
             return back()->withErrors(['lease' => 'This lease has escalation history and cannot be deleted — cancel it instead.']);
         }
@@ -315,6 +421,8 @@ class LeaseController extends Controller
     public function restore(Request $request, int $lease): RedirectResponse
     {
         $leaseModel = Lease::withTrashed()->findOrFail($lease);
+        $this->guardRentalRecordScope($leaseModel, 'leases', $leaseModel->branch_id);
+
         $leaseModel->restore();
 
         return redirect()->route('corex.leases.show', $leaseModel)->with('success', 'Lease restored.');

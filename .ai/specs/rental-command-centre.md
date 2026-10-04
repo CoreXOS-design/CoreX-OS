@@ -1,6 +1,7 @@
 # Rental Command Centre (AT-441)
 
-**Status:** BUILT. Landed on QA1, 2026-10-04.
+**Status:** BUILT. Landed on QA1, 2026-10-04. Conductor browser-verification fix round landed same
+day — see §10.
 **Ticket:** AT-441. **Date:** 2026-10-04. **Pillar:** Property (primary — every row is a property),
 Contact (tenant, read-only context via the active lease), Agent (`User`, who acts from the queue).
 **Master spec:** `.ai/specs/rentals-rebuild.md` — read its §1 (shared standards) first.
@@ -55,8 +56,8 @@ derivedPropertyQuery()` → `tileCounts()` / `applyTile()`).
 | Notice given | **hardcoded 0** — `leases` has no `notice_date` column. **AT-444 must add `leases.notice_date` (nullable date)** before this tile can be anything but 0. Per Johan's brief: do not add lease fields in this ticket. |
 | Renewals in progress | active lease has a **DRAFT** lease chained to it via `leases.previous_lease_id` (column already exists, written by nothing today — `LeaseController` has no `renew()` action yet). Reads 0 today, starts counting real rows the day AT-444 ships a Renew action — no code change needed here when it does. Deliberately NOT "active lease has previous_lease_id set" — `LeaseActivationService::activate()` leaves that set permanently on every renewed-in lease, so that check would count every past renewal forever, not just ones still pending signature. |
 | Month-to-month | active lease, no `end_date`, `is_month_to_month = true` |
-| Open faults | ≥1 `rental_fault_reports` row for this property with status NOT IN (`resolved`, `cancelled`) |
-| Open work orders | ≥1 `rental_work_orders` row for this property with status NOT IN (`completed`, `cancelled`) |
+| Open faults | **Fixed 2026-10-04 (§10.1).** TOTAL count of `rental_fault_reports` rows in scope, status NOT IN (`resolved`, `cancelled`, `declined`) — `RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED`, matching `RentalFaultReportController`'s own "open_no_work_order" status set exactly. NOT the count of properties with ≥1 (that was the bug) — clicking the tile still filters the table to properties with ≥1 open fault, a deliberately different, still-correct number. |
+| Open work orders | **Fixed 2026-10-04 (§10.1).** TOTAL count of `rental_work_orders` rows in scope, status NOT IN (`completed`, `cancelled`) — `RentalCommandCentreService::WORK_ORDER_OPEN_STATUSES_EXCLUDED`. Same property-count-vs-total fix as faults above. |
 | Inspections due | a UNION (property counted once, never summed): (a) has an open (not completed/cancelled) `rental_inspections` row, OR (b) has an active lease with zero completed `type=in` inspections ever. Built as a union deliberately — a literal sum of the two buckets double-counts the common case of one lease matching both. |
 
 ### 3.2 Needs-action queue (built per Johan's brief, NOT the draft's per-property-collapsed design)
@@ -69,8 +70,14 @@ Five independent rules, each a standalone query against the owning model (Lease 
 | Review renewal | active lease, `end_date` set, inside the reminder window | **Review renewal** | `corex.leases.show` |
 | Record outcome | active lease, `end_date` set, in the past | **Record outcome** | `corex.leases.show` |
 | Fault awaiting approval | `rental_fault_reports.status = 'awaiting_approval'` | **Open** | `corex.rental-fault-reports.show` |
-| Work order overdue | open work order, `reported_at` older than `RentalWorkOrderSetting::overdueReminderDaysFor()` (existing setting, reused) | **Open** | `corex.rental-work-orders.show` |
+| Work order overdue | **Fixed 2026-10-04 (§10.1).** Reuses `RentalWorkOrder::scopeOverdue()` directly — status IN (`ordered`,`in_progress`) AND `updated_at` older than `RentalWorkOrderSetting::overdueReminderDaysFor()`. Previously a hand-rolled check against `reported_at` that also wrongly treated a merely-`reported` (not yet ordered) work order as eligible — disagreed with `RentalWorkOrderController`'s own "Overdue" tile/filter. | **Open** | `corex.rental-work-orders.show` |
 | Start inspection | active lease, zero completed `type=in` inspections | **Start inspection** | `corex.rental-inspections.create` |
+
+Every row's `detail` now names its own record (§10.2): the fault/work-order's own `title`, or
+`"Tenant: " . Lease::tenantNames()` for the three lease-based rules — never the old generic
+"Fault awaiting owner approval" / "Work order overdue" copy, which made two rows on the same
+property indistinguishable. Each row's one age indicator (`age_days`, shown only when > 0) is a
+clean non-negative whole number — see §10.3 for the Carbon 3 bug this fixes.
 
 "No renewal outcome" / "no outcome recorded" (the draft's and the brief's own wording) is vacuously
 true for every match today — `leases` has no outcome-recording field yet (same gap as "Notice
@@ -95,13 +102,11 @@ brief's own instruction, rather than rendered as dead buttons.
 ## 4. Search / sort / filter / pagination / scope (as built)
 
 - **Search fields:** property address (`Property::scopeSearchAddress()`), tenant name (via
-  `lease_tenants`/`contacts` on the active lease), erf number. Per the brief — "landlord" was named
-  in the brief's search-fields list but is NOT a `properties`/`contacts` column reachable without a
-  join this ticket did not add (landlord is derived via `Property::sellerOwnerContact()`, a
-  relation, not a flat searchable column) — **reported, not built**: landlord search would need a
-  `contact_property` join, flagged for Johan/a follow-up ticket if wanted.
-- **Sort columns:** address (default, ascending), lease end date, status, open-faults count,
-  open-work-orders count, last-inspection date.
+  `lease_tenants`/`contacts` on the active lease), erf number, **landlord (added 2026-10-04, §10.5)**
+  — via the `contact_property` pivot, role IN (`seller`,`owner`,`landlord`,`lessor`), the same
+  source `Property::sellerOwnerContact()` uses (`Lease` has no landlord accessor of its own yet).
+- **Sort columns:** address, **lease end date (default, ascending, empty last — fixed 2026-10-04,
+  §10.4)**, status, open-faults count, open-work-orders count, last-inspection date.
 - **Filters:** status (data-driven — distinct values actually present on this agency's rental book,
   never a hardcoded list, per CLAUDE.md non-negotiable #9), agent, branch, lease-end date range —
   all four, per the brief (the draft listed only status + date range; the brief's richer list won).
@@ -194,3 +199,71 @@ screen creates, edits, and archives nothing itself, so it needs no action keys o
 2. A `Renew` action on `LeaseController` that creates a DRAFT lease with `previous_lease_id` set to
    the current active lease — "Renewals in progress" tile already queries for exactly this shape
    and needs no further change once that action exists.
+
+---
+
+## 10. Conductor browser-verification fix round (2026-10-04)
+
+Johan walked the deployed screen as `johan@hfcoastal.co.za`, scope All, on qatesting1 and found
+five real defects. All five fixed same day, same branch-off-QA1-worktree discipline, 25/25 tests
+(was 17), re-verified against real QA1 data.
+
+### 10.1 Count mismatch — one definition of "open", now shared everywhere
+Root cause: the "Open faults"/"Open work orders" tiles counted the number of PROPERTIES with ≥1
+open item, not the TOTAL number of open items — so a property with 2 open work orders (1 Kenmuir
+Road / property 5792: one Reported, one Ordered) still showed tile=1. Separately, the per-row
+`open_faults_count` column excluded only `resolved`/`cancelled`, not `declined`, disagreeing with
+`RentalFaultReportController`'s own "open_no_work_order" tile (§39) which excludes all three.
+
+Fix: `RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED` / `::WORK_ORDER_OPEN_STATUSES_EXCLUDED`
+are now the ONE definition, used by the row column, the tile TOTAL (a direct count, not a property
+count), and the tile's table filter (still property-level — "show me the properties", a
+deliberately different, still-correct number from the tile itself). Verified against real QA1 data
+(property 5792, agency 1): tile open_faults=3 (2 awaiting_approval + 1 approved elsewhere in the
+agency), open_work_orders=2 — both matching an independent direct count exactly.
+Tests: `test_open_faults_tile_equals_sum_of_per_row_column_not_property_count`,
+`test_open_work_orders_tile_equals_sum_of_per_row_column_not_property_count`.
+
+### 10.2 Needs-action rows now name their own record
+Two faults awaiting approval on the same property rendered as two identical "Fault awaiting owner
+approval" rows — correct routing (each button already opened the right fault by id) but visually
+indistinguishable. `detail` is now the fault/work-order's own `title`, or `"Tenant: " .
+Lease::tenantNames()` for the three lease-based rules, never generic copy. Each row shows exactly
+one age value (no separate embedded date text duplicating the age column).
+Test: `test_queue_rows_name_their_own_record`.
+
+**Found and fixed in the same pass:** `age_days` was silently broken for every rule except A —
+Carbon 3 changed `diffInDays()`'s default from an absolute int to a SIGNED FLOAT, so every
+past-dated "how old" value came out as a negative decimal (e.g. `-11.06`), which the blade's
+`age_days > 0` display guard then hid entirely. Every call site now wraps `(int) abs(...)`.
+Test: `test_queue_age_days_are_non_negative_whole_numbers_except_future_deadlines`.
+
+### 10.3 Work order "overdue" now reuses the real scope
+The queue's "work order overdue" rule used a hand-rolled `reported_at` check that also wrongly
+treated a merely-`reported` (never ordered) work order as eligible. It now calls
+`RentalWorkOrder::scopeOverdue()` directly — the exact scope `RentalWorkOrderController::index()`'s
+own "Overdue" tile and `?overdue=1` filter already use (status IN `ordered`/`in_progress`,
+`updated_at` threshold). Test: `test_queue_work_order_overdue_rule_matches_the_real_overdue_scope`.
+
+### 10.4 Layout — queue beside the table, not above it
+Approved mockup: on wide screens (`lg:` breakpoint) the needs-action queue (~40%, `lg:col-span-2`)
+sits LEFT of the property table (~60%, `lg:col-span-3`) in a single grid row, so the table is never
+pushed off screen. Queue per-page dropped from 20 to 8 to fit the narrower column. On narrow
+screens the two stack; the queue shows its header count (unchanged markup, no new helper text) plus
+only its first 5 rows (`hidden lg:flex` on rows index ≥ 5 — CSS-only, no second query).
+
+### 10.5 Default sort — lease end ascending, vacant last
+Previously defaulted to "address" (alphabetical), which put every vacant/no-lease property FIRST
+under plain string sort. Now defaults to `lease_end` ascending; `applySort()` adds
+`orderByRaw('active_end_date IS NULL')` before the main `orderBy` so a NULL end date (vacant or
+month-to-month) always sorts LAST regardless of direction — MySQL's own ascending-NULLs-first
+default was the root cause. Test: `test_default_sort_is_lease_end_ascending_with_vacant_last`.
+
+### 10.6 Landlord added to search
+Per §4 above — `contact_property` pivot, seller-side roles, same source `Property::
+sellerOwnerContact()` uses. Test: `test_search_matches_landlord_via_contact_property_pivot`.
+
+### Still reported, not fixed (unchanged from §3.2/§2)
+"Start inspection" still cannot pre-select the property — `RentalInspectionController::create()`
+(cc1-owned, AT-439) doesn't read a `property_id` param. Passed on to Johan per his own instruction
+this round, not re-litigated here.

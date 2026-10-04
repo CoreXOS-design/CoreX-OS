@@ -99,6 +99,66 @@ class Lease extends Model
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
+    public function cancelledByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by_user_id');
+    }
+
+    public function inspections(): HasMany
+    {
+        return $this->hasMany(RentalInspection::class);
+    }
+
+    public function faultReports(): HasMany
+    {
+        return $this->hasMany(RentalFaultReport::class);
+    }
+
+    public function workOrders(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrder::class);
+    }
+
+    public function inventories(): HasMany
+    {
+        return $this->hasMany(RentalInventory::class);
+    }
+
+    /**
+     * AT-440 (Lease Hub) — "landlord via the derived accessor cc1 is adding
+     * in AT-439... if it has not landed when you get there, resolve
+     * landlords from the property contact-role pivot through a small
+     * method you can later swap — do not add a column." Deliberately NOT a
+     * stored column — leases.md's own docblock (§G of the Stage-1
+     * investigation) is explicit the landlord is derived from the
+     * Property's contact link, never duplicated onto the Lease. Checks
+     * BOTH 'landlord' and 'lessor' pivot roles (Property::sellerOwnerContact()'s
+     * own vocabulary), falling back to sellerOwnerContact()'s single-result
+     * collapse when neither role is tagged but the property has exactly one
+     * contact — the same precedent RentalFaultReportController::create()
+     * already uses for this exact fact.
+     */
+    public function landlordContacts(): \Illuminate\Support\Collection
+    {
+        $property = $this->property;
+        if (!$property) {
+            return collect();
+        }
+
+        $contacts = $property->contactsForRole('landlord')
+            ->merge($property->contactsForRole('lessor'))
+            ->unique('id')
+            ->values();
+
+        if ($contacts->isNotEmpty()) {
+            return $contacts;
+        }
+
+        $fallback = $property->sellerOwnerContact();
+
+        return $fallback ? collect([$fallback]) : collect();
+    }
+
     /**
      * Whether this lease can still be soft-deleted through the ordinary CRUD
      * path (leases.md §2 — deletable only while nothing has attached yet).
@@ -115,6 +175,29 @@ class Lease extends Model
         $names = $this->tenants->map(fn (LeaseTenant $t) => $t->contact?->full_name)->filter();
 
         return $names->isEmpty() ? 'No tenant linked' : $names->implode(', ');
+    }
+
+    /**
+     * AT-439 §G — derived, never duplicated onto this model (see the class
+     * docblock above: "owner already known via the existing owner/landlord
+     * contact link"). N-party: returns EVERY landlord-side contact linked
+     * to the property, never collapses to a single guess — a joint-owned
+     * rental can have more than one. Expressed through the property's own
+     * canonical contact-role keys ('landlord'/'lessor' —
+     * Property::pivotRolesForContactRole()'s vocabulary, the same keys the
+     * e-sign wizard's role picker already uses) rather than re-hardcoding
+     * the underlying contact_property.role strings here a second time.
+     */
+    public function landlordContacts(): \Illuminate\Support\Collection
+    {
+        if (!$this->property) {
+            return collect();
+        }
+
+        return $this->property->contactsForRole('landlord')
+            ->merge($this->property->contactsForRole('lessor'))
+            ->unique('id')
+            ->values();
     }
 
     /**

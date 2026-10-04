@@ -2,8 +2,11 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\Lease;
 use App\Models\RentalFaultReport;
 use App\Models\RentalWorkOrder;
+use App\Services\Rentals\LeaseHubService;
+use App\Services\Rentals\LeaseTimelineService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
 
@@ -61,6 +64,38 @@ class RentalDocumentPdfService
     public function faultReportFilename(RentalFaultReport $faultReport): string
     {
         return $this->safeFilename('Fault Report - ' . $this->addressOrFallback($faultReport->property, 'Fault Report ' . $faultReport->id));
+    }
+
+    /**
+     * AT-440 — Lease Hub "Print tenancy report": parties, terms, lifecycle,
+     * and the FULL tenancy log with dates. Reuses the exact same timeline/
+     * lifecycle data the on-screen Lease Hub shows — one source of truth,
+     * never a second computation for print vs. screen.
+     */
+    public function leaseTenancyReportPdf(Lease $lease)
+    {
+        $lease->loadMissing(['property', 'tenants.contact', 'escalations.createdByUser', 'branch', 'agency']);
+
+        $timeline = app(LeaseTimelineService::class)->allEntriesFor($lease);
+        $lifecycle = app(LeaseHubService::class)->lifecycle($lease);
+
+        $pdf = Pdf::loadView('corex.leases.pdf.tenancy-report', [
+            'lease' => $lease,
+            'timeline' => $timeline,
+            'lifecycle' => $lifecycle,
+            'landlords' => $lease->landlordContacts(),
+            'logo' => $this->logoDataUri($lease->branch?->logo_path, $lease->agency?->logo_path),
+            'agencyName' => $lease->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function leaseTenancyReportFilename(Lease $lease): string
+    {
+        return $this->safeFilename('Tenancy Report - ' . $this->addressOrFallback($lease->property, 'Lease ' . $lease->id));
     }
 
     /** Same dompdf options as PropertyBrochureService::pdf() — one convention, not two. */

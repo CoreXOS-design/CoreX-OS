@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInspectionPhotoNote;
@@ -26,12 +27,15 @@ use Illuminate\Validation\Rule;
  */
 class RentalInspectionPhotoNoteController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /**
      * POST /corex/rental-inspections/{rentalInspection}/photos/{photo}/notes
      */
     public function store(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
@@ -70,6 +74,7 @@ class RentalInspectionPhotoNoteController extends Controller
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
@@ -98,6 +103,7 @@ class RentalInspectionPhotoNoteController extends Controller
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
@@ -120,6 +126,7 @@ class RentalInspectionPhotoNoteController extends Controller
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
