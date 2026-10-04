@@ -1,15 +1,17 @@
 # Rental Work Orders (and Fault Reports)
 
-**Status:** BUILT, all five stages, plus Stage 7 (quotes — §3.4c) — the fault report record, its
-lifecycle, the spend threshold (now property-level, §3.4b), the work orders themselves, the attached
-out-inspection history, and the quote an agent obtains before work starts, which is what the approval
-limit actually rides on (see §11 for exactly what and when). Two questions remain genuinely open, not
-silently resolved: the fault-report-level owner/tenant mail gap and the mailbox-polling automation
-question (§3a.1a) — both named where they're discussed, neither blocking anything else here.
+**Status:** BUILT, all five stages, plus Stage 7 (quotes — §3.4c) and Job Cards (§14, AT-442,
+2026-10-04) — the fault report record, its lifecycle, the spend threshold (now property-level,
+§3.4b), the work orders themselves, the attached out-inspection history, the quote an agent obtains
+before work starts (what the approval limit actually rides on), and the internal-maintenance-team
+counterpart to an outside supplier (see §11 and §14 for exactly what and when). Two questions remain
+genuinely open, not silently resolved: the fault-report-level owner/tenant mail gap and the
+mailbox-polling automation question (§3a.1a) — both named where they're discussed, neither blocking
+anything else here.
 **Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended 2026-09-25, amended again
 2026-09-26, amended again 2026-09-29, built Stages 1-5 through 2026-09-25/2026-09-20, Stage 7
-2026-09-29 — see below)
-**Author:** cc4
+2026-09-29, Job Cards (§14) 2026-10-04 — see below)
+**Author:** cc4 (Stages 1-7); cc6 (§14, Job Cards, AT-442)
 **Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
 (owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
 (`.ai/specs/leases.md`) and Rental Inspections (`.ai/specs/rental-inspections.md`, both now landed and
@@ -1919,123 +1921,258 @@ plainly what changed.
 
 ---
 
-## 14. Job Cards (AT-442, added 2026-10-04) — the agency's own maintenance team, vs. an outside supplier
+## 14. Job Cards (AT-442, built 2026-10-04) — the agency's own maintenance team, vs. an outside supplier
 
-**Status:** SPEC ONLY. Approved design, Johan, 4 Oct 2026. Master spec: `.ai/specs/rentals-rebuild.md`.
-Builds directly on §3.4/§3.4c (quotes) and §11 (`RentalWorkOrderService`) above — not a fork of the
-work-order lifecycle, a new branch inside it.
+**Status: BUILT.** Builds directly on §3.4/§3.4c (quotes) and §11 (`RentalWorkOrderService`) above —
+not a fork of the work-order lifecycle, a new branch inside it. This section replaces cc5's earlier
+spec-only draft (2026-10-04, approved design before the build prompt) with what was actually built —
+Johan's direct build brief to this lane won on every point where it differed from that draft; each
+divergence is called out explicitly below rather than silently resolved, per instruction.
+
+**Where the build brief won over the earlier draft:**
+- **One catalogue table, not two.** The draft proposed separate `rental_job_card_labour_items` /
+  `rental_job_card_parts` tables. The brief's own wording — "two item types — Labour and Part" — reads
+  as one catalogue with a `type` column, not two parallel tables; built as `rental_catalogue_items`
+  (§14.3 below), same shape as `AgencyServiceType`'s own precedent.
+- **One pricing setting, default ON, not two, default OFF.** The brief: *"Whether prices are used at
+  all is an agency setting ('Capture prices on job cards', default on)."* Built as the single boolean
+  `rental_work_order_settings.capture_prices_on_job_cards`, default `true` — not the draft's two
+  default-OFF toggles (`job_card_labour_pricing_enabled`/`job_card_parts_pricing_enabled`).
+- **No tenant-signoff-required toggle.** The draft proposed `job_card_requires_tenant_signoff`. The
+  brief names tenant confirmation as "recorded by the agent for now" and does not make it a
+  completion gate; built exactly as the existing `rental_work_orders.tenant_confirmed_completion_at`
+  field already treats tenant confirmation elsewhere in this spec — additional evidence, never a
+  block on reaching `completed`. Only worker + agent sign-off gate completion.
+- **Seven statuses, not five.** The brief: *"Status: Draft → Quoted → Approved → Scheduled → In
+  progress → Completed, plus Cancelled."* Built exactly that (§14.2 below) — more granular than the
+  draft's `scheduled/in-progress/awaiting-sign-off/completed/cancelled`.
+- **Catalogue has its own permission pair, separate from job cards.** The draft's single
+  `rental_job_cards.manage_settings` gated both the catalogue and (by name) general settings; built as
+  `rental_catalogue.view`/`.manage` (its own CRUD surface, reusable independently of any one job card)
+  plus `rental_job_cards.send_quote`/`.sign_off` as their own heavier-decision keys (§14.7) — same
+  `.create`-vs-heavier-action split this whole spec already uses for quotes/approvals elsewhere.
+- **API lives under the established `/api/v1/mobile/*` namespace**, not a bare `/api/v1/rental-job-
+  cards` — the draft's routes weren't checked against the actual codebase convention
+  (`routes/api.php`'s existing `mobile/properties`/`mobile/p24` groups); built to match that real
+  convention (§14.8).
+- **No special owner-pricing hiding on the worker-facing print** — the draft flagged this as an open
+  design point, not decided. Not built: the printable job card (§14.2) shows the same lines/prices as
+  everywhere else, gated only by `capture_prices_on_job_cards`, consistent with the rest of this
+  spec's "one source of truth, read everywhere" discipline. Flagged here as a real, undecided design
+  point carried forward, not silently resolved.
+- **The draft's §14.11 open question** (the two pre-existing orphaned settings,
+  `completion_requires_photo`/`overdue_reminder_days`, missing from the onboarding wizard) is
+  unrelated to this build and not addressed by it — still open, Johan's call, per the original note.
 
 ### 14.1 What changes and why
 Today every work order implicitly assumes an outside supplier (quote → select → notify, §3.4). That
-remains true for outside work. **This section adds the other half**: every work order now first
-states who does the work.
-- **Outside supplier** → unchanged, today's quotes/supplier flow exactly as built (§3.4, §3.4c). No
-  job card.
-- **Agency's own maintenance team** → a **Job Card** is created instead of a supplier quote. The job
-  card is what *builds* the work order — labour + parts lines produce the amount the existing spend-
-  threshold gate (§3.4b) checks, exactly as a supplier's quote amount does today. The resulting work
-  order is then sent to the owner as a quote for approval, through the existing owner-approval
-  mechanism (§3.4a/§4) — a job card does not bypass owner approval, it is simply the agency's own
-  priced estimate standing in the place a supplier's quote would.
+remains true for outside work — unchanged. **"Who does the work" is now the FIRST choice on every
+work order's create form and on the fault-report "Raise work order" action**
+(`rental_work_orders.assignment_type`, enum `outside_supplier`/`internal`, default
+`outside_supplier` — every row that predates this migration reads as `outside_supplier`, unchanged
+behaviour). Choosing `internal` creates a **Job Card** (`rental_job_cards`, 1:1 with the work order
+via `rental_work_order_id`, unique) in the SAME action — a job card always builds its own work order;
+there is no path that creates one without the other. The job card's lines produce the amount the
+existing spend-threshold gate checks (§3.4b/§3.4c), exactly as a supplier's quote amount does — via
+the SAME `RentalWorkOrder::recordQuote()`/`selectQuote()` methods, not a second gate.
 
-### 14.2 Job card fields
-- Assigned crew member (`User` with a maintenance/trade role — reuses the existing `User` model, no
-  new user type).
-- Scheduled date/time, due date.
-- Access notes (free text — gate codes, pets, tenant availability).
-- Task checklist (free-text line items, each tickable complete).
-- **Labour lines**: picked from an agency-maintained labour-item catalogue (§14.3), quantity (hours),
-  price **optional per agency** (§14.3) — if the agency doesn't price internal labour, the line still
-  records what was done, just with no cost figure.
-- **Parts lines**: same pattern, picked from an agency-maintained parts catalogue, quantity, price
-  optional.
-- **Totals**: sum of priced lines, checked against the per-property landlord spend limit
-  (`properties.rental_no_approval_spend_threshold`, the existing §3.4b mechanism) exactly as a
-  supplier quote's total is today — same gate, same code path, a job card's total is just another
-  value `selectQuote()`-equivalent logic evaluates.
-- **Sign-off**: worker (confirms work done), agent (confirms checked), tenant (confirms satisfied) —
-  three independent signature captures, each optional individually (a tenant who isn't home yet
-  shouldn't block the worker's own sign-off from being recorded) but all three required before the
-  job card can mark the underlying work order `completed` (reuses the existing completion-requires-
-  evidence gate, §3.4, extended to require job-card sign-off as the completion evidence when the
-  work order's assignment type is "own team").
-- **Printable job card** — the worker-facing document (task list, access notes, schedule), separate
-  from the owner-facing quote/invoice.
+### 14.2 Job card data model — built
 
-### 14.3 Labour + parts catalogue — agency-maintained, CRUD in settings
-New agency-owned reference lists: `rental_job_card_labour_items` and `rental_job_card_parts`
-(`agency_id`, name, default unit price **nullable** — "prices OPTIONAL per agency" per instruction,
-soft-deleted, restorable). Full CRUD screen under Rentals → Settings, same list-screen floor as every
-other entity (search by name, sort by name/price, filter by active/archived, pagination, empty state).
-An agency that doesn't want to price its own labour leaves every item's price blank; the job card
-then shows quantities and descriptions with no monetary total, and the spend-threshold gate is simply
-not evaluated for that job card (nothing to check against — not a bug, the agency's own choice not to
-cost internal labour).
+```
+rental_job_cards
+  id, agency_id, branch_id
+  rental_work_order_id          -- UNIQUE FK — the job card BUILDS this work order (§14.1)
+  property_id, lease_id         -- denormalized, same reasoning as every sibling table in this spec
+  title
+  status                        -- draft | quoted | approved | scheduled | in_progress | completed |
+                                 --   cancelled — Johan's own exact wording, built as given (NOT the
+                                 --   5-state draft this section previously carried)
+  assigned_user_id               -- nullable FK users — the crew member
+  scheduled_at, due_at           -- nullable datetimes
+  access_notes                   -- nullable text
+  total_amount                   -- nullable decimal(10,2), cached sum of live lines, recalculated on
+                                 --   every line change server-side, never trusted from the client
+  worker_signed_off_at/by_user_id, agent_signed_off_at/by_user_id   -- BOTH required to complete()
+  tenant_confirmed_at/by_user_id, tenant_confirmation_note          -- recorded BY THE AGENT for now
+                                 --   (tenant login is AT-445) — additional evidence, NEVER a
+                                 --   completion gate (no "requires tenant signoff" setting was built —
+                                 --   see §14's own note on where the brief won over the earlier draft)
+  completed_at, cancelled_at/by_user_id/cancel_reason
+  created_by_user_id, timestamps, soft deletes          -- deletable only while no task/line/update
+                                 --   exists yet, same application-layer gate as rental_work_orders
 
-### 14.4 One-click fault → work order → job card
-Unchanged mechanism from §3a (fault report → `raise-work-order`, already built) — the new step is
-that creating the work order from a fault now asks "outside supplier or our own team?" before
-proceeding; choosing "our own team" opens the job card form pre-filled with the fault's property/
-lease/description, rather than the supplier-quote form. One click from fault to job card, same as
-today's one click from fault to work order.
+rental_job_card_tasks            -- the checklist: add/tick/reorder/archive/restore
+  id, agency_id, rental_job_card_id, description, is_done, sort_order,
+  done_by_user_id, done_at, created_by_user_id, timestamps, soft deletes
 
-### 14.5 Pricing feeds Stage 8
-Every priced labour/parts line on a completed job card is stored (not just totalled and discarded) so
-`rental-money.md` (Stage 8) can turn job-card costs into a tenant/owner charge without re-entering
-anything — the job card is the source record for that future charge line, referenced by its own ID.
+rental_job_card_lines            -- parts/labour, from the catalogue or free text
+  id, agency_id, rental_job_card_id, rental_catalogue_item_id (nullable)
+  type                           -- labour | part — copied from the catalogue item at add-time, or
+                                 --   picked directly for a free-text line; never re-derived later
+  description, unit (nullable), quantity (decimal 10,2, default 1)
+  unit_price, line_total         -- nullable decimal(10,2) — BOTH always null when the agency's
+                                 --   capture_prices_on_job_cards setting is off, regardless of what
+                                 --   was posted; line_total is quantity*unit_price, server-computed
+  sort_order, created_by_user_id, timestamps, soft deletes
 
-### 14.6 Job Cards list — CRUD/list-screen floor (BUILD_STANDARD §1a-§1d)
-- **Routes:** `corex.rental-job-cards.{index,create,store,show,edit,update,archive,restore}`, nested
-  under the existing Rentals nav panel as a new entry (not a tab buried inside Work Orders — it is
-  its own list, same standing as Fault Reports/Work Orders).
-- **Search fields:** property address, assigned crew member name, task description.
-- **Sort columns:** scheduled date (default, soonest first), due date, status, property address.
-- **Filters:** status (scheduled/in-progress/awaiting-sign-off/completed/cancelled), assigned crew
-  member, date range.
-- **Pagination / empty state:** standard per master spec §1.1.
-- **Own | Branch | All** scope, per-record guard on `show`/`edit`/print — same pattern as §4.1 of
-  `rentals-foundation-at439.md`, applied to this new entity from day one rather than retrofitted.
-- **Full CRUD**: create, read, update, archive (soft delete), restore — per BUILD_STANDARD §1a, from
-  first build, not a later ask.
+rental_job_card_updates          -- append-only history log, same evidence-integrity shape as
+                                 --   rental_work_order_updates — no updated_at, no deleted_at
+  id, agency_id, rental_job_card_id, update_type, from_status, to_status, note,
+  created_by_user_id, created_at
+```
 
-### 14.7 Permissions (new keys)
-`rental_job_cards.view`, `.create`, `.manage_settings` (gates the labour/parts catalogue CRUD, §14.3)
-— same shape as every other rentals module (`view`/`create`/`manage_settings` triplet, consistent
-with `rental_inventories.*` above).
+Sign-off: worker (done) and agent (checked) are BOTH required before `complete()` — enforced in
+`RentalJobCard::complete()` (throws `LogicException` otherwise). Tenant confirmation
+("confirmed fixed") is recorded separately and never gates completion, per §14.1's own note above.
 
-### 14.8 API
-`GET /api/v1/rental-job-cards`, `GET/POST /api/v1/rental-job-cards/{jobCard}` (and photo/sign-off sub-
-routes mirroring §13's mobile pattern) — the web screen and Andre's mobile app's job-card view consume
-the same endpoints, per CLAUDE.md non-negotiable #7.
+### 14.3 Parts & labour catalogue — ONE table, not two (built differently from the earlier draft)
 
-### 14.9 Agency settings (Setup Wizard, CLAUDE.md non-negotiable #10a)
-- `job_card_labour_pricing_enabled` / `job_card_parts_pricing_enabled` — whether this agency prices
-  internal labour/parts at all (default OFF — an agency new to this feature shouldn't be forced to
-  price everything from day one; §14.3's "optional" design point made concrete as a setting).
-- `job_card_requires_tenant_signoff` — whether tenant sign-off is mandatory before a job card can mark
-  its work order complete, vs. worker+agent sign-off being sufficient (default: OFF — tenant sign-off
-  recommended but not every agency can guarantee tenant availability; see §14.2).
+```
+rental_catalogue_items
+  id, agency_id, type (labour|part), name, unit, default_price (nullable decimal 10,2),
+  is_active (default true), sort_order, created_by_user_id, timestamps, soft deletes
+```
 
-### 14.10 Acceptance criteria
-- [ ] Choosing "our own team" on a new work order opens the job card form; choosing "outside
-      supplier" is unchanged from today's §3.4 flow.
-- [ ] Job card totals (when priced) feed the exact same spend-threshold gate as a supplier quote.
-- [ ] A job card with all-unpriced lines never evaluates the spend gate and never blocks completion
-      on a missing price.
-- [ ] Printable job card renders worker-facing content only (no owner-facing pricing unless the
-      agency has pricing enabled and chooses to show it — flagged, default hide owner pricing on the
-      worker-facing print per the Screen rule: no fact shown where the audience doesn't need it).
-- [ ] Labour/parts catalogue CRUD meets the full list-screen floor (§14.6-style: search/sort/filter/
-      pagination/empty-state/archive/restore).
-- [ ] Completed job card with required sign-offs present marks the underlying work order `completed`
-      through the existing completion gate, not a parallel one.
-- [ ] One-click fault → job card works end to end, pre-filled correctly.
-- [ ] Both new settings are in the Setup Wizard with `explain`/`affects` copy and default OFF.
+Full CRUD (create/edit/archive/restore), search (name), sort (sort_order default; name, type,
+default_price), filter (type, active/archived), pagination, real empty state — same list-screen
+floor as `RentalFaultType`'s own screen, which this reuses as its direct pattern. No seeded defaults
+(unlike `RentalFaultType`/`AgencyServiceType`) — pricing and naming are agency-specific from day one
+with nothing sensible to seed. Reached from the Settings hub (`corex.rental-catalogue-items.*`),
+**not** the Rentals nav panel.
 
-### 14.11 Open questions for Johan
-- **Two pre-existing orphaned settings** (`RentalWorkOrderSetting.completion_requires_photo`,
-  `.overdue_reminder_days` — audit Part 5 top-gap #8, confirmed live and agency-configurable but
-  missing from the onboarding wizard with no recorded exclusion decision) — this spec surfaces them
-  here rather than silently leaving the gap open a second time. Confirm whether they're added to the
-  wizard now (alongside this stage's own two new settings, §14.9) or deliberately excluded with a
-  recorded reason, per CLAUDE.md non-negotiable #10a.
+A job card line may pick a catalogue item (its `name`/`unit`/`default_price` pre-fill the line, all
+still editable) or be free text when nothing in the catalogue fits — the catalogue guides, it does
+not constrain. Archiving a catalogue item never changes a historical line's own `type`/`description`
+(copied at add-time, §14.2).
+
+### 14.4 Prices on/off — one agency setting, default ON
+
+`rental_work_order_settings.capture_prices_on_job_cards` (boolean, default `true`) —
+`RentalWorkOrderSetting::capturePricesOnJobCardsFor($agencyId)`. With it off, `unit_price`/
+`line_total` always save `null` regardless of what the client posts (`RentalJobCardService::
+addLine()`/`updateLine()`), and the UI (job card show screen, print PDF, quote PDF) renders no price
+or total column at all — never a `0.00`, never a blank column, the column itself is absent.
+`total_amount` may still cache a `0.00` (MySQL's `SUM()` of an all-NULL set, via Laravel's own
+`numericAggregate() ?: 0` coalesce) — harmless, since nothing ever renders it when this setting is
+off.
+
+### 14.5 "Send to owner as quote" — reuses the EXISTING quote/approval mechanism, verbatim
+
+`RentalJobCardService::sendToOwnerAsQuote()`: generates a PDF (`RentalDocumentPdfService::
+jobCardQuotePdf()`), then calls the SAME `RentalWorkOrder::recordQuote()` (with
+`agency_service_provider_id` null, `rental_job_card_id` set) and `RentalWorkOrder::selectQuote()`
+(§3.4c) the outside-supplier path already uses — the property's landlord no-approval spend threshold
+applies identically: at/under it, `owner_approval_status` resolves to `not_required` and the job
+card's own status jumps straight to `approved`; over it, `pending`, and the job card stays `quoted`
+until the EXISTING `recordApproval()` action (reachable from the work order's own screen, same
+permission) flips it — `RentalJobCard::syncStatusFromWorkOrder()` picks that up and advances the job
+card to `approved`. No second approval mechanism exists anywhere in this build.
+
+`rental_work_order_quotes.agency_service_provider_id` was relaxed to **nullable** (migration
+`2026_10_04_210600`) for exactly this no-supplier case — every existing/outside-supplier quote still
+always sets it; `rental_job_card_id` was added (nullable) so a quote's origin is traceable.
+`RentalWorkOrder::describeQuote()` now reads "Our maintenance team" instead of the generic "Unknown
+supplier" fallback when a quote has no supplier but does have a job card.
+
+### 14.6 Completion syncs the linked work order — lives in the SERVICE, not a controller
+
+`RentalJobCardService::complete()` — found necessary via a live Tinker end-to-end verification during
+this build: calling the MODEL's own `RentalJobCard::complete()` directly (the sign-off gate) never
+touched the linked work order at all, because that sync had originally been written only inside the
+web controller. Moved into the service so every caller (web, a future mobile "complete" action, a
+test or script calling the service) gets the same behaviour: after the job card itself completes, the
+service attempts `$workOrder->complete($by, ['paid_by' => 'owner', 'cost_amount' =>
+$jobCard->total_amount, ...])` — if the agency's `completion_requires_photo` setting blocks it (no
+completed photo yet), the job card still completes (worker+agent signed off is sufficient evidence for
+the job card itself) and the work order stays open until a photo is added via its own existing upload
+control. Never a parallel completion gate.
+
+### 14.7 Fault → work order → job card, one click, both paths
+
+The EXISTING `raise-work-order` action (`RentalFaultReportController::raiseWorkOrder()`, already
+built) now accepts `assignment_type`. `internal` calls `RentalJobCardService::createFromFaultReport()`,
+which itself calls the SAME `RentalWorkOrderService::fromFaultReport()` the outside-supplier path
+always has (so approval-inheritance from an already-approved fault report works identically for both
+paths), then creates the job card against the resulting work order — never a second implementation of
+the agency_appoints route.
+
+### 14.8 Job Cards list — CRUD/list-screen floor, built
+
+- **Routes:** `corex.rental-job-cards.{index,create,store,show,update,destroy,restore,print,
+  print-list}` plus action routes (`assign-crew`, `schedule`, `start`, `tasks.*`, `lines.*`,
+  `send-quote`, `worker-sign-off`, `agent-sign-off`, `tenant-confirm`, `complete`, `cancel`,
+  `photos.store`) — its own nav entry ("Job Cards") in the Rentals panel, same standing as Fault
+  Reports/Work Orders, not a tab buried inside either.
+- **Search fields:** property address, tenant name, crew member name, title.
+- **Sort columns:** `due_at` (default, ascending — what's due soonest is looked at first),
+  `scheduled_at`, status, property address.
+- **Filters:** crew member, status, date range; an "Overdue" status tile (`RentalJobCard::
+  scopeOverdue()` — open status + `due_at` in the past).
+- **Status tiles** (`pstat-v2` style): Total, Draft, Quoted, Scheduled, In progress, Overdue,
+  Completed.
+- **Own | Branch | All** scope switch, default widest permitted (`RentalJobCard::scopeVisibleTo()`,
+  same `PermissionService::getDataScope()`/`clampScope()` pattern every sibling list in this spec
+  uses) — a wider option never renders than the user's own ceiling permits.
+- **Full CRUD**: create, read, update, archive (soft delete), restore — deletable only while no
+  task/line/update has been logged yet.
+- **Print list**: a simple print-friendly page (`print-list.blade.php`, `window.print()` on load),
+  respecting the same scope/filters as the list screen.
+- **Direct-URL access by ID is blocked, not just absent from the menu** — every show/edit/action route
+  resolves through the global `AgencyScope` + `scopeVisibleTo()`; a cross-agency job card id 404s
+  (proven by test, §14.11).
+
+Work order detail screen (`rental-work-orders/show.blade.php`) widened from `max-w-3xl` to
+`max-w-7xl` (full-width, per instruction) and now shows a "Job card" block inline when
+`assignment_type='internal'` (status/crew/scheduled/total + a link to the job card's own full
+screen); the Quotes and Supplier blocks (outside-supplier-only actions: assign supplier, start,
+complete via `paid_by`) are hidden for the internal path — those actions happen on the job card
+instead. Owner approval stays visible for both paths (it rides the same gate either way).
+
+### 14.9 Permissions — built (differs from the earlier draft's single-key shape)
+
+- `rental_catalogue.view` / `.manage` — the catalogue's own CRUD surface, independent of any one job
+  card (same single-key-for-the-whole-surface shape as `rental_fault_types.create`/
+  `deals_v2.manage_suppliers`).
+- `rental_job_cards.view`, `.create` (covers create/edit/tasks/lines/assign-crew/schedule/start/
+  archive/restore/photos), `.send_quote` (moves money past the approval gate — same weight as
+  `rental_work_orders.manage_quotes`), `.sign_off` (worker/agent/tenant sign-off and `complete()` —
+  same weight as `rental_work_orders.complete`/`.record_approval`), `.cancel`.
+
+### 14.10 API — built under the real `/api/v1/mobile/*` convention, not the draft's bare path
+
+`App\Http\Controllers\Api\MobileRentalJobCardController`, Sanctum bearer auth, inside the existing
+`auth:sanctum`+`app_access` `v1` group (matching `mobile/properties`/`mobile/p24`'s own convention —
+checked directly against `routes/api.php`, not assumed):
+
+| Method | Route | Calls |
+|---|---|---|
+| `GET` | `/api/v1/mobile/rental-job-cards/{rentalJobCard}` | Read — same `scopeVisibleTo()` guard as the web screen; 404s outside scope. |
+| `PUT` | `/api/v1/mobile/rental-job-cards/{rentalJobCard}` | Update `access_notes`. |
+| `POST` | `/api/v1/mobile/rental-job-cards/{rentalJobCard}/tasks/{task}/tick` | `RentalJobCardService::toggleTask()` — same method the web control calls. |
+| `POST` | `/api/v1/mobile/rental-job-cards/{rentalJobCard}/photos` | `RentalJobCardService::storePhoto()` — reuses the linked work order's own photo pipeline, one pipeline not two. |
+
+Scoping is enforced in the controller (`RentalJobCard::visibleTo($user)->whereKey(...)->exists()`,
+404 otherwise), not just by the web nav being absent — proven by test (§14.11).
+
+### 14.11 Settings — Setup Wizard entry, built
+
+- `capture_prices_on_job_cards` (§14.4) — Setup Wizard toggle (`config/agency-onboarding-copy.php`,
+  default on), own narrow saver (`RentalWorkOrderSettingsController::
+  updateCapturePricesOnJobCards()`, `has()`-guarded checkbox, same discipline as
+  `RentalInspectionSettingsController`'s own toggles) — also exposed on the dedicated Rental Work
+  Order Settings page, not only the wizard.
+- **Pre-existing orphaned settings unrelated to this build** (`RentalWorkOrderSetting.
+  completion_requires_photo`, `.overdue_reminder_days` — missing from the onboarding wizard with no
+  recorded exclusion decision) — still open, still Johan's call, not touched by AT-442.
+
+### 14.12 Tests — built
+
+`tests/Feature/RentalJobCards/RentalCatalogueItemTest.php` (6: happy path, optional-price omitted,
+required-field rejection, edit, archive/restore, agency isolation + direct-URL-by-ID 404) and
+`RentalJobCardLifecycleTest.php` (20: job-card-builds-work-order for both the direct and
+fault-report-raised paths, existing rows default to `outside_supplier`, tasks, line totals with
+prices on/off, free-text lines, the quote/threshold gate both under and over the limit, sign-off
+gating completion, the completion→work-order sync, archive/restore, cross-agency 404,
+mobile-API-scope 404, and a full internal-job end-to-end scenario) — 26 tests, 80 assertions, plus a
+live Tinker run against throwaway records proving the same end-to-end path on real (non-test)
+infrastructure.
