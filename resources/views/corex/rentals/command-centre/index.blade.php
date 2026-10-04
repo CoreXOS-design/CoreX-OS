@@ -27,6 +27,23 @@
     and native <details> for the row actions menu — so this page carries
     none of the x-data/quote-escaping risk STANDARDS.md's render-gate
     sections exist to catch.
+
+    LAYOUT round 3 (2026-10-04): at 1280px+ with the queue OPEN, the table
+    was still clipped on the right (Agent cut off, Actions off-screen —
+    the agent could not reach row actions without collapsing the queue).
+    Fixed two ways: (1) Agent moved OFF its own column, into a small muted
+    second line under Tenant(s) — one fewer column frees real width
+    rather than fighting for it; (2) the Actions column is
+    `position: sticky; right: 0` on both the header and body cells (with
+    an opaque background so scrolled content doesn't show through) — it
+    now stays reachable regardless of how wide the rest of the row gets,
+    inside the table's own existing `overflow-x-auto` wrapper (so any
+    residual horizontal scroll stays local to the table, never the page).
+    The Property cell's 2-line clamp was also under-filling (truncating
+    after roughly one line's worth of text) — widened from 260px to
+    340px and given explicit `line-height`/`max-height`/`white-space:
+    normal` alongside `-webkit-line-clamp` so two FULL lines render
+    before the ellipsis, not a narrower, height-ambiguous clamp.
 --}}
 
 @php
@@ -189,18 +206,23 @@
                             <th class="text-left px-3 py-2"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
                             <th class="text-left px-3 py-2"><a href="{{ $sortLink('open_total') }}" style="color: var(--text-muted);" title="Open faults · open work orders">Open{{ $sortIndicator('open_total') }}</a></th>
                             <th class="text-left px-3 py-2"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
-                            <th class="text-left px-3 py-2">Agent</th>
-                            <th></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; right: 0; background: var(--surface);"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($properties as $property)
                         <tr style="border-bottom: 1px solid var(--border);" data-qa="rcc-row-{{ $property->id }}">
-                            <td class="px-3 py-2" style="max-width: 260px;">
-                                <span title="{{ $property->buildDisplayAddress() }}" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ $property->buildDisplayAddress() }}</span>
+                            <td class="px-3 py-2" style="max-width: 340px;">
+                                <span title="{{ $property->buildDisplayAddress() }}" style="display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; line-height: 1.3; max-height: 2.6em;">{{ $property->buildDisplayAddress() }}</span>
                             </td>
                             <td class="px-3 py-2"><span class="ds-badge {{ $statusBadgeClass($property->status) }}">{{ $humanise($property->status) }}</span></td>
-                            <td class="px-3 py-2">{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</td>
+                            <td class="px-3 py-2">
+                                <div>{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
+                                {{-- Agent — merged into this cell (round 3 layout fix) to free a whole
+                                     column's width for the sticky Actions column at 1280px with the
+                                     queue open. --}}
+                                <div class="text-[11px]" style="color: var(--text-muted);">{{ $property->agent?->name ?? '—' }}</div>
+                            </td>
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->active_end_date ? \Illuminate\Support\Carbon::parse($property->active_end_date)->format('Y-m-d') : ($property->active_month_to_month ? 'Month-to-month' : '—') }}</td>
                             <td class="px-3 py-2 whitespace-nowrap">
                                 @if((int) $property->open_faults_count > 0)
@@ -216,8 +238,7 @@
                                 @endif
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->last_inspection_at ? \Illuminate\Support\Carbon::parse($property->last_inspection_at)->format('Y-m-d') : 'Never' }}</td>
-                            <td class="px-3 py-2 whitespace-nowrap">{{ $property->agent?->name ?? '—' }}</td>
-                            <td class="px-3 py-2 text-right">
+                            <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;">
                                 <details class="relative inline-block">
                                     <summary class="corex-btn-outline text-xs cursor-pointer list-none" style="display: inline-block;">Actions ▾</summary>
                                     <div class="absolute right-0 z-10 mt-1 rounded-md text-xs" style="background: var(--surface); border: 1px solid var(--border); min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
@@ -233,7 +254,7 @@
                             </td>
                         </tr>
                         @empty
-                        <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(!$hasAnyRentalProperties)
                                 No rental properties yet. Mark a property as a rental listing to see it here.
                             @else
