@@ -4,6 +4,7 @@ namespace App\Services\Rentals;
 
 use App\Models\Lease;
 use App\Models\Property;
+use App\Services\Audit\PropertyAuditService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -62,7 +63,65 @@ class LeaseActivationService
             $lease->status = Lease::STATUS_ACTIVE;
             $lease->save();
 
+            $this->flipPropertyToLeasedOut($lockedProperty, $lease);
+
             return $lease->fresh();
         });
+    }
+
+    /**
+     * .ai/specs/leases.md §12.5 — "lease becomes active → property status
+     * set to the agency's configured 'leased out' status" (Johan's ruling,
+     * 4 Oct 2026, scoped down for this build — see this feature's own
+     * report for what was deliberately NOT built here: notice-given/
+     * lease-ended reversion/month-to-month rows are Stage 6/7, out of this
+     * ticket's scope).
+     *
+     * `let_out` is used directly, not a new per-agency setting — it is
+     * ALREADY a system-wide status slug hardcoded into Property's own
+     * OFF_MARKET_STATUSES/CONCLUDED_STATUSES constants (Property.php:68,
+     * 1726), not an HFC-specific concept, so this does not introduce a
+     * new multi-agency assumption. Prevent-or-absorb (BUILD_STANDARD §3):
+     * if an agency's own property_status vocabulary doesn't include
+     * `let_out` (Property::isAllowedStatus() check), the automatic status
+     * write is skipped entirely rather than writing a status the agency
+     * never configured — the Lease Hub's own next-step card is unaffected
+     * either way, since it reasons about the LEASE's state, not the
+     * property's.
+     *
+     * Goes through the property's normal save() — never a direct
+     * DB::table('properties')->update() — so PropertyObserver's status
+     * vocabulary guard and PropertyAuditService::logStatusChange() both
+     * fire exactly as they would for a manual agent status change. This
+     * is also what makes the portal consequence automatic with no new
+     * portal-sync code: Property::isOnMarket() already reads
+     * OFF_MARKET_STATUSES, which already contains `let_out`.
+     */
+    private function flipPropertyToLeasedOut(Property $property, Lease $lease): void
+    {
+        $leasedOutStatus = 'let_out';
+
+        if (!Property::isAllowedStatus($leasedOutStatus, $property->agency_id)) {
+            return;
+        }
+
+        if ((string) $property->status === $leasedOutStatus) {
+            return;
+        }
+
+        $oldStatus = $property->status;
+        $property->status = $leasedOutStatus;
+        $property->save();
+
+        app(PropertyAuditService::class)->log(
+            $property,
+            'property',
+            'status_changed',
+            null,
+            ['status' => $oldStatus],
+            ['status' => $leasedOutStatus],
+            metadata: ['cause' => "Lease #{$lease->id} activated"],
+            humanSummary: 'Status changed from ' . ucfirst($oldStatus ?: 'none') . ' to Let Out — Lease #' . $lease->id . ' activated',
+        );
     }
 }

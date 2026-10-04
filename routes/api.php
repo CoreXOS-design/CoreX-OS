@@ -407,6 +407,13 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/performance/drilldown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'drilldown'])
             ->middleware('permission:view_performance')->name('v1.performance.drilldown');
 
+        // .ai/specs/leases.md §12.4 — Lease Hub tenancy log. Session-authed
+        // (the Lease Hub's own panel fetches this), and the same endpoint
+        // Andre's mobile app calls for a tenant/agent mobile tenancy view.
+        // Scope-guarded the same way as the web show() route (AuthorizesLeaseAccess).
+        Route::get('/leases/{lease}/tenancy-log', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyLog'])
+            ->middleware('permission:leases.view')->name('v1.leases.tenancy-log');
+
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
         Route::get('/logged-user', function (Request $request) {

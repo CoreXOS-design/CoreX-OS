@@ -3263,6 +3263,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\LeaseController::class, 'store'])
             ->middleware('permission:leases.create')->name('corex.leases.store');
         Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
+        // AT-440 — Lease Hub "Print tenancy report" action.
+        Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
         Route::put('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'update'])
             ->middleware('permission:leases.create')->name('corex.leases.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
