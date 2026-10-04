@@ -150,6 +150,11 @@ return [
         ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
         ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
 
+        // .ai/specs/rental-renewals.md §5(b), GATE 1 (approved 2026-10-04) —
+        // which imported DocuPerfect templates an agency treats as its
+        // rental lease/renewal/addendum documents.
+        ['key' => 'rental_lease_templates.manage_settings', 'label' => 'Manage Rental Lease Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 7],
+
         // ── Rental Inspections (rental-inspections.md) ──
         ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],
         ['key' => 'rental_inspections.create',             'label' => 'Record Inspections & Observations',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 2],
@@ -209,6 +214,11 @@ return [
         // value the approval-limit gate rides on, separate from .create
         // (logging/editing the work order itself).
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
+
+        // ── Rental Reports (AT-443) — .ai/specs/rentals-reports.md. Access-only —
+        // reports are read-only, no separate create/edit/archive action exists on
+        // this screen (same pattern as rental_command_centre.view).
+        ['key' => 'rental_reports.view', 'label' => 'View Rental Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_reports', 'sort_order' => 1],
 
         // ── Rental Parts & Labour Catalogue (rental-work-orders.md §14, AT-442) ──
         ['key' => 'rental_catalogue.view',   'label' => 'View Rental Catalogue',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_catalogue', 'sort_order' => 1],

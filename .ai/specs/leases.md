@@ -914,6 +914,32 @@ first write; one (`lease hub show renders for a brand new lease`) initially fail
 removing that entry (§12.3's own "a brand-new lease has a genuinely empty log" wording was the
 correct spec; the implementation was wrong, not the acceptance criterion) — then passed.
 
+### 12.10 Built, 2026-10-04 (AT-444) — §12.5.3's `notice_date`/`notice_given_by` columns now real
+
+`leases.notice_date`/`notice_given_by`/`notice_note`/`move_out_date` (§12.5.3's row 2 cites these as
+"new" — they now exist, migration `2026_10_04_220000`, `rental-renewals.md` §2/§7). Written by the
+new one-click "Tenant gave notice"/"Landlord not renewing" outcomes
+(`App\Services\Rentals\LeaseRenewalService::recordNotice()`), reversible, with history kept in a new
+append-only `lease_events` table (not on the lease row itself, so a reversal never erases that the
+event happened — see `rental-renewals.md` §14 for the full reasoning).
+
+**§12.5.3's property-status side effects (the "Advertise? Yes" column, the re-advertise-with-
+availability-date behaviour) are now built too**, under GATE 2 (approved by the conductor 2026-10-04,
+same day), WITH one change from this section's original wording: no new "Notice Given" property
+status is introduced. Notice is a fact about the LEASE only. The existing status mechanism is driven
+directly (`Property::isAllowedStatus()` / `isOnMarket()`) — the notice dialog's "put this property
+back on the market" tick always uses the agency's configured on-market rental status (a setting, never
+`status_before_letting` directly), while a lease ending or being cancelled restores the property's own
+captured pre-let status (`properties.status_before_letting`, captured once at lease activation),
+falling back to that same on-market setting only if nothing was ever captured — two genuinely
+different rules, not one shared expression. See `rental-renewals.md` §15 for the full as-built
+transition table, the three agency settings, and the portal-syndication findings (including a real
+pre-existing gap found in both portal mappers' own availability-date handling, reported not fixed).
+
+`LeaseHubService::nextStep()`'s "Review renewal"/"Record outcome" now link to the real renewal screen
+(`corex.leases.renewal.create`) instead of AT-440's own lease-edit placeholder, and are suppressed once
+`Lease::hasActiveNotice()` or `renewed_lease_id` is set — nothing left to "review" until reversed.
+
 ---
 
 ## 13. AT-439 (Rentals rebuild 1/7, "Foundation") — Part 1 fixes, 2026-10-04

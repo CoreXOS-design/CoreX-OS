@@ -100,13 +100,16 @@ class LeaseHubService
             && now()->lte($lease->end_date)
             && now()->addDays($reminderWindowDays)->gte($lease->end_date);
 
-        if ($withinRenewalWindow) {
-            // AT-440 brief: "link target can be the lease edit until AT-444."
-            return ['label' => 'Review renewal', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
+        // .ai/specs/rental-renewals.md §5/§9 — AT-444: the renewal screen now
+        // exists, so the next-step card links straight into it instead of
+        // AT-440's own placeholder (lease edit). Suppressed once an outcome
+        // is already on file — nothing left to "review" until it's reversed.
+        if ($withinRenewalWindow && !$lease->hasActiveNotice() && !$lease->renewed_lease_id) {
+            return ['label' => 'Review renewal', 'route_name' => 'corex.leases.renewal.create', 'route_param' => $lease->id];
         }
 
-        if ($lease->end_date && $lease->status === Lease::STATUS_ACTIVE && now()->gt($lease->end_date)) {
-            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
+        if ($lease->end_date && $lease->status === Lease::STATUS_ACTIVE && now()->gt($lease->end_date) && !$lease->hasActiveNotice() && !$lease->renewed_lease_id) {
+            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.renewal.create', 'route_param' => $lease->id];
         }
 
         return null;

@@ -419,6 +419,12 @@ return [
              'label' => 'Warn me this many days before a lease expires',
              'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
              'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
+            // .ai/specs/rental-renewals.md §2 — AT-444. Same saver (LeaseSettingsController::update,
+            // already registered above) — one more has()-guarded field on the same step.
+            ['key' => 'tenant_notice_period_days', 'source' => 'leases', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days\' notice a tenant is expected to give',
+             'explain' => 'A sensible South African convention for how much notice a tenant gives before moving out — not a legal minimum CoreX enforces.',
+             'affects' => 'The notice-window figure shown on the Lease Hub and used when recording a tenant\'s notice to vacate. 30 days suits most agencies — change it to match your own lease wording.'],
             ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'label' => 'Days a tenant has to report a fault after moving in',
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',

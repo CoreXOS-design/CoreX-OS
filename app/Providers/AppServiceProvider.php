@@ -260,6 +260,11 @@ class AppServiceProvider extends ServiceProvider
         Presentation::observe(PresentationObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
         Property::observe(PropertyObserver::class);
+        // .ai/specs/rental-renewals.md §15 (GATE 2) row 6 — restores a
+        // property's pre-let status when an out-inspection completes.
+        // RentalInspectionController is cc1's file (off limits); an
+        // observer reacts to the state change itself, no controller edit.
+        \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionCompletionObserver::class);
         CommandTask::observe(CommandTaskObserver::class);
         CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
 

@@ -189,4 +189,41 @@ final class LeaseFromSignedDocumentPromotionTest extends TestCase
         self::assertNotSame($otherTenantDraft->id, $lease->id, 'A draft tied to a DIFFERENT tenant must not be promoted for this one.');
         self::assertSame(2, Lease::where('property_id', $this->property->id)->count());
     }
+
+    /**
+     * AT-444 item 6 — a renewal draft (previous_lease_id already set, as
+     * RenewalDraftService::copyForward()/draftFromTemplate() build it)
+     * activates via LeaseRenewalService::activateRenewalTerm(), not a bare
+     * LeaseActivationService::activate() call — so the escalation on the
+     * new term is recorded as part of completion, not left for the agent
+     * to enter separately afterwards.
+     */
+    public function test_a_renewal_draft_lease_is_activated_via_activate_renewal_term_and_records_escalation(): void
+    {
+        $previousTerm = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 8000, 'start_date' => now()->subYear()->toDateString(),
+            'end_date' => now()->subDay()->toDateString(), 'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $renewalDraft = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_DRAFT, 'rental_amount' => 0, 'start_date' => now()->toDateString(),
+            'source' => 'manual', 'previous_lease_id' => $previousTerm->id, 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $template = $this->signedLeaseTemplate();
+        $lease = app(SignatureService::class)->createLeaseFromSignedDocument($template);
+
+        self::assertNotNull($lease);
+        self::assertSame($renewalDraft->id, $lease->id);
+        self::assertSame(Lease::STATUS_ACTIVE, $lease->status);
+        self::assertSame(Lease::STATUS_EXPIRED, $previousTerm->fresh()->status);
+        self::assertSame($lease->id, $previousTerm->fresh()->renewed_lease_id);
+
+        $escalation = $lease->escalations()->first();
+        self::assertNotNull($escalation, 'Completion through the renewal draft path must record the escalation, not leave it to the agent.');
+        self::assertEquals(8000.0, (float) $escalation->previous_rental_amount);
+        self::assertEquals(12500.0, (float) $escalation->new_rental_amount);
+    }
 }

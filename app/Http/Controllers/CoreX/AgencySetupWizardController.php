@@ -553,6 +553,8 @@ class AgencySetupWizardController extends Controller
                 'leases' => match ($key) {
                     'expiry_notice_window_days' => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
+                    // .ai/specs/rental-renewals.md §2 — AT-444.
+                    'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one
