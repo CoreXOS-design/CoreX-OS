@@ -654,13 +654,14 @@ class RentalCommandCentreService
                 'lease' => $lease,
                 'label' => 'Start inspection',
                 'detail' => 'Tenant: ' . $lease->tenantNames(),
-                // RentalInspectionController::create() (cc1-owned, AT-439)
-                // does not read a property_id query param today — this is
-                // reported in this ticket's finish report, not fixed here
-                // (out of this screen's scope). The param is passed anyway
-                // so the link is forward-compatible the day it does.
+                // AT-444/AT-441 follow-up (2026-10-05) — RentalInspectionController::
+                // create() (cc1/AT-439) now pre-selects from lease_id/property_id
+                // (landed on origin/QA1 the same day this follow-up was built).
+                // Both passed: lease_id resolves via the controller's own
+                // Lease::visibleTo() scoped lookup (preferred), property_id as
+                // the fallback this queue already carried.
                 'route' => 'corex.rental-inspections.create',
-                'route_params' => ['property_id' => $lease->property_id],
+                'route_params' => ['property_id' => $lease->property_id, 'lease_id' => $lease->id],
             ]);
         });
 
