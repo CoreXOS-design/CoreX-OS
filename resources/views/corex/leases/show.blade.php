@@ -56,6 +56,32 @@
             @permission('leases.create')
                 <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')">Edit</button>
             @endpermission
+            @permission('leases.renew')
+                @if(in_array($lease->status, ['draft', 'active'], true))
+                    <div x-data="{ open: false }" class="relative">
+                        <button type="button" @click="open = !open" @click.outside="open = false" class="corex-btn-outline text-xs">Lease actions &#9662;</button>
+                        <div x-show="open" x-cloak class="absolute right-0 z-10 mt-1 w-64 rounded-md p-1 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,.15);">
+                            @if($lease->status === 'active')
+                                <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="block w-full text-left px-2 py-1.5 rounded no-underline" style="color: inherit;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Renew lease&hellip;</a>
+                                @if($lease->is_month_to_month)
+                                    <button type="button" @click="open = false" onclick="document.getElementById('reverse-m2m-form').submit()" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse month-to-month</button>
+                                @else
+                                    <button type="button" @click="open = false" onclick="document.getElementById('lease-action-panel-m2m').classList.toggle('hidden')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Goes month-to-month&hellip;</button>
+                                @endif
+                                @if($lease->hasActiveNotice())
+                                    <button type="button" @click="open = false" onclick="document.getElementById('reverse-notice-form').submit()" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse notice</button>
+                                @else
+                                    <button type="button" @click="open = false" onclick="document.getElementById('lease-action-panel-tenant-notice').classList.toggle('hidden')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Tenant gave notice&hellip;</button>
+                                    <button type="button" @click="open = false" onclick="document.getElementById('lease-action-panel-landlord-notice').classList.toggle('hidden')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Landlord not renewing&hellip;</button>
+                                @endif
+                            @endif
+                            @permission('leases.cancel')
+                                <button type="button" @click="open = false" onclick="document.getElementById('cancel-lease-form').classList.toggle('hidden')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel lease&hellip;</button>
+                            @endpermission
+                        </div>
+                    </div>
+                @endif
+            @endpermission
             <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">&larr; All leases</a>
         </div>
     </div>
@@ -237,14 +263,13 @@
                 @endpermission
 
                 @php
-                    $showCancelLeaseBtn = auth()->check() && auth()->user()->hasPermission('leases.cancel') && in_array($lease->status, ['draft', 'active'], true);
+                    // "Cancel lease" moved to the header's "Lease actions" menu
+                    // (AT-444 follow-up, 2026-10-05) — this form is still used,
+                    // just triggered from there now.
                     $showArchiveBtn = auth()->check() && auth()->user()->hasPermission('leases.create') && $lease->isDeletable() && $lease->status !== 'active';
                 @endphp
-                @if($showCancelLeaseBtn || $showArchiveBtn)
+                @if($showArchiveBtn)
                     <div class="flex items-center gap-2 pt-2" style="border-top: 1px solid var(--border);">
-                        @if($showCancelLeaseBtn)
-                            <button type="button" onclick="document.getElementById('cancel-lease-form').classList.toggle('hidden')" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Cancel lease</button>
-                        @endif
                         @if($showArchiveBtn)
                             <form method="POST" action="{{ route('corex.leases.destroy', $lease) }}" onsubmit="return confirm('Archive this lease?');">
                                 @csrf
@@ -261,6 +286,79 @@
                     <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
                 </form>
             </div>
+
+            {{--
+                AT-444 follow-up (conductor, 2026-10-05) — "Lease actions" menu
+                dialogs. These post to the SAME renewal routes the full
+                Renewal screen (corex.leases.renewal.create) already uses;
+                this is just a second, lighter entry point for the one-click
+                outcomes so they're reachable without leaving the Lease Hub.
+            --}}
+            @if($lease->status === 'active')
+                @if(!$lease->is_month_to_month)
+                    <div id="lease-action-panel-m2m" class="hidden rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+                        <h2 class="text-sm font-semibold">Goes month-to-month</h2>
+                        <form method="POST" action="{{ route('corex.leases.renewal.month-to-month', $lease) }}" class="space-y-2">
+                            @csrf
+                            <label class="text-xs font-medium">Note (optional)</label>
+                            <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+                            <div class="flex items-center gap-2">
+                                <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
+                                <button type="button" onclick="document.getElementById('lease-action-panel-m2m').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                @else
+                    <form id="reverse-m2m-form" method="POST" action="{{ route('corex.leases.renewal.month-to-month.reverse', $lease) }}" class="hidden">
+                        @csrf
+                    </form>
+                @endif
+
+                @if(!$lease->hasActiveNotice())
+                    <div id="lease-action-panel-tenant-notice" class="hidden rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+                        <h2 class="text-sm font-semibold">Tenant gave notice</h2>
+                        <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" class="space-y-2">
+                            @csrf
+                            <label class="text-xs font-medium">Move-out date (required)</label>
+                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" class="prop-input">
+                            <label class="text-xs font-medium">Note (optional)</label>
+                            <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+                            <input type="hidden" name="readvertise" value="0">
+                            <label class="flex items-center gap-2 text-xs">
+                                <input type="checkbox" name="readvertise" value="1" @checked($autoReadvertiseOnNotice)>
+                                Put this property back on the market, available the day after move-out
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
+                                <button type="button" onclick="document.getElementById('lease-action-panel-tenant-notice').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div id="lease-action-panel-landlord-notice" class="hidden rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+                        <h2 class="text-sm font-semibold">Landlord not renewing</h2>
+                        <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" class="space-y-2">
+                            @csrf
+                            <label class="text-xs font-medium">Move-out date (required)</label>
+                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" class="prop-input">
+                            <label class="text-xs font-medium">Note (optional)</label>
+                            <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+                            <input type="hidden" name="readvertise" value="0">
+                            <label class="flex items-center gap-2 text-xs">
+                                <input type="checkbox" name="readvertise" value="1" @checked($autoReadvertiseOnNotice)>
+                                Put this property back on the market, available the day after move-out
+                            </label>
+                            <div class="flex items-center gap-2">
+                                <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
+                                <button type="button" onclick="document.getElementById('lease-action-panel-landlord-notice').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                @else
+                    <form id="reverse-notice-form" method="POST" action="{{ route('corex.leases.renewal.notice.reverse', $lease) }}" class="hidden">
+                        @csrf
+                    </form>
+                @endif
+            @endif
 
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Escalation history</h2>
