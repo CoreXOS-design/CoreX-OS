@@ -125,41 +125,6 @@ class Lease extends Model
     }
 
     /**
-     * AT-440 (Lease Hub) — "landlord via the derived accessor cc1 is adding
-     * in AT-439... if it has not landed when you get there, resolve
-     * landlords from the property contact-role pivot through a small
-     * method you can later swap — do not add a column." Deliberately NOT a
-     * stored column — leases.md's own docblock (§G of the Stage-1
-     * investigation) is explicit the landlord is derived from the
-     * Property's contact link, never duplicated onto the Lease. Checks
-     * BOTH 'landlord' and 'lessor' pivot roles (Property::sellerOwnerContact()'s
-     * own vocabulary), falling back to sellerOwnerContact()'s single-result
-     * collapse when neither role is tagged but the property has exactly one
-     * contact — the same precedent RentalFaultReportController::create()
-     * already uses for this exact fact.
-     */
-    public function landlordContacts(): \Illuminate\Support\Collection
-    {
-        $property = $this->property;
-        if (!$property) {
-            return collect();
-        }
-
-        $contacts = $property->contactsForRole('landlord')
-            ->merge($property->contactsForRole('lessor'))
-            ->unique('id')
-            ->values();
-
-        if ($contacts->isNotEmpty()) {
-            return $contacts;
-        }
-
-        $fallback = $property->sellerOwnerContact();
-
-        return $fallback ? collect([$fallback]) : collect();
-    }
-
-    /**
      * Whether this lease can still be soft-deleted through the ordinary CRUD
      * path (leases.md §2 — deletable only while nothing has attached yet).
      * A lease with any escalation history has evidence on it and may only
