@@ -18,15 +18,6 @@ Per the build brief, this round explicitly **excludes**:
 - **The Outstanding/Debtors report (§8 of the original draft)** — Stage 8 (`rental-money.md`,
   invoices/payments) is not built yet; there is no data for this report to show. Not stubbed. See
   `rental-money.md` §9 for where this still lives as a forward-looking spec note.
-- **Job cards report** — AT-442 (job cards) was confirmed **not on `origin/QA1`** at build time (grep
-  for `job_card`/`JobCard` across the checkout: zero hits). Per the brief's own instruction, this is
-  left out entirely rather than stubbed, and flagged here for Johan to schedule once AT-442 lands. The
-  shared shell and the report-picker screen are both already built to add a report key without any
-  structural change — adding "Job cards" later is a new `RentalReportService` method + a `REPORTS`
-  array entry + a screen-side `group_by` map entry, no shell rework.
-- **The "done-by" (supplier vs. own-team) filter on Work Orders** — the own-team column this depends
-  on belongs to AT-442, also not on QA1 yet. The existing supplier filter stands in for the half of
-  this control that data supports today.
 - **"Notice given" / "Renewals in progress" as Lease Status ticks** — `leases.notice_date` (AT-444)
   does not exist on QA1 yet. The report reads `RentalCommandCentreService`'s own derived query, which
   already defines these two buckets (one hardcoded to 0, one already schema-ready but unwritten-to) —
@@ -40,11 +31,20 @@ Per the build brief, this round explicitly **excludes**:
   per CLAUDE.md non-negotiable #4 ("stay in your lane"). The report is reachable from the Reports
   screen only.
 
-**Built:** 5 period reports (Fault reports, Work orders, Lease status, Lease expiries, Inspections),
-1 whole-history report (Property history — single-property, see §4.7's "Brief vs draft"), 1
-single-record PDF print (Landlord Property Activity Report), one shared shell, one JSON API per
-report, PHPUnit coverage of status-tick defaults/narrowing, period boundaries, own/branch/all
+**Built:** 6 period reports (Fault reports, Work orders, Job cards, Lease status, Lease expiries,
+Inspections), 1 whole-history report (Property history — single-property, see §4.7's "Brief vs
+draft"), 1 single-record PDF print (Landlord Property Activity Report), one shared shell, one JSON
+API per report, PHPUnit coverage of status-tick defaults/narrowing, period boundaries, own/branch/all
 scoping, agency isolation, totals-equals-sum-of-rows, group-by, and a no-N+1 query-count budget.
+
+**Job cards and the Work Orders "done-by" filter were ORIGINALLY deferred, then built after all**:
+AT-442 (job cards) landed on `origin/QA1` partway through this build (its own commit history shows
+`RentalJobCard`/`RentalJobCardLine`/`RentalCatalogueItem` landing while AT-443 was already in
+progress). The brief's own condition — "build ONLY if AT-442 is on `origin/QA1` when you land" —
+flipped true before the final landing merge, so both are built, not left deferred. This is recorded
+here rather than silently absorbed: the shared shell and report-picker screen were deliberately built
+(per the brief's own note) so that adding a report key required no structural rework — exactly what
+happened here, confirming that design held.
 
 ---
 
@@ -126,10 +126,31 @@ the brief, for consistency with the rest of the module.
 - **Columns:** date raised, property, supplier, trade, quoted amount, status, paid by, days open.
   - **Quoted amount** = the selected quote's `amount` (`rental_work_order_quotes.is_selected`), falling
     back to `cost_amount` when no quote has been selected yet.
-- **Deferred filter:** "done-by" (supplier vs. own team) — see §0.
+- **"Done by" filter** (supplier vs. own team) — **built**, once AT-442 landed mid-build (see §0): a
+  work order is "own team" when it has a linked `RentalJobCard` (1:1, `rental_work_order_id`);
+  "supplier" when `agency_service_provider_id` is set directly. The two are mutually exclusive in
+  practice.
 - **Search:** property address, tenant name, supplier name, title.
 
-### 4.3 Job cards for a period — NOT BUILT, see §0
+### 4.3 Job cards for a period
+
+**Built** after AT-442 landed mid-build — see §0. One row per job card (same per-record granularity
+as every other report here).
+
+- **Ticks** (default: all): Outstanding (draft/quoted/approved/scheduled/in-progress), In progress,
+  Overdue (`RentalJobCard::scopeOverdue()` — its own `due_at`, no agency setting needed), Completed,
+  Cancelled.
+- **Group by:** crew member, property.
+  - **"By labour/part item"** (named in the original draft) is **not built** — that grouping needs one
+    row per LINE, which doesn't fit this report's per-job-card column shape (date/property/crew/total
+    cost); a materials-usage breakdown would be a different report. Reported as a deviation, not
+    silently dropped.
+- **Columns:** date, property, crew member, labour hours, parts used, status, total cost.
+  - **Labour hours** = sum of `quantity` across the job card's own `labour`-type lines.
+  - **Parts used** = the job card's own `part`-type lines' descriptions (+ quantity), comma-joined.
+  - **Total cost** is `null` (renders as "—", never a forced `0`) when the job card's `total_amount`
+    hasn't been priced yet — per the original draft's own instruction.
+- **Search:** property address, crew member name, title.
 
 ### 4.4 Lease status
 
@@ -228,7 +249,7 @@ differs, this brief wins and you report the difference").
 
 `GET /api/v1/rentals/reports/{report-key}` — ONE route (`v1.rentals.reports.show`, versioned, named,
 auto-listed on `/admin/api`), dispatching on `{report-key}` ∈ `fault-reports` / `work-orders` /
-`lease-status` / `lease-expiries` / `inspections` (NOT `job-cards`/`outstanding` — §0). Same
+`job-cards` / `lease-status` / `lease-expiries` / `inspections` (NOT `outstanding` — §0). Same
 `RentalReportService` the web screen reads from, same scope/filter query params, same
 own/branch/agency guard. Response: `columns`, `rows` (current page, `_model`/`_group` keys stripped),
 `groups`, `totals`, `count`, pagination metadata.
@@ -296,9 +317,9 @@ widen, past the user's real ceiling on that entity. Covered by
 
 ## 10. Acceptance criteria (whole-screen)
 
-- [x] Five period reports (§4.1, 4.2, 4.4, 4.5, 4.6) + Property History (§4.7) + the Landlord Activity
-      single-record print (§5) are reachable from one Reports screen. Job cards (§4.3) and Outstanding
-      (§8) are NOT built — see §0.
+- [x] Six period reports (§4.1-4.4, 4.5, 4.6) + Property History (§4.7) + the Landlord Activity
+      single-record print (§5) are reachable from one Reports screen. Outstanding (§8) is NOT
+      built — see §0.
 - [x] Every built report's shared shell (period/scope/status-ticks/group-by/search/sort/print/PDF/
       export/totals) functions identically across all of them.
 - [x] Every report enforces own/branch/agency scoping at the query layer — covered by

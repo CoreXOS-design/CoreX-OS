@@ -14,6 +14,8 @@ use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
 use App\Models\RentalInspection;
+use App\Models\RentalJobCard;
+use App\Models\RentalJobCardLine;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderQuote;
 use App\Models\RentalWorkOrderSetting;
@@ -285,6 +287,115 @@ final class RentalReportServiceTest extends TestCase
         self::assertSame(1, $result['count']);
     }
 
+    public function test_work_orders_done_by_filter_distinguishes_supplier_from_own_team(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+
+        $supplierOrder = $this->makeWorkOrder($agency, $branch, $property, RentalWorkOrder::STATUS_ORDERED, now(), $agent);
+        $supplier = AgencyServiceProvider::create(['agency_id' => $agency->id, 'name' => 'Acme Electrical']);
+        $supplierOrder->update(['agency_service_provider_id' => $supplier->id]);
+
+        $ownTeamOrder = $this->makeWorkOrder($agency, $branch, $property, RentalWorkOrder::STATUS_ORDERED, now(), $agent);
+        RentalJobCard::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'rental_work_order_id' => $ownTeamOrder->id,
+            'property_id' => $property->id, 'title' => 'Fix the gate', 'status' => RentalJobCard::STATUS_SCHEDULED,
+            'created_by_user_id' => $agent->id,
+        ]);
+
+        $this->grantAllScope($agent, 'rental_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
+        $this->actingAs($agent);
+
+        $supplierResult = $this->service->workOrders($agent, ['period' => 'any', 'done_by' => 'supplier']);
+        self::assertSame(1, $supplierResult['count']);
+        self::assertSame($supplierOrder->id, $supplierResult['rows']->first()['_model']->id);
+
+        $ownTeamResult = $this->service->workOrders($agent, ['period' => 'any', 'done_by' => 'own_team']);
+        self::assertSame(1, $ownTeamResult['count']);
+        self::assertSame($ownTeamOrder->id, $ownTeamResult['rows']->first()['_model']->id);
+    }
+
+    // ───────────────────────── Job cards (AT-442, landed mid-build) ─────────────────────────
+
+    public function test_job_cards_default_buckets_include_everything_and_narrow_on_tick(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+
+        $this->makeJobCard($agency, $branch, $property, RentalJobCard::STATUS_SCHEDULED, $agent);
+        $this->makeJobCard($agency, $branch, $property, RentalJobCard::STATUS_COMPLETED, $agent);
+        $this->makeJobCard($agency, $branch, $property, RentalJobCard::STATUS_CANCELLED, $agent);
+
+        $this->grantAllScope($agent, 'rental_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_job_cards', $agency->id);
+        $this->actingAs($agent);
+
+        $result = $this->service->jobCards($agent, ['period' => 'any']);
+        self::assertSame(3, $result['count']);
+
+        $narrowed = $this->service->jobCards($agent, ['period' => 'any', 'buckets' => ['completed']]);
+        self::assertSame(1, $narrowed['count']);
+        self::assertSame('Completed', $narrowed['rows']->first()['status']);
+    }
+
+    public function test_job_cards_aggregates_labour_hours_and_parts_from_its_own_lines(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $card = $this->makeJobCard($agency, $branch, $property, RentalJobCard::STATUS_COMPLETED, $agent);
+
+        RentalJobCardLine::create([
+            'agency_id' => $agency->id, 'rental_job_card_id' => $card->id, 'type' => 'labour',
+            'description' => 'Plumbing repair', 'quantity' => 2.5, 'created_by_user_id' => $agent->id,
+        ]);
+        RentalJobCardLine::create([
+            'agency_id' => $agency->id, 'rental_job_card_id' => $card->id, 'type' => 'part',
+            'description' => 'PVC elbow joint', 'quantity' => 3, 'created_by_user_id' => $agent->id,
+        ]);
+
+        $this->grantAllScope($agent, 'rental_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_job_cards', $agency->id);
+        $this->actingAs($agent);
+
+        $result = $this->service->jobCards($agent, ['period' => 'any']);
+        $row = $result['rows']->first();
+        self::assertSame(2.5, $row['labour_hours']);
+        self::assertStringContainsString('PVC elbow joint', $row['parts_used']);
+    }
+
+    public function test_job_cards_total_cost_is_null_not_zero_when_unpriced(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeJobCard($agency, $branch, $property, RentalJobCard::STATUS_SCHEDULED, $agent);
+
+        $this->grantAllScope($agent, 'rental_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_job_cards', $agency->id);
+        $this->actingAs($agent);
+
+        $result = $this->service->jobCards($agent, ['period' => 'any']);
+        self::assertNull($result['rows']->first()['total_cost']);
+    }
+
+    public function test_job_cards_never_leak_across_agencies(): void
+    {
+        [$agencyA, $branchA, $agentA] = $this->makeAgencyBranchAgent();
+        [$agencyB, $branchB, $agentB] = $this->makeAgencyBranchAgent();
+        $propA = $this->makeRentalProperty($agencyA, $branchA, $agentA);
+        $propB = $this->makeRentalProperty($agencyB, $branchB, $agentB);
+
+        $this->makeJobCard($agencyA, $branchA, $propA, RentalJobCard::STATUS_SCHEDULED, $agentA);
+        $this->makeJobCard($agencyB, $branchB, $propB, RentalJobCard::STATUS_SCHEDULED, $agentB);
+
+        $this->grantAllScope($agentA, 'rental_reports', $agencyA->id);
+        $this->grantAllScope($agentA, 'rental_job_cards', $agencyA->id);
+        $this->actingAs($agentA);
+
+        $result = $this->service->jobCards($agentA, ['period' => 'any']);
+        self::assertSame(1, $result['count']);
+    }
+
     // ───────────────────────── Lease status (delegates to RentalCommandCentreService) ─────────────────────────
 
     public function test_lease_status_report_matches_command_centre_tile_counts(): void
@@ -448,6 +559,25 @@ final class RentalReportServiceTest extends TestCase
             'description' => 'Test work order description',
             'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
             'reported_at' => $reportedAt,
+            'created_by_user_id' => $createdBy->id,
+        ]);
+    }
+
+    private function makeJobCard(Agency $agency, Branch $branch, Property $property, string $status, User $createdBy): RentalJobCard
+    {
+        // rental_job_cards.rental_work_order_id is a required, unique 1:1 FK — a job card
+        // is always the "own team" side of a real work order, never created standalone.
+        $workOrder = $this->makeWorkOrder($agency, $branch, $property, RentalWorkOrder::STATUS_ORDERED, now(), $createdBy);
+
+        return RentalJobCard::create([
+            'agency_id' => $agency->id,
+            'branch_id' => $branch->id,
+            'rental_work_order_id' => $workOrder->id,
+            'property_id' => $property->id,
+            'title' => 'Job card ' . uniqid(),
+            'status' => $status,
+            'assigned_user_id' => $createdBy->id,
+            'scheduled_at' => now(),
             'created_by_user_id' => $createdBy->id,
         ]);
     }

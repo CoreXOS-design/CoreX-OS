@@ -22,6 +22,7 @@
     $groupByOptions = match($reportKey) {
         'fault-reports' => ['property' => 'Property', 'landlord' => 'Landlord', 'agent' => 'Agent', 'fault_type' => 'Fault type'],
         'work-orders' => ['property' => 'Property', 'supplier' => 'Supplier', 'trade' => 'Trade'],
+        'job-cards' => ['crew' => 'Crew member', 'property' => 'Property'],
         'lease-status' => ['branch' => 'Branch', 'agent' => 'Agent'],
         'lease-expiries' => ['month' => 'Month of expiry'],
         'inspections' => ['property' => 'Property', 'type' => 'Type', 'agent' => 'Inspecting agent'],
@@ -115,6 +116,14 @@
                 <div>
                     <label class="text-xs" style="color: var(--text-muted);">Trade</label><br>
                     <input type="text" name="trade_type" value="{{ $params['trade_type'] ?? '' }}" placeholder="e.g. plumber" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs" style="color: var(--text-muted);">Done by</label><br>
+                    <select name="done_by" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                        <option value="">Any</option>
+                        <option value="supplier" @selected(($params['done_by'] ?? '') === 'supplier')>Supplier</option>
+                        <option value="own_team" @selected(($params['done_by'] ?? '') === 'own_team')>Own team</option>
+                    </select>
                 </div>
                 @endif
 

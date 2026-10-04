@@ -37,6 +37,8 @@ class RentalReportController extends Controller
             'branch_id' => $request->get('branch_id'),
             'property_id' => $request->get('property_id'),
             'supplier_id' => $request->get('supplier_id'),
+            'done_by' => $request->get('done_by'),
+            'crew_user_id' => $request->get('crew_user_id'),
             'trade_type' => $request->get('trade_type'),
             'type' => $request->get('type'),
         ];
@@ -44,6 +46,7 @@ class RentalReportController extends Controller
         $result = match ($reportKey) {
             'fault-reports' => $service->faultReports($user, $params),
             'work-orders' => $service->workOrders($user, $params),
+            'job-cards' => $service->jobCards($user, $params),
             'lease-status' => $service->leaseStatus($user, $params, $cc),
             'lease-expiries' => $service->leaseExpiries($user, $params),
             'inspections' => $service->inspections($user, $params),

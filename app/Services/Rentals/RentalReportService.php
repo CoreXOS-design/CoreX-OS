@@ -7,6 +7,7 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalInspection;
+use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
@@ -38,6 +39,10 @@ class RentalReportService
     public const REPORTS = [
         'fault-reports' => 'Fault reports',
         'work-orders' => 'Work orders',
+        // AT-442 landed on origin/QA1 partway through this build — per the task
+        // brief's own condition ("build ONLY if AT-442 is on origin/QA1 when you
+        // land"), this report is built, not deferred. See the spec's §0 update.
+        'job-cards' => 'Job cards',
         'lease-status' => 'Lease status',
         'lease-expiries' => 'Lease expiries',
         'inspections' => 'Inspections',
@@ -89,6 +94,22 @@ class RentalReportService
         // enum stays individually tickable per BUILD_STANDARD §1b/the master spec's shared
         // shell ("every status individually tickable, not a single on/off toggle").
         'cancelled' => ['label' => 'Cancelled', 'statuses' => [RentalInspection::STATUS_CANCELLED], 'default_off' => true],
+    ];
+
+    public const JOB_CARD_BUCKETS = [
+        'outstanding' => ['label' => 'Outstanding', 'statuses' => [
+            RentalJobCard::STATUS_DRAFT,
+            RentalJobCard::STATUS_QUOTED,
+            RentalJobCard::STATUS_APPROVED,
+            RentalJobCard::STATUS_SCHEDULED,
+            RentalJobCard::STATUS_IN_PROGRESS,
+        ]],
+        'in_progress' => ['label' => 'In progress', 'statuses' => [RentalJobCard::STATUS_IN_PROGRESS]],
+        // RentalJobCard::scopeOverdue() — same "open + past due" convention as
+        // RentalWorkOrder::scopeOverdue(), reused rather than re-derived.
+        'overdue' => ['label' => 'Overdue', 'statuses' => [], 'overdue' => true],
+        'completed' => ['label' => 'Completed', 'statuses' => [RentalJobCard::STATUS_COMPLETED]],
+        'cancelled' => ['label' => 'Cancelled', 'statuses' => [RentalJobCard::STATUS_CANCELLED]],
     ];
 
     // ───────────────────────── Scope (shared shell §1.1 / brief: "Own | Branch | All") ─────────────────────────
@@ -330,10 +351,18 @@ class RentalReportService
             });
         }
 
-        // "done-by" (supplier vs own team) filter per the brief is deferred — AT-442's
-        // own-team column is not on origin/QA1 at build time (confirmed by grep, no
-        // job_card/own-team column exists). The existing supplier filter stands in for
-        // the half of this control that data supports today.
+        // "done-by" (supplier vs own team) — AT-442 landed mid-build, so this is now
+        // built per the brief's own condition. A work order is "own team" when it has
+        // a linked RentalJobCard (1:1, rental_work_order_id); "supplier" when it has
+        // agency_service_provider_id set directly. The two are mutually exclusive in
+        // practice (a job card IS the own-team path, replacing the supplier field).
+        if ($doneBy = $params['done_by'] ?? null) {
+            if ($doneBy === 'own_team') {
+                $query->whereHas('jobCard');
+            } elseif ($doneBy === 'supplier') {
+                $query->whereNotNull('agency_service_provider_id');
+            }
+        }
         if ($supplierId = $params['supplier_id'] ?? null) {
             $query->where('agency_service_provider_id', $supplierId);
         }
@@ -402,6 +431,130 @@ class RentalReportService
             'direction' => $direction,
             'buckets' => self::WORK_ORDER_BUCKETS,
             'selectedBuckets' => empty($selectedBuckets) ? $this->defaultBucketKeys(self::WORK_ORDER_BUCKETS) : $selectedBuckets,
+        ];
+    }
+
+    // ───────────────────────── 4.3 Job cards for a period (AT-442, landed mid-build) ─────────────────────────
+
+    /**
+     * One row per job card (same granularity as every other report here —
+     * the spec's own "by labour/part item" grouping would need one row per
+     * LINE instead, which doesn't fit this report's per-record column shape
+     * (date/property/crew/total cost); not built, reported as a deviation).
+     * "Labour hours"/"parts used" are aggregates over the job card's own
+     * lines, computed via eager-loaded relations (bounded by this one
+     * job card's own line count, not a correlated subquery per row — the
+     * line counts here are small, matching RentalWorkOrder's own quotes
+     * eager-load precedent elsewhere in this service).
+     */
+    public function jobCards(User $user, array $params): array
+    {
+        $reportScope = $this->resolveScope($user, $params['scope'] ?? null);
+        $scope = $this->clampToEntityCeiling($user, $reportScope, 'rental_job_cards');
+        $period = $this->resolvePeriod($params);
+        $selectedBuckets = $params['buckets'] ?? [];
+
+        $query = RentalJobCard::query()
+            ->visibleTo($user, $scope)
+            ->with(['property', 'assignedUser', 'lines']);
+
+        if ($period['from']) {
+            $query->where(fn ($q) => $q->where('scheduled_at', '>=', $period['from'])->orWhere('completed_at', '>=', $period['from']));
+        }
+        if ($period['to']) {
+            $query->where(fn ($q) => $q->where('scheduled_at', '<=', $period['to'])->orWhere('completed_at', '<=', $period['to']));
+        }
+
+        $selected = empty($selectedBuckets) ? array_keys(self::JOB_CARD_BUCKETS) : array_intersect($selectedBuckets, array_keys(self::JOB_CARD_BUCKETS));
+        $wantsOverdue = in_array('overdue', $selected, true);
+        $nonOverdueKeys = array_values(array_diff($selected, ['overdue']));
+        $statuses = [];
+        foreach ($nonOverdueKeys as $key) {
+            $statuses = array_merge($statuses, self::JOB_CARD_BUCKETS[$key]['statuses'] ?? []);
+        }
+        $statuses = array_values(array_unique($statuses));
+
+        if (count($selected) < count(self::JOB_CARD_BUCKETS)) {
+            $query->where(function (Builder $q) use ($statuses, $wantsOverdue) {
+                $any = false;
+                if ($statuses) {
+                    $q->orWhereIn('status', $statuses);
+                    $any = true;
+                }
+                if ($wantsOverdue) {
+                    $q->orWhere(fn ($qq) => $qq->overdue());
+                    $any = true;
+                }
+                if (!$any) {
+                    $q->whereRaw('1 = 0');
+                }
+            });
+        }
+
+        if ($propertyId = $params['property_id'] ?? null) {
+            $query->where('property_id', $propertyId);
+        }
+        if ($crewUserId = $params['crew_user_id'] ?? null) {
+            $query->where('assigned_user_id', $crewUserId);
+        }
+
+        if ($search = trim((string) ($params['q'] ?? ''))) {
+            $query->where(function (Builder $q) use ($search) {
+                $q->whereHas('property', fn ($p) => $p->searchAddress($search))
+                    ->orWhereHas('assignedUser', fn ($u) => $u->where('name', 'like', "%{$search}%"))
+                    ->orWhere('title', 'like', "%{$search}%");
+            });
+        }
+
+        $cards = $query->get();
+
+        $groupLabel = match ($params['group_by'] ?? null) {
+            'crew' => fn (RentalJobCard $c) => $c->assignedUser?->name ?? 'Unassigned',
+            'property' => fn (RentalJobCard $c) => $c->property?->buildDisplayAddress() ?? 'Unknown property',
+            default => null,
+        };
+
+        $rows = $cards->map(function (RentalJobCard $c) {
+            $labourHours = (float) $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
+            $partsUsed = $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_PART)
+                ->map(fn ($l) => $l->description . ($l->quantity ? " ({$l->quantity})" : ''))
+                ->implode(', ');
+
+            return [
+                '_model' => $c,
+                'date' => optional($c->scheduled_at ?? $c->completed_at)->format('Y-m-d'),
+                'property' => $c->property?->buildDisplayAddress() ?? '—',
+                'crew_member' => $c->assignedUser?->name ?? '—',
+                'labour_hours' => $labourHours > 0 ? $labourHours : null,
+                'parts_used' => $partsUsed !== '' ? $partsUsed : '—',
+                'status' => $this->humanize($c->status),
+                // "never a forced zero" (spec §4.3) — null (not 0) when the
+                // agency hasn't priced this card yet, so the Blade/export
+                // layer renders it blank rather than "R 0.00".
+                'total_cost' => $c->total_amount !== null ? (float) $c->total_amount : null,
+            ];
+        });
+
+        $sort = $params['sort'] ?? 'date';
+        $direction = ($params['direction'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
+        $rows = $this->sortRows($rows, $sort, $direction, 'date');
+
+        [$rows, $groups] = $this->applyGrouping($rows, $params['group_by'] ?? null, $groupLabel);
+
+        return [
+            'columns' => [
+                'date' => 'Date', 'property' => 'Property', 'crew_member' => 'Crew member',
+                'labour_hours' => 'Labour hours', 'parts_used' => 'Parts used', 'status' => 'Status',
+                'total_cost' => 'Total cost',
+            ],
+            'sumKeys' => ['labour_hours', 'total_cost'],
+            'rows' => $rows,
+            'groups' => $groups,
+            'count' => $cards->count(),
+            'sort' => $sort,
+            'direction' => $direction,
+            'buckets' => self::JOB_CARD_BUCKETS,
+            'selectedBuckets' => empty($selectedBuckets) ? $this->defaultBucketKeys(self::JOB_CARD_BUCKETS) : $selectedBuckets,
         ];
     }
 
