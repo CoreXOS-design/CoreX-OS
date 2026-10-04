@@ -266,13 +266,20 @@ final class RentalJobCardLifecycleTest extends TestCase
 
     public function test_worker_and_agent_sign_off_then_complete_syncs_the_work_order(): void
     {
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'completion_requires_photo' => false]);
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         $jobCard->workerSignOff($this->admin);
         $jobCard->agentSignOff($this->admin);
 
-        $jobCard->complete($this->admin);
+        // Through the SERVICE — this is the one place the work-order sync
+        // lives (found missing, live Tinker verification: completing the
+        // model alone never touched the work order, because that sync had
+        // been written only inside the web controller — moved here so
+        // every caller gets it, never duplicated in a controller).
+        app(RentalJobCardService::class)->complete($jobCard, $this->admin);
 
         $this->assertSame(RentalJobCard::STATUS_COMPLETED, $jobCard->fresh()->status);
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $jobCard->workOrder->fresh()->status);
     }
 
     public function test_tenant_confirmation_is_not_required_to_complete(): void
@@ -343,7 +350,7 @@ final class RentalJobCardLifecycleTest extends TestCase
 
     public function test_full_internal_job_catalogue_to_completion(): void
     {
-        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 200, 'capture_prices_on_job_cards' => true]);
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 200, 'capture_prices_on_job_cards' => true, 'completion_requires_photo' => false]);
         $item = $this->catalogueItem(['default_price' => 450]);
 
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, [
@@ -371,9 +378,10 @@ final class RentalJobCardLifecycleTest extends TestCase
         $jobCard->workerSignOff($this->admin);
         $jobCard->agentSignOff($this->admin);
         $jobCard->tenantConfirm('All good, thanks', $this->admin);
-        $jobCard->complete($this->admin);
+        $service->complete($jobCard, $this->admin);
 
         $this->assertSame(RentalJobCard::STATUS_COMPLETED, $jobCard->fresh()->status);
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $jobCard->workOrder->fresh()->status);
         $this->assertNotNull($jobCard->fresh()->tenant_confirmed_at);
     }
 }

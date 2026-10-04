@@ -269,4 +269,34 @@ class RentalJobCardService
     {
         return app(RentalWorkOrderService::class)->storePhoto($jobCard->workOrder, $file, $photoType, $uploadedBy, $clientKey);
     }
+
+    /**
+     * Completing a job card also completes its linked work order — found
+     * missing via a live Tinker verification: $jobCard->complete() alone
+     * (the model's own sign-off gate) never touched the work order at all,
+     * because that sync had been written only inside the web controller.
+     * Moved here so every caller (web, a future mobile "complete" action,
+     * a test calling this service directly) gets the same behaviour —
+     * never duplicated in a controller.
+     */
+    public function complete(RentalJobCard $jobCard, User $by): void
+    {
+        $jobCard->complete($by);
+
+        $workOrder = $jobCard->workOrder;
+        if ($workOrder && $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED) {
+            try {
+                $workOrder->complete($by, [
+                    'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
+                    'cost_amount' => $jobCard->total_amount,
+                    'completion_notes' => 'Completed via job card #' . $jobCard->id,
+                ]);
+            } catch (\LogicException) {
+                // e.g. agency requires a completed photo — the job card is
+                // still marked complete (worker+agent both signed off); the
+                // linked work order stays open until that evidence is added
+                // via the existing photo upload on the work order itself.
+            }
+        }
+    }
 }

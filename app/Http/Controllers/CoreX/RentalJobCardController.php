@@ -384,28 +384,12 @@ class RentalJobCardController extends Controller
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Tenant confirmation recorded.');
     }
 
-    public function complete(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
+    public function complete(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse
     {
         try {
-            $rentalJobCard->complete($request->user());
+            $service->complete($rentalJobCard, $request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
-        }
-
-        $workOrder = $rentalJobCard->workOrder;
-        if ($workOrder && $workOrder->status !== \App\Models\RentalWorkOrder::STATUS_COMPLETED) {
-            try {
-                $workOrder->complete($request->user(), [
-                    'paid_by' => \App\Models\RentalWorkOrder::PAID_BY_OWNER,
-                    'cost_amount' => $rentalJobCard->total_amount,
-                    'completion_notes' => 'Completed via job card #' . $rentalJobCard->id,
-                ]);
-            } catch (\LogicException $e) {
-                // e.g. agency requires a completed photo — the job card is
-                // still marked complete (worker+agent both signed off); the
-                // linked work order stays open until that evidence is added
-                // via the existing photo upload on the work order itself.
-            }
         }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card completed.');
