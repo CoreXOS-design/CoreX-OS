@@ -13040,6 +13040,20 @@ CREATE TABLE `rental_checklist_template_sections` (
   CONSTRAINT `rental_checklist_template_sections_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_command_centre_user_preferences`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_command_centre_user_preferences` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `preference_state` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_command_centre_user_preferences_user_id_unique` (`user_id`),
+  CONSTRAINT `rental_command_centre_user_preferences_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_document_types`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -18617,3 +18631,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1508,'2026_10_04_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1509,'2026_10_04_210600_add_job_card_fields_to_rental_work_order_quotes_table',259);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1510,'2026_10_04_210700_add_capture_prices_on_job_cards_to_rental_work_order_settings_table',259);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1511,'2026_10_04_220000_add_show_prices_on_printed_job_card_to_rental_work_order_settings_table',260);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1512,'2026_10_07_090500_create_rental_command_centre_user_preferences_table',261);
