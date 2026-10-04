@@ -1,6 +1,15 @@
 @extends('layouts.corex')
 
-{{-- .ai/specs/leases.md — the lease detail screen. --}}
+{{--
+    .ai/specs/leases.md §12 — the Lease Hub. "The lease detail becomes the
+    tenancy file" (Johan, 4 Oct 2026): one full-width screen answering what
+    happened, what's next, and what's open — without checking four other
+    screens. Every existing CRUD action (edit/activate/cancel/archive/
+    escalate) from the prior narrow-column screen is preserved exactly —
+    same routes, same field names — just reorganised into this layout.
+    Screen rule: every line of space is data or a control, no fact shown
+    twice, no always-on helper text.
+--}}
 
 @php
     $statusBadgeClass = match ($lease->status) {
@@ -9,271 +18,287 @@
         'cancelled' => 'ds-badge-danger',
         default => 'ds-badge-info',
     };
+    $lifecycleStateClass = fn ($state) => match ($state) {
+        'done' => 'background: var(--ds-green, #16a34a); color: #fff;',
+        'current' => 'background: var(--brand-button, #0ea5e9); color: #fff;',
+        default => 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);',
+    };
 @endphp
 
 @section('content')
-<div class="p-6 max-w-3xl mx-auto space-y-4">
+<div class="p-6 space-y-4">
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
 
-    <div class="flex items-center justify-between">
+    {{-- Header: address, status, tenant(s), rent, term, actions. --}}
+    <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
             <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
-            @if($lease->migrated_from_table)
-                <span class="text-xs" style="color: var(--text-muted);">— migrated from {{ $lease->migrated_from_table }}#{{ $lease->migrated_from_id }}</span>
-            @endif
+            <div class="flex items-center gap-2 mt-1 text-sm">
+                <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
+                <span>{{ $lease->tenantNames() }}</span>
+                <span>&middot;</span>
+                <span>R{{ number_format((float) $lease->rental_amount, 2) }}/mo</span>
+                <span>&middot;</span>
+                <span>{{ $lease->start_date?->format('Y-m-d') }}
+                    &ndash; {{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'month-to-month' : 'no end date') }}</span>
+                @if($lease->migrated_from_table)
+                    <span class="text-xs" style="color: var(--text-muted);">(migrated from {{ $lease->migrated_from_table }}#{{ $lease->migrated_from_id }})</span>
+                @endif
+            </div>
         </div>
-        <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">&larr; All leases</a>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('corex.leases.tenancy-report', $lease) }}" target="_blank" class="corex-btn-outline text-xs">Print tenancy report</a>
+            @permission('rental_fault_reports.create')
+                <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
+            @endpermission
+            @permission('leases.create')
+                <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')">Edit</button>
+            @endpermission
+            <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">&larr; All leases</a>
+        </div>
     </div>
 
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
-        <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
-            <div><span style="color: var(--text-muted);">Tenant(s):</span> {{ $lease->tenantNames() }}</div>
-            <div><span style="color: var(--text-muted);">Monthly rental:</span> R{{ number_format((float) $lease->rental_amount, 2) }}</div>
-            <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
-            <div><span style="color: var(--text-muted);">Start date:</span> {{ $lease->start_date?->format('Y-m-d') }}</div>
-            <div><span style="color: var(--text-muted);">End date:</span> {{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</div>
-            {{-- Johan, 2026-09-22 — "the freaking lease type is showing here
-                 again... hide it, dont remove it." Agency-configurable,
-                 default hidden (LeaseSetting::showLeaseTypeFieldFor()).
-                 Settings → Leases turns it back on. --}}
-            @if($showLeaseType ?? false)
-            <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
-            @endif
-            <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
-            {{-- .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29
-                 — "per property, populated to the leases screen." The
-                 property is the one editable place this number lives; this
-                 screen only ever reads through to it
-                 (RentalWorkOrderSetting::thresholdFor()), never stores its
-                 own value. --}}
-            @if($lease->property)
-                <div>
-                    <span style="color: var(--text-muted);">No-approval spend threshold:</span>
-                    R{{ number_format(\App\Models\RentalWorkOrderSetting::thresholdFor($lease->property), 2) }}
-                    <span class="text-xs" style="color: var(--text-muted);">(set on the property —
-                        <a href="{{ route('corex.properties.show', $lease->property_id) }}" class="underline">edit there</a>)</span>
+    <x-rental-context-bar :lease="$lease" current="lease" />
+
+    {{-- Lifecycle strip — every state derived live, never stored. --}}
+    <div class="rounded-md p-3 overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="flex items-center gap-1 text-xs whitespace-nowrap">
+            @foreach($lifecycle as $i => $step)
+                <span class="rounded-full px-3 py-1" style="{{ $lifecycleStateClass($step['state']) }}">{{ $step['label'] }}</span>
+                @if(!$loop->last)
+                    <span style="color: var(--text-muted);">&rarr;</span>
+                @endif
+            @endforeach
+        </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4">
+        {{-- Main column: next-step, tenancy log. --}}
+        <div class="col-span-3 lg:col-span-2 space-y-4">
+            @if($nextStep)
+                <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);">
+                    <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}</span>
+                    <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
                 </div>
             @endif
+
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Tenancy log</h2>
+
+                <form method="GET" class="flex flex-wrap items-center gap-2">
+                    <input type="text" name="q" value="{{ $timelineFilters['q'] ?? '' }}" placeholder="Search description or actor"
+                           class="rounded-md px-3 py-1.5 text-xs flex-1 min-w-[180px]" style="border: 1px solid var(--border);">
+                    @foreach($timelineTypes as $t)
+                        <label class="text-xs flex items-center gap-1">
+                            <input type="checkbox" name="type[]" value="{{ $t }}" @checked(in_array($t, (array) ($timelineFilters['type'] ?? []), true))>
+                            {{ ucfirst(str_replace('_', ' ', $t)) }}
+                        </label>
+                    @endforeach
+                    <input type="date" name="date_from" value="{{ $timelineFilters['date_from'] ?? '' }}" class="rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border); color-scheme: light dark;">
+                    <input type="date" name="date_to" value="{{ $timelineFilters['date_to'] ?? '' }}" class="rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border); color-scheme: light dark;">
+                    <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+                </form>
+
+                @if($timelineEntries->isEmpty())
+                    <p class="text-xs" style="color: var(--text-muted);">
+                        @if(array_filter($timelineFilters))
+                            No entries match this filter.
+                        @else
+                            Nothing recorded yet on this tenancy.
+                        @endif
+                    </p>
+                @else
+                    <ul class="space-y-1">
+                        @foreach($timelineEntries as $entry)
+                            <li class="flex items-center justify-between text-sm" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                                <div class="min-w-0">
+                                    <span class="ds-badge ds-badge-muted text-[10px]">{{ ucfirst(str_replace('_', ' ', $entry['type'])) }}</span>
+                                    {{ $entry['description'] }}
+                                    @if($entry['actor'])
+                                        <span class="text-xs" style="color: var(--text-muted);">— {{ $entry['actor'] }}</span>
+                                    @endif
+                                </div>
+                                <div class="flex items-center gap-2 flex-shrink-0">
+                                    <span class="text-xs" style="color: var(--text-muted);">{{ \Illuminate\Support\Carbon::parse($entry['occurred_at'])->format('Y-m-d') }}</span>
+                                    @if($entry['route_name'])
+                                        <a href="{{ route($entry['route_name'], $entry['route_param']) }}" class="text-xs underline">View</a>
+                                    @endif
+                                </div>
+                            </li>
+                        @endforeach
+                    </ul>
+                    @if($timelineTotal > $timelineEntries->count())
+                        <p class="text-xs" style="color: var(--text-muted);">Showing {{ $timelineEntries->count() }} of {{ $timelineTotal }}.</p>
+                    @endif
+                @endif
+            </div>
         </div>
 
-        {{-- .ai/specs/leases.md — full CRUD floor: deposit/end date/lease type
-             editable after creation. Rent amount is deliberately NOT editable
-             here — it only ever changes via a recorded escalation (§3.4), so
-             the rate history stays a true, unbroken record. Start date is
-             fixed once a lease exists; correcting it is a delete-and-recreate
-             (only possible while nothing has attached — see isDeletable()),
-             not a silent edit of a term the tenant agreed to. --}}
-        {{-- Johan, 2026-09-22 — "why are the fields not lined up? its such an
-             easy thing to do. just line it all up." Every field below now
-             uses the SAME shared `.prop-input`/`.prop-select`/`.prop-label`
-             classes (resources/css/corex.css) already used across the app
-             (properties, onboarding, rental inventories) instead of one-off
-             Tailwind+inline-style combos — that's what guarantees identical
-             label position and field height down the column, not a visual
-             approximation. End date now sits next to Month-to-month instead
-             of alone (a lone `col-span-2` item after it was stranding End
-             date in CSS grid's default auto-placement). The read-only
-             Monthly rental display below reuses `.prop-input`'s own
-             `:disabled` styling instead of a hand-rolled grey background.
+        {{-- Side column: lease terms, open items, escalation history. --}}
+        <div class="col-span-3 lg:col-span-1 space-y-4">
+            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Lease terms</h2>
+                <div><span style="color: var(--text-muted);">Monthly rental:</span> R{{ number_format((float) $lease->rental_amount, 2) }}</div>
+                <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
+                <div><span style="color: var(--text-muted);">Term:</span> {{ $lease->start_date?->format('Y-m-d') }}
+                    &ndash; {{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</div>
+                @if($showLeaseType ?? false)
+                    <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
+                @endif
+                <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
+                @if($lease->property)
+                    <div>
+                        <span style="color: var(--text-muted);">No-approval spend limit:</span>
+                        R{{ number_format(\App\Models\RentalWorkOrderSetting::thresholdFor($lease->property), 2) }}
+                    </div>
+                @endif
+                <div>
+                    <span style="color: var(--text-muted);">Landlord(s):</span>
+                    {{ $landlords->isEmpty() ? 'Not linked' : $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}
+                </div>
+                @if($lease->previousLease)
+                    <div class="text-xs" style="color: var(--text-muted);">Renewed from <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.</div>
+                @endif
+                @if($lease->renewedLease)
+                    <div class="text-xs" style="color: var(--text-muted);">Renewed into <a href="{{ route('corex.leases.show', $lease->renewedLease) }}" class="underline">lease #{{ $lease->renewedLease->id }}</a>.</div>
+                @endif
+                @if($lease->status === 'cancelled')
+                    <div class="text-xs" style="color: var(--ds-crimson);">Cancelled {{ $lease->cancelled_at?->format('Y-m-d') }}: {{ $lease->cancel_reason }}</div>
+                @endif
+            </div>
 
-             COORDINATION (cc5, work-order quotes, 2026-09-22): the
-             no-approval spend threshold field is being removed from this
-             screen entirely by cc5 (Johan's ruling — it belongs on the
-             PROPERTY, not the lease). Its label/input classes and grid
-             placement are left EXACTLY as they were before this layout
-             pass — only its two lines of helper text are removed, per
-             Johan's screen-space rule (§3 below). Do not "fix" its
-             mismatched styling; cc5 deletes the whole field next. --}}
-        @permission('leases.create')
-        <form id="lease-edit-form" x-show="editing" x-cloak method="POST" action="{{ route('corex.leases.update', $lease) }}" class="space-y-3">
-            @csrf
-            @method('PUT')
-            {{-- The container stays a CONSTANT grid-cols-2 (exactly what it
-                 was before this layout pass) — never grid-cols-1. The
-                 no-approval threshold field below keeps its own untouched
-                 `col-span-2` class (cc5 coordination, see the comment
-                 above); if the container itself dropped to 1 explicit
-                 column at mobile width, that field's span-2 request would
-                 force CSS Grid to create an unwanted IMPLICIT second
-                 column, corrupting every row above it too — confirmed via
-                 a real headless-browser render at 390px before landing on
-                 this shape, not assumed. Responsiveness instead lives on
-                 the fields THIS commit owns: each is `col-span-2` (full
-                 width) up to `sm:`, then `sm:col-span-1` (half width,
-                 paired) from 640px up — the exact same visual outcome,
-                 without ever touching the container's own explicit column
-                 count out from under the field this commit may not
-                 relayout. --}}
-            <div class="grid grid-cols-2 gap-4">
-                <div class="col-span-2 sm:col-span-1">
-                    {{-- Johan, 2026-09-22 — "the rental amount shows on the
-                         lease screen, but not on the edit screen... displaying
-                         the rent amount makes it easy to type again [the
-                         deposit]." Read-only display only — rent is never
-                         editable here, it only ever changes via a recorded
-                         escalation (see the form's own comment above). --}}
-                    <label class="prop-label">Monthly rental (R)</label>
-                    <input type="text" value="R{{ number_format((float) $lease->rental_amount, 2) }}" disabled class="prop-input">
-                </div>
-                <div class="col-span-2 sm:col-span-1">
-                    <label class="prop-label">Deposit (R)</label>
-                    <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" class="prop-input">
-                </div>
-                <div class="col-span-2 sm:col-span-1">
-                    <label class="prop-label">End date</label>
-                    <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" class="prop-input" style="color-scheme: light dark;">
-                </div>
-                <div class="col-span-2 sm:col-span-1 flex items-end pb-2">
+            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Open items</h2>
+                <a href="{{ route('corex.rental-fault-reports.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
+                    <span>Open faults</span><span class="ds-badge ds-badge-muted">{{ $openItemCounts['faults'] }}</span>
+                </a>
+                <a href="{{ route('corex.rental-work-orders.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
+                    <span>Open work orders</span><span class="ds-badge ds-badge-muted">{{ $openItemCounts['work_orders'] }}</span>
+                </a>
+                <a href="{{ route('corex.rental-inspections.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
+                    <span>Unsigned inspections</span><span class="ds-badge ds-badge-muted">{{ $openItemCounts['inspections'] }}</span>
+                </a>
+            </div>
+
+            <div id="lease-edit-panel" class="hidden rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Edit lease</h2>
+                @permission('leases.create')
+                <form id="lease-edit-form" method="POST" action="{{ route('corex.leases.update', $lease) }}" class="space-y-3">
+                    @csrf
+                    @method('PUT')
+                    <div>
+                        <label class="prop-label">Deposit (R)</label>
+                        <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" class="prop-input">
+                    </div>
+                    <div>
+                        <label class="prop-label">End date</label>
+                        <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" class="prop-input" style="color-scheme: light dark;">
+                    </div>
                     <label class="flex items-center gap-2 text-sm">
                         <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month))>
                         Month-to-month (no fixed end date)
                     </label>
-                </div>
-                {{-- Johan, 2026-09-22 — hidden by default, agency-configurable
-                     (Settings → Leases). See the display-mode comment above. --}}
-                @if($showLeaseType ?? false)
-                <div class="col-span-2">
-                    <label class="prop-label">Lease type</label>
-                    <select name="lease_type" class="prop-select">
-                        <option value="" @selected(!$lease->lease_type)>—</option>
-                        {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
-                             list, same source as the property screen's Lease Type select. --}}
-                        @foreach($leaseTypes ?? [] as $lt)
-                            <option value="{{ $lt->name }}" @selected($lease->lease_type === $lt->name)>{{ $lt->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                @endif
-            </div>
-        </form>
-        @endpermission
-
-        @if($lease->previousLease)
-            <p class="text-xs" style="color: var(--text-muted);">Renewed from <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.</p>
-        @endif
-        @if($lease->renewedLease)
-            <p class="text-xs" style="color: var(--text-muted);">Renewed into <a href="{{ route('corex.leases.show', $lease->renewedLease) }}" class="underline">lease #{{ $lease->renewedLease->id }}</a>.</p>
-        @endif
-
-        @if($lease->status === 'cancelled')
-            <p class="text-xs" style="color: var(--ds-crimson);">Cancelled {{ $lease->cancelled_at?->format('Y-m-d') }}: {{ $lease->cancel_reason }}</p>
-        @endif
-
-        @php
-            // Johan, 2026-09-22 — "save cancel cancel lease... they can live
-            // on 1 line." Mirrors the exact same checks the @permission/@if
-            // blocks below use, so this flag can never disagree with what
-            // actually renders — it only decides whether the destructive
-            // group's divider/right-alignment renders at all (nothing to
-            // separate from if neither button is showing).
-            $showCancelLeaseBtn = auth()->check() && auth()->user()->hasPermission('leases.cancel') && in_array($lease->status, ['draft', 'active'], true);
-            $showArchiveBtn = auth()->check() && auth()->user()->hasPermission('leases.create') && $lease->isDeletable() && $lease->status !== 'active';
-        @endphp
-        <div class="flex flex-wrap items-center gap-2 pt-1">
-            @permission('leases.create')
-                <button type="button" x-show="!editing" @click="editing = true" class="corex-btn-outline text-xs">Edit</button>
-                <button type="submit" form="lease-edit-form" x-show="editing" x-cloak class="corex-btn-primary text-xs">Save changes</button>
-                <button type="button" x-show="editing" x-cloak @click="editing = false" class="corex-btn-outline text-xs">Cancel</button>
-                @if($lease->status === 'draft')
-                    <form method="POST" action="{{ route('corex.leases.activate', $lease) }}">
-                        @csrf
-                        <button type="submit" class="corex-btn-primary text-xs">Activate</button>
-                    </form>
-                @endif
-            @endpermission
-            {{-- Johan, 2026-09-22 — "Cancel lease is the destructive one —
-                 keep it visually distinct and separated... not made to look
-                 like an equal sibling of Save." Same red-outline convention
-                 Archive already uses elsewhere in CoreX, grouped together
-                 and pushed to the trailing edge of the row with a divider,
-                 not just a colour change. $showCancelLeaseBtn/$showArchiveBtn
-                 (above) each mirror their own ORIGINAL, independent
-                 permission check (leases.cancel / leases.create) exactly —
-                 this group is NOT nested inside @permission('leases.create')
-                 above, so a user with leases.cancel but not leases.create
-                 still sees Cancel lease, matching the pre-existing behaviour
-                 this screen already had before this layout pass. --}}
-            @if($showCancelLeaseBtn || $showArchiveBtn)
-            <div class="flex items-center gap-2 ml-auto pl-3" style="border-left: 1px solid var(--border);">
-                @if($showCancelLeaseBtn)
-                    <button type="button" onclick="document.getElementById('cancel-lease-form').classList.toggle('hidden')" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Cancel lease</button>
-                @endif
-                @if($showArchiveBtn)
-                    <form method="POST" action="{{ route('corex.leases.destroy', $lease) }}" onsubmit="return confirm('Archive this lease?');">
-                        @csrf
-                        @method('DELETE')
-                        <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
-                    </form>
-                @endif
-            </div>
-            @endif
-        </div>
-
-        <form id="cancel-lease-form" method="POST" action="{{ route('corex.leases.cancel', $lease) }}" class="hidden space-y-2 pt-2">
-            @csrf
-            <label class="text-xs font-medium">Reason for cancellation (required)</label>
-            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
-            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
-        </form>
-    </div>
-
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Escalation history</h2>
-        @permission('leases.renew')
-            @if($lease->status === 'active')
-                <form method="POST" action="{{ route('corex.leases.escalate', $lease) }}" class="flex flex-wrap items-end gap-2">
-                    @csrf
-                    <div>
-                        <label class="text-xs">Effective date</label><br>
-                        <input type="date" name="effective_date" required class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                    @if($showLeaseType ?? false)
+                        <div>
+                            <label class="prop-label">Lease type</label>
+                            <select name="lease_type" class="prop-select">
+                                <option value="" @selected(!$lease->lease_type)>—</option>
+                                @foreach($leaseTypes ?? [] as $lt)
+                                    <option value="{{ $lt->name }}" @selected($lease->lease_type === $lt->name)>{{ $lt->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
+                    <div class="flex items-center gap-2">
+                        <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                        <button type="button" onclick="document.getElementById('lease-edit-panel').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>
+                        @if($lease->status === 'draft')
+                            @php
+                                // leases.md §12.5 point 2 — "a lease CAN be
+                                // created/activated on a Withdrawn property."
+                                // This confirm is a speed-bump only: on confirm
+                                // (or when the property isn't withdrawn at all)
+                                // the form submits straight through, same as
+                                // before — activation itself never blocks on it
+                                // server-side.
+                                $propertyWithdrawn = strtolower(trim((string) ($lease->property?->status ?? ''))) === 'withdrawn';
+                            @endphp
+                            <button type="submit" form="lease-activate-form"
+                                @if($propertyWithdrawn) onclick="return confirm('This property is withdrawn. Are you sure you want to use it for this lease?');" @endif
+                                class="corex-btn-primary text-xs">Activate</button>
+                        @endif
                     </div>
-                    <div>
-                        <label class="text-xs">New monthly rental (R)</label><br>
-                        <input type="number" name="new_rental_amount" step="0.01" min="0" required class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                    </div>
-                    <div>
-                        <label class="text-xs">Note</label><br>
-                        <input type="text" name="note" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                    </div>
-                    <button type="submit" class="corex-btn-outline text-xs">Record escalation</button>
                 </form>
-            @endif
-        @endpermission
+                <form id="lease-activate-form" method="POST" action="{{ route('corex.leases.activate', $lease) }}" class="hidden">
+                    @csrf
+                </form>
+                @endpermission
 
-        @forelse($lease->escalations as $escalation)
-            <div class="text-sm flex items-center justify-between" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
-                <span>{{ $escalation->effective_date->format('Y-m-d') }}: R{{ number_format((float) $escalation->previous_rental_amount, 2) }} &rarr; R{{ number_format((float) $escalation->new_rental_amount, 2) }} ({{ $escalation->escalation_rate_percent >= 0 ? '+' : '' }}{{ $escalation->escalation_rate_percent }}%)</span>
-                <span class="text-xs" style="color: var(--text-muted);">{{ $escalation->createdByUser?->name }}</span>
+                @php
+                    $showCancelLeaseBtn = auth()->check() && auth()->user()->hasPermission('leases.cancel') && in_array($lease->status, ['draft', 'active'], true);
+                    $showArchiveBtn = auth()->check() && auth()->user()->hasPermission('leases.create') && $lease->isDeletable() && $lease->status !== 'active';
+                @endphp
+                @if($showCancelLeaseBtn || $showArchiveBtn)
+                    <div class="flex items-center gap-2 pt-2" style="border-top: 1px solid var(--border);">
+                        @if($showCancelLeaseBtn)
+                            <button type="button" onclick="document.getElementById('cancel-lease-form').classList.toggle('hidden')" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);">Cancel lease</button>
+                        @endif
+                        @if($showArchiveBtn)
+                            <form method="POST" action="{{ route('corex.leases.destroy', $lease) }}" onsubmit="return confirm('Archive this lease?');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
+                            </form>
+                        @endif
+                    </div>
+                @endif
+                <form id="cancel-lease-form" method="POST" action="{{ route('corex.leases.cancel', $lease) }}" class="hidden space-y-2 pt-2">
+                    @csrf
+                    <label class="text-xs font-medium">Reason for cancellation (required)</label>
+                    <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+                    <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+                </form>
             </div>
-        @empty
-            <p class="text-xs" style="color: var(--text-muted);">No escalations recorded yet.</p>
-        @endforelse
-    </div>
 
-    {{-- Johan, 2026-09-22 — "every feature needs a navigation link where the
-         work happens." Both records carry a real lease_id FK; this is where
-         an agent looking at a tenancy actually needs to reach them from. --}}
-    @if(auth()->user()?->hasPermission('rental_fault_reports.view') || auth()->user()?->hasPermission('rental_work_orders.view'))
-    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">This tenancy</h2>
-        <div class="flex gap-2">
-            @permission('rental_fault_reports.view')
-                <a href="{{ route('corex.rental-fault-reports.index', ['lease_id' => $lease->id]) }}" class="corex-btn-outline text-xs">Fault reports</a>
-            @endpermission
-            @permission('rental_work_orders.view')
-                <a href="{{ route('corex.rental-work-orders.index', ['lease_id' => $lease->id]) }}" class="corex-btn-outline text-xs">Work orders</a>
-            @endpermission
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Escalation history</h2>
+                @permission('leases.renew')
+                    @if($lease->status === 'active')
+                        <form method="POST" action="{{ route('corex.leases.escalate', $lease) }}" class="flex flex-wrap items-end gap-2">
+                            @csrf
+                            <div>
+                                <label class="text-xs">Effective date</label><br>
+                                <input type="date" name="effective_date" required class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                            </div>
+                            <div>
+                                <label class="text-xs">New monthly rental (R)</label><br>
+                                <input type="number" name="new_rental_amount" step="0.01" min="0" required class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                            </div>
+                            <div>
+                                <label class="text-xs">Note</label><br>
+                                <input type="text" name="note" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                            </div>
+                            <button type="submit" class="corex-btn-outline text-xs">Record escalation</button>
+                        </form>
+                    @endif
+                @endpermission
+
+                @forelse($lease->escalations as $escalation)
+                    <div class="text-sm flex items-center justify-between" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                        <span>{{ $escalation->effective_date->format('Y-m-d') }}: R{{ number_format((float) $escalation->previous_rental_amount, 2) }} &rarr; R{{ number_format((float) $escalation->new_rental_amount, 2) }} ({{ $escalation->escalation_rate_percent >= 0 ? '+' : '' }}{{ $escalation->escalation_rate_percent }}%)</span>
+                        <span class="text-xs" style="color: var(--text-muted);">{{ $escalation->createdByUser?->name }}</span>
+                    </div>
+                @empty
+                    <p class="text-xs" style="color: var(--text-muted);">No escalations recorded yet.</p>
+                @endforelse
+            </div>
+
+            @if($lease->property)
+                @include('corex.rental-inventories.partials._related-inventories', ['property' => $lease->property])
+            @endif
         </div>
     </div>
-    @endif
-
-    {{-- .ai/specs/rental-inventory.md §4 — reachable from where the work
-         happens, not only the sidebar list (Johan, 2026-09-22). --}}
-    @if($lease->property)
-        @include('corex.rental-inventories.partials._related-inventories', ['property' => $lease->property])
-    @endif
 </div>
 @endsection

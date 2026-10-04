@@ -11,6 +11,10 @@ use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
+use App\Services\Rentals\LeaseHubService;
+use App\Services\Rentals\LeaseTimelineService;
+use App\Services\Rentals\RentalDocumentPdfService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -215,11 +219,32 @@ class LeaseController extends Controller
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease created.');
     }
 
+    /**
+     * .ai/specs/leases.md §12 — the lease detail becomes the tenancy file.
+     * Johan, 4 Oct 2026: the one screen that answers "what has happened on
+     * this tenancy, what needs to happen next, and is there anything open
+     * right now" without checking four other screens.
+     */
     public function show(Request $request, Lease $lease): View
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         $lease->load(['property', 'tenants.contact', 'escalations.createdByUser', 'previousLease', 'renewedLease']);
+
+        $hubService = app(LeaseHubService::class);
+        $timelineService = app(LeaseTimelineService::class);
+
+        $filters = $request->only(['q', 'type', 'date_from', 'date_to']);
+        $types = array_filter((array) $request->get('type', []));
+        $page = (array) $timelineService->paginatedFor(
+            $lease,
+            $request->get('q'),
+            $types,
+            $request->get('date_from'),
+            $request->get('date_to'),
+            50,
+            (int) $request->get('page', 1)
+        );
 
         return view('corex.leases.show', [
             'lease' => $lease,
@@ -227,7 +252,58 @@ class LeaseController extends Controller
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
             // Johan, 2026-09-22 — agency-configurable, hidden by default.
             'showLeaseType' => \App\Models\LeaseSetting::showLeaseTypeFieldFor($lease->agency_id),
+            'lifecycle' => $hubService->lifecycle($lease),
+            'nextStep' => $hubService->nextStep($lease),
+            'openItemCounts' => $hubService->openItemCounts($lease),
+            'landlords' => $lease->landlordContacts(),
+            'timelineEntries' => $page['entries'],
+            'timelineTotal' => $page['total'],
+            'timelineTypes' => LeaseTimelineService::TYPES,
+            'timelineFilters' => $filters,
         ]);
+    }
+
+    /**
+     * AT-440 — JSON tenancy-log endpoint, same scope guard and same
+     * LeaseTimelineService the screen's own panel uses. Andre's mobile app
+     * calls this same endpoint for a tenant/agent mobile tenancy view
+     * (leases.md §12.4).
+     */
+    public function tenancyLog(Request $request, Lease $lease): JsonResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $timelineService = app(LeaseTimelineService::class);
+        $types = array_filter((array) $request->get('type', []));
+        $page = $timelineService->paginatedFor(
+            $lease,
+            $request->get('q'),
+            $types,
+            $request->get('date_from'),
+            $request->get('date_to'),
+            (int) $request->get('per_page', 50),
+            (int) $request->get('page', 1)
+        );
+
+        return response()->json([
+            'data' => $page['entries']->values(),
+            'total' => $page['total'],
+        ]);
+    }
+
+    /**
+     * .ai/specs/leases.md §12.2 — "Print tenancy report" action in the
+     * header. Same scope guard as show().
+     */
+    public function tenancyReportPdf(Lease $lease, RentalDocumentPdfService $service)
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $pdf = $service->leaseTenancyReportPdf($lease);
+
+        return request()->boolean('dl')
+            ? $pdf->download($service->leaseTenancyReportFilename($lease))
+            : $pdf->stream($service->leaseTenancyReportFilename($lease));
     }
 
     /**
