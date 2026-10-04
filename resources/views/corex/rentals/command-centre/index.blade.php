@@ -253,7 +253,7 @@
                                         <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
                                         <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>
                                         <a href="{{ route('corex.rental-work-orders.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">New work order</a>
-                                        <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Start inspection</a>
+                                        <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Start inspection</a>
                                     </div>
                                 </details>
                             </td>
