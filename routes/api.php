@@ -401,6 +401,12 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 ->name('v1.other-agency-stock.import');
         });
 
+        // AT-441 — .ai/specs/rental-command-centre.md §5. Mirrors the web
+        // screen exactly (same RentalCommandCentreService) — Andre's mobile
+        // app's rentals landing screen calls this.
+        Route::get('/rentals/command-centre', [\App\Http\Controllers\Api\V1\RentalCommandCentreController::class, 'index'])
+            ->middleware('permission:rental_command_centre.view')->name('v1.rentals.command-centre');
+
         // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
         Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
             ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
