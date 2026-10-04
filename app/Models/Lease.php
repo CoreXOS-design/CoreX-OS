@@ -26,6 +26,11 @@ class Lease extends Model
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_CANCELLED = 'cancelled';
 
+    // rental-renewals.md §7 — who gave notice. Free-form string, not an enum
+    // class of its own — matches the 'source' column's own convention.
+    public const NOTICE_BY_TENANT = 'tenant';
+    public const NOTICE_BY_LANDLORD = 'landlord';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -48,6 +53,11 @@ class Lease extends Model
         'cancel_reason',
         'migrated_from_table',
         'migrated_from_id',
+        'notice_date',
+        'notice_given_by',
+        'notice_note',
+        'move_out_date',
+        'renewal_draft_flow_id',
     ];
 
     protected $casts = [
@@ -57,6 +67,8 @@ class Lease extends Model
         'end_date' => 'date',
         'is_month_to_month' => 'boolean',
         'cancelled_at' => 'datetime',
+        'notice_date' => 'date',
+        'move_out_date' => 'date',
     ];
 
     public function property(): BelongsTo
@@ -122,6 +134,28 @@ class Lease extends Model
     public function inventories(): HasMany
     {
         return $this->hasMany(RentalInventory::class);
+    }
+
+    /**
+     * rental-renewals.md §8 — append-only renewal/outcome event log, newest
+     * last. Secondary `id` sort breaks ties when two events land in the
+     * same second (occurred_at alone is not a reliable tiebreak — MySQL
+     * does not guarantee insertion order for equal ORDER BY keys).
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(LeaseEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /**
+     * rental-renewals.md §7 — true once notice (by either party) has been
+     * recorded and not since reversed. Used by the Lease Hub next-step
+     * card and by the one-click outcome buttons' own state (no point
+     * offering "Tenant gave notice" again once notice is already on file).
+     */
+    public function hasActiveNotice(): bool
+    {
+        return $this->notice_date !== null;
     }
 
     /**

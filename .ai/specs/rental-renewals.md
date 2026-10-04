@@ -145,3 +145,94 @@ one-click outcomes and the reminder settings have agency-neutral defaults (§2).
   recipient — this spec assumes "whichever `leases.md` already treats as canonical" rather than
   introducing a new resolution rule; flagging in case the built model doesn't yet have an obvious
   single answer.
+
+## 14. Built, 2026-10-04 (AT-444) — what landed, what was scoped down, two open WAIT gates
+
+**Status correction: §3 (the `CheckLeaseExpiry` repoint) is NOT built here.** The task brief for this
+build explicitly assigns that repoint to cc1/AT-439 ("the reminder lead-time setting ALREADY EXISTS and
+cc1 is wiring the command to it — do not add a second one") — a direct conflict with this spec's own §3,
+which the brief itself resolves in its own favour ("where it conflicts with this brief, this brief
+wins"). `CheckLeaseExpiry.php` is untouched by this build. Confirm with cc1 that the repoint has
+actually landed before relying on it.
+
+**Built, verified in PHPUnit + Tinker against throwaway data:**
+
+- **§1 term chain** — `leases.previous_lease_id`/`renewed_lease_id`/`source_document_id` already
+  existed on the table (2026_09_17_090000, pre-dating this ticket — the "new column" framing in the
+  original §6 below was wrong, corrected here) and `LeaseActivationService::activate()` already
+  atomically expires the previous term and chains both pointers the moment a lease naming it as
+  `previous_lease_id` activates. This ticket adds `App\Services\Rentals\LeaseRenewalService::
+  createRenewalTerm()` (builds the new draft term, copies tenants) and `::activateRenewalTerm()`
+  (records the escalation on the NEW row via the existing `LeaseEscalation`, then calls the existing
+  `LeaseActivationService::activate()` — no duplicate activation logic).
+- **§2 one-click outcomes + reversal** — new `leases.notice_date`/`notice_given_by`/`notice_note`/
+  `move_out_date` columns (migration `2026_10_04_220000`). Month-to-month reuses the existing
+  `is_month_to_month` boolean. A new append-only `lease_events` table (+ `App\Models\LeaseEvent`)
+  records every outcome and its reversal — NOT derived live from the lease's own columns, because a
+  reversal clears those columns and the tenancy log must still show the event happened (unlike
+  escalation/cancellation, which are safe to derive live since nothing un-sets them). Property-status
+  side effects are deliberately NOT wired here — that's item 7's own WAIT gate (§15 below); these
+  outcomes only ever touch the Lease, never the Property.
+- **§3 tenant notice period setting** — `LeaseSetting::tenantNoticePeriodDaysFor()`, default 30 days,
+  surfaced in both the dedicated settings page and the Setup Wizard's existing 'leases' step (same
+  saver, `has()`-guarded per §6.1).
+- **§4/§5(a) copy-forward** — `App\Services\Rentals\RenewalDraftService::copyForward()`. Deliberately
+  does NOT drive `ESignWizardController`'s own property/recipient auto-fill (which is property-pivot-
+  centric and risks surfacing a PREVIOUS tenant on a property with lease history) — it writes a `flows`
+  row directly, in the exact `step_data` shape `saveStep()` itself writes, sourced explicitly from the
+  CURRENT LEASE's own tenants/landlord/terms. Verified the shape against the real `showStep()`/
+  `saveStep()`/`WebTemplateDataService::resolve()` code before writing it, not guessed. No
+  pipeline-gated file touched.
+- **§5(c)/manual upload + §7 completion→activation** — `LeaseRenewalController::uploadRenewal()`:
+  creates the new term, stores the file (reusing the existing `ValidatesDocumentUploads` allow-list),
+  files it via the generic `App\Models\Document` (`source_type='lease'`, `source_id=<new term>`, plus
+  the `properties()` pivot — NOT `leases.source_document_id`, which is reserved for
+  `docuperfect_documents.id`, a different ID space), then activates immediately via
+  `activateRenewalTerm()`. No e-sign cycle for this path, so "completion" is the upload itself.
+- **§6 e-sign completion → activation — only HALF wired, flagged explicitly.** `activateRenewalTerm()`
+  exists and is the correct, single call site for "a renewal term goes live" — but nothing in the
+  e-sign pipeline calls it yet for the copy-forward/template-draft paths. `SignatureService::
+  createLeaseFromSignedDocument()` (the method that would need to call it on a renewal document's
+  completion) is the exact file cc1's "e-sign draft-promotion" work is in, per the task brief's own
+  lane boundary — this build does not touch it. **Cross-lane dependency, not resolved by this
+  ticket:** once cc1's draft-promotion fix lands (the "promote an existing draft Lease on this property
+  instead of creating a new one" fix, Stage-1 investigation item F), it will find the draft term this
+  build's `copyForward()` creates (status=draft, `previous_lease_id` already set) and should call
+  `LeaseRenewalService::activateRenewalTerm()` on it rather than its own ad-hoc activation — satisfying
+  "reused, not duplicated" structurally, but only once that call is actually wired on cc1's side. Until
+  then, a copy-forward renewal that completes e-sign will create/promote the Lease row but NOT
+  auto-activate it or record its escalation; the agent can still activate it manually via the existing
+  `corex.leases.activate` action (escalation will need to be entered via the existing `escalate()`
+  action in that interim case, not automatically).
+- **§9 routes** — `corex.leases.{lease}.renewal.{create,draft,upload,month-to-month,month-to-month.
+  reverse,tenant-notice,landlord-notice,notice.reverse}`, all gated by the existing `leases.renew`
+  permission (no new key). A single small screen (`corex/leases/renewal.blade.php`) hosts the term
+  entry + all one-click outcomes, reached from the Lease Hub next-step card
+  (`LeaseHubService::nextStep()` now points "Review renewal"/"Record outcome" here instead of AT-440's
+  own lease-edit placeholder).
+- **§10 API** — `POST /api/v1/leases/{lease}/renewal/{draft,upload,month-to-month,month-to-month/
+  reverse,tenant-notice,landlord-notice,notice/reverse}`, same services, same scope guard, JSON
+  responses — `App\Http\Controllers\Api\V1\LeaseRenewalApiController`.
+
+**Not built — two WAIT gates, per the task brief, pending Johan's go-ahead:**
+- **Item 5 — agency lease templates + path (b)** (draft-from-template). Investigation and a narrowed
+  proposed design (no `field_mapping JSON` column — unnecessary for how the real templates work) were
+  reported to the conductor; nothing was built.
+- **Item 7 — property status transitions** (§12.5.3's remaining rows, §12.5.4's new settings). The
+  exact transition table and portal-syndication effect of each row were reported to the conductor,
+  including a genuine architectural finding (`Property::OFF_MARKET_STATUSES` is a hardcoded,
+  non-agency-aware PHP constant, which changes what "agency-configurable which status value" can
+  actually mean for the new "notice given" status); nothing was built.
+
+**Correction to §6 of this spec (now superseded by the paragraph above):** `leases.previous_lease_id`
+was NOT a new column this ticket introduced — it already existed. Readers should treat §6's original
+wording as historical/aspirational, not as the as-built schema.
+
+**Tests**: `tests/Feature/Leases/LeaseRenewalTest.php` — 14 cases: term-chain creation + its
+non-active-lease rejection, activation closing the previous term + recording/skipping escalation,
+activation's own guard against a lease with no previous term, month-to-month set/reverse (history
+survives reversal), tenant/landlord notice set/reverse with distinct tenancy-log wording, an invalid
+`notice_given_by` rejection, notice events appearing under the tenancy log's new `notice` filter type,
+copy-forward's eligibility rejection for a non-e-signed lease, copy-forward's pre-filled `Flow` shape
+(recipients/details), the manual-upload path's full create→file→activate chain, cross-agency 404 on
+every renewal action, and the renewal screen rendering for an authorised user.

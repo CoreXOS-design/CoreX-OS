@@ -42,17 +42,23 @@ class LeaseSetting extends Model
     // Consumed by PropertyController::applyDepositDefault().
     public const DEFAULT_DEPOSIT_MONTHS = 1.0;
 
+    // .ai/specs/rental-renewals.md §2 — SA residential-lease convention, not a
+    // legal minimum CoreX enforces; an agency-configurable sensible default.
+    public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
+
     protected $fillable = [
         'agency_id',
         'expiry_notice_window_days',
         'show_lease_type_field',
         'default_deposit_months',
+        'tenant_notice_period_days',
     ];
 
     protected $casts = [
         'expiry_notice_window_days' => 'integer',
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
+        'tenant_notice_period_days' => 'integer',
     ];
 
     public static function expiryNoticeWindowDaysFor(?int $agencyId): int
@@ -86,5 +92,16 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->default_deposit_months !== null ? (float) $row->default_deposit_months : self::DEFAULT_DEPOSIT_MONTHS;
+    }
+
+    public static function tenantNoticePeriodDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_TENANT_NOTICE_PERIOD_DAYS;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->tenant_notice_period_days ?? self::DEFAULT_TENANT_NOTICE_PERIOD_DAYS;
     }
 }

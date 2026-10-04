@@ -414,6 +414,18 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/leases/{lease}/tenancy-log', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyLog'])
             ->middleware('permission:leases.view')->name('v1.leases.tenancy-log');
 
+        // .ai/specs/rental-renewals.md §10 — JSON mirror of the Lease Hub's
+        // renewal/one-click-outcome web actions, for Andre's mobile app.
+        Route::middleware('permission:leases.renew')->prefix('leases/{lease}/renewal')->group(function () {
+            Route::post('/draft', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftCopyForward'])->name('v1.leases.renewal.draft');
+            Route::post('/upload', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'uploadRenewal'])->name('v1.leases.renewal.upload');
+            Route::post('/month-to-month', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'monthToMonth'])->name('v1.leases.renewal.month-to-month');
+            Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');
+            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
+            Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
+        });
+
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
         Route::get('/logged-user', function (Request $request) {
