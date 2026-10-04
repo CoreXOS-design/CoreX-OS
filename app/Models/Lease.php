@@ -98,6 +98,27 @@ class Lease extends Model
         return $this->belongsTo(self::class, 'renewed_lease_id');
     }
 
+    /**
+     * rental-command-centre.md §3.1 "Renewals in progress" / §9 — draft
+     * term(s) chained BACK to this lease via previous_lease_id, still in
+     * draft (not yet activated). Deliberately NOT "this lease's own
+     * renewed_lease_id is set" — LeaseActivationService::activate() only
+     * sets that at ACTIVATION time, by which point this lease is already
+     * expired, not active — so that check can never fire for a currently
+     * active lease. This relation/method is the ONE definition of "has a
+     * renewal term in progress", reused by RentalCommandCentreService's
+     * tile/filter so the two can never drift apart.
+     */
+    public function renewalDrafts(): HasMany
+    {
+        return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_DRAFT);
+    }
+
+    public function hasPendingRenewalDraft(): bool
+    {
+        return $this->renewalDrafts()->exists();
+    }
+
     public function tenants(): HasMany
     {
         return $this->hasMany(LeaseTenant::class);
