@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\ExportsRentalList;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
@@ -26,6 +27,9 @@ use Illuminate\View\View;
 class RentalInspectionController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use ExportsRentalList;
+
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
     /**
      * 2026-09-20 — the list screen had no way to start an inspection at all;
@@ -38,13 +42,35 @@ class RentalInspectionController extends Controller
      */
     public function create(Request $request): View
     {
+        $user = $request->user();
+
         $properties = Property::where('listing_type', 'rental')
             ->whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
             ->orderBy('title')
             ->limit(500)
             ->get();
 
-        return view('corex.rental-inspections.create', ['properties' => $properties]);
+        // AT-439 Part 3 — pre-select from a lease_id/property_id query param:
+        // the Lease Hub's "Start in-inspection" next-step action
+        // (LeaseHubService::nextStep()) passes lease_id; the Command
+        // Centre's "Start inspection" action passes property_id. Both are
+        // resolved against the SAME own/branch/agency ceiling index() uses
+        // (Lease::visibleTo()) rather than a raw findOrFail() — a request
+        // for a lease/property outside the user's scope silently falls back
+        // to "no pre-selection" instead of a 403/500 (BUILD_STANDARD §3,
+        // absorb rather than break on a param nobody is forced to supply).
+        $selectedPropertyId = null;
+        if ($leaseId = $request->get('lease_id')) {
+            $selectedPropertyId = Lease::query()->visibleTo($user, null)->find($leaseId)?->property_id;
+        }
+        if (!$selectedPropertyId && ($propertyId = $request->get('property_id'))) {
+            $selectedPropertyId = $properties->firstWhere('id', (int) $propertyId)?->id;
+        }
+
+        return view('corex.rental-inspections.create', [
+            'properties' => $properties,
+            'selectedPropertyId' => $selectedPropertyId,
+        ]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -100,6 +126,75 @@ class RentalInspectionController extends Controller
         $direction = $direction === 'asc' ? 'asc' : 'desc';
 
         $archived = $request->boolean('archived');
+        $scheduled = $request->boolean('scheduled');
+
+        $query = $this->filteredInspectionsQuery($request, $archived);
+
+        if ($sort === 'property') {
+            $query->join('properties', 'properties.id', '=', 'rental_inspections.property_id')
+                ->orderBy('properties.title', $direction)
+                ->select('rental_inspections.*');
+        } else {
+            $query->orderBy("rental_inspections.{$sort}", $direction);
+        }
+
+        $hasAnyInspections = RentalInspection::query()
+            ->when($archived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'))
+            ->exists();
+
+        $perPage = (int) $request->get('per_page', 25);
+        if (!in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $inspections = $query->paginate($perPage)->withQueryString();
+
+        // §39, 2026-09-28 — Johan: a summary tiles row, same reused pattern
+        // as FICA/rental-applications (compliance/fica/index.blade.php,
+        // corex.rental-applications.index) — every tile's count comes from
+        // the SAME own/branch/agency-scoped, archived-aware base query the
+        // list itself uses, cloned before any OTHER ad-hoc filter (search,
+        // status, date range) is applied, so a tile count never drifts from
+        // what "All" on this exact same scope would show. Johan's own named
+        // list, verbatim: Draft, In progress, Awaiting signature, Completed,
+        // Unresolved discrepancies, Scheduled (upcoming).
+        $tileBase = fn () => RentalInspection::query()
+            ->when($archived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'total' => $tileBase()->count(),
+            'draft' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_DRAFT)->count(),
+            'in_progress' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_IN_PROGRESS)->count(),
+            'awaiting_signature' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_AWAITING_SIGNATURE)->count(),
+            'completed' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_COMPLETED)->count(),
+            'unresolved_discrepancies' => $tileBase()->withUnresolvedDiscrepancy()->count(),
+            'scheduled' => $tileBase()->where('rental_inspections.scheduled_for', '>=', now())->count(),
+        ];
+
+        return view('corex.rental-inspections.index', [
+            'inspections' => $inspections,
+            'sort' => $sort,
+            'direction' => $direction,
+            'hasAnyInspections' => $hasAnyInspections,
+            'archived' => $archived,
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'tileCounts' => $tileCounts,
+            'scheduled' => $scheduled,
+            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
+        ]);
+    }
+
+    /**
+     * Shared scoped+filtered query, reused by index()/printList()/export().
+     * Returns an UNSORTED, UNPAGINATED builder.
+     */
+    private function filteredInspectionsQuery(Request $request, bool $archived = false)
+    {
+        $user = $request->user();
 
         $query = RentalInspection::query()
             ->when($archived, fn ($q) => $q->onlyTrashed())
@@ -138,61 +233,82 @@ class RentalInspectionController extends Controller
             $query->withUnresolvedDiscrepancy();
         }
 
-        // §39, 2026-09-28 — the summary tiles' own "Scheduled (upcoming)"
-        // exception tile, same shape as every other ad-hoc filter above.
-        $scheduled = $request->boolean('scheduled');
-        if ($scheduled) {
+        if ($request->boolean('scheduled')) {
             $query->where('rental_inspections.scheduled_for', '>=', now());
         }
 
-        if ($sort === 'property') {
-            $query->join('properties', 'properties.id', '=', 'rental_inspections.property_id')
-                ->orderBy('properties.title', $direction)
-                ->select('rental_inspections.*');
-        } else {
-            $query->orderBy("rental_inspections.{$sort}", $direction);
+        return $query;
+    }
+
+    private function activeInspectionFiltersSummary(Request $request): array
+    {
+        $out = [];
+        if ($q = $request->get('q')) {
+            $out['Search'] = $q;
         }
+        if ($status = $request->get('status')) {
+            $out['Status'] = ucfirst(str_replace('_', ' ', $status));
+        }
+        if ($type = $request->get('type')) {
+            $out['Type'] = ucfirst($type);
+        }
+        if ($df = $request->get('date_from')) {
+            $out['Scheduled from'] = $df;
+        }
+        if ($dt = $request->get('date_to')) {
+            $out['Scheduled to'] = $dt;
+        }
+        if ($request->boolean('has_unresolved_discrepancy')) {
+            $out['Unresolved discrepancy'] = 'Yes';
+        }
+        if ($request->boolean('scheduled')) {
+            $out['Scheduled (upcoming)'] = 'Yes';
+        }
+        if ($request->boolean('archived')) {
+            $out['Archived'] = 'Yes';
+        }
+        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
+            $request->get('scope'),
+            \App\Services\PermissionService::getDataScope($request->user(), 'rental_inspections')
+        ));
 
-        $hasAnyInspections = RentalInspection::query()
-            ->when($archived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'))
-            ->exists();
+        return $out;
+    }
 
-        $inspections = $query->paginate(25)->withQueryString();
+    /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
+    public function printList(Request $request): View
+    {
+        $inspections = $this->filteredInspectionsQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_inspections.scheduled_for', 'desc')
+            ->get();
 
-        // §39, 2026-09-28 — Johan: a summary tiles row, same reused pattern
-        // as FICA/rental-applications (compliance/fica/index.blade.php,
-        // corex.rental-applications.index) — every tile's count comes from
-        // the SAME own/branch/agency-scoped, archived-aware base query the
-        // list itself uses, cloned before any OTHER ad-hoc filter (search,
-        // status, date range) is applied, so a tile count never drifts from
-        // what "All" on this exact same scope would show. Johan's own named
-        // list, verbatim: Draft, In progress, Awaiting signature, Completed,
-        // Unresolved discrepancies, Scheduled (upcoming).
-        $tileBase = fn () => RentalInspection::query()
-            ->when($archived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'));
-        $tileCounts = [
-            'draft' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_DRAFT)->count(),
-            'in_progress' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_IN_PROGRESS)->count(),
-            'awaiting_signature' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_AWAITING_SIGNATURE)->count(),
-            'completed' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_COMPLETED)->count(),
-            'unresolved_discrepancies' => $tileBase()->withUnresolvedDiscrepancy()->count(),
-            'scheduled' => $tileBase()->where('rental_inspections.scheduled_for', '>=', now())->count(),
-        ];
-
-        return view('corex.rental-inspections.index', [
+        return view('corex.rental-inspections.print-list', [
             'inspections' => $inspections,
-            'sort' => $sort,
-            'direction' => $direction,
-            'hasAnyInspections' => $hasAnyInspections,
-            'archived' => $archived,
-            'tileCounts' => $tileCounts,
-            'scheduled' => $scheduled,
-            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
-            'resolvedScope' => $resolvedScope,
-            'scopeOptions' => $scopeOptions,
+            'printFilters' => $this->activeInspectionFiltersSummary($request),
         ]);
+    }
+
+    /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
+    public function export(Request $request)
+    {
+        $inspections = $this->filteredInspectionsQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_inspections.scheduled_for', 'desc')
+            ->get();
+
+        $headers = ['Property', 'Tenant(s)', 'Type', 'Status', 'Scheduled'];
+        $rows = $inspections->map(fn (RentalInspection $i) => [
+            $i->property?->buildDisplayAddress() ?? 'Unknown property',
+            $i->lease?->tenantNames() ?? '',
+            ucfirst(str_replace('_', '-', $i->type)),
+            ucfirst(str_replace('_', ' ', $i->status)),
+            $i->scheduled_for?->format('Y-m-d') ?? '',
+        ]);
+
+        $filename = 'rental-inspections-' . now()->format('Y-m-d');
+
+        return $request->get('format') === 'csv'
+            ? $this->streamRentalListCsv($filename . '.csv', $headers, $rows)
+            : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
     public function show(Request $request, RentalInspection $rentalInspection): View

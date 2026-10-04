@@ -33,32 +33,18 @@
         @endpermission
     </div>
 
-    {{-- AT-439 — own/branch/all "Showing:" control, same component/markup as
-         rental-applications' own. --}}
-    @if(count($scopeOptions) > 1)
-    <div class="flex items-center gap-2">
-        <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
-        <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-            @foreach($scopeOptions as $i => $sc)
-            <a href="{{ route('corex.rental-work-orders.index', array_merge(request()->except(['scope', 'page']), ['scope' => $sc])) }}"
-               class="px-3 py-1.5 text-xs font-semibold"
-               style="{{ $i > 0 ? 'border-left: 1px solid var(--border);' : '' }} {{ $resolvedScope === $sc ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ ucfirst($sc) }}</a>
-            @endforeach
-        </div>
-    </div>
-    @endif
-
-    {{-- §39, 2026-09-28 — summary tiles row, the same reused FICA/rental-
-         applications tab-tile pattern (compliance/fica/index.blade.php),
-         never a new design. One row, no helper text. --}}
+    {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
+         .ai/specs/rentals-rebuild.md §1.1. First tile = Total. --}}
     @php
         $currentTile = null;
         foreach (['reported', 'ordered', 'in_progress', 'completed', 'cancelled'] as $s) {
             if (($filters['status'] ?? '') === $s) { $currentTile = $s; break; }
         }
         if (!$currentTile && ($filters['overdue'] ?? false)) { $currentTile = 'overdue'; }
+        if (!$currentTile && !($filters['status'] ?? null)) { $currentTile = 'total'; }
 
         $tileDefs = [
+            'total' => ['label' => 'Total', 'params' => []],
             'reported' => ['label' => 'Reported', 'params' => ['status' => 'reported']],
             'ordered' => ['label' => 'Ordered', 'params' => ['status' => 'ordered']],
             'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
@@ -69,24 +55,34 @@
         $tileClearParams = ['status' => null, 'overdue' => null, 'page' => null];
         $tileHref = fn ($key, $def) => route('corex.rental-work-orders.index', array_merge(
             request()->except(array_keys($tileClearParams)),
-            $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
+            $key === 'total' || $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
         ));
+        $tiles = collect($tileDefs)->map(fn ($def, $key) => [
+            'key' => $key,
+            'label' => $def['label'],
+            'count' => $tileCounts[$key],
+            'href' => $tileHref($key, $def),
+            'active' => $currentTile === $key,
+        ])->values()->all();
     @endphp
-    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
-        @foreach($tileDefs as $key => $def)
-            @php $active = $currentTile === $key; @endphp
-            <a href="{{ $tileHref($key, $def) }}"
-               class="px-4 py-2 transition-colors"
-               style="{{ $active
-                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
-                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
-                {{ $def['label'] }}
-                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($tileCounts[$key]) }}</span>
-            </a>
-        @endforeach
-    </div>
+    <x-rental-list-controls
+        :tiles="$tiles"
+        :scope-options="$scopeOptions"
+        :resolved-scope="$resolvedScope"
+        route-name="corex.rental-work-orders.index"
+        :per-page="$perPage"
+        :per-page-options="$perPageOptions"
+        :archivable="true"
+        :archived="$showArchived"
+        :print-url="route('corex.rental-work-orders.print-list', request()->query())"
+        :export-xlsx-url="route('corex.rental-work-orders.export', array_merge(request()->query(), ['format' => 'xlsx']))"
+        :export-csv-url="route('corex.rental-work-orders.export', array_merge(request()->query(), ['format' => 'csv']))"
+    />
 
     <form method="GET" action="{{ route('corex.rental-work-orders.index') }}" class="flex flex-wrap items-end gap-3">
+        @if($showArchived)
+            <input type="hidden" name="archived" value="1">
+        @endif
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, supplier, title" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -181,18 +177,35 @@
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="work-order-row-{{ $workOrder->id }}">
                     <td class="px-4 py-2">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->title }}</td>
-                    <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span></td>
+                    <td class="px-4 py-2">
+                        @if($showArchived)
+                            <span class="ds-badge ds-badge-muted">Archived {{ $workOrder->deleted_at?->format('Y-m-d') }}</span>
+                        @else
+                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span>
+                        @endif
+                    </td>
                     <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->supplier?->name ?? '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->reported_at?->format('Y-m-d') }}</td>
                     <td class="px-4 py-2 text-right">
-                        <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" class="corex-btn-outline text-xs">View</a>
+                        @if($showArchived)
+                            @permission('rental_work_orders.create')
+                            <form method="POST" action="{{ route('corex.rental-work-orders.restore', $workOrder->id) }}" class="inline">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                            </form>
+                            @endpermission
+                        @else
+                            <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" class="corex-btn-outline text-xs">View</a>
+                        @endif
                     </td>
                 </tr>
                 @empty
                 <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
-                    @if(!$hasAnyWorkOrders)
+                    @if($showArchived)
+                        No archived work orders on this agency.
+                    @elseif(!$hasAnyWorkOrders)
                         No work orders yet on this agency. Every repair starts here — click "New Work Order" to log the first one.
                     @else
                         No work orders match this search or filter. Try clearing a filter.

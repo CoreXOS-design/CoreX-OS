@@ -3282,6 +3282,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/preference', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'updatePreference'])->name('corex.rentals.command-centre.preference');
     });
 
+    // .ai/specs/rentals-reports.md — AT-443. One screen (picker + chosen
+    // report), read-only — creates/edits/archives nothing. Property History
+    // and the Landlord Activity single-record print live under the same
+    // prefix since they are reached from this same screen (spec §5).
+    Route::prefix('rentals/reports')->middleware('permission:rental_reports.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalReportController::class, 'index'])->name('corex.rentals.reports.index');
+        Route::get('/print', [\App\Http\Controllers\CoreX\RentalReportController::class, 'print'])->name('corex.rentals.reports.print');
+        Route::get('/pdf', [\App\Http\Controllers\CoreX\RentalReportController::class, 'pdf'])->name('corex.rentals.reports.pdf');
+        Route::get('/export', [\App\Http\Controllers\CoreX\RentalReportController::class, 'export'])->name('corex.rentals.reports.export');
+        Route::get('/property-history', [\App\Http\Controllers\CoreX\RentalReportController::class, 'propertyHistory'])->name('corex.rentals.reports.property-history');
+        Route::get('/property-history/print', [\App\Http\Controllers\CoreX\RentalReportController::class, 'propertyHistoryPrint'])->name('corex.rentals.reports.property-history.print');
+        Route::get('/property-history/pdf', [\App\Http\Controllers\CoreX\RentalReportController::class, 'propertyHistoryPdf'])->name('corex.rentals.reports.property-history.pdf');
+        Route::get('/landlord-activity/pdf', [\App\Http\Controllers\CoreX\RentalReportController::class, 'landlordActivityPdf'])->name('corex.rentals.reports.landlord-activity.pdf');
+    });
+
     // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
     // is not linked to a property, a tenant is linked to a LEASE, and the
     // lease is linked to the property."
@@ -3291,6 +3306,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.create')->name('corex.leases.create');
         Route::post('/', [\App\Http\Controllers\CoreX\LeaseController::class, 'store'])
             ->middleware('permission:leases.create')->name('corex.leases.store');
+        // AT-439 Part 3 — shared rental list standard: print-list/export, same scoping as index().
+        // Must sit before /{lease} so 'print-list'/'export' never bind as a lease id.
+        Route::get('/print-list', [\App\Http\Controllers\CoreX\LeaseController::class, 'printList'])->name('corex.leases.print-list');
+        Route::get('/export', [\App\Http\Controllers\CoreX\LeaseController::class, 'export'])->name('corex.leases.export');
         Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3346,6 +3365,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // /create is.
         Route::post('/screen-preference', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateScreenPreference'])
             ->name('corex.rental-inspections.screen-preference');
+        // AT-439 Part 3 — shared rental list standard: print-list/export, same
+        // scoping as index(). Registered before /{rentalInspection} for the
+        // same greedy-binding reason /create is.
+        Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printList'])->name('corex.rental-inspections.print-list');
+        Route::get('/export', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'export'])->name('corex.rental-inspections.export');
         Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
         // Printable tick-box form — same .view gate as show() itself, same
         // scoping precedent as RentalWorkOrderController::pdf().
@@ -3598,6 +3622,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'store'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.store');
+        // AT-439 Part 3 — shared rental list standard: print-list/export, same
+        // scoping as index(). Registered before /{rentalFaultReport} for the
+        // same greedy-binding reason /create is.
+        Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'printList'])->name('corex.rental-fault-reports.print-list');
+        Route::get('/export', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'export'])->name('corex.rental-fault-reports.export');
         Route::get('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'show'])->name('corex.rental-fault-reports.show');
         // §"Printing" — landlord-facing PDF. Same .view gate as show() itself.
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
@@ -3637,6 +3666,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
+        // AT-439 Part 3 — shared rental list standard: print-list/export, same
+        // scoping as index(). Registered before /{rentalWorkOrder} for the
+        // same greedy-binding reason /create is.
+        Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'printList'])->name('corex.rental-work-orders.print-list');
+        Route::get('/export', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'export'])->name('corex.rental-work-orders.export');
         Route::get('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'show'])->name('corex.rental-work-orders.show');
         // §"Printing" — supplier-facing PDF. Same .view gate as show() itself.
         Route::get('/{rentalWorkOrder}/pdf', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'pdf'])->name('corex.rental-work-orders.pdf');

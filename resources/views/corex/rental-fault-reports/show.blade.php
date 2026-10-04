@@ -12,7 +12,11 @@
 @endphp
 
 @section('content')
-<div class="p-6 max-w-3xl mx-auto space-y-4">
+{{-- AT-439 Part 3 — full-width (was max-w-3xl), matching the Lease Hub/Work
+     Order show precedent: every line of space is data the agent needs or a
+     control they act on. Two-column below the header: record + actions
+     left, photos/history right. --}}
+<div class="p-6 max-w-7xl mx-auto space-y-4">
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
@@ -33,10 +37,26 @@
             </span>
         </div>
         <div class="flex items-center gap-2">
+            {{-- AT-439 Part 3, item 5 — "Raise work order" (AT-442) is a
+                 primary header action once approved via the agency-appoints
+                 route, not buried inside the Owner approval card below. The
+                 toggle target (#raise-work-order-form) still lives in that
+                 card — a plain DOM id reference, so relocating the BUTTON
+                 here doesn't need the form to move with it. --}}
+            @permission('rental_fault_reports.raise_work_order')
+                @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_APPROVED && $faultReport->approval_route === \App\Models\RentalFaultReport::ROUTE_AGENCY_APPOINTS)
+                    <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Raise work order</button>
+                @endif
+            @endpermission
             <a href="{{ route('corex.rental-fault-reports.pdf', $faultReport) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
         </div>
     </div>
+
+    <x-rental-context-bar :property="$faultReport->property" :lease="$faultReport->lease" current="faults" />
+
+    <div class="grid grid-cols-3 gap-4">
+    <div class="col-span-3 lg:col-span-2 space-y-4">
 
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
@@ -116,26 +136,6 @@
         </form>
     </div>
 
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Photos</h2>
-        @if($faultReport->photos->isEmpty())
-            <p class="text-xs" style="color: var(--text-muted);">No photos yet.</p>
-        @else
-            <div class="grid grid-cols-4 gap-2">
-                @foreach($faultReport->photos as $photo)
-                    <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
-                @endforeach
-            </div>
-        @endif
-        @permission('rental_fault_reports.create')
-        <form method="POST" action="{{ route('corex.rental-fault-reports.photos.store', $faultReport) }}" enctype="multipart/form-data" class="flex items-end gap-2">
-            @csrf
-            <input type="file" name="photo" accept="image/*" required class="text-xs">
-            <button type="submit" class="corex-btn-outline text-xs">Upload photo</button>
-        </form>
-        @endpermission
-    </div>
-
     {{-- §3a.1/§3.4a — approval is always in writing; this is where that
          gets captured. Not shown once the report is closed — there is
          nothing left to decide. --}}
@@ -160,9 +160,12 @@
         {{-- §3a.1/§0c — the agency_appoints route, once approved: raising the
              actual work order is a distinct, agency-timed decision, never
              automatic on approval alone. --}}
+        {{-- AT-439 Part 3, item 5 — the toggle button for this form now lives
+             in the page header (a primary action, not buried here); this
+             form is still the same #raise-work-order-form that button
+             targets. --}}
         @permission('rental_fault_reports.raise_work_order')
             @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_APPROVED && $faultReport->approval_route === \App\Models\RentalFaultReport::ROUTE_AGENCY_APPOINTS)
-                <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Raise work order</button>
                 <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="hidden space-y-3 pt-2">
                     @csrf
                     <div>
@@ -269,6 +272,30 @@
     @endpermission
     @endif
 
+    </div>
+    {{-- Side column: photos, history. --}}
+    <div class="col-span-3 lg:col-span-1 space-y-4">
+
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Photos</h2>
+        @if($faultReport->photos->isEmpty())
+            <p class="text-xs" style="color: var(--text-muted);">No photos yet.</p>
+        @else
+            <div class="grid grid-cols-2 gap-2">
+                @foreach($faultReport->photos as $photo)
+                    <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
+                @endforeach
+            </div>
+        @endif
+        @permission('rental_fault_reports.create')
+        <form method="POST" action="{{ route('corex.rental-fault-reports.photos.store', $faultReport) }}" enctype="multipart/form-data" class="flex items-end gap-2">
+            @csrf
+            <input type="file" name="photo" accept="image/*" required class="text-xs">
+            <button type="submit" class="corex-btn-outline text-xs">Upload photo</button>
+        </form>
+        @endpermission
+    </div>
+
     {{-- Johan, 2026-09-22 — "who did what": a plain chronological history,
          not a status badge on every row. RentalFaultReport::history() merges
          creation, every logged update, and every approval decision into one
@@ -294,6 +321,9 @@
                 </li>
             @endforeach
         </ul>
+    </div>
+
+    </div>
     </div>
 </div>
 @endsection

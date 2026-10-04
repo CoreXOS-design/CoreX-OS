@@ -32,39 +32,18 @@
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Inspections</h1>
         <div class="flex items-center gap-2">
-            <a href="{{ route('corex.rental-inspections.index', array_merge(request()->except('page'), ['archived' => $archived ? null : 1])) }}"
-               class="corex-btn-outline text-xs {{ $archived ? 'corex-tab-active' : '' }}">
-                {{ $archived ? 'Hide archived' : 'Show archived' }}
-            </a>
             @permission('rental_inspections.create')
             <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs">Start Inspection</a>
             @endpermission
         </div>
     </div>
 
-    {{-- AT-439 — own/branch/all "Showing:" control, same component/markup as
-         rental-applications' own. --}}
-    @if(count($scopeOptions) > 1)
-    <div class="flex items-center gap-2">
-        <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
-        <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-            @foreach($scopeOptions as $i => $sc)
-            <a href="{{ route('corex.rental-inspections.index', array_merge(request()->except(['scope', 'page']), ['scope' => $sc])) }}"
-               class="px-3 py-1.5 text-xs font-semibold"
-               style="{{ $i > 0 ? 'border-left: 1px solid var(--border);' : '' }} {{ $resolvedScope === $sc ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ ucfirst($sc) }}</a>
-            @endforeach
-        </div>
-    </div>
-    @endif
-
-    {{-- §39, 2026-09-28 — Johan: a summary tiles row, exactly the FICA/
-         rental-applications pattern reused verbatim (compliance/fica/
-         index.blade.php's own tab-tile row, byte-for-byte the same markup/
-         classes) — never a new design. One row, no helper text. Each
-         tile's own href sets the query param(s) that already drive this
-         page's existing status/has_unresolved_discrepancy/scheduled
-         filters (RentalInspectionController::index()) — clicking the
-         ACTIVE tile again clears back to "All" instead of reapplying it. --}}
+    {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
+         .ai/specs/rentals-rebuild.md §1.1. First tile = Total. Each tile's own
+         href sets the query param(s) that already drive this page's existing
+         status/has_unresolved_discrepancy/scheduled filters
+         (RentalInspectionController::index()) — clicking the ACTIVE tile
+         again clears back to "All" instead of reapplying it. --}}
     @php
         $currentTile = null;
         if (($filters['status'] ?? '') === 'draft') { $currentTile = 'draft'; }
@@ -73,8 +52,10 @@
         elseif (($filters['status'] ?? '') === 'completed') { $currentTile = 'completed'; }
         elseif ($filters['has_unresolved_discrepancy'] ?? false) { $currentTile = 'unresolved_discrepancies'; }
         elseif ($scheduled ?? false) { $currentTile = 'scheduled'; }
+        elseif (!($filters['status'] ?? null)) { $currentTile = 'total'; }
 
         $tileDefs = [
+            'total' => ['label' => 'Total', 'params' => []],
             'draft' => ['label' => 'Draft', 'params' => ['status' => 'draft']],
             'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
             'awaiting_signature' => ['label' => 'Awaiting signature', 'params' => ['status' => 'awaiting_signature']],
@@ -85,22 +66,29 @@
         $tileClearParams = ['status' => null, 'has_unresolved_discrepancy' => null, 'scheduled' => null, 'page' => null];
         $tileHref = fn ($key, $def) => route('corex.rental-inspections.index', array_merge(
             request()->except(array_keys($tileClearParams)),
-            $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
+            $key === 'total' || $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
         ));
+        $tiles = collect($tileDefs)->map(fn ($def, $key) => [
+            'key' => $key,
+            'label' => $def['label'],
+            'count' => $tileCounts[$key],
+            'href' => $tileHref($key, $def),
+            'active' => $currentTile === $key,
+        ])->values()->all();
     @endphp
-    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
-        @foreach($tileDefs as $key => $def)
-            @php $active = $currentTile === $key; @endphp
-            <a href="{{ $tileHref($key, $def) }}"
-               class="px-4 py-2 transition-colors"
-               style="{{ $active
-                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
-                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
-                {{ $def['label'] }}
-                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($tileCounts[$key]) }}</span>
-            </a>
-        @endforeach
-    </div>
+    <x-rental-list-controls
+        :tiles="$tiles"
+        :scope-options="$scopeOptions"
+        :resolved-scope="$resolvedScope"
+        route-name="corex.rental-inspections.index"
+        :per-page="$perPage"
+        :per-page-options="$perPageOptions"
+        :archivable="true"
+        :archived="$archived"
+        :print-url="route('corex.rental-inspections.print-list', request()->query())"
+        :export-xlsx-url="route('corex.rental-inspections.export', array_merge(request()->query(), ['format' => 'xlsx']))"
+        :export-csv-url="route('corex.rental-inspections.export', array_merge(request()->query(), ['format' => 'csv']))"
+    />
 
     <form method="GET" action="{{ route('corex.rental-inspections.index') }}" class="flex flex-wrap items-end gap-3">
         @if($archived)

@@ -407,6 +407,12 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/rentals/command-centre', [\App\Http\Controllers\Api\V1\RentalCommandCentreController::class, 'index'])
             ->middleware('permission:rental_command_centre.view')->name('v1.rentals.command-centre');
 
+        // AT-443 — .ai/specs/rentals-reports.md §7. One endpoint per report key,
+        // same RentalReportService the web screen reads from — Andre's mobile
+        // app and any future BI export call this, not a second implementation.
+        Route::get('/rentals/reports/{reportKey}', [\App\Http\Controllers\Api\V1\RentalReportController::class, 'show'])
+            ->middleware('permission:rental_reports.view')->name('v1.rentals.reports.show');
+
         // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
         Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
             ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
