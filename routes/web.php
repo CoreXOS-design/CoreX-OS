@@ -3267,6 +3267,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('rentals/command-centre')->middleware('permission:rental_command_centre.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'index'])->name('corex.rentals.command-centre.index');
         Route::get('/print', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'print'])->name('corex.rentals.command-centre.print');
+        // The needs-action queue's own collapse/expand toggle, remembered per user.
+        Route::post('/preference', [\App\Http\Controllers\CoreX\RentalCommandCentreController::class, 'updatePreference'])->name('corex.rentals.command-centre.preference');
     });
 
     // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
