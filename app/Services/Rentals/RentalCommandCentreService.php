@@ -58,7 +58,7 @@ class RentalCommandCentreService
         'inspections_due' => 'Inspections due',
     ];
 
-    public const SORT_COLUMNS = ['address', 'lease_end', 'status', 'open_faults', 'open_work_orders', 'last_inspection'];
+    public const SORT_COLUMNS = ['address', 'lease_end', 'status', 'open_faults', 'open_work_orders', 'open_total', 'last_inspection'];
 
     private const RENTAL_LISTING_TYPES = ['rental', 'to_let', 'to-let', 'lease'];
 
@@ -472,6 +472,14 @@ class RentalCommandCentreService
     {
         $sort = in_array($sort, self::SORT_COLUMNS, true) ? $sort : 'lease_end';
         $direction = $direction === 'desc' ? 'desc' : 'asc';
+
+        // 'open_total' — the merged "Open" column's own sort (faults +
+        // work orders combined); a computed sum has no single column
+        // name, so it is ordered via raw SQL rather than the plain
+        // orderBy() every other column uses.
+        if ($sort === 'open_total') {
+            return $query->orderByRaw('(open_faults_count + open_work_orders_count) ' . $direction)->orderBy('id', $direction);
+        }
 
         $column = match ($sort) {
             'lease_end' => 'active_end_date',

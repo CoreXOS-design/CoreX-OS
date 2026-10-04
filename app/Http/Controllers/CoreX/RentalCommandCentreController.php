@@ -4,8 +4,10 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
+use App\Models\RentalCommandCentreUserPreference;
 use App\Models\User;
 use App\Services\Rentals\RentalCommandCentreService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -31,6 +33,27 @@ class RentalCommandCentreController extends Controller
         $data = $this->buildViewData($request, $service, forPrint: true);
 
         return view('corex.rentals.command-centre.print', $data);
+    }
+
+    /**
+     * .ai/specs/rental-command-centre.md §10 — the needs-action queue's
+     * own collapse/expand state, remembered per user, server-side. Same
+     * shape as RentalInspectionRecordingController::updateScreenPreference().
+     */
+    public function updatePreference(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'preference_key' => ['required', 'string', 'in:queue_collapsed'],
+            'value' => ['required'],
+        ]);
+
+        RentalCommandCentreUserPreference::setFor(
+            $request->user()->id,
+            $validated['preference_key'],
+            $request->boolean('value')
+        );
+
+        return response()->json(['ok' => true]);
     }
 
     private function buildViewData(Request $request, RentalCommandCentreService $service, bool $forPrint = false): array
@@ -121,6 +144,7 @@ class RentalCommandCentreController extends Controller
                 ? \App\Models\Agency::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->find($user->effectiveAgencyId())?->name ?? 'Rentals'
                 : 'Rentals',
             'generatedAt' => now(),
+            'queueCollapsed' => (bool) RentalCommandCentreUserPreference::stateFor($user->id)['queue_collapsed'],
         ];
     }
 
