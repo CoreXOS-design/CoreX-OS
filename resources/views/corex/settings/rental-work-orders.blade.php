@@ -59,5 +59,28 @@
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>
     </form>
+
+    {{-- AT-442 — whether prices are used at all on internal job cards. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-work-orders.capture-prices-on-job-cards') }}" class="space-y-3">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Job card pricing</h3>
+            </div>
+            <div class="p-5">
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="capture_prices_on_job_cards" value="0">
+                    <input type="checkbox" name="capture_prices_on_job_cards" value="1" @checked($capturePricesOnJobCards)>
+                    Capture prices on job cards
+                </label>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
+                    With this off, no price columns or totals appear anywhere on a job card — only quantities and descriptions.
+                </p>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
 </div>
 @endsection

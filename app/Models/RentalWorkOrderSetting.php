@@ -17,18 +17,22 @@ class RentalWorkOrderSetting extends Model
     public const DEFAULT_OVERDUE_REMINDER_DAYS = 3;
     public const DEFAULT_NO_APPROVAL_SPEND_THRESHOLD = 500.00;
     public const DEFAULT_COMPLETION_REQUIRES_PHOTO = false;
+    /** AT-442 — whether prices are used at all on internal job cards. Default ON. */
+    public const DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS = true;
 
     protected $fillable = [
         'agency_id',
         'completion_requires_photo',
         'overdue_reminder_days',
         'no_approval_spend_threshold',
+        'capture_prices_on_job_cards',
     ];
 
     protected $casts = [
         'completion_requires_photo' => 'boolean',
         'overdue_reminder_days' => 'integer',
         'no_approval_spend_threshold' => 'decimal:2',
+        'capture_prices_on_job_cards' => 'boolean',
     ];
 
     /**
@@ -89,5 +93,16 @@ class RentalWorkOrderSetting extends Model
         }
 
         return self::spendThresholdFor($property->agency_id);
+    }
+
+    /** AT-442 — with this off, no price columns or totals appear anywhere on a job card. */
+    public static function capturePricesOnJobCardsFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('capture_prices_on_job_cards');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS;
     }
 }

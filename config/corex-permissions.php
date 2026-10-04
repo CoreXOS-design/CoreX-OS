@@ -199,6 +199,25 @@ return [
         // (logging/editing the work order itself).
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
 
+        // ── Rental Parts & Labour Catalogue (rental-work-orders.md §14, AT-442) ──
+        ['key' => 'rental_catalogue.view',   'label' => 'View Rental Catalogue',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_catalogue', 'sort_order' => 1],
+        // One key for the whole CRUD surface — same single-key shape as
+        // rental_fault_types.create / deals_v2.manage_suppliers.
+        ['key' => 'rental_catalogue.manage', 'label' => 'Manage Rental Catalogue', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_catalogue', 'sort_order' => 2],
+
+        // ── Rental Job Cards (rental-work-orders.md §14, AT-442) — the internal
+        // counterpart to an outside-supplier work order. ──
+        ['key' => 'rental_job_cards.view',   'label' => 'View Rental Job Cards',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_job_cards', 'sort_order' => 1],
+        ['key' => 'rental_job_cards.create', 'label' => 'Log & Edit Job Cards',    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 2],
+        // Sending a quote to the owner moves money past the approval gate —
+        // same weight-of-decision reasoning as rental_work_orders.manage_quotes.
+        ['key' => 'rental_job_cards.send_quote', 'label' => 'Send Job Card Quotes to Owner', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 3],
+        // Worker/agent/tenant sign-off and completing the job card are the
+        // point evidence becomes final — same reasoning as
+        // rental_work_orders.complete/.record_approval.
+        ['key' => 'rental_job_cards.sign_off', 'label' => 'Sign Off & Complete Job Cards', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 4],
+        ['key' => 'rental_job_cards.cancel',     'label' => 'Cancel Job Cards',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 5],
+
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.
         ['key' => 'rental_details.manage_settings', 'label' => 'Manage Rental Details Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_details', 'sort_order' => 1],

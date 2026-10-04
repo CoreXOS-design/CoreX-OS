@@ -384,6 +384,13 @@ return [
             // saver validates and writes ONLY no_approval_spend_threshold —
             // never merged into either saver above.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
+            // AT-442 — own narrow saver, same has()-guarded checkbox
+            // discipline as RentalInspectionSettingsController's own
+            // auto_pair_photos_enabled/auto_send_report_enabled toggles —
+            // never folded into update() above (that saver's own
+            // required-numeric validation would reject a request that
+            // omits the threshold).
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateCapturePricesOnJobCards'],
             // Shipped-field tick grid (rentals-field-config.blade.php partial) —
             // narrow, has()/submitted-marker-guarded savers, same independence
             // pattern as every other saver on this step.
@@ -448,6 +455,11 @@ return [
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
              'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+            // AT-442 — whether prices are used at all on internal job cards.
+            ['key' => 'capture_prices_on_job_cards', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Capture prices on job cards',
+             'explain' => 'When your own maintenance team works a job (not an outside supplier), their job card can record a unit price and total for each part/labour line, or just the quantities with no money attached.',
+             'affects' => 'Whether price and total columns appear anywhere on an internal job card. On by default — turn it off if you\'d rather job cards stayed a pure work record with no pricing.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()

@@ -23,6 +23,7 @@ class RentalWorkOrderQuote extends Model
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',
+        'rental_job_card_id',
         'agency_service_provider_id',
         'amount',
         'quote_date',
@@ -41,6 +42,12 @@ class RentalWorkOrderQuote extends Model
     public function workOrder(): BelongsTo
     {
         return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
+    }
+
+    /** AT-442 — set when this quote was generated from an internal job card, instead of a named supplier. */
+    public function jobCard(): BelongsTo
+    {
+        return $this->belongsTo(RentalJobCard::class, 'rental_job_card_id');
     }
 
     public function supplier(): BelongsTo

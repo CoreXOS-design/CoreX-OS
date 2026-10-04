@@ -13,7 +13,10 @@
 @endphp
 
 @section('content')
-<div class="p-6 max-w-3xl mx-auto space-y-4">
+{{-- AT-442 — full-width (was max-w-3xl); every line of space here is data
+     the agent needs or a control they act on, and the Job Card block below
+     needs the room a narrow centre column didn't have. --}}
+<div class="p-6 max-w-7xl mx-auto space-y-4">
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
@@ -36,7 +39,11 @@
             <div><span style="color: var(--text-muted);">Tenancy:</span> {{ $workOrder->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
             <div><span style="color: var(--text-muted);">Item:</span> {{ $workOrder->inspectionItem?->label ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Trade:</span> {{ $workOrder->trade_type ? ucfirst($workOrder->trade_type) : '—' }}</div>
+            {{-- AT-442 req #1 — "who does the work" is the first choice on every work order. --}}
+            <div><span style="color: var(--text-muted);">Who does the work:</span> {{ $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL ? 'Our maintenance team' : 'Outside supplier' }}</div>
+            @if($workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
             <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->supplier?->name ?? '—' }}</div>
+            @endif
             <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->reported_by_type)) }}</div>
             @if($workOrder->reportedFaultReport)
                 <div><span style="color: var(--text-muted);">From fault report:</span> <a href="{{ route('corex.rental-fault-reports.show', $workOrder->reported_fault_report_id) }}" class="underline">#{{ $workOrder->reported_fault_report_id }}</a></div>
@@ -110,10 +117,30 @@
         </form>
     </div>
 
-    @if($isOpen)
-    {{-- §3.4c — the value the approval-limit gate rides on. Available
-         regardless of how this work order was raised — a quote prices the
-         repair; the approval question underneath it is separate. --}}
+    {{-- AT-442 req #8 — the job card inline when internal; nothing else on
+         this page duplicates its own tasks/lines/sign-off, which live on
+         its own full screen. --}}
+    @if($workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Job card</h2>
+        @if($jobCard = $workOrder->jobCard)
+            <div class="grid grid-cols-2 gap-3 text-sm">
+                <div><span style="color: var(--text-muted);">Status:</span> {{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}</div>
+                <div><span style="color: var(--text-muted);">Assigned to:</span> {{ $jobCard->assignedUser?->name ?? '—' }}</div>
+                <div><span style="color: var(--text-muted);">Scheduled:</span> {{ $jobCard->scheduled_at?->format('Y-m-d H:i') ?? '—' }}</div>
+                <div><span style="color: var(--text-muted);">Total:</span> {{ $jobCard->total_amount !== null ? 'R' . number_format((float) $jobCard->total_amount, 2) : '—' }}</div>
+            </div>
+            <a href="{{ route('corex.rental-job-cards.show', $jobCard) }}" class="corex-btn-primary text-xs">Open job card</a>
+        @else
+            <p class="text-xs" style="color: var(--text-muted);">No job card found for this work order.</p>
+        @endif
+    </div>
+    @endif
+
+    @if($isOpen && $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
+    {{-- §3.4c — the value the approval-limit gate rides on.
+         AT-442 req #8 — shown only for the outside-supplier path; an
+         internal job card's own quote-to-owner lives on its own screen. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Quotes</h2>
         <p class="text-xs" style="color: var(--text-muted);">No-approval threshold for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
@@ -246,10 +273,12 @@
         </form>
         @endpermission
     </div>
+    @endif
 
     {{-- §3.4a — only for a work order raised directly (no upstream fault
-         report already satisfied this). --}}
-    @if(!$workOrder->reported_fault_report_id)
+         report already satisfied this). Applies to both assignment paths —
+         an internal job card's quote still rides this same gate. --}}
+    @if($isOpen && !$workOrder->reported_fault_report_id)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Owner approval</h2>
         @if($workOrder->approvals->isNotEmpty())
@@ -304,6 +333,11 @@
     </div>
     @endif
 
+    {{-- AT-442 req #8 — an internal job card has its own assign-crew/
+         start/complete controls on its own screen; this section (assign a
+         supplier, start, complete via paid_by) only applies to the
+         outside-supplier path. --}}
+    @if($isOpen && $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Supplier</h2>
         @permission('rental_work_orders.create')

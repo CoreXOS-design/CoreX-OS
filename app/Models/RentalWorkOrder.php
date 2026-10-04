@@ -33,6 +33,10 @@ class RentalWorkOrder extends Model
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** AT-442 — "who does the work" is the FIRST choice on every work order. */
+    public const ASSIGNMENT_OUTSIDE_SUPPLIER = 'outside_supplier';
+    public const ASSIGNMENT_INTERNAL = 'internal';
+
     public const APPROVAL_NOT_REQUIRED = 'not_required';
     public const APPROVAL_PENDING = 'pending';
     public const APPROVAL_APPROVED = 'approved';
@@ -51,6 +55,16 @@ class RentalWorkOrder extends Model
     public const PHOTO_IN_PROGRESS = 'in_progress';
     public const PHOTO_COMPLETED = 'completed';
 
+    /**
+     * AT-442 — matches the DB column default so a just-created instance
+     * reads correctly in the SAME request without a fresh() reload (a
+     * row loaded from the database always gets this right regardless;
+     * this only matters for the moment right after ::create()).
+     */
+    protected $attributes = [
+        'assignment_type' => self::ASSIGNMENT_OUTSIDE_SUPPLIER,
+    ];
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -59,6 +73,7 @@ class RentalWorkOrder extends Model
         'rental_inspection_item_id',
         'agency_service_provider_id',
         'owner_approval_status',
+        'assignment_type',
         'trade_type',
         'title',
         'description',
@@ -164,6 +179,12 @@ class RentalWorkOrder extends Model
     public function quotes(): HasMany
     {
         return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('quote_date');
+    }
+
+    /** AT-442 — present only when assignment_type='internal'; §14. */
+    public function jobCard(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(RentalJobCard::class, 'rental_work_order_id');
     }
 
     /**
@@ -465,7 +486,13 @@ class RentalWorkOrder extends Model
 
     private function describeQuote(RentalWorkOrderQuote $quote): string
     {
-        return 'R' . number_format((float) $quote->amount, 2) . ' — ' . ($quote->supplier?->name ?? 'Unknown supplier');
+        // AT-442 — a quote generated from an internal job card has no
+        // named supplier at all; describe it as the maintenance team's own
+        // quote rather than the generic "Unknown supplier" fallback, which
+        // reads as a data gap rather than the deliberate internal case it is.
+        $who = $quote->supplier?->name ?? ($quote->rental_job_card_id ? 'Our maintenance team' : 'Unknown supplier');
+
+        return 'R' . number_format((float) $quote->amount, 2) . ' — ' . $who;
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Services\Rentals;
 
 use App\Models\RentalFaultReport;
+use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
@@ -61,6 +62,47 @@ class RentalDocumentPdfService
     public function faultReportFilename(RentalFaultReport $faultReport): string
     {
         return $this->safeFilename('Fault Report - ' . $this->addressOrFallback($faultReport->property, 'Fault Report ' . $faultReport->id));
+    }
+
+    /** AT-442 req #5 — the quote PDF generated from a job card and sent to the owner. */
+    public function jobCardQuotePdf(RentalJobCard $jobCard)
+    {
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'lines', 'workOrder.agency', 'workOrder.branch']);
+        $workOrder = $jobCard->workOrder;
+
+        $pdf = Pdf::loadView('corex.rental-job-cards.quote-pdf', [
+            'jobCard' => $jobCard,
+            'pricesOn' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
+            'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
+            'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    /** Req #6 — the printable job card: address, access notes, tenant contact, tasks, lines, sign-off lines. */
+    public function jobCardPrintPdf(RentalJobCard $jobCard)
+    {
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks', 'lines', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
+        $workOrder = $jobCard->workOrder;
+
+        $pdf = Pdf::loadView('corex.rental-job-cards.print', [
+            'jobCard' => $jobCard,
+            'pricesOn' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
+            'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
+            'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function jobCardFilename(RentalJobCard $jobCard): string
+    {
+        return $this->safeFilename('Job Card - ' . $this->addressOrFallback($jobCard->property, 'Job Card ' . $jobCard->id));
     }
 
     /** Same dompdf options as PropertyBrochureService::pdf() — one convention, not two. */

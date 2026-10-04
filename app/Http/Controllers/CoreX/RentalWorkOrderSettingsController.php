@@ -26,6 +26,7 @@ class RentalWorkOrderSettingsController extends Controller
         return view('corex.settings.rental-work-orders', [
             'noApprovalSpendThreshold' => RentalWorkOrderSetting::spendThresholdFor($agencyId),
             'defaultNoApprovalSpendThreshold' => RentalWorkOrderSetting::DEFAULT_NO_APPROVAL_SPEND_THRESHOLD,
+            'capturePricesOnJobCards' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($agencyId),
         ]);
     }
 
@@ -43,5 +44,32 @@ class RentalWorkOrderSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Rental work order settings saved.');
+    }
+
+    /**
+     * AT-442, non-negotiable #10a — own narrow saver, same has()-guard
+     * discipline as RentalInspectionSettingsController::
+     * updateAutoPairPhotosEnabled(): the generic wizard toggle control
+     * always renders a hidden `value="0"` fallback ahead of the checkbox,
+     * so this field is ALWAYS present in the POST regardless of checked
+     * state — has() alone is a safe, sufficient guard. Never folded into
+     * update() above (that saver's own required-numeric validation would
+     * reject a request that omits the threshold).
+     */
+    public function updateCapturePricesOnJobCards(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('capture_prices_on_job_cards')) {
+            return redirect()->route('corex.settings.rental-work-orders.edit')
+                ->withErrors(['capture_prices_on_job_cards' => 'That did not save — please try again.']);
+        }
+
+        RentalWorkOrderSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['capture_prices_on_job_cards' => $request->boolean('capture_prices_on_job_cards')],
+        );
+
+        return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Job card pricing setting saved.');
     }
 }
