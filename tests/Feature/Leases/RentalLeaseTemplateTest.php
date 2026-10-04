@@ -51,23 +51,27 @@ final class RentalLeaseTemplateTest extends TestCase
 
     public function test_full_crud_list_screen_search_sort_filter_archive_restore(): void
     {
-        $t1 = RentalLeaseTemplate::create(['agency_id' => $this->agency->id, 'name' => 'Residential', 'docuperfect_template_id' => $this->template->id, 'category' => 'residential', 'is_active' => true]);
-        $t2 = RentalLeaseTemplate::create(['agency_id' => $this->agency->id, 'name' => 'Commercial', 'docuperfect_template_id' => $this->template->id, 'category' => 'commercial', 'is_active' => true]);
+        // Distinctive, collision-free names — the bare words "Residential"/
+        // "Commercial" are too generic to assertDontSee() safely: the shared
+        // layout's own sidebar nav links to "Commercial Evaluations" on
+        // every page, unrelated to this list.
+        $t1 = RentalLeaseTemplate::create(['agency_id' => $this->agency->id, 'name' => 'Residential Zyx Lease', 'docuperfect_template_id' => $this->template->id, 'category' => 'residential', 'is_active' => true]);
+        $t2 = RentalLeaseTemplate::create(['agency_id' => $this->agency->id, 'name' => 'Commercial Zyx Lease', 'docuperfect_template_id' => $this->template->id, 'category' => 'commercial', 'is_active' => true]);
 
         $response = $this->actingAs($this->user)->get(route('corex.rental-lease-templates.index', ['q' => 'Resid']));
         $response->assertOk();
-        $response->assertSee('Residential');
-        $response->assertDontSee('Commercial');
+        $response->assertSee('Residential Zyx Lease');
+        $response->assertDontSee('Commercial Zyx Lease');
 
         $response = $this->actingAs($this->user)->get(route('corex.rental-lease-templates.index', ['category' => 'commercial']));
-        $response->assertSee('Commercial');
-        $response->assertDontSee('Residential');
+        $response->assertSee('Commercial Zyx Lease');
+        $response->assertDontSee('Residential Zyx Lease');
 
         $this->actingAs($this->user)->delete(route('corex.rental-lease-templates.destroy', $t1))->assertRedirect();
         self::assertSoftDeleted('rental_lease_templates', ['id' => $t1->id]);
 
         $response = $this->actingAs($this->user)->get(route('corex.rental-lease-templates.index', ['archived' => 1]));
-        $response->assertSee('Residential');
+        $response->assertSee('Residential Zyx Lease');
 
         $this->actingAs($this->user)->post(route('corex.rental-lease-templates.restore', $t1->id))->assertRedirect();
         self::assertNotSoftDeleted('rental_lease_templates', ['id' => $t1->id]);
@@ -85,9 +89,13 @@ final class RentalLeaseTemplateTest extends TestCase
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
         $otherTemplate = Template::create(['name' => 'Not mine', 'render_type' => 'pdf', 'is_esign' => true, 'agency_id' => $otherAgency->id]);
 
+        // 404, not 403: Template::findOrFail() is itself agency-scoped (the
+        // global AgencyScope hides another agency's row entirely), so the
+        // lookup fails before assertAccessibleBy() ever runs — stricter
+        // than a 403 (never confirms the row exists at all), not a gap.
         $this->actingAs($this->user)->post(route('corex.rental-lease-templates.store'), [
             'name' => 'Sneaky', 'docuperfect_template_id' => $otherTemplate->id, 'category' => 'residential',
-        ])->assertForbidden();
+        ])->assertNotFound();
     }
 
     public function test_missing_required_fields_lists_every_blank(): void

@@ -925,12 +925,16 @@ event happened — see `rental-renewals.md` §14 for the full reasoning).
 
 **§12.5.3's property-status side effects (the "Advertise? Yes" column, the re-advertise-with-
 availability-date behaviour) are now built too**, under GATE 2 (approved by the conductor 2026-10-04,
-same day) — see `rental-renewals.md` §15 for the full transition table, the three agency settings, and
-the portal-syndication findings. Johan's one change to the original design: no new property status is
-introduced; the existing status mechanism is driven directly (`Property::isAllowedStatus()` /
-`isOnMarket()`), with the agency's configured on-market status for row 2 and the property's own
-captured pre-let status (falling back to that same setting) for rows 6/7 — two genuinely different
-rules, not one shared expression.
+same day), WITH one change from this section's original wording: no new "Notice Given" property
+status is introduced. Notice is a fact about the LEASE only. The existing status mechanism is driven
+directly (`Property::isAllowedStatus()` / `isOnMarket()`) — the notice dialog's "put this property
+back on the market" tick always uses the agency's configured on-market rental status (a setting, never
+`status_before_letting` directly), while a lease ending or being cancelled restores the property's own
+captured pre-let status (`properties.status_before_letting`, captured once at lease activation),
+falling back to that same on-market setting only if nothing was ever captured — two genuinely
+different rules, not one shared expression. See `rental-renewals.md` §15 for the full as-built
+transition table, the three agency settings, and the portal-syndication findings (including a real
+pre-existing gap found in both portal mappers' own availability-date handling, reported not fixed).
 
 `LeaseHubService::nextStep()`'s "Review renewal"/"Record outcome" now link to the real renewal screen
 (`corex.leases.renewal.create`) instead of AT-440's own lease-edit placeholder, and are suppressed once

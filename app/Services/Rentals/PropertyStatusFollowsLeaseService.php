@@ -43,13 +43,15 @@ class PropertyStatusFollowsLeaseService
 
     /**
      * Row 2 — the notice dialog's "put this property back on the market"
-     * tick. Status -> the SAME value rows 6/7 would restore (whatever the
-     * property was before being let, falling back to the agency's default
-     * pre-let status) — re-advertising ahead of vacancy uses the property's
-     * own normal pre-let status, not a new concept. lease_start_date is the
-     * existing field P24's own mapper already reads as "availabilityDate"
-     * for commercial listings (Property24ListingMapper.php:133) — reused
-     * here rather than inventing a new column; no new portal-sync code.
+     * tick. Status -> "the agency's EXISTING on-market rental status"
+     * (conductor's own wording) — ALWAYS this setting's value, never
+     * `status_before_letting`: that column can itself hold an off-market
+     * value (e.g. a property let directly from `draft`), and row 2's own
+     * instruction is unconditional — restoring the literal prior status
+     * is rows 6/7's job, not this one's. lease_start_date is the existing
+     * field P24's own mapper already reads as "availabilityDate" for
+     * commercial listings (Property24ListingMapper.php:133) — reused here
+     * rather than inventing a new column; no new portal-sync code.
      */
     public function readvertiseOnNotice(Lease $lease, string $moveOutDate, ?User $user = null): void
     {
@@ -58,7 +60,7 @@ class PropertyStatusFollowsLeaseService
             return;
         }
 
-        $newStatus = $property->status_before_letting ?: LeaseSetting::defaultPreLetStatusFor($property->agency_id);
+        $newStatus = LeaseSetting::defaultPreLetStatusFor($property->agency_id);
         if (!Property::isAllowedStatus($newStatus, $property->agency_id)) {
             return;
         }

@@ -42,7 +42,7 @@ final class LeasePropertyStatusTest extends TestCase
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
         $this->property = Property::forceCreate([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->agent->id,
-            'title' => 'Status test property', 'status' => 'draft', 'listing_type' => 'rental',
+            'title' => 'Status test property', 'status' => 'active', 'listing_type' => 'rental',
         ]);
     }
 
@@ -59,13 +59,13 @@ final class LeasePropertyStatusTest extends TestCase
 
     public function test_row1_lease_activation_captures_status_before_letting_and_flips_to_let_out(): void
     {
-        self::assertSame('draft', $this->property->status);
+        self::assertSame('active', $this->property->status);
 
         $lease = $this->activeLease();
 
         $property = $this->property->fresh();
         self::assertSame('let_out', $property->status);
-        self::assertSame('draft', $property->status_before_letting);
+        self::assertSame('active', $property->status_before_letting);
         self::assertFalse($property->isOnMarket(), 'let_out must be off-market.');
     }
 
@@ -77,9 +77,27 @@ final class LeasePropertyStatusTest extends TestCase
         app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, $moveOut, null, $this->agent, true);
 
         $property = $this->property->fresh();
-        self::assertSame('draft', $property->status, 'Readvertise restores the PRE-LET status, not a new concept.');
+        self::assertSame(LeaseSetting::DEFAULT_PRE_LET_STATUS, $property->status, "Row 2 ALWAYS uses the agency's on-market rental status — never status_before_letting directly.");
         self::assertTrue($property->isOnMarket(), 'Row 2 ticked must put the listing back on-market.');
         self::assertSame(now()->addDays(31)->toDateString(), $property->lease_start_date->toDateString(), 'Availability date = day after move-out.');
+    }
+
+    /**
+     * Proves row 2 and rows 6/7 are genuinely DIFFERENT mechanisms: row 2
+     * always uses the on-market setting, even when status_before_letting
+     * holds something else. Deliberately sets the two to different values
+     * so a regression that conflates them (as an earlier build of this
+     * file did) fails loudly instead of coincidentally passing.
+     */
+    public function test_row2_uses_the_on_market_setting_even_when_it_differs_from_status_before_letting(): void
+    {
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'default_pre_let_status' => 'for_sale']);
+        $lease = $this->activeLease();
+        self::assertSame('active', $this->property->fresh()->status_before_letting);
+
+        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $this->agent, true);
+
+        self::assertSame('for_sale', $this->property->fresh()->status, "Row 2 must use the agency's configured setting, not the captured status_before_letting.");
     }
 
     public function test_row2_notice_without_readvertise_leaves_property_let_out(): void
@@ -160,7 +178,7 @@ final class LeasePropertyStatusTest extends TestCase
         $inspection->update(['status' => RentalInspection::STATUS_COMPLETED]);
 
         $property = $this->property->fresh();
-        self::assertSame('draft', $property->status);
+        self::assertSame('active', $property->status);
         self::assertTrue($property->isOnMarket(), 'Row 6 — ended + confirmed vacant must re-list.');
         self::assertSame(now()->toDateString(), $property->lease_start_date->toDateString());
         self::assertNull($property->status_before_letting, 'Cleared so the NEXT lease cycle captures fresh.');
@@ -202,7 +220,7 @@ final class LeasePropertyStatusTest extends TestCase
             ->assertRedirect();
 
         $property = $this->property->fresh();
-        self::assertSame('draft', $property->status);
+        self::assertSame('active', $property->status);
         self::assertTrue($property->isOnMarket());
         self::assertSame(now()->toDateString(), $property->lease_start_date->toDateString());
         self::assertSame(Lease::STATUS_CANCELLED, $lease->fresh()->status);
@@ -219,7 +237,7 @@ final class LeasePropertyStatusTest extends TestCase
         $this->actingAs($this->agent)->post(route('corex.leases.cancel', $draft), ['cancel_reason' => 'Changed mind'])
             ->assertRedirect();
 
-        self::assertSame('draft', $this->property->fresh()->status, 'A draft never activated never flipped the property — nothing to restore.');
+        self::assertSame('active', $this->property->fresh()->status, 'A draft never activated never flipped the property — nothing to restore.');
         self::assertNull($this->property->fresh()->status_before_letting);
     }
 

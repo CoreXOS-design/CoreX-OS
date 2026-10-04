@@ -51,11 +51,14 @@ class LeaseSetting extends Model
     public const DEFAULT_AUTO_READVERTISE_ON_NOTICE = true;
     public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED = true;
     public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_CANCELLED = true;
-    // 'draft' is seeded is_default=true for every agency (confirmed) — a
-    // safe, agency-neutral fallback when no status_before_letting was ever
-    // captured (a lease active before this feature shipped). NOT a new
-    // status — the agency's own existing 'draft' PropertySettingItem.
-    public const DEFAULT_PRE_LET_STATUS = 'draft';
+    // "The agency's existing on-market rental status" (conductor's own
+    // wording, GATE 2) — row 2 ALWAYS uses this value; rows 6/7 use it only
+    // as the FALLBACK when status_before_letting was never captured. Must
+    // genuinely be on-market: 'active' is in Property::systemStatuses()
+    // (Property.php:1776) — hardcoded always-allowed for every agency,
+    // and NOT in OFF_MARKET_STATUSES — so this is safe cross-agency without
+    // depending on any agency having configured a 'to_let'-style item.
+    public const DEFAULT_PRE_LET_STATUS = 'active';
 
     protected $fillable = [
         'agency_id',
