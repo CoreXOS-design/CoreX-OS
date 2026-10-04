@@ -374,3 +374,23 @@ extended rather than duplicated) —
 renewal draft's completion activates via `activateRenewalTerm()` (old term expires, `renewed_lease_id`
 chains, AND the escalation is recorded), not the bare `activate()` path the non-renewal case still
 uses.
+
+## 16. Follow-up, 2026-10-05 — Lease Hub dialogs + "one definition" model helper
+
+The §7 one-click outcomes (month-to-month, tenant/landlord notice) and §9's "Renew lease" entry point
+are unchanged in what they submit; see `leases.md` §12.11 for the full write-up of the Lease Hub's
+"Lease actions" menu now opening each of these as a modal dialog instead of a card below "Open items",
+and the new `?action=` URL deep-link the Command Centre (`rental-command-centre.md` §3.2/§3.3) uses.
+
+**New model method, `Lease::renewalDrafts()` / `::hasPendingRenewalDraft()`** — the ONE definition of
+"this active lease has a renewal term in progress" (a draft lease chained back to it via
+`previous_lease_id`), reused by `RentalCommandCentreService`'s "Renewals in progress" tile so the tile
+and the model can never drift apart. Deliberately NOT "this lease's own `renewed_lease_id` is set" —
+`LeaseActivationService::activate()` only writes that at ACTIVATION time, by which point this lease is
+already expired, never active, so that check could never fire for a currently active lease.
+
+`LeaseRenewalController::recordNotice()`'s catch branch now calls `->withInput()` before `->withErrors()`
+— previously only the outer `$request->validate()` call (auto-flashed by Laravel's own exception
+handler) preserved entered values on failure; a business-rule rejection from the service itself
+(caught manually) did not, so the Lease Hub's notice dialogs would reopen EMPTY on that failure path
+instead of with what the agent typed.

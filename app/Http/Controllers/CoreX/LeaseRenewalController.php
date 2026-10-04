@@ -207,7 +207,11 @@ class LeaseRenewalController extends Controller
         try {
             app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $readvertise);
         } catch (ValidationException $e) {
-            return back()->withErrors($e->errors());
+            // AT-444 follow-up (2026-10-05) — the Lease Hub's notice dialogs
+            // reopen with the entered values on error; withInput() is needed
+            // here because this is a manually-caught service-level
+            // exception, not the auto-flashed $request->validate() path.
+            return back()->withInput()->withErrors($e->errors());
         }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice recorded.');

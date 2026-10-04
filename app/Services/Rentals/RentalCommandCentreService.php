@@ -199,6 +199,10 @@ class RentalCommandCentreService
                 'active_lease.start_date as active_start_date',
                 'active_lease.end_date as active_end_date',
                 'active_lease.is_month_to_month as active_month_to_month',
+                // AT-444 follow-up (2026-10-05) — "Notice given" tile. Mirrors
+                // Lease::hasActiveNotice()'s own definition (notice_date !==
+                // null) exactly; see tileCounts()/applyTile() below.
+                'active_lease.notice_date as active_notice_date',
             ])
             ->selectRaw(
                 '(SELECT COUNT(*) FROM rental_fault_reports rfr WHERE rfr.property_id = properties.id '
@@ -231,7 +235,15 @@ class RentalCommandCentreService
             // set" — LeaseActivationService::activate() leaves that set
             // permanently on every renewed-in lease, so that check would
             // count every past renewal forever, not just the ones still
-            // pending signature.
+            // pending signature. Also deliberately NOT "active lease's own
+            // renewed_lease_id is set" — that column is only written at
+            // ACTIVATION time, by which point this lease is already expired,
+            // never active, so that check could never fire here. This raw
+            // correlated subquery is the SQL-level mirror of the single
+            // canonical definition on the model, Lease::renewalDrafts() /
+            // ::hasPendingRenewalDraft() (AT-444 follow-up, 2026-10-05) —
+            // same table, same previous_lease_id column, same STATUS_DRAFT
+            // constant — so the two can never drift apart.
             ->selectRaw(
                 '(SELECT COUNT(*) FROM leases pl WHERE pl.previous_lease_id = active_lease.id '
                 . 'AND pl.status = ? AND pl.deleted_at IS NULL) as pending_renewal_draft_count',
@@ -269,6 +281,7 @@ class RentalCommandCentreService
             'active_lease_id',
             'active_end_date',
             'active_month_to_month',
+            'active_notice_date',
             'pending_renewal_draft_count',
             'open_inspections_count',
             'active_lease_completed_in_inspections',
@@ -289,18 +302,15 @@ class RentalCommandCentreService
                 $counts['expiring']++;
             }
 
-            // leases.notice_date does not exist yet — see this screen's own
-            // report / spec §7: AT-444 must add it before this tile can be
-            // anything but 0. Deliberately hardcoded 0, not a query that
-            // would silently always return 0 for a less honest reason.
-            $counts['notice_given'] = 0;
+            // AT-444 follow-up (2026-10-05) — leases.notice_date now exists
+            // (was hardcoded 0 here before AT-444 shipped it). Mirrors
+            // Lease::hasActiveNotice()'s own definition (notice_date !==
+            // null) exactly — an active lease with notice on file.
+            if ($occupied && $row->active_notice_date !== null) {
+                $counts['notice_given']++;
+            }
 
             if ($occupied && (int) $row->pending_renewal_draft_count > 0) {
-                // leases.previous_lease_id already exists on the schema
-                // (2026_09_17 migration) but no live code path writes it
-                // yet (AT-444 builds the Renew action) — this will start
-                // counting real rows the day that ships, with no change
-                // needed here.
                 $counts['renewals_in_progress']++;
             }
 
@@ -429,9 +439,10 @@ class RentalCommandCentreService
                     ->whereBetween('active_end_date', [$today, $windowEnd]);
                 break;
             case 'notice_given':
-                // No leases.notice_date column yet — see tileCounts(). An
-                // explicit always-empty filter, not a silently-wrong one.
-                $query->whereRaw('1 = 0');
+                // AT-444 follow-up (2026-10-05) — mirrors tileCounts()'s own
+                // definition: occupied + Lease::hasActiveNotice() (notice_date
+                // !== null) exactly, so the tile and this filter can't drift.
+                $query->whereNotNull('active_lease_id')->whereNotNull('active_notice_date');
                 break;
             case 'renewals_in_progress':
                 $query->whereNotNull('active_lease_id')->where('pending_renewal_draft_count', '>', 0);
@@ -538,7 +549,11 @@ class RentalCommandCentreService
                 'label' => 'Review renewal',
                 'detail' => 'Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
-                'route_params' => ['lease' => $lease->id],
+                // AT-444 follow-up (2026-10-05) — opens the Lease Hub's
+                // "Renew lease" dialog directly (LeaseActionDialogResolver),
+                // rather than landing the agent on the hub with one more
+                // click still needed.
+                'route_params' => ['lease' => $lease->id, 'action' => 'renew'],
             ]);
         });
 

@@ -244,6 +244,11 @@
                                     <div class="absolute right-0 z-10 mt-1 rounded-md text-xs" style="background: var(--surface); border: 1px solid var(--border); min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
                                         @if($property->active_lease_id)
                                         <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open lease</a>
+                                        {{-- AT-444 follow-up (2026-10-05) — opens the Lease Hub's matching
+                                             "Lease actions" dialog directly (LeaseActionDialogResolver);
+                                             ignored by the hub if not valid for the lease's current state. --}}
+                                        <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'renew']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Renew</a>
+                                        <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'tenant-notice']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Record notice</a>
                                         @endif
                                         <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
                                         <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>

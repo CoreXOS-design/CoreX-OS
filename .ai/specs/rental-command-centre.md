@@ -340,3 +340,40 @@ added) — the dump also picked up several OTHER lanes' migrations that had land
 since the snapshot was last refreshed (the snapshot represents the full migration state, not just
 this ticket's own addition); DEFINER clauses stripped per the same non-negotiable's standing
 gotcha.
+
+## 12. Follow-up, 2026-10-05 (AT-444/AT-441) — two placeholder tiles wired for real, Lease Hub deep-links
+
+§9 listed two things AT-444 needed to add before "Notice given" and "Renewals in progress" could be
+anything but 0/a placeholder-shaped query. AT-444 shipped both; this follow-up wires them in:
+
+- **"Notice given"** — was hardcoded 0 (`leases.notice_date` didn't exist yet). Now counts active
+  leases where `Lease::hasActiveNotice()` is true (mirrored at the SQL level as
+  `active_lease.notice_date IS NOT NULL` on the derived table, same column, same null-check — the two
+  can't drift). The tile's table-filter click uses the identical predicate, so tile count and filtered
+  row count match by construction (per §10.1's own "tile == rows" standard).
+- **"Renewals in progress"** — was already correctly querying `previous_lease_id`-chained drafts (§3.1's
+  own table always had this right); this follow-up adds the ONE canonical definition at the model
+  level, `Lease::renewalDrafts()` / `::hasPendingRenewalDraft()` (`leases.md` §12.11 /
+  `rental-renewals.md` §16), and documents the existing SQL subquery as that method's correlated-
+  subquery mirror, so a future change to one is never made without the other.
+- **Needs-action queue, "Review renewal"** — `route_params` now includes `'action' => 'renew'`, so the
+  link opens the Lease Hub's "Renew lease" dialog directly (`leases.md` §12.11) instead of landing the
+  agent on the hub with one more click still needed. "Record outcome" is unchanged — there is no
+  single matching dialog to deep-link to (the agent chooses among several outcomes), so it still links
+  to the plain Lease Hub page with the "Lease actions" menu available.
+- **Full-table row actions** — the "Actions ▾" menu gains "Renew" and "Record notice" for any row with
+  an active lease (`corex.leases.show` with `?action=renew` / `?action=tenant-notice`), alongside the
+  existing "Open lease"/"Open property"/"Report fault"/"New work order"/"Start inspection" items. Both
+  are ignored by the Lease Hub if not valid for that lease's current state (e.g. already month-to-month,
+  already has an active notice) — see `LeaseActionDialogResolver::validActionsFor()`.
+- **"Start inspection" pre-select — still not possible.** Checked `RentalInspectionController::create()`
+  (cc1/AT-439) on `origin/QA1` at build time: it does not read a `property_id`/`lease_id` query param
+  yet, so this follow-up's own "Start inspection" links (queue + row actions) are unchanged from §3.2/
+  §3.3's existing behaviour — reported to the conductor per instruction, not built around.
+
+Tests: `tests/Feature/Rentals/RentalCommandCentreServiceTest.php` —
+`test_notice_given_tile_counts_active_leases_with_active_notice_and_matches_the_table_filter`,
+`test_renewals_in_progress_tile_matches_lease_has_pending_renewal_draft_and_the_table_filter`,
+`test_review_renewal_queue_item_links_to_the_renew_dialog` (plus the pre-existing
+`test_notice_given_tile_is_zero_when_no_lease_has_notice`, renamed from its old "no field exists yet"
+wording now that the field exists).
