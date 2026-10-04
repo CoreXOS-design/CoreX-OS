@@ -143,7 +143,7 @@
          internal job card's own quote-to-owner lives on its own screen. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Quotes</h2>
-        <p class="text-xs" style="color: var(--text-muted);">No-approval threshold for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
+        <p class="text-xs" style="color: var(--text-muted);">No-approval spend limit for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
         @if($workOrder->quotes->isEmpty())
             <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
         @else

@@ -456,7 +456,7 @@ return [
              'explain' => 'The moment an inventory completes (every required party has signed or been dispositioned), CoreX emails the signed report to the seller/landlord (and tenant(s), when the inventory has a lease) from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inventory and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
-             'label' => 'No-approval spend threshold (R)',
+             'label' => 'No-approval spend limit (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
              'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
             // AT-442 — whether prices are used at all on internal job cards.
