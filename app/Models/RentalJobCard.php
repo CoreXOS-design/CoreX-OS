@@ -82,14 +82,16 @@ class RentalJobCard extends Model
         return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
     }
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function branch(): BelongsTo

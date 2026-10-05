@@ -6,10 +6,14 @@ namespace Tests\Feature\Leases;
 
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\Contact;
 use App\Models\Lease;
+use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Property\ContactPropertyLinker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -156,5 +160,171 @@ final class LeaseListStandardTest extends TestCase
 
         $print = $this->actingAs($admin)->get(route('corex.leases.print-list'));
         $print->assertDontSee('Other agency property');
+    }
+
+    private function contact(string $first, string $last): Contact
+    {
+        return Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => $first, 'last_name' => $last,
+            'email' => strtolower($first . '.' . $last) . '-' . uniqid() . '@example.test',
+        ]);
+    }
+
+    /** AT-444's own test: a landlord column added to the leases list must never show a tenant. */
+    public function test_leases_list_shows_landlord_under_tenant_never_the_tenant_itself(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $property = $this->property($admin, 'With landlord');
+        $landlord = $this->contact('Real', 'Landlord');
+        ContactPropertyLinker::link($landlord->id, $property->id, 'landlord');
+        $tenantContact = $this->contact('The', 'Tenant');
+        $lease = $this->lease($property, $admin);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenantContact->id, 'is_primary' => true]);
+
+        $response = $this->actingAs($admin)->get(route('corex.leases.index'));
+
+        $response->assertOk();
+        $response->assertSee('Real Landlord');
+        $response->assertSee('The Tenant');
+    }
+
+    public function test_leases_list_shows_no_landlord_linked_with_a_link_when_tenant_only(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $property = $this->property($admin, 'Tenant only');
+        $tenantContact = $this->contact('Andre', 'Roets');
+        ContactPropertyLinker::link($tenantContact->id, $property->id, 'tenant');
+        $lease = $this->lease($property, $admin);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenantContact->id, 'is_primary' => true]);
+
+        $response = $this->actingAs($admin)->get(route('corex.leases.index'));
+
+        $response->assertOk();
+        $response->assertSee('No landlord linked');
+        $response->assertSee(route('corex.properties.show', ['property' => $property->id, 'tab' => 'contacts']), false);
+        // The tenant must never render as the landlord anywhere on this row.
+        $this->assertSame(1, substr_count($response->getContent(), 'Andre Roets'));
+    }
+
+    public function test_leases_list_landlord_search_finds_the_lease_by_landlord_name(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $matchProperty = $this->property($admin, 'Match');
+        ContactPropertyLinker::link($this->contact('Searchable', 'Landlord')->id, $matchProperty->id, 'landlord');
+        $match = $this->lease($matchProperty, $admin);
+        $noMatchProperty = $this->property($admin, 'NoMatch');
+        ContactPropertyLinker::link($this->contact('Other', 'Owner')->id, $noMatchProperty->id, 'landlord');
+        $this->lease($noMatchProperty, $admin);
+
+        $response = $this->actingAs($admin)->get(route('corex.leases.index', ['q' => 'Searchable']));
+
+        $this->assertSame([$match->id], $response->viewData('leases')->pluck('id')->all());
+    }
+
+    public function test_leases_list_export_includes_landlord_column(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $property = $this->property($admin, 'Exported');
+        ContactPropertyLinker::link($this->contact('Export', 'Landlord')->id, $property->id, 'landlord');
+        $this->lease($property, $admin);
+
+        $csv = $this->actingAs($admin)->get(route('corex.leases.export', ['format' => 'csv']));
+
+        $body = $csv->streamedContent();
+        $this->assertStringContainsString('Landlord', $body);
+        $this->assertStringContainsString('Export Landlord', $body);
+    }
+
+    /** The landlord column must not add a per-row query — eager-loaded, same as the tenant column. */
+    public function test_leases_list_landlord_column_does_not_n_plus_one(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        for ($i = 0; $i < 5; $i++) {
+            $property = $this->property($admin, "N1-{$i}");
+            ContactPropertyLinker::link($this->contact("Landlord{$i}", 'X')->id, $property->id, 'landlord');
+            $this->lease($property, $admin);
+        }
+
+        DB::enableQueryLog();
+        $this->actingAs($admin)->get(route('corex.leases.index'))->assertOk();
+        $fiveRowQueries = count(DB::getQueryLog());
+
+        DB::disableQueryLog();
+        for ($i = 0; $i < 5; $i++) {
+            $property = $this->property($admin, "N1b-{$i}");
+            ContactPropertyLinker::link($this->contact("LandlordB{$i}", 'X')->id, $property->id, 'landlord');
+            $this->lease($property, $admin);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->actingAs($admin)->get(route('corex.leases.index'))->assertOk();
+        $tenRowQueries = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        // Doubling the rows must not meaningfully increase query count — a
+        // real per-row query (the N+1 this eager-load exists to prevent)
+        // would scale roughly linearly with row count instead.
+        $this->assertLessThan($fiveRowQueries + 5, $tenRowQueries);
+    }
+
+    /**
+     * The list screen's own property-filter picker (search-properties) —
+     * only properties with a lease visible to this user, never every
+     * rental property (that's the create form's own separate job).
+     */
+    public function test_search_properties_only_returns_properties_with_a_visible_lease(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $withLease = $this->property($admin, 'Has a lease');
+        $this->lease($withLease, $admin);
+        $withoutLease = $this->property($admin, 'No lease at all');
+
+        $response = $this->actingAs($admin)->getJson(route('corex.leases.search-properties', ['q' => 'lease']));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id')->all();
+        $this->assertContains($withLease->id, $ids);
+        $this->assertNotContains($withoutLease->id, $ids);
+    }
+
+    public function test_search_properties_never_returns_another_agencys_property(): void
+    {
+        $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
+        $otherBranch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $otherAgency->id]);
+        $otherAdmin = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'admin']);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $otherAgency->id, 'agent_id' => $otherAdmin->id, 'branch_id' => $otherBranch->id,
+            'title' => 'Other agency leased property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        Lease::create([
+            'agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'property_id' => $otherProperty->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 5000, 'start_date' => now()->subMonth(),
+            'source' => 'manual', 'created_by_user_id' => $otherAdmin->id,
+        ]);
+
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($admin)->getJson(route('corex.leases.search-properties', ['q' => 'leased']));
+
+        $response->assertOk();
+        $this->assertSame([], $response->json());
+    }
+
+    public function test_search_properties_respects_own_scope(): void
+    {
+        $agentOne = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        $agentTwo = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        $mineProperty = $this->property($agentOne, 'Mine leased');
+        $this->lease($mineProperty, $agentOne);
+        $theirsProperty = $this->property($agentTwo, 'Theirs leased');
+        $this->lease($theirsProperty, $agentTwo);
+
+        $response = $this->actingAs($agentOne)->getJson(route('corex.leases.search-properties', ['q' => 'leased', 'scope' => 'own']));
+
+        $ids = collect($response->json())->pluck('id')->all();
+        $this->assertContains($mineProperty->id, $ids);
+        $this->assertNotContains($theirsProperty->id, $ids);
     }
 }

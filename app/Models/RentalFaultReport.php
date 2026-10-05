@@ -113,9 +113,10 @@ class RentalFaultReport extends Model
         'cancelled_at' => 'datetime',
     ];
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     /** Branch logo fallback for the landlord PDF (§"Printing", 2026-09-22). */
@@ -124,9 +125,10 @@ class RentalFaultReport extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /** Same reasoning as property() above. */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function inspectionItem(): BelongsTo
@@ -151,9 +153,10 @@ class RentalFaultReport extends Model
         return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
     }
 
+    /** Same reasoning as property() above — the reporting tenant/landlord contact may be archived. */
     public function reportedByContact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class, 'reported_by_contact_id');
+        return $this->belongsTo(Contact::class, 'reported_by_contact_id')->withTrashed();
     }
 
     public function reportedByUser(): BelongsTo

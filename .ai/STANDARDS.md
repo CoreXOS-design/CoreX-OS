@@ -969,6 +969,57 @@ floor here, not the ceiling.
 
 ---
 
+## Standard −1x — `scripts/lane-test.sh` is the ONE sanctioned way to run tests (2026-10-05, Johan, standing policy)
+
+Standard −1h recorded six-lane MySQL contention as "a known, accepted cost, do not build a fix without
+Johan's go-ahead" on 2026-09-13. This is that go-ahead. Every lane had already converged on wrapping test
+runs in `flock /tmp/corex-lane-test.lock php8.2 artisan test <files>` by hand — correct instinct, ad-hoc
+execution: no visibility into who's holding the lock or for how long, no self-healing when a lane's
+`hfc_dash_test_N` schema has been dropped (a sibling disk clean-up removed several idle ones on
+2026-10-05), and a live incident the same day showed a single stuck test (0.1% CPU, genuinely hung, not
+slow) blocking three other lanes behind the lock for 20+ minutes with zero visibility into why.
+
+**`scripts/lane-test.sh` replaces every hand-typed `flock ... artisan test ...` invocation.** It:
+
+1. Takes the same `/tmp/corex-lane-test.lock` every lane's manual invocations already used (interoperates
+   with runs already in flight — no migration needed).
+2. While waiting, prints the current holder's worktree, pid, and elapsed hold time every 5s (reads a
+   sidecar `/tmp/corex-lane-test.lock.info` the current holder writes on acquire) — so a lane stuck in the
+   queue can tell *who* is holding it and *for how long*, instead of staring at silence.
+3. Resolves this worktree's `TEST_DB_DATABASE` with the exact same precedence `tests/bootstrap.php`
+   already uses, and — new as of this standard — if that schema doesn't exist in MySQL, (re)creates it
+   and bootstraps it from `database/schema/mysql-schema.sql` before handing off to `artisan test`. A lane
+   whose schema was dropped out from under it (disk clean-up, a fresh worktree, anything) self-heals
+   instead of hard-failing with `SQLSTATE[HY000] [1049] Unknown database`.
+4. Holds the lock via an open file descriptor (fd 200), not a PID file or a manual stale-check — so a
+   `kill -9` of the wrapper, a timeout, or the test process itself hanging forever all resolve the same
+   way the kernel already guarantees: the lock is held for exactly as long as something is still actually
+   using it, and releases itself the instant nothing is. No stale-lock bookkeeping to get wrong.
+5. `scripts/lane-test.sh --status` shows the current holder (worktree, pid, elapsed) without joining the
+   queue, for exactly the "is it safe to start a run" check a lane wants before committing to wait.
+6. **Never kills, signals, or touches a process belonging to another lane/worktree.** A stuck holder
+   (verified via `--status` showing an implausible elapsed time, e.g. the 2026-10-05 `PpraEmploymentLetterTest`
+   hang) is that lane's own problem to report and resolve — this script's cleanup only ever reaches its
+   own child.
+
+**Root cause note, so staleness isn't re-investigated from scratch next time it's suspected:**
+`database/schema/mysql-schema.sql` was found current on `origin/QA1` HEAD when this was written (last
+regenerated minutes earlier, per Standard −1b's own discipline working as intended that day) — the
+mechanism in `tests/bootstrap.php` + Laravel's `MigrateCommand::loadSchemaState()` is not broken. What IS
+missing, permanently, is automation: nothing (no git hook, no CI step, no composer script) enforces
+Standard −1b's "re-dump the moment a migration lands" — it is a purely manual habit six concurrent lanes
+routinely skip, and the only thing that currently catches a stale dump is someone noticing tests got slow.
+**Measured 2026-10-05, against a fresh schema with the snapshot already current**: bootstrapping
+`hfc_dash_test_9001` from the (current, committed) dump and running
+`tests/Feature/Admin/RentalCatalogueUnitTest.php` took **276.81s** for the first test (schema bootstrap)
+and **279.76s** total for all 7 — far above the ~25s target non-negotiable #12a documents, even with a
+correct, current dump. This points at MySQL durability settings under multi-lane load (see the
+recommendations list below) as today's dominant cost, not dump staleness — the two are separate problems
+and this standard's fix only addresses the lock-visibility and schema-self-heal half of "no test
+bottlenecks," not DDL/fsync latency, which is Johan's call per the settings recommendations.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

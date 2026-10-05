@@ -54,9 +54,10 @@
         $leaseStateMarker = 'Renewal in progress';
     }
 
-    // AT-444 follow-up 3 (2026-10-05) — the Renew dialog shows whatever
-    // CoreX already drafted (rentals:prepare-renewal-drafts) instead of a
-    // blank term-entry invitation that would just create a SECOND draft.
+    // Johan's ruling, 2026-10-05: a renewal only exists because an agent
+    // started one via "Renew lease" — the Renew dialog shows that
+    // in-progress draft instead of a blank term-entry invitation that
+    // would just create a SECOND draft.
     $pendingRenewalDraft = $lease->status === 'active' ? $lease->renewalDrafts()->first() : null;
 @endphp
 
@@ -70,7 +71,7 @@
     {{-- Header: address, status, tenant(s), rent, term, actions. --}}
     <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-            <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
+            <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
                 @if($leaseStateMarker)
@@ -119,9 +120,19 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-landlord-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Landlord not renewing&hellip;</button>
                                 @endif
                             @endif
-                            @permission('leases.cancel')
-                                <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel lease&hellip;</button>
-                            @endpermission
+                            {{-- A draft chained to a previous (renewing) lease is a renewal
+                                 draft — cancelling it is a distinct action from cancelling an
+                                 ordinary lease: it requires a reason, logs who/when/why on BOTH
+                                 this draft and the lease it was drafted from.
+                                 Gated like the renew action (leases.renew, this whole menu's own
+                                 permission), not leases.cancel. --}}
+                            @if($lease->status === 'draft' && $lease->previous_lease_id)
+                                <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel-renewal-draft')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel renewal draft&hellip;</button>
+                            @else
+                                @permission('leases.cancel')
+                                    <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel lease&hellip;</button>
+                                @endpermission
+                            @endif
                         </div>
                     </div>
                 @endif
@@ -150,9 +161,13 @@
                 <div class="p-6 space-y-4">
                     <h2 class="text-lg font-medium">Renew this lease</h2>
                     @if($pendingRenewalDraft)
-                        <p class="text-sm" style="color: var(--text-muted);">CoreX already prepared a renewal draft — R{{ number_format((float) $pendingRenewalDraft->rental_amount, 2) }}/mo from {{ $pendingRenewalDraft->start_date?->format('Y-m-d') }}. Review and send when ready, or start a different one on the renewal screen.</p>
+                        <p class="text-sm" style="color: var(--text-muted);">A renewal draft is already in progress — R{{ number_format((float) $pendingRenewalDraft->rental_amount, 2) }}/mo from {{ $pendingRenewalDraft->start_date?->format('Y-m-d') }}. Review and send when ready, or start a different one on the renewal screen.</p>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            {{-- Takes the agent straight to the draft's own Lease Hub page,
+                                 where "Cancel renewal draft…" asks for a reason and logs it on
+                                 both leases — one confirmation dialog, not duplicated here. --}}
+                            <a href="{{ route('corex.leases.show', $pendingRenewalDraft) }}" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Cancel renewal draft&hellip;</a>
                             <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="corex-btn-outline text-xs">Start a different renewal</a>
                             @if($pendingRenewalDraft->renewal_draft_flow_id)
                                 <a href="{{ route('docuperfect.esign.step', ['flow' => $pendingRenewalDraft->renewal_draft_flow_id, 'step' => 2]) }}" class="corex-btn-primary text-xs">Review draft</a>
@@ -276,23 +291,48 @@
             @endif
         @endif
 
-        @permission('leases.cancel')
-            <x-modal name="lease-dialog-cancel" :show="$errors->has('cancel_reason')" focusable>
-                <form method="POST" action="{{ route('corex.leases.cancel', $lease) }}" class="p-6 space-y-3">
-                    @csrf
-                    <h2 class="text-lg font-medium">Cancel this lease</h2>
-                    <div>
-                        <label class="text-xs font-medium">Reason for cancellation (required)</label>
-                        <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('cancel_reason') }}</textarea>
-                        <x-input-error :messages="$errors->get('cancel_reason')" class="mt-1" />
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
-                        <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
-                    </div>
-                </form>
-            </x-modal>
-        @endpermission
+        {{-- Mutually exclusive with the renewal-draft modal below: a lease is
+             either an ordinary draft/active lease (this one) or a renewal
+             draft chained via previous_lease_id (the other one), never both
+             — so the two never collide on the shared cancel_reason field. --}}
+        @unless($lease->status === 'draft' && $lease->previous_lease_id)
+            @permission('leases.cancel')
+                <x-modal name="lease-dialog-cancel" :show="$errors->has('cancel_reason')" focusable>
+                    <form method="POST" action="{{ route('corex.leases.cancel', $lease) }}" class="p-6 space-y-3">
+                        @csrf
+                        <h2 class="text-lg font-medium">Cancel this lease</h2>
+                        <div>
+                            <label class="text-xs font-medium">Reason for cancellation (required)</label>
+                            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('cancel_reason') }}</textarea>
+                            <x-input-error :messages="$errors->get('cancel_reason')" class="mt-1" />
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+                        </div>
+                    </form>
+                </x-modal>
+            @endpermission
+        @else
+            @permission('leases.renew')
+                <x-modal name="lease-dialog-cancel-renewal-draft" :show="$errors->has('cancel_reason')" focusable>
+                    <form method="POST" action="{{ route('corex.leases.renewal.cancel-draft', $lease) }}" class="p-6 space-y-3">
+                        @csrf
+                        <h2 class="text-lg font-medium">Cancel this renewal draft</h2>
+                        <p class="text-sm" style="color: var(--text-muted);">This draft (for <a href="{{ route('corex.leases.show', $lease->previous_lease_id) }}" class="underline">lease #{{ $lease->previous_lease_id }}</a>) will be cancelled and kept for history — never deleted. Use "Renew lease" there to start a new one when ready.</p>
+                        <div>
+                            <label class="text-xs font-medium">Reason for cancellation (required)</label>
+                            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('cancel_reason') }}</textarea>
+                            <x-input-error :messages="$errors->get('cancel_reason')" class="mt-1" />
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+                        </div>
+                    </form>
+                </x-modal>
+            @endpermission
+        @endif
     @endif
 
     <x-rental-context-bar :lease="$lease" current="lease" />
@@ -393,16 +433,34 @@
                     <span style="color: var(--text-muted);">Landlord(s):</span>
                     @if($landlords->isEmpty())
                         No landlord linked
-                        <a href="{{ route('corex.properties.show', $lease->property) }}?tab=contacts" class="underline text-xs" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                        {{-- A trashed property can't be navigated to (its own show route 404s under
+                             default route-model binding) — no point offering a dead-end "Link landlord". --}}
+                        @if($lease->property && !$lease->property->trashed())
+                            <a href="{{ route('corex.properties.show', $lease->property) }}?tab=contacts" class="underline text-xs" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                        @elseif($lease->property?->trashed())
+                            <span class="text-xs" style="color: var(--text-muted);">(property archived)</span>
+                        @endif
                     @else
                         {{ $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}
                     @endif
                 </div>
                 @if($lease->previousLease)
-                    <div class="text-xs" style="color: var(--text-muted);">Renewed from <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.</div>
+                    <div class="text-xs" style="color: var(--text-muted);">Renewed from
+                        @if($lease->previousLease->trashed())
+                            lease #{{ $lease->previousLease->id }} (archived).
+                        @else
+                            <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.
+                        @endif
+                    </div>
                 @endif
                 @if($lease->renewedLease)
-                    <div class="text-xs" style="color: var(--text-muted);">Renewed into <a href="{{ route('corex.leases.show', $lease->renewedLease) }}" class="underline">lease #{{ $lease->renewedLease->id }}</a>.</div>
+                    <div class="text-xs" style="color: var(--text-muted);">Renewed into
+                        @if($lease->renewedLease->trashed())
+                            lease #{{ $lease->renewedLease->id }} (archived).
+                        @else
+                            <a href="{{ route('corex.leases.show', $lease->renewedLease) }}" class="underline">lease #{{ $lease->renewedLease->id }}</a>.
+                        @endif
+                    </div>
                 @endif
                 @if($lease->status === 'cancelled')
                     <div class="text-xs" style="color: var(--ds-crimson);">Cancelled {{ $lease->cancelled_at?->format('Y-m-d') }}: {{ $lease->cancel_reason }}</div>

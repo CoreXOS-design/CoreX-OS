@@ -83,8 +83,8 @@
     $propertyLabel = $rentalApplication->property
         ? optional($rentalApplication->property)->buildDisplayAddress()
         : $rentalApplication->property_address_override;
-    $headerContactName = $rentalApplication->contact->full_name
-        ?? trim(($rentalApplication->contact->first_name ?? '') . ' ' . ($rentalApplication->contact->last_name ?? ''));
+    $headerContactName = $rentalApplication->contact?->full_name
+        ?? trim(($rentalApplication->contact?->first_name ?? '') . ' ' . ($rentalApplication->contact?->last_name ?? ''));
     $headerTitleText = ($viewerRole === 'agent' ? 'Application Review' : 'Authorise') . ' — ' . $headerContactName;
     $headerPropertyFact = $propertyLabel ? ('Property: ' . $propertyLabel) : 'No property linked';
     // cc4, 2026-09-11 — Johan/cc4's E2E walk: "the review screen header can

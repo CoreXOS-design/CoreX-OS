@@ -117,6 +117,44 @@ class LeaseRenewalService
     }
 
     /**
+     * rental-command-centre.md §3.1 / leases.md — the agent explicitly
+     * cancels a renewal draft (CoreX-prepared or their own) instead of
+     * sending/activating it. Logged on BOTH leases: the draft's own
+     * cancelled_at/cancelled_by_user_id/cancel_reason columns plus a
+     * LeaseEvent on itself, AND a LeaseEvent on the previous (current) term
+     * so ITS OWN tenancy log shows the draft went away and why. Deliberately
+     * does not touch the previous lease's own status/pointers — cancelling a
+     * draft never re-opens or changes the term it was drafted from, and
+     * never deletes the draft row (soft-delete-only, kept for history).
+     */
+    public function cancelRenewalDraft(Lease $draft, string $reason, User $user): Lease
+    {
+        if ($draft->status !== Lease::STATUS_DRAFT || !$draft->previous_lease_id) {
+            throw ValidationException::withMessages([
+                'lease' => 'This lease is not a pending renewal draft.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($draft, $reason, $user) {
+            $draft->update([
+                'status' => Lease::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+                'cancelled_by_user_id' => $user->id,
+                'cancel_reason' => $reason,
+            ]);
+
+            $this->logEvent($draft, LeaseEvent::TYPE_RENEWAL_DRAFT_CANCELLED, "Renewal draft cancelled — {$reason}", $user, ['reason' => $reason]);
+
+            $previous = Lease::withoutGlobalScopes()->find($draft->previous_lease_id);
+            if ($previous) {
+                $this->logEvent($previous, LeaseEvent::TYPE_RENEWAL_DRAFT_CANCELLED, "Renewal draft (lease #{$draft->id}) cancelled — {$reason}", $user, ['draft_lease_id' => $draft->id, 'reason' => $reason]);
+            }
+
+            return $draft->fresh();
+        });
+    }
+
+    /**
      * rental-renewals.md §7 — "Month-to-month": end_date cleared, flag set.
      * No e-sign cycle. Reversible (§7's own "all reversible by an
      * authorised user").

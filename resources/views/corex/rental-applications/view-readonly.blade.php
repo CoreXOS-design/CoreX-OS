@@ -43,7 +43,7 @@
         <x-slot name="left">
             <div class="min-w-0">
                 <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
-                    {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
+                    {{ $rentalApplication->contact?->full_name ?? 'Rental Application' }}
                 </h1>
                 <span class="ds-badge ds-badge-info">
                     {{ $rentalApplication->displayStatusLabel() }} — read-only, as submitted and signed
@@ -396,7 +396,7 @@
 
                     <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Link as tenant</button>
                 </form>
-                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant on this property, and creates the lease record with the terms above.</p>
+                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact?->full_name ?? 'this applicant' }} as the tenant on this property, and creates the lease record with the terms above.</p>
             @endif
         </div>
         @endif

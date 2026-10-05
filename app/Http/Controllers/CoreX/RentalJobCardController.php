@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
@@ -40,6 +41,7 @@ use Illuminate\View\View;
 class RentalJobCardController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use SearchesQualifyingRentalProperties;
 
     /**
      * Search: property address, tenant name, crew member, title.
@@ -92,6 +94,9 @@ class RentalJobCardController extends Controller
         if ($status = $request->get('status')) {
             $query->where('rental_job_cards.status', $status);
         }
+        if ($propertyId = $request->get('property_id')) {
+            $query->where('rental_job_cards.property_id', $propertyId);
+        }
         if ($crewId = $request->get('assigned_user_id')) {
             $query->where('rental_job_cards.assigned_user_id', $crewId);
         }
@@ -133,6 +138,8 @@ class RentalJobCardController extends Controller
 
         $crew = User::query()->orderBy('name')->get(['id', 'name']);
 
+        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
+
         return view('corex.rental-job-cards.index', [
             'jobCards' => $jobCards,
             'sort' => $sort,
@@ -140,11 +147,24 @@ class RentalJobCardController extends Controller
             'hasAny' => $hasAny,
             'showArchived' => $showArchived,
             'crew' => $crew,
-            'filters' => $request->only(['q', 'status', 'assigned_user_id', 'date_from', 'date_to', 'overdue']),
+            'filters' => $request->only(['q', 'status', 'assigned_user_id', 'property_id', 'date_from', 'date_to', 'overdue']),
+            'filteredProperty' => $filteredProperty,
             'tileCounts' => $tileCounts,
             'resolvedScope' => $resolvedScope,
             'scopeOptions' => $scopeOptions,
         ]);
+    }
+
+    /**
+     * The LIST screen's own property-filter picker — only properties that
+     * actually have a job card visible to this user, never every rental
+     * property. Distinct from the create screen's own inline property
+     * `<select>` (rental-job-cards/create.blade.php), which deliberately
+     * keeps offering every rental property, unchanged.
+     */
+    public function searchProperties(Request $request): JsonResponse
+    {
+        return $this->searchQualifyingRentalProperties($request, RentalJobCard::class);
     }
 
     /**
@@ -240,7 +260,7 @@ class RentalJobCardController extends Controller
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crew' => User::query()->orderBy('name')->get(['id', 'name']),
-            'catalogueItems' => RentalCatalogueItem::query()->active()->orderBy('sort_order')->get(),
+            'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
             'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
             // Agency VAT set-up (2026-10-05) — the totals block and per-line

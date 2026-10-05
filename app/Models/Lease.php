@@ -81,9 +81,19 @@ class Lease extends Model
         'move_out_date' => 'date',
     ];
 
+    /**
+     * Deleted-related-record rule (.ai/BUILD_STANDARD.md §4): a lease
+     * outlives its property's own soft-delete (e.g. a landlord's property
+     * record is archived while historic leases on it stay on file).
+     * ->withTrashed() keeps $lease->property resolving to the archived
+     * Property instead of silently going null, so every screen that
+     * renders it can show "(archived)" instead of 500ing on a route()
+     * call with a null model. Mirrors the existing
+     * RentalWorkOrder::property() precedent.
+     */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function branch(): BelongsTo
@@ -91,19 +101,22 @@ class Lease extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /** Same reasoning as property() above; RentalApplication is soft-deletable. */
     public function rentalApplication(): BelongsTo
     {
-        return $this->belongsTo(RentalApplication::class);
+        return $this->belongsTo(RentalApplication::class)->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function previousLease(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'previous_lease_id');
+        return $this->belongsTo(self::class, 'previous_lease_id')->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function renewedLease(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'renewed_lease_id');
+        return $this->belongsTo(self::class, 'renewed_lease_id')->withTrashed();
     }
 
     /**
@@ -125,6 +138,23 @@ class Lease extends Model
     public function hasPendingRenewalDraft(): bool
     {
         return $this->renewalDrafts()->exists();
+    }
+
+    /**
+     * rental-renewals.md §20 — a renewal draft the agent explicitly
+     * cancelled for this term. Kept as its own distinct state from an
+     * active draft so the tenancy log and any future lookup can tell "never
+     * started" apart from "started, then called off" — only an agent
+     * explicitly using "Renew lease" creates another one for this term.
+     */
+    public function cancelledRenewalDrafts(): HasMany
+    {
+        return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_CANCELLED);
+    }
+
+    public function hasCancelledRenewalDraft(): bool
+    {
+        return $this->cancelledRenewalDrafts()->exists();
     }
 
     public function tenants(): HasMany
@@ -223,19 +253,31 @@ class Lease extends Model
      * ONLY definition of this method — the other, AT-440/cc3 copy was
      * removed during a 2026-10-04 QA1 outage (duplicate-declaration 500,
      * 96b4f3ca0) by keeping this (AT-439's canonical contact-role-key,
-     * N-party) version; that emergency pick was about stopping the
-     * redeclare crash, not a design call against the OTHER version's
-     * single-contact `Property::sellerOwnerContact()` fallback — the
-     * outage fix's own commit message flagged the loss explicitly rather
-     * than claiming it was intentional. Restored here (AT-444 follow-up 3,
-     * 2026-10-05, Johan's ruling): a property whose owner is linked only
-     * as seller/owner, with no landlord/lessor pivot role tagged at all,
-     * now still resolves to that one contact — the exact gap flagged
-     * against all three of this method's callers (LeaseController::show()'s
-     * Lease Terms card, RentalDocumentPdfService::leaseTenancyReportPdf(),
-     * the shared rental-context-bar component). Only a true gap — zero
-     * landlord/lessor pivots — falls back; any tagged landlord/lessor
-     * contact is returned as-is, never merged with the fallback.
+     * N-party) version.
+     *
+     * AT-444 (2026-10-05): the 2026-10-04 "AT-444 follow-up 3" revision had
+     * restored a fallback to `Property::sellerOwnerContact()` for a property
+     * with zero landlord/lessor pivots — but that method's own job (AT-105,
+     * PDF Splitter filing) is to guess the SOLE linked contact when none is
+     * tagged seller-side, with NO awareness of whether that sole contact is
+     * actually a tenant. On a property linked ONLY to its tenant, that
+     * fallback returned the tenant AS the landlord — confirmed on QA1,
+     * property 5792 / lease 10 (Andre Roets, the lease's tenant, shown as
+     * both party chips in the rental context bar). `sellerOwnerContact()`
+     * itself is NOT changed here — it is shared with sales-side callers
+     * (PDF Splitter, Deal Register, match-card, Proforma) whose behaviour is
+     * out of scope — this method simply stops calling it.
+     *
+     * The fallback is now a second EXPLICIT role check (seller/owner pivot
+     * tags, via `contactsForRole('seller_owner')`), used ONLY when nothing
+     * is tagged landlord/lessor — never a guess at "the only contact on
+     * file." A contact whose role is tenant/occupant/applicant — anything
+     * other than landlord/lessor/seller/owner — can never be returned
+     * here. A true gap (no contact tagged any of the four roles) returns
+     * an empty collection; every caller (Lease Hub, rental-context-bar,
+     * tenancy report PDF, rental notices, renewal recipients, owner/
+     * landlord-decision-needed mail) already renders "No landlord linked"
+     * / "—" for an empty result rather than inventing one.
      */
     public function landlordContacts(): \Illuminate\Support\Collection
     {
@@ -243,18 +285,38 @@ class Lease extends Model
             return collect();
         }
 
-        $landlords = $this->property->contactsForRole('landlord')
-            ->merge($this->property->contactsForRole('lessor'))
-            ->unique('id')
-            ->values();
+        // Leases list (leases.md §7) eager-loads 'property.contacts' and
+        // calls this per row — Property::contactsForRole() always issues a
+        // fresh query via $this->contacts()->get() regardless of what's
+        // eager-loaded, so it would N+1 on a paginated list. Reuse the
+        // already-loaded collection when present; Property.php itself is
+        // untouched (shared with sales-side callers) — the identical
+        // pivot-role matching (Property::pivotRolesForContactRole()) is
+        // replicated here, scoped to this one call site.
+        $contacts = $this->property->relationLoaded('contacts')
+            ? $this->property->contacts
+            : $this->property->contacts()->get();
+
+        $matchRole = fn (array $roles) => $contacts->filter(function ($c) use ($roles) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $roles, true);
+        })->values();
+
+        $landlords = $matchRole(['landlord'])->merge($matchRole(['lessor']))->unique('id')->values();
 
         if ($landlords->isNotEmpty()) {
             return $landlords;
         }
 
-        $fallback = $this->property->sellerOwnerContact();
+        return $matchRole(['seller', 'owner']);
+    }
 
-        return $fallback ? collect([$fallback]) : collect();
+    /** Leases list (leases.md §7) — same shape as tenantNames(), for the landlord column + export. */
+    public function landlordNames(): string
+    {
+        $names = $this->landlordContacts()->map(fn (Contact $c) => $c->full_name)->filter();
+
+        return $names->isEmpty() ? 'No landlord linked' : $names->implode(', ');
     }
 
     /**

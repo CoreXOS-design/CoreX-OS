@@ -83,6 +83,14 @@ class RentalInspectionSettingsController extends Controller
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
             'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
+            // §43 — schedule/reschedule/cancel notifications.
+            'notifyTenantEnabled' => RentalInspectionSetting::notifyTenantFor($agencyId),
+            'notifyLandlordEnabled' => RentalInspectionSetting::notifyLandlordFor($agencyId),
+            'notifyInspectorEnabled' => RentalInspectionSetting::notifyInspectorFor($agencyId),
+            'notifyViaMailEnabled' => RentalInspectionSetting::notifyViaMailFor($agencyId),
+            'notifyViaWhatsappEnabled' => RentalInspectionSetting::notifyViaWhatsappFor($agencyId),
+            'minimumNoticeDays' => RentalInspectionSetting::minimumNoticeDaysFor($agencyId),
+            'reminderDaysBefore' => RentalInspectionSetting::reminderDaysBeforeFor($agencyId),
         ]);
     }
 
@@ -425,5 +433,59 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Photo note classifications saved.');
+    }
+
+    /**
+     * §43 — which parties are notified on schedule/reschedule/cancel,
+     * which channel(s), the minimum notice period (warns, never blocks),
+     * and the reminder offset (0 = off). One saver for all seven fields —
+     * they're one coherent setting group, not seven independent ones, same
+     * reasoning as updateAutoSendReportEnabled() being its own narrow
+     * saver rather than folding into update() above.
+     *
+     * No hard "submitted" marker — this saver is ALSO registered on the
+     * Setup Wizard step (agency-onboarding-copy.php), which posts whatever
+     * subset of these fields its own markup renders. Every boolean is
+     * guarded with has(), and both numbers with filled() (not a bare
+     * default-on-absence), mirroring update()'s own established pattern
+     * above exactly — a wizard save that never touches this group must
+     * leave every value exactly as it was, never silently reset to a
+     * default (agency-onboarding-setup.md §6.1).
+     */
+    public function updateScheduleNotifications(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'minimum_notice_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'reminder_days_before' => ['nullable', 'integer', 'min:0', 'max:30'],
+        ]);
+
+        $attributes = [];
+
+        if ($request->filled('minimum_notice_days')) {
+            $attributes['minimum_notice_days'] = $validated['minimum_notice_days'];
+        }
+        if ($request->filled('reminder_days_before')) {
+            $attributes['reminder_days_before'] = $validated['reminder_days_before'];
+        }
+
+        foreach ([
+            'notify_tenant_enabled', 'notify_landlord_enabled', 'notify_inspector_enabled',
+            'notify_via_mail_enabled', 'notify_via_whatsapp_enabled',
+        ] as $field) {
+            if ($request->has($field)) {
+                $attributes[$field] = $request->boolean($field);
+            }
+        }
+
+        if ($attributes === []) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['schedule_notifications' => 'That did not save — please try again.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Notification settings saved.');
     }
 }

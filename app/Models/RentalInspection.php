@@ -44,6 +44,15 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         'type',
         'status',
         'scheduled_for',
+        // §43 — a real "Schedule inspection" action. scheduled_for (date)
+        // already existed; these carry the time of day, how long it's
+        // expected to take, who is doing it (may differ from whoever
+        // booked it — defaults to the booking user, see schedule()), and
+        // a free-text note.
+        'scheduled_time',
+        'scheduled_duration_minutes',
+        'inspector_user_id',
+        'schedule_note',
         'fault_report_deadline_at',
         'signing_deadline_at',
         'completed_at',
@@ -83,6 +92,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
 
     protected $casts = [
         'scheduled_for' => 'date',
+        'scheduled_duration_minutes' => 'integer',
         'fault_report_deadline_at' => 'datetime',
         'signing_deadline_at' => 'datetime',
         'completed_at' => 'datetime',
@@ -108,14 +118,16 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         });
     }
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
+    /** Same reasoning as lease() above. */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function cancelledBy(): BelongsTo
@@ -131,6 +143,24 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /** §43 — who is actually doing the inspection; defaults to the booking user at schedule() time, but may be reassigned on reschedule(). */
+    public function inspector(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'inspector_user_id');
+    }
+
+    /** §43 — one immutable row per reschedule, latest first. */
+    public function reschedules(): HasMany
+    {
+        return $this->hasMany(RentalInspectionReschedule::class)->latest('id');
+    }
+
+    /** §43 — one row per notification attempt (scheduled/rescheduled/cancelled/reminder), latest first. */
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(RentalInspectionNotification::class)->latest('id');
     }
 
     public function observations(): HasMany
@@ -391,7 +421,16 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             return $query->whereHas('property', fn (Builder $p) => $p->where('properties.branch_id', $user->effectiveBranchId()));
         }
         if ($scope === 'own') {
-            return $query->whereIn('rental_inspections.created_by_user_id', $user->dataIdentityIds());
+            // §43 — an inspector booked to do a scheduled inspection someone
+            // ELSE created (e.g. a branch manager scheduling on an agent's
+            // behalf) must see it on their own board too, not just the
+            // creator. Widened, never narrowed — created_by_user_id keeps
+            // working exactly as before for every pre-existing row (no
+            // inspector set) and for anyone who still books their own.
+            $identityIds = $user->dataIdentityIds();
+            return $query->where(fn (Builder $q) => $q
+                ->whereIn('rental_inspections.created_by_user_id', $identityIds)
+                ->orWhereIn('rental_inspections.inspector_user_id', $identityIds));
         }
 
         return $query->whereRaw('1 = 0');
@@ -507,6 +546,11 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         }
 
         $this->forceFill($attributes)->save();
+
+        // §43 — a completed inspection's calendar event (if it had one —
+        // only genuinely scheduled inspections get one) is marked done,
+        // never left open.
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
     }
 
     /**
@@ -554,6 +598,12 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             'cancelled_by_user_id' => $by->id,
             'cancel_reason' => $reason,
         ])->save();
+
+        // §43 — a scheduled inspection's calendar event is dismissed, never
+        // left dangling on the inspector's calendar, and every notified
+        // party is told it's off.
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
+        app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyCancelled($this, $by);
     }
 
     /**
@@ -750,6 +800,111 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             'furnished_status' => $property->furnished_status,
             'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease->start_date : null,
         ]);
+    }
+
+    /**
+     * §43 — a real "Schedule inspection" action: books the inspection for a
+     * future date/time without opening the recording flow (unlike start(),
+     * this does NOT mean "begin recording now" — an agent opens the
+     * property's Inspections tab separately, whenever they're ready, via
+     * the list screen's own "Start" link on the scheduled row). Shares
+     * start()'s two guards verbatim (active lease required; not already
+     * under way for this type) rather than refactoring start() itself —
+     * that method is covered by existing tests this task must not risk.
+     *
+     * $attrs: scheduled_for (required, date), scheduled_time (nullable),
+     * scheduled_duration_minutes (nullable), inspector_user_id (nullable —
+     * defaults to $by), schedule_note (nullable).
+     */
+    public static function schedule(Property $property, string $type, User $by, array $attrs): self
+    {
+        if (empty($attrs['scheduled_for'])) {
+            throw new \InvalidArgumentException('A scheduled date is required.');
+        }
+
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
+        }
+
+        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
+            throw new \LogicException(ucfirst($type) . '-inspection is already under way for this tenancy.');
+        }
+
+        $inspection = self::create([
+            'agency_id' => $property->agency_id,
+            'lease_id' => $lease->id,
+            'type' => $type,
+            'created_by_user_id' => $by->id,
+            'scheduled_for' => $attrs['scheduled_for'],
+            'scheduled_time' => $attrs['scheduled_time'] ?? null,
+            'scheduled_duration_minutes' => $attrs['scheduled_duration_minutes'] ?? null,
+            'inspector_user_id' => $attrs['inspector_user_id'] ?? $by->id,
+            'schedule_note' => $attrs['schedule_note'] ?? null,
+            // §17 — same "pull what we already know" defaulting as start().
+            'property_type' => $property->property_type,
+            'furnished_status' => $property->furnished_status,
+            'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease->start_date : null,
+        ]);
+
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($inspection);
+        app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyScheduled($inspection);
+
+        return $inspection;
+    }
+
+    /**
+     * §43 — reschedule: records an immutable history row (old vs new date/
+     * time/inspector, who changed it, why) via
+     * RentalInspectionReschedule::record(), THEN updates the inspection
+     * itself, syncs the calendar event, and notifies the parties. A
+     * completed/cancelled/archived inspection can never be rescheduled —
+     * same guard as cancel()/markCompleted().
+     */
+    public function reschedule(array $new, User $by, ?string $reason = null): RentalInspectionReschedule
+    {
+        $this->assertRecordable();
+
+        $record = RentalInspectionReschedule::record($this, $new, $by, $reason);
+
+        $this->forceFill([
+            'scheduled_for' => $new['scheduled_for'] ?? $this->scheduled_for,
+            'scheduled_time' => array_key_exists('scheduled_time', $new) ? $new['scheduled_time'] : $this->scheduled_time,
+            'scheduled_duration_minutes' => $new['scheduled_duration_minutes'] ?? $this->scheduled_duration_minutes,
+            'inspector_user_id' => $new['inspector_user_id'] ?? $this->inspector_user_id,
+            'schedule_note' => array_key_exists('schedule_note', $new) ? $new['schedule_note'] : $this->schedule_note,
+        ])->save();
+
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
+        app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyRescheduled($this, $record);
+
+        return $record;
+    }
+
+    /** §43 — the date and time combined, or null when no date is set. Time defaults to midnight when a date exists with no time. */
+    public function scheduledForDateTime(): ?\Carbon\Carbon
+    {
+        if (! $this->scheduled_for) {
+            return null;
+        }
+        $date = $this->scheduled_for->copy();
+        if ($this->scheduled_time) {
+            [$h, $m] = array_pad(explode(':', (string) $this->scheduled_time), 2, 0);
+            $date->setTime((int) $h, (int) $m);
+        }
+
+        return $date;
+    }
+
+    /** §43 — scheduledForDateTime() + the booked duration, or null when either is missing. */
+    public function scheduledEndDateTime(): ?\Carbon\Carbon
+    {
+        $start = $this->scheduledForDateTime();
+        if (! $start || ! $this->scheduled_duration_minutes) {
+            return null;
+        }
+
+        return $start->copy()->addMinutes($this->scheduled_duration_minutes);
     }
 
     /**

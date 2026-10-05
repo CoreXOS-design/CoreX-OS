@@ -894,6 +894,30 @@ class PropertyObserver
         }
     }
 
+    /**
+     * Johan's ruling (2026-10-05) — a property with an active lease must
+     * never be archived. Fires on every soft-delete AND force-delete call
+     * (PropertyController::destroy()/changeType(),
+     * PropertyWizardController::discardDraft(), and any future caller) —
+     * this is the single choke point every Eloquent delete() passes
+     * through, so no archive path can bypass the guard by calling delete()
+     * directly instead of going through a dedicated "archive" method.
+     * Returning false here aborts the delete(); throwing instead so the
+     * caller gets a specific, lease-naming message rather than a silent
+     * no-op (bootstrap/app.php renders this exception as a friendly
+     * redirect/JSON error — the same pattern already used for
+     * OwnershipLockedException).
+     */
+    public function deleting(Property $property): bool
+    {
+        $lease = $property->blockingActiveLease();
+        if ($lease) {
+            throw new \App\Exceptions\PropertyHasActiveLeaseException($lease);
+        }
+
+        return true;
+    }
+
     public function deleted(Property $property): void
     {
         // 2026-08-27 — a soft-delete drops out of identitySets()'s whereNull('deleted_at')

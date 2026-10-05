@@ -7,6 +7,8 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\PerformanceSetting;
 use App\Models\Property;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
 use App\Models\RentalVatType;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
@@ -71,8 +73,23 @@ class CompanySettingsController extends Controller
                 ->orderBy('sort_order')->orderBy('id')->get()
             : collect();
 
+        // Pastel-style enhancement, 2026-10-05 — catalogue TYPE and UNIT
+        // lists, same "active + archived, admin can restore" shape as VAT
+        // Types just above.
+        $catalogueItemTypes = $agency
+            ? RentalCatalogueItemType::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)->withTrashed()
+                ->orderBy('sort_order')->orderBy('id')->get()
+            : collect();
+        $catalogueUnits = $agency
+            ? RentalCatalogueUnit::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)->withTrashed()
+                ->orderBy('sort_order')->orderBy('id')->get()
+            : collect();
+
         return view('admin.company-settings.index', compact(
-            'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale', 'websiteActive', 'vatTypes'
+            'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale',
+            'websiteActive', 'vatTypes', 'catalogueItemTypes', 'catalogueUnits'
         ));
     }
 

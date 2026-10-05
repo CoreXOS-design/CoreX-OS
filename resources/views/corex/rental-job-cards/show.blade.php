@@ -31,7 +31,7 @@
         <div>
             <h1 class="text-lg font-semibold">{{ $jobCard->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}</span>
-            <span class="text-xs" style="color: var(--text-muted);">{{ $jobCard->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
+            <span class="text-xs" style="color: var(--text-muted);">{{ $jobCard->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $jobCard->property?->trashed() ? ' (archived)' : '' }}</span>
         </div>
         <div class="flex items-center gap-2">
             <a href="{{ route('corex.rental-job-cards.print', $jobCard) }}" target="_blank" class="corex-btn-outline text-xs">Print job card</a>
@@ -225,7 +225,7 @@
                         <select name="rental_catalogue_item_id" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);" onchange="this.form.description.value=''; this.form.type.disabled = !!this.value;">
                             <option value="">— Free text —</option>
                             @foreach($catalogueItems as $ci)
-                                <option value="{{ $ci->id }}">{{ $ci->name }} ({{ ucfirst($ci->type) }})</option>
+                                <option value="{{ $ci->id }}">{{ $ci->name }} ({{ $ci->catalogueItemType->name ?? '—' }}@if($ci->catalogueUnit) &middot; {{ $ci->catalogueUnit->name }}@endif)</option>
                             @endforeach
                         </select>
                     </div>
@@ -381,7 +381,12 @@
                      offer the fix right here instead of just an error banner. --}}
                 @if(!$jobCard->property?->landlordContact())
                     <p class="text-xs" style="color: var(--ds-crimson);">No landlord linked — link a landlord before sending the quote.
-                        <a href="{{ route('corex.properties.show', ['property' => $jobCard->property_id, 'tab' => 'contacts']) }}" class="underline">Link landlord</a>
+                        {{-- A trashed property's own show route 404s under default route-model binding — never a dead link. --}}
+                        @if($jobCard->property && !$jobCard->property->trashed())
+                            <a href="{{ route('corex.properties.show', ['property' => $jobCard->property_id, 'tab' => 'contacts']) }}" class="underline">Link landlord</a>
+                        @elseif($jobCard->property?->trashed())
+                            (property archived)
+                        @endif
                     </p>
                 @else
                 <form method="POST" action="{{ route('corex.rental-job-cards.send-quote', $jobCard) }}" onsubmit="return confirm('Send this job card to the owner as a quote?');">

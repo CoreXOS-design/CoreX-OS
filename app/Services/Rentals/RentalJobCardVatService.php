@@ -58,18 +58,82 @@ class RentalJobCardVatService
         }
 
         $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::find($line->rental_vat_type_id)) : null;
-        $rate = $type
-            ? ($type->rate_mode === RentalVatType::RATE_MODE_CUSTOM_PER_LINE
-                ? (float) ($line->custom_vat_rate ?? 0)
-                : (float) $type->liveRate())
-            : 0.0;
+        $rate = $this->rateFor($type, $line->custom_vat_rate);
         $label = $type?->name ?? 'No VAT';
 
         return $this->splitAmount($amount, $rate, $agency->vat_capture_mode) + ['rate' => $rate, 'label' => $label];
     }
 
+    /** A VAT type's live rate — custom_per_line reads the caller's own typed rate, everything else reads the type itself. Null type (free-text line with no VAT type) is 0%. */
+    private function rateFor(?RentalVatType $type, $customRate): float
+    {
+        if (! $type) {
+            return 0.0;
+        }
+
+        return $type->rate_mode === RentalVatType::RATE_MODE_CUSTOM_PER_LINE
+            ? (float) ($customRate ?? 0)
+            : (float) $type->liveRate();
+    }
+
+    /**
+     * Pastel-style enhancement, 2026-10-05 — a catalogue item's own
+     * excl/VAT/incl breakdown for the catalogue list/form, given its
+     * ALWAYS-excl `default_price` (see RentalCatalogueItem's own docblock)
+     * and its default VAT type/custom rate. Null when the item has no
+     * default price at all — nothing to break down.
+     *
+     * @return array{rate: ?float, label: ?string, excl: ?float, vat: ?float, incl: ?float}
+     */
+    public function catalogueItemPrices(RentalCatalogueItem $item, Agency $agency): array
+    {
+        if ($item->default_price === null) {
+            return ['rate' => null, 'label' => null, 'excl' => null, 'vat' => null, 'incl' => null];
+        }
+
+        $excl = (float) $item->default_price;
+
+        if (! $agency->vat_registered) {
+            return ['rate' => null, 'label' => null, 'excl' => $excl, 'vat' => null, 'incl' => $excl];
+        }
+
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+        $rate = $this->rateFor($type, $item->default_custom_vat_rate);
+        $vat = round($excl * $rate / 100, 2);
+
+        return [
+            'rate' => $rate, 'label' => $type?->name ?? 'No VAT',
+            'excl' => $excl, 'vat' => $vat, 'incl' => round($excl + $vat, 2),
+        ];
+    }
+
+    /**
+     * The amount a job card line should pre-fill when it picks this
+     * catalogue item — the item's always-excl default_price, converted to
+     * whatever the agency currently captures on job card lines. Not
+     * registered, or the item has no default price: passed through
+     * unchanged (identical to the pre-VAT behaviour).
+     */
+    public function catalogueDefaultPriceForLine(RentalCatalogueItem $item, Agency $agency): ?float
+    {
+        if ($item->default_price === null) {
+            return null;
+        }
+
+        $excl = (float) $item->default_price;
+
+        if (! $agency->vat_registered || $agency->vat_capture_mode !== Agency::VAT_CAPTURE_INCL) {
+            return $excl;
+        }
+
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+        $rate = $this->rateFor($type, $item->default_custom_vat_rate);
+
+        return round($excl * (1 + $rate / 100), 2);
+    }
+
     /** @return array{excl: float, vat: float, incl: float} */
-    private function splitAmount(float $amount, float $ratePercent, string $captureMode): array
+    public function splitAmount(float $amount, float $ratePercent, string $captureMode): array
     {
         if ($captureMode === Agency::VAT_CAPTURE_INCL) {
             $incl = round($amount, 2);

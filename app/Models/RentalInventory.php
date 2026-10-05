@@ -94,14 +94,16 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         }
     }
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function lines(): HasMany

@@ -4,6 +4,8 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
@@ -18,9 +20,14 @@ $property = Property::forceCreate([
 ]);
 RentalWorkOrderSetting::create(['agency_id' => $agency->id, 'no_approval_spend_threshold' => 200, 'capture_prices_on_job_cards' => true, 'completion_requires_photo' => false]);
 
+RentalCatalogueItemType::seedDefaultsFor($agency->id);
+RentalCatalogueUnit::seedDefaultsFor($agency->id);
 $item = RentalCatalogueItem::create([
-    'agency_id' => $agency->id, 'type' => RentalCatalogueItem::TYPE_PART,
-    'name' => 'Geyser element', 'unit' => 'each', 'default_price' => 450, 'sort_order' => 1,
+    'agency_id' => $agency->id,
+    'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $agency->id)->where('kind', 'part')->firstOrFail()->id,
+    'name' => 'Geyser element',
+    'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $agency->id)->where('name', 'Each')->firstOrFail()->id,
+    'default_price' => 450, 'sort_order' => 1,
     'created_by_user_id' => $user->id,
 ]);
 

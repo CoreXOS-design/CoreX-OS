@@ -403,6 +403,11 @@ return [
             // (a checkbox, never has()-guarded on its own field — see that
             // saver's own docblock).
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
+            // §43 (2026-10-05) — schedule/reschedule/cancel notifications:
+            // which parties, which channel(s), minimum notice, reminder
+            // offset. Own narrow saver, same _submitted-marker discipline
+            // as updateAutoSendReportEnabled above.
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateScheduleNotifications'],
             // §41-follow-up (Job 3, 2026-09-28) — the same toggle, mirrored
             // onto Inventory's own signed-report distribution. Its own
             // narrow saver, same discipline as the Inspections one directly
@@ -504,6 +509,38 @@ return [
              'label' => 'Email the signed inspection report automatically on completion',
              'explain' => 'The moment an inspection completes (every required party has signed or been dispositioned), CoreX emails the signed report to the tenant(s) and landlord from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inspection and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
+            // §43 (2026-10-05) — schedule/reschedule/cancel notifications.
+            // All seven on the SAME saver (updateScheduleNotifications) —
+            // see that method's own docblock for why none of them is
+            // force-defaulted when this step is the one being saved.
+            ['key' => 'notify_tenant_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Notify the tenant(s) when an inspection is scheduled, rescheduled or cancelled',
+             'explain' => 'Whether the tenant(s) on the lease are told when an inspection affecting their tenancy is booked, moved, or called off.',
+             'affects' => 'Whether a tenant ever hears about an inspection before the agent arrives. On by default.'],
+            ['key' => 'notify_landlord_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Notify the landlord when an inspection is scheduled, rescheduled or cancelled',
+             'explain' => 'Whether the property\'s landlord (resolved the same way the rest of CoreX resolves a landlord — never a guess at "the only contact on file") is told when an inspection is booked, moved, or called off.',
+             'affects' => 'Whether a landlord ever hears about an inspection before it happens. On by default.'],
+            ['key' => 'notify_inspector_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Notify the inspector when an inspection is scheduled, rescheduled or cancelled',
+             'explain' => 'Whether the agent actually booked to do the inspection (who may not be whoever booked it) is sent their own notification.',
+             'affects' => 'Whether an inspector is told directly, or only ever finds out by opening the Scheduled Inspections list. On by default.'],
+            ['key' => 'notify_via_mail_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send schedule notifications by email',
+             'explain' => 'Sent from the booking agent\'s own mailbox where one is configured, the shared CoreX mailer otherwise — the same sending mechanism as every other outbound CoreX email.',
+             'affects' => 'Whether any of the parties above receive an actual email. On by default.'],
+            ['key' => 'notify_via_whatsapp_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Send schedule notifications by WhatsApp',
+             'explain' => 'There is no automated WhatsApp sending in CoreX today. Turning this on logs a ready-to-send message on the inspection itself for an agent to send by hand — it does not send anything on its own.',
+             'affects' => 'Whether a WhatsApp message is prepared and logged for an agent to action, or this channel is skipped entirely. Off by default, since it does not actually send without a person.'],
+            ['key' => 'minimum_notice_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 90,
+             'label' => 'Usual notice period for booking an inspection (days)',
+             'explain' => 'How much advance notice an inspection would normally be booked with.',
+             'affects' => 'An agent booking inside this window still succeeds — they just see a flag that it\'s shorter notice than usual. Never blocks. 1 day suits most agencies.'],
+            ['key' => 'reminder_days_before', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 30,
+             'label' => 'Send a reminder this many days before a scheduled inspection',
+             'explain' => 'A reminder notification, sent through the same parties/channels configured above, this many days before the booked date.',
+             'affects' => 'Whether anyone is reminded ahead of the inspection, and how far ahead. 0 turns the reminder off entirely. 1 day suits most agencies.'],
             // §41-follow-up (Job 3, 2026-09-28) — same ruling, mirrored onto
             // Inventory's own signed report. Key deliberately distinct from
             // 'auto_send_report_enabled' above — see

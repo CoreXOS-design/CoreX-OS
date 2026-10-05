@@ -264,11 +264,12 @@ final class LeaseHubTest extends TestCase
     }
 
     /**
-     * AT-444 follow-up 3 (2026-10-05) — Johan's ruling: restore the
-     * single-contact Property::sellerOwnerContact() fallback this method
-     * lost in the 2026-10-04 QA1 outage merge (96b4f3ca0), which only ever
-     * picked one of two versions to stop a duplicate-declaration 500 and
-     * flagged the loss rather than deciding it was correct. Fixes
+     * AT-444 (2026-10-05) — the fallback for a property with zero landlord/
+     * lessor pivots is an EXPLICIT seller/owner role check
+     * (`Property::contactsForRole('seller_owner')`), never a guess at "the
+     * only contact on file" (that guess is `Property::sellerOwnerContact()`'s
+     * own job for its own callers, and is exactly what let a tenant get
+     * returned as landlord — see the two regression tests below). Fixes
      * LeaseController::show()'s Lease Terms card, RentalDocumentPdfService
      * ::leaseTenancyReportPdf(), and the shared rental-context-bar
      * component — all three read this one method, never duplicated.
@@ -301,6 +302,48 @@ final class LeaseHubTest extends TestCase
 
         self::assertCount(1, $landlords);
         self::assertSame('Real Landlord', $landlords->first()->full_name);
+    }
+
+    /**
+     * AT-444 regression (2026-10-05) — confirmed on QA1, property 5792 /
+     * lease 10: a property linked ONLY to its tenant (the normal shape for
+     * a converted rental application — `RentalApplicationController` links
+     * the applicant as `contact_property.role = 'tenant'`) had its tenant
+     * returned AS the landlord, because the old fallback
+     * (`Property::sellerOwnerContact()`) guesses "the sole contact on file"
+     * with no role awareness. A tenant/occupant/applicant-tagged contact
+     * must never be returned by this method, under any fallback.
+     */
+    public function test_landlord_contacts_never_falls_back_to_the_tenant(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property));
+
+        $tenant = $this->makeContact($agency, $branch, 'Andre', 'Roets');
+        ContactPropertyLinker::link($tenant->id, $property->id, 'tenant');
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+
+        $landlords = $lease->fresh()->landlordContacts();
+
+        self::assertTrue($landlords->isEmpty());
+    }
+
+    public function test_landlord_contacts_still_resolves_the_owner_when_the_property_also_has_a_tenant(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property));
+
+        $tenant = $this->makeContact($agency, $branch, 'Andre', 'Roets');
+        ContactPropertyLinker::link($tenant->id, $property->id, 'tenant');
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+
+        $owner = $this->makeContact($agency, $branch, 'Owner', 'Person');
+        ContactPropertyLinker::link($owner->id, $property->id, 'owner');
+
+        $landlords = $lease->fresh()->landlordContacts();
+
+        self::assertCount(1, $landlords);
+        self::assertSame('Owner Person', $landlords->first()->full_name);
     }
 
     public function test_open_item_counts_are_lease_scoped(): void

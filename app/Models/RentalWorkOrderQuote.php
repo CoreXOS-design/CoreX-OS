@@ -50,9 +50,10 @@ class RentalWorkOrderQuote extends Model
         return $this->belongsTo(RentalJobCard::class, 'rental_job_card_id');
     }
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id');
+        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
     }
 
     public function capturedByUser(): BelongsTo
