@@ -178,6 +178,8 @@ CREATE TABLE `agencies` (
   `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
   `ffc_no` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ppra_employment_letter_address_block` text COLLATE utf8mb4_unicode_ci,
+  `ppra_employment_letter_reminder_days` smallint unsigned NOT NULL DEFAULT '2',
   `ncc_registration_number` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_contact` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fic_no` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -9869,6 +9871,44 @@ CREATE TABLE `pp_suburbs` (
   KEY `pp_suburbs_pp_city_id_name_index` (`pp_city_id`,`name`),
   KEY `pp_suburbs_normalised_name_index` (`normalised_name`),
   CONSTRAINT `pp_suburbs_pp_city_id_foreign` FOREIGN KEY (`pp_city_id`) REFERENCES `pp_cities` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ppra_employment_letters`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ppra_employment_letters` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `principal_user_id` bigint unsigned DEFAULT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `created_by_user_id` bigint unsigned NOT NULL,
+  `status` enum('draft','awaiting_agent_signature','awaiting_principal_signature','signed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'awaiting_agent_signature',
+  `agent_signature_image` text COLLATE utf8mb4_unicode_ci,
+  `principal_signature_image` text COLLATE utf8mb4_unicode_ci,
+  `agent_signed_at` timestamp NULL DEFAULT NULL,
+  `agent_signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `principal_signed_at` timestamp NULL DEFAULT NULL,
+  `principal_signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_pdf_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reminder_last_sent_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ppra_employment_letters_agency_id_status_index` (`agency_id`,`status`),
+  KEY `ppra_employment_letters_agency_id_user_id_index` (`agency_id`,`user_id`),
+  KEY `ppra_employment_letters_agency_id_branch_id_index` (`agency_id`,`branch_id`),
+  KEY `ppra_employment_letters_agency_id_principal_user_id_status_i` (`agency_id`,`principal_user_id`,`status`),
+  KEY `ppra_employment_letters_user_id_foreign` (`user_id`),
+  KEY `ppra_employment_letters_principal_user_id_foreign` (`principal_user_id`),
+  KEY `ppra_employment_letters_branch_id_foreign` (`branch_id`),
+  KEY `ppra_employment_letters_created_by_user_id_foreign` (`created_by_user_id`),
+  CONSTRAINT `ppra_employment_letters_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ppra_employment_letters_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ppra_employment_letters_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `ppra_employment_letters_principal_user_id_foreign` FOREIGN KEY (`principal_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ppra_employment_letters_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ppra_inspection_gap_notes`;
