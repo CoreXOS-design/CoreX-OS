@@ -365,10 +365,10 @@ final class RentalCommandCentreServiceTest extends TestCase
     }
 
     /**
-     * AT-444 follow-up 3 (2026-10-05) — once
-     * rentals:prepare-renewal-drafts has drafted a lease
-     * (Lease::hasPendingRenewalDraft()), this row's own type/label changes
-     * so the agent sees it's ready rather than still "needs review".
+     * AT-444 follow-up 3 (2026-10-05) — once an agent has started a renewal
+     * for a lease via "Renew lease" (Lease::hasPendingRenewalDraft()), this
+     * row's own type/label changes so the agent sees it's ready rather than
+     * still "needs review".
      */
     public function test_queue_shows_renewal_draft_ready_once_a_draft_exists(): void
     {
@@ -398,8 +398,8 @@ final class RentalCommandCentreServiceTest extends TestCase
     }
 
     /**
-     * No e-sign source, no agency template configured at all — the command
-     * would never draft this one, so the row names the gap instead.
+     * No e-sign source, no agency template configured at all — "Renew lease"
+     * couldn't draft this one, so the row names the gap instead.
      */
     public function test_queue_shows_missing_info_when_the_lease_cannot_be_auto_drafted(): void
     {
