@@ -245,6 +245,56 @@ class RentalPortalWorkflowTest extends TestCase
         $res->assertStatus(201);
     }
 
+    /**
+     * §15 (AT-447, portal frontend follow-up) — the landlord's "Request
+     * work" form can pick from the SAME fault-type catalogue the tenant
+     * form already uses (what's-wrong/category/urgency context, with
+     * nowhere new to live those on rental_fault_reports).
+     */
+    public function test_landlord_fault_types_returns_the_agency_catalogue_with_first_aid(): void
+    {
+        // AgencyObserver auto-seeds a handful of default fault types for
+        // every new agency (confirmed directly, not assumed) — this test
+        // checks OUR custom one is present and correctly shaped among
+        // them, not that it's the only row.
+        \App\Models\RentalFaultType::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'name' => 'Geyser burst', 'category' => 'plumbing', 'urgency' => 'urgent',
+            'first_aid_steps' => 'Turn off the main water valve.', 'is_default' => false, 'sort_order' => 1, 'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+
+        $res = $this->getJson('/api/v1/client/rentals/landlord/properties/' . $this->property->id . '/fault-types');
+
+        $res->assertOk();
+        $types = collect($res->json('fault_types'));
+        $geyser = $types->firstWhere('name', 'Geyser burst');
+        $this->assertNotNull($geyser, 'The agency-custom fault type must appear in the landlord catalogue.');
+        $this->assertSame('plumbing', $geyser['category']);
+        $this->assertSame('urgent', $geyser['urgency']);
+        $this->assertSame('Turn off the main water valve.', $geyser['first_aid_steps']);
+    }
+
+    public function test_landlord_request_work_with_a_fault_type_records_it(): void
+    {
+        $faultType = \App\Models\RentalFaultType::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'name' => 'Electrical fault', 'category' => 'electrical', 'urgency' => 'urgent',
+            'first_aid_steps' => 'Switch off at the DB board.', 'is_default' => false, 'sort_order' => 1, 'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+
+        $res = $this->postJson('/api/v1/client/rentals/landlord/properties/' . $this->property->id . '/fault-reports', [
+            'rental_fault_type_id' => $faultType->id,
+            'title' => 'Electrical fault',
+            'description' => 'Sparks from the DB board.',
+        ]);
+
+        $res->assertStatus(201);
+        $fault = RentalFaultReport::withoutGlobalScopes()->findOrFail($res->json('fault_report.id'));
+        $this->assertSame($faultType->id, $fault->rental_fault_type_id);
+    }
+
     /** No active lease — a vacancy-period request still works, attached to the property alone. */
     public function test_landlord_can_request_work_during_a_vacancy_with_no_active_lease(): void
     {

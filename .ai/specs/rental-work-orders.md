@@ -2301,6 +2301,109 @@ plus five smaller gaps. Fixed here, tests in `RentalJobCardAt442FollowUpTest.php
     tests (relying on the OLD skip-mail-but-still-send behaviour) needed a landlord contact added to
     `setUp()` to keep passing — this is the intended behavioural tightening, not a regression.
 
+### 14.17 VAT on job cards, Pastel-style — agency VAT set-up + per-line VAT type (2026-10-05)
+
+Johan: job cards must show no VAT at all by default; an agency can set whether it is VAT registered,
+and when it is, each job card line carries its own VAT type — "work like Pastel."
+
+**Reused, not duplicated:**
+- `agencies.vat_registered` / `agencies.vat_no` (already existed, migration `2026_07_25_120005` — had
+  **no edit UI anywhere** before this work; Company Settings → Company tab now has the control).
+- `PerformanceSetting::get('vat_rate', 15, $agencyId)` (already existed, agency-scoped) — the Standard
+  VAT type always reads this live, never stores its own copy.
+- The Proforma invoice snapshot pattern (`ProformaInvoice`/`ProformaFinancialResolver`) was the model
+  for freezing VAT state at the moment of truth.
+
+**New — Agency VAT set-up** (Company Settings → Company tab, permission `manage_performance_settings`):
+- `agencies.vat_capture_mode` (`excl`|`incl`, default `excl`) — whether prices typed in (job card
+  lines, the parts & labour catalogue's default price) are excl. or incl. VAT. No conversion of
+  existing prices when changed.
+- `agencies.vat_settings_updated_at` / `vat_settings_updated_by_user_id` — audit stamp, set only when
+  `vat_registered`/`vat_capture_mode`/`vat_no` actually changed.
+- Setup Wizard: `vat_registered` (toggle, default off) and `vat_capture_mode` (select, default excl)
+  added to the identity step (`config/agency-onboarding-copy.php`), saved via the SAME
+  `SettingsController::updateAgency`/`CompanySettingsController::update` actions, guarded on
+  `vat_registered`'s own presence (CLAUDE.md §6.1) so sibling forms sharing either action never touch
+  it.
+
+**New — `rental_vat_types`** (agency-maintained, full CRUD, no hard delete): `name`, `rate_mode`
+(`agency_rate` | `fixed` | `custom_per_line`), `fixed_rate` (only for `fixed`), `is_default`,
+`is_active`. Seeded per agency (`RentalVatType::seedDefaultsFor()`, fired on `AgencyCreated` same as
+every other per-agency default list in this codebase) with **Standard VAT** (`agency_rate`, default),
+**No VAT** (`fixed`, 0%), **Custom** (`custom_per_line` — the agent types a rate on the line itself).
+An agency may add further fixed-rate types (e.g. a zero-rated export rate), rename, or archive any of
+them; exactly one `is_default` at a time (`RentalVatType::makeDefault()`). Managed inline on the
+Company Settings "VAT Types" panel — not a separate full list screen, matching this list's small size
+(same reasoning as the testimonials panel on the same page).
+
+**Job card lines** (`rental_job_card_lines`): `rental_vat_type_id` (nullable FK) + `custom_vat_rate`
+(only meaningful when the chosen type is `custom_per_line`) — the agent's live choice, defaulting to
+the catalogue item's own `default_rental_vat_type_id` when one is picked, else the agency's default
+type (`RentalJobCardVatService::defaultVatTypeIdFor()`), always editable per line via
+`storeLine`/`updateLine`. `rental_catalogue_items.default_rental_vat_type_id` — a catalogue item's own
+default, shown on its create/edit screen only when the agency is VAT registered; the default-price
+column label switches "excl VAT"/"incl VAT" per the agency's capture mode, no data conversion.
+
+**Calculation — `RentalJobCardVatService`:** per line, excl/VAT/incl computed from the captured
+`line_total` and the line's effective rate, honouring the agency's capture mode (if `incl`, excl is
+derived back out: `excl = incl / (1 + rate/100)`); rounded to 2 decimals PER LINE, matching the
+existing `line_total` rounding discipline, never re-rounded at the group/total level. The totals block
+groups by rate across ALL lines regardless of which VAT type produced it (`VAT @ 15%`, `VAT @ 10%` for
+a Custom line at 10%, etc.) — a 0%-rate group is never shown (nothing to add), though its lines still
+count toward the subtotal. An agency that is NOT VAT registered, or has `capture_prices_on_job_cards`
+off, gets the exact pre-existing behaviour: no VAT type selector anywhere, no VAT in any total — this
+method's own first check short-circuits to that.
+
+**Snapshot — frozen once, at the first of "send to owner as quote" or job-card completion**
+(`RentalJobCardVatService::snapshot()`, called from both `RentalJobCardService::sendToOwnerAsQuote()`
+and `::complete()` — the latter covers an internal job that never goes through a quote at all, e.g.
+an under-threshold repair completed without ever being sent to the owner). Freezes, per line, the
+type's name/rate and the computed excl/VAT/incl figures (`vat_type_name_snapshot`,
+`vat_rate_snapshot`, `vat_excl_snapshot`, `vat_amount_snapshot`, `vat_incl_snapshot`), and on the card
+itself the registration flag and capture mode at that moment (`vat_registered_snapshot`,
+`vat_capture_mode_snapshot`, `vat_snapshotted_at`). Every read of the breakdown
+(`RentalJobCardVatService::breakdown()`) checks `vat_snapshotted_at` first and reads the frozen
+columns once set — a later change to the agency's VAT registration, rate, capture mode, or a VAT
+type's own rename/rate edit can NEVER alter an issued quote or a closed job card, exactly the
+Proforma invoice's own "freeze at generation" discipline.
+
+**The landlord no-approval spend threshold is now compared VAT-INCLUSIVE** (§3.4b/§3.4c unchanged
+mechanism, `RentalWorkOrder::selectQuote()` — only the `amount` fed into it changed):
+`RentalJobCardService::sendToOwnerAsQuote()` now sets the recorded quote's `amount` to
+`RentalJobCardVatService::inclusiveTotal()` (the snapshot's `totalIncl`, or the unchanged
+`total_amount` for a non-registered agency) — the landlord pays the VAT-inclusive figure, so that is
+both what the quote says and what the threshold gate compares, replacing the excl-only
+`$jobCard->total_amount` the pre-VAT build used. Same figure flows into the linked work order's
+`cost_amount` at completion.
+
+**Documents and report — same breakdown everywhere, one source:**
+- Quote PDF (`jobCardQuotePdf()`) and the printed job card (`jobCardPrintPdf()`, still gated by
+  `show_prices_on_printed_job_card` exactly as §14.14 already specifies) both render the Subtotal
+  (excl) / VAT-per-rate / Total (incl) block and the agency's VAT number when registered — generated
+  from the ALREADY-snapshotted figures for the quote PDF (called after `snapshot()`), or the agency's
+  then-current settings for a draft card's print.
+- Job cards report (`RentalReportService::jobCards()`) adds `total_excl`/`total_vat`/`total_incl`
+  columns (summable) when the acting user's agency is VAT registered; absent entirely otherwise — same
+  "never a forced column nobody asked for" discipline as the rest of this report.
+
+**Not in the wizard, deliberately:** the VAT types list itself — it is a full CRUD surface (add/
+rename/archive, one default), not a single toggle, same call already made for the fault catalogue
+(`rentals-faults-work-orders.md` §10) and the parts & labour catalogue itself (§14.3 above).
+
+**Rentals nav:** "Parts & Labour Catalogue" added directly under "Job Cards" in the Rentals panel
+(`corex-sidebar.blade.php`, permission `rental_catalogue.view`) — it already existed under Settings
+(`corex.rental-catalogue-items.*`); both entries now point at the same screen.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardVatTest.php` (not-registered unchanged; excl and
+incl capture; mixed Standard/No VAT/Custom card groups by rate; per-line rounding; snapshot freezes
+and survives a later rate/capture-mode change; threshold compared incl VAT; VAT types agency-isolated;
+default-type resolution) and `tests/Feature/Admin/AgencyVatSetupTest.php` (save + validation + audit
+stamp; a sibling form sharing `update()` never flips registration off; VAT type CRUD, default,
+archive/restore, agency isolation).
+
+**Finance stage dependency:** this is the single source of truth `.ai/specs/rental-money.md` §6 will
+read from when a completed job card's lines become charges — see that spec's own note.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
@@ -2320,13 +2423,46 @@ not a new data model.
 
 `resources/views/corex/rental-inspections/show.blade.php`, rendered on every inspection regardless of
 status (a draft being finished can raise follow-up just as well as a completed one) — one row per
-observation whose `condition` is not the agency's own configured baseline
-(`RentalInspectionSetting::baselineConditionKeyFor()`, never a hardcoded `'good'` check — the
-observation's existing photo-anchor exclusion, `RentalInspectionObservation::isPending()`, applies
-too, so a bare photo with no condition recorded yet never appears here). Each row shows room/item/
-condition/note/photo-count, a checkbox, and either a create action or — idempotent, per Johan's own
-requirement — the existing linked record(s) with status, if one has already been raised from that
-observation.
+observation whose condition is flagged `needs_follow_up` by the agency's OWN existing condition
+configuration. **Corrected 2026-10-05** (Johan, QA1 property walk): the first build of this block used
+"not the agency's configured baseline" (`baselineConditionKeyFor()`), which wrongly listed N/A and a
+stray unmapped condition value ("OK CC1", a value that reached the column through a path bypassing
+the agency's own vocabulary, e.g. an OMR scan import) as if they were faults — N/A is explicitly not a
+fault, and an unmapped value is not a configured anything. The filter now reuses the EXISTING
+condition-severity configuration this codebase already has, deliberately **not** a new flag/column and
+**not** a new table (per Johan's own instruction, and per this class's own documented Architectural
+Law against a second, independently-configurable "does this need doing" flag —
+`RentalInspectionSetting::SEVERITY_COLORS`' own docblock: `needs_attention` was already merged into
+`severity` once for exactly this reason). `RentalInspectionSetting::conditionNeedsFollowUpFor($agencyId,
+$key)` — new, thin wrapper — asks the identical question the recording screen's own "Needs attention"
+filter already asks (`conditionNeedsAttentionFor()`: red/amber = yes), with ONE deliberate difference:
+an unmapped/legacy condition key defaults to **false** here, never `conditionSeverityFor()`'s `red`
+"flag it, don't hide it" fallback — that fallback is right for a live recording screen alerting an
+agent to something unclassified; it is wrong for a list of actions nobody asked the system to propose.
+No new settings-page control was added either — an agency that wants a condition to show up in
+Follow-up sets its existing Colour to Issue (red) or Caution (amber) on the already-shipped Condition
+states settings screen; no second UI to keep in sync.
+
+The observation's existing photo-anchor exclusion, `RentalInspectionObservation::isPending()`, still
+applies, so a bare photo with no condition recorded yet never appears here. The header reads
+`"Follow-up (N)"`; the block renders **not at all** when nothing on the inspection needs follow-up
+(not an empty-state message — Johan's own instruction). Each row shows room/item/condition/note/
+photo-count, a checkbox, and either a create action or — idempotent, per Johan's own requirement — the
+existing linked record(s) with status, if one has already been raised from that observation. A
+"Select all" checkbox above the list checks every row's checkbox (plain `onclick`, no Alpine) — the
+three shared-bar actions already operated correctly on however many items were ticked; this just makes
+ticking all of them a one-click action.
+
+**Flagged, not silently resolved:** Johan's 2026-10-05 message proposed illustrative defaults
+("damaged / poor / fair / missing / broken = yes; good / ok / new / n-a / not applicable = no") that
+would flip `fair`'s shipped severity from `blue` to `amber`/`red`. This spec does **not** make that
+change — `fair`'s `blue` severity is an earlier, explicit, already-relied-upon ruling (property 5792:
+"the conditions that assert something adverse — Damaged, Not working, Missing, Other — require a
+note; Good, Fair and N/A do not"), and flipping it would change the recording screen's own "Needs
+attention" filter and per-room issue count for every agency on the shipped default, not just this
+block. If Johan wants `fair` to read as needing follow-up, that is a one-field change on the existing
+Condition states settings screen (flip its Colour to Amber) he can make himself, or a one-line default
+change this spec will make on his explicit confirmation — not assumed here.
 
 ### 15.2 Three actions, one shared resolution service
 

@@ -82,6 +82,19 @@ mechanism as §2, not a special case). This is a one-click action from the compl
 card screen ("Raise as a charge"), not automatic — an agency may choose to absorb a repair cost rather
 than bill it, and the action must not force a charge to exist.
 
+**VAT on job cards is already built** (`rental-work-orders.md` §14.17, 2026-10-05) — the single source
+of truth this stage reads from, not re-derives. A completed job card's lines already carry a frozen
+VAT snapshot per line (type name, rate, excl/VAT/incl — `RentalJobCardLine.vat_*_snapshot`) and the
+card itself carries the agency's registration/capture-mode snapshot at the moment it was sent/
+completed (`RentalJobCard.vat_registered_snapshot`/`vat_capture_mode_snapshot`). When this stage turns
+a line into a `rental_invoice_line`, it MUST carry that same frozen excl/VAT/incl breakdown through
+unchanged — never re-run VAT math against the agency's THEN-current settings, which may have since
+changed. The agency's VAT registration (`agencies.vat_registered`), rate (`PerformanceSetting
+'vat_rate'`), and capture mode (`agencies.vat_capture_mode`) are also the ones this stage's own
+invoices/statements (§4, §8) must use for anything NOT sourced from an already-snapshotted job card
+line (e.g. a manually-raised charge) — one VAT configuration per agency, read everywhere, never a
+second rate/registration setting invented for rental money.
+
 ## 7. Escalation updates the rent charge
 A signed renewal with an escalation (`rental-renewals.md` §7, reusing the already-built
 `LeaseEscalation`) updates the lease's recurring rent charge (§3) with the new amount effective from

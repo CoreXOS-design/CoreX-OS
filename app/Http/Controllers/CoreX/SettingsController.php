@@ -980,7 +980,13 @@ class SettingsController extends Controller
             'fax'              => ['nullable', 'string', 'max:255'],
             'email'            => ['nullable', 'string', 'max:255'],
             'reg_no'           => ['nullable', 'string', 'max:255'],
-            'vat_no'           => ['nullable', 'string', 'max:255'],
+            'vat_no'           => ['nullable', 'string', 'max:255', 'required_if:vat_registered,1'],
+            // Agency VAT set-up — guarded on vat_registered's own presence
+            // below (CLAUDE.md §6.1); only the Setup Wizard's identity step
+            // renders it on this shared action, so a plain /settings/agency
+            // post never touches it.
+            'vat_registered'       => ['nullable', 'boolean'],
+            'vat_capture_mode'     => ['nullable', 'in:excl,incl'],
             'ffc_no'           => ['nullable', 'string', 'max:255'],
             'ppra_number'      => ['nullable', 'string', 'max:32'],
             'fic_no'           => ['nullable', 'string', 'max:255'],
@@ -989,6 +995,25 @@ class SettingsController extends Controller
             'logo'             => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'remove_logo'      => ['nullable', 'boolean'],
         ]);
+
+        // Guarded on vat_registered's own presence (a toggle always posts a
+        // hidden 0 + checkbox 1 together) — only the Setup Wizard's identity
+        // step renders it on this shared action, so a plain /settings/agency
+        // post can never silently touch it.
+        unset($data['vat_settings_present']);
+        if ($request->has('vat_registered')) {
+            $data['vat_registered'] = $request->boolean('vat_registered');
+            $data['vat_capture_mode'] = $data['vat_capture_mode'] ?? Agency::VAT_CAPTURE_EXCL;
+            $vatChanged = (bool) $agency->vat_registered !== $data['vat_registered']
+                || $agency->vat_capture_mode !== $data['vat_capture_mode']
+                || (string) $agency->vat_no !== (string) ($data['vat_no'] ?? '');
+            if ($vatChanged) {
+                $data['vat_settings_updated_at'] = now();
+                $data['vat_settings_updated_by_user_id'] = $request->user()->id;
+            }
+        } else {
+            unset($data['vat_registered'], $data['vat_capture_mode']);
+        }
 
         $removeLogo = $data['remove_logo'] ?? false;
         unset($data['logo'], $data['remove_logo']);

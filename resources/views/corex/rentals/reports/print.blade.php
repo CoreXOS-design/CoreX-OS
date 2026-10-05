@@ -57,7 +57,7 @@
             @php($prevGroup = $row['_group'] ?? null)
             <tr>
                 @foreach($result['columns'] as $colKey => $colLabel)
-                    <td>{{ (is_numeric($row[$colKey] ?? null) && (str_contains($colKey, 'amount') || $colKey === 'rent')) ? 'R ' . number_format((float) $row[$colKey], 2) : ($row[$colKey] ?? '—') }}</td>
+                    <td>{{ (is_numeric($row[$colKey] ?? null) && (str_contains($colKey, 'amount') || $colKey === 'rent' || str_starts_with($colKey, 'total_'))) ? 'R ' . number_format((float) $row[$colKey], 2) : ($row[$colKey] ?? '—') }}</td>
                 @endforeach
             </tr>
         @empty
@@ -72,7 +72,7 @@
                     <td>Total ({{ $result['count'] }})</td>
                 @elseif(in_array($colKey, $result['sumKeys'], true))
                     @php($sum = $result['rows']->sum(fn($r) => (float) ($r[$colKey] ?? 0)))
-                    <td>{{ (str_contains($colKey, 'amount') || $colKey === 'rent') ? 'R ' . number_format($sum, 2) : number_format($sum, 0) }}</td>
+                    <td>{{ (str_contains($colKey, 'amount') || $colKey === 'rent' || str_starts_with($colKey, 'total_')) ? 'R ' . number_format($sum, 2) : number_format($sum, 0) }}</td>
                 @else
                     <td></td>
                 @endif

@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Api\V1\Concerns\ResolvesPortalContact;
 use App\Models\Lease;
 use App\Models\RentalFaultReport;
+use App\Models\RentalFaultType;
 use App\Models\RentalWorkOrder;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalFaultReportService;
+use App\Services\Rentals\RentalFaultTypeService;
 use App\Services\Rentals\RentalPortalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -111,6 +113,49 @@ class ClientLandlordRentalsController extends Controller
      * property belonging to a different agency — same as every other
      * landlord-portal lookup in this controller.
      */
+    /**
+     * §12 (AT-447, portal frontend follow-up, 2026-10-05) — fault-type
+     * catalogue + rendered first-aid content, for ONE of the landlord's own
+     * properties. Mirrors ClientTenantRentalsController::faultTypes()
+     * exactly, substituting landlordProperty() for tenantOwnsProperty() —
+     * the catalogue itself is agency-scoped, not role-scoped, so this is
+     * the same data the tenant endpoint already serves, only the ownership
+     * gate differs. Lets the landlord's "Request work" form give the same
+     * what's-wrong/category/urgency context a fault TYPE already carries
+     * (`RentalFaultType::category`/`urgency`) without a second, free-form
+     * set of fields with nowhere on `rental_fault_reports` to live.
+     */
+    public function faultTypes(Request $request, int $property): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $propertyModel = $this->scope->landlordProperty($contact, $property);
+        if (!$propertyModel) {
+            return response()->json(['message' => 'Property not found.'], 404);
+        }
+
+        $types = RentalFaultType::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->get();
+
+        $renderer = app(RentalFaultTypeService::class);
+
+        return response()->json([
+            'fault_types' => $types->map(fn ($type) => [
+                'id' => $type->id,
+                'name' => $type->name,
+                'category' => $type->category,
+                'urgency' => $type->urgency,
+                'first_aid_steps' => $renderer->renderFirstAidSteps($type, $propertyModel),
+            ])->values(),
+        ]);
+    }
+
     public function faultReportStore(Request $request, int $property): JsonResponse
     {
         $contact = $this->resolvePortalContact($request);
@@ -124,11 +169,16 @@ class ClientLandlordRentalsController extends Controller
         }
 
         $data = $request->validate([
+            'rental_fault_type_id' => 'nullable|integer',
             'title' => 'required|string|max:191',
             'description' => 'nullable|string|max:5000',
             'photos' => 'nullable|array|max:10',
             'photos.*' => 'file|image|max:15360',
         ]);
+
+        $faultType = !empty($data['rental_fault_type_id'])
+            ? RentalFaultType::withoutGlobalScopes()->where('agency_id', $contact->agency_id)->where('is_active', true)->find($data['rental_fault_type_id'])
+            : null;
 
         $leaseId = Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
@@ -138,6 +188,7 @@ class ClientLandlordRentalsController extends Controller
 
         $attributes = [
             'lease_id' => $leaseId,
+            'rental_fault_type_id' => $faultType?->id,
             'reported_by_type' => RentalFaultReport::REPORTED_BY_LANDLORD,
             'reported_by_contact_id' => $contact->id,
             'reported_channel' => RentalFaultReport::CHANNEL_APP,

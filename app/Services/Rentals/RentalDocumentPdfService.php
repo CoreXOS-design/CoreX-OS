@@ -102,12 +102,17 @@ class RentalDocumentPdfService
     /** AT-442 req #5 — the quote PDF generated from a job card and sent to the owner. */
     public function jobCardQuotePdf(RentalJobCard $jobCard)
     {
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'lines', 'workOrder.agency', 'workOrder.branch']);
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'lines.vatType', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         $pdf = Pdf::loadView('corex.rental-job-cards.quote-pdf', [
             'jobCard' => $jobCard,
             'pricesOn' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
+            // Agency VAT set-up — called AFTER sendToOwnerAsQuote() has
+            // already frozen the snapshot, so this reads the frozen figures,
+            // never a live recompute that could drift from what was sent.
+            'vat' => app(RentalJobCardVatService::class)->breakdown($jobCard),
+            'vatNumber' => $workOrder?->agency?->vat_no,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
         ])->setPaper('a4', 'portrait');
@@ -120,7 +125,7 @@ class RentalDocumentPdfService
     /** Req #6 — the printable job card: address, access notes, tenant contact, tasks, lines, sign-off lines. */
     public function jobCardPrintPdf(RentalJobCard $jobCard)
     {
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks', 'lines', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks', 'lines.vatType', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         // AT-442 follow-up, conductor's ruling — the worker's printed copy
@@ -136,6 +141,8 @@ class RentalDocumentPdfService
         $pdf = Pdf::loadView('corex.rental-job-cards.print', [
             'jobCard' => $jobCard,
             'pricesOn' => $pricesOn,
+            'vat' => $pricesOn ? app(RentalJobCardVatService::class)->breakdown($jobCard) : ['registered' => false, 'pricesOn' => false, 'groups' => []],
+            'vatNumber' => $workOrder?->agency?->vat_no,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
         ])->setPaper('a4', 'portrait');

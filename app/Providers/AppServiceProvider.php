@@ -346,6 +346,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\SeedDefaultRentalApplicationChecklistTemplate::class,
         );
+        // Agency VAT set-up, 2026-10-05 — same signal, same established
+        // mechanism: seeds Standard/No VAT/Custom VAT types for a
+        // brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalVatTypes::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,

@@ -207,21 +207,25 @@ final class RentalJobCardLifecycleTest extends TestCase
         $jobCard->refresh();
 
         $pdfService = app(\App\Services\Rentals\RentalDocumentPdfService::class);
+        // Agency VAT set-up (2026-10-05) — this fixture agency isn't VAT
+        // registered, so the real RentalDocumentPdfService would always pass
+        // this exact "nothing to show" shape; these views now require it.
+        $noVat = ['registered' => false, 'pricesOn' => false, 'captureMode' => null, 'subtotalExcl' => null, 'totalVat' => null, 'totalIncl' => null, 'groups' => []];
 
         $printHtml = view('corex.rental-job-cards.print', [
-            'jobCard' => $jobCard, 'pricesOn' => false, 'logo' => null, 'agencyName' => 'Test Agency',
+            'jobCard' => $jobCard, 'pricesOn' => false, 'vat' => $noVat, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
         ])->render();
         $this->assertStringNotContainsString('450.00', $printHtml);
 
         // Turn the print setting on — now it shows.
         $printHtmlOn = view('corex.rental-job-cards.print', [
-            'jobCard' => $jobCard, 'pricesOn' => true, 'logo' => null, 'agencyName' => 'Test Agency',
+            'jobCard' => $jobCard, 'pricesOn' => true, 'vat' => $noVat, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
         ])->render();
         $this->assertStringContainsString('450.00', $printHtmlOn);
 
         // The owner quote PDF is never gated by show_prices_on_printed_job_card.
         $quoteHtml = view('corex.rental-job-cards.quote-pdf', [
-            'jobCard' => $jobCard, 'pricesOn' => true, 'logo' => null, 'agencyName' => 'Test Agency',
+            'jobCard' => $jobCard, 'pricesOn' => true, 'vat' => $noVat, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
         ])->render();
         $this->assertStringContainsString('450.00', $quoteHtml);
     }

@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agency;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalVatType;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -45,12 +48,18 @@ class RentalCatalogueItemController extends Controller
 
         $items = $query->paginate(25)->withQueryString();
 
-        return view('corex.rental-catalogue-items.index', compact('items', 'status', 'sort'));
+        $agency = Agency::withoutGlobalScopes()->find($request->user()->effectiveAgencyId());
+        $priceLabel = $this->priceLabel($agency);
+
+        return view('corex.rental-catalogue-items.index', compact('items', 'status', 'sort', 'priceLabel'));
     }
 
-    public function create(): View
+    public function create(Request $request): View
     {
-        return view('corex.rental-catalogue-items.create');
+        $agency = Agency::withoutGlobalScopes()->find($request->user()->effectiveAgencyId());
+        $vatTypes = $agency?->vat_registered ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect();
+
+        return view('corex.rental-catalogue-items.create', ['priceLabel' => $this->priceLabel($agency), 'vatTypes' => $vatTypes]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -65,9 +74,14 @@ class RentalCatalogueItemController extends Controller
         return redirect()->route('corex.rental-catalogue-items.index')->with('success', "'{$item->name}' added to the catalogue.");
     }
 
-    public function edit(RentalCatalogueItem $rentalCatalogueItem): View
+    public function edit(Request $request, RentalCatalogueItem $rentalCatalogueItem): View
     {
-        return view('corex.rental-catalogue-items.edit', ['item' => $rentalCatalogueItem]);
+        $agency = Agency::withoutGlobalScopes()->find($request->user()->effectiveAgencyId());
+        $vatTypes = $agency?->vat_registered ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect();
+
+        return view('corex.rental-catalogue-items.edit', [
+            'item' => $rentalCatalogueItem, 'priceLabel' => $this->priceLabel($agency), 'vatTypes' => $vatTypes,
+        ]);
     }
 
     public function update(Request $request, RentalCatalogueItem $rentalCatalogueItem): RedirectResponse
@@ -99,7 +113,18 @@ class RentalCatalogueItemController extends Controller
             'name' => ['required', 'string', 'max:191'],
             'unit' => ['required', 'string', 'max:30'],
             'default_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'default_rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'is_active' => ['nullable', 'boolean'],
         ]) + ['is_active' => $request->boolean('is_active', true)];
+    }
+
+    /** The default-price column label follows the agency's VAT capture setting — no data conversion. */
+    private function priceLabel(?Agency $agency): string
+    {
+        if (! $agency?->vat_registered) {
+            return 'Default price';
+        }
+
+        return $agency->vat_capture_mode === Agency::VAT_CAPTURE_INCL ? 'Default price (incl VAT)' : 'Default price (excl VAT)';
     }
 }

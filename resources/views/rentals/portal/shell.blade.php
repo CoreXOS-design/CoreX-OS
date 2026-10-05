@@ -211,6 +211,7 @@
                         <div class="tabs">
                             <button :class="{active: landlordTab==='decisions'}" @click="landlordTab='decisions'; loadDecisions()">Decisions</button>
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
+                            <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults</button>
                         </div>
 
                         <template x-if="landlordTab === 'decisions'">
@@ -242,7 +243,10 @@
                                 <template x-for="p in landlordProperties" :key="p.id">
                                     <div class="card">
                                         <h2 x-text="p.address"></h2>
-                                        <a class="link" href="#" @click.prevent="loadPropertyDetail(p.id)">View activity →</a>
+                                        <div class="row">
+                                            <a class="link" href="#" @click.prevent="loadPropertyDetail(p.id)">View activity →</a>
+                                            <button class="btn btn-danger" style="width:auto;margin-top:0;padding:8px 12px;" @click="startLandlordFaultReport(p.id)">Request work</button>
+                                        </div>
                                     </div>
                                 </template>
                                 <template x-if="propertyDetail">
@@ -256,6 +260,66 @@
                                         </template>
                                     </div>
                                 </template>
+                            </div>
+                        </template>
+
+                        {{-- §15 (AT-447, portal frontend follow-up) — "Request work / report
+                             a problem": same shape as the tenant fault-report wizard above
+                             (fault type → first-aid context → title/description/photos),
+                             reached from either a property card's own button or here. --}}
+                        <template x-if="landlordTab === 'faults'">
+                            <div>
+                                <template x-if="landlordFaultWizard.open">
+                                    <div class="card">
+                                        <h2>Request work</h2>
+                                        <label>What's the problem?</label>
+                                        <select x-model="landlordFaultWizard.faultTypeId" @change="selectLandlordFaultType()">
+                                            <option value="">Choose… (or skip and describe it below)</option>
+                                            <template x-for="ft in landlordFaultTypesByProperty[landlordFaultWizard.property] || []" :key="ft.id">
+                                                <option :value="ft.id" x-text="ft.name + (ft.category ? ' (' + ft.category + ')' : '')"></option>
+                                            </template>
+                                        </select>
+                                        <template x-if="landlordFaultWizard.firstAid">
+                                            <p class="muted" x-text="landlordFaultWizard.firstAid"></p>
+                                        </template>
+                                        <label>Title</label>
+                                        <input type="text" x-model="landlordFaultWizard.title">
+                                        <label>Describe the problem</label>
+                                        <textarea rows="3" x-model="landlordFaultWizard.description"></textarea>
+                                        <label>Photos</label>
+                                        <input type="file" accept="image/*" multiple @change="landlordFaultWizard.photos = $event.target.files">
+                                        <button class="btn btn-danger" @click="submitLandlordFault()">Submit request</button>
+                                        <button class="btn btn-outline" @click="landlordFaultWizard.open=false">Cancel</button>
+                                        <p class="error" x-show="landlordFaultWizard.error" x-text="landlordFaultWizard.error"></p>
+                                        <p class="success" x-show="landlordFaultWizard.success" x-text="landlordFaultWizard.success"></p>
+                                    </div>
+                                </template>
+
+                                <div class="card" x-show="!landlordFaultWizard.open">
+                                    <p class="muted" x-show="!landlordProperties.length">Open the Properties tab to request work on a specific property.</p>
+                                    <template x-if="landlordProperties.length">
+                                        <div>
+                                            <label>Property</label>
+                                            <select x-model="landlordFaultWizard.property">
+                                                <template x-for="p in landlordProperties" :key="p.id">
+                                                    <option :value="p.id" x-text="p.address"></option>
+                                                </template>
+                                            </select>
+                                            <button class="btn btn-primary" @click="startLandlordFaultReport(landlordFaultWizard.property || landlordProperties[0].id)">Request work</button>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div class="card">
+                                    <h2>My requests</h2>
+                                    <template x-for="f in landlordFaults" :key="f.id">
+                                        <div class="list-item row">
+                                            <span x-text="f.title"></span>
+                                            <span class="badge" x-text="f.status"></span>
+                                        </div>
+                                    </template>
+                                    <p class="muted" x-show="!landlordFaults.length">No requests yet.</p>
+                                </div>
                             </div>
                         </template>
                     </div>
@@ -307,6 +371,9 @@ function rentalsPortal() {
         faultTypesByProperty: {},
         decisions: { fault_reports: [], work_orders: [] },
         landlordProperties: [], propertyDetail: null,
+        landlordFaults: [],
+        landlordFaultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null, success: null },
+        landlordFaultTypesByProperty: {},
 
         async init() {
             const me = await portalFetch('/api/v1/client/me');
@@ -461,6 +528,46 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision }) });
             if (r.ok) this.loadDecisions();
             else alert(r.data?.message || 'Could not record decision.');
+        },
+
+        // §15 (AT-447, portal frontend follow-up) — "Request work / report a
+        // problem." Same shape as the tenant startFaultReport()/selectFaultType()/
+        // submitFault() above, a separate object rather than branching that
+        // one on role: the landlord path has no first-aid self-resolve step
+        // (an agent raises the work order from this, the landlord never
+        // self-resolves) and posts to a different, property-scoped endpoint.
+        async loadLandlordFaults() {
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports');
+            if (r.ok) this.landlordFaults = r.data.fault_reports;
+        },
+        async startLandlordFaultReport(propertyId) {
+            this.landlordFaultWizard = { open: true, property: propertyId, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null, success: null };
+            if (propertyId && !this.landlordFaultTypesByProperty[propertyId]) {
+                const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + propertyId + '/fault-types');
+                if (r.ok) this.landlordFaultTypesByProperty[propertyId] = r.data.fault_types;
+            }
+        },
+        selectLandlordFaultType() {
+            const types = this.landlordFaultTypesByProperty[this.landlordFaultWizard.property] || [];
+            const t = types.find(t => String(t.id) === String(this.landlordFaultWizard.faultTypeId));
+            this.landlordFaultWizard.firstAid = t ? t.first_aid_steps : null;
+            if (t && !this.landlordFaultWizard.title) this.landlordFaultWizard.title = t.name;
+        },
+        async submitLandlordFault() {
+            this.landlordFaultWizard.error = null;
+            if (!this.landlordFaultWizard.title) { this.landlordFaultWizard.error = 'Please give it a short title.'; return; }
+            const form = new FormData();
+            if (this.landlordFaultWizard.faultTypeId) form.append('rental_fault_type_id', this.landlordFaultWizard.faultTypeId);
+            form.append('title', this.landlordFaultWizard.title);
+            form.append('description', this.landlordFaultWizard.description || '');
+            if (this.landlordFaultWizard.photos) {
+                for (const file of this.landlordFaultWizard.photos) form.append('photos[]', file);
+            }
+            const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + this.landlordFaultWizard.property + '/fault-reports', { method: 'POST', body: form });
+            if (!r.ok) { this.landlordFaultWizard.error = r.data?.message || 'Could not submit.'; return; }
+            this.landlordFaultWizard.success = 'Request sent — your agent has been notified.';
+            await this.loadLandlordFaults();
+            setTimeout(() => { this.landlordFaultWizard.open = false; }, 1500);
         },
     };
 }
