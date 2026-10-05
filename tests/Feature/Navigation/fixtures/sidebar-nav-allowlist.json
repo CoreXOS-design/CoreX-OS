@@ -540,24 +540,6 @@
     ],
     "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
   },
-  "corex.rental-catalogue-items.create": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('rental-applications') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "corex.rental-catalogue-items.edit": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('rental-applications') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "corex.rental-catalogue-items.index": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('rental-applications') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
   "corex.rental-inventories.comparison": {
     "flags": [
       "NO_ITEM"
