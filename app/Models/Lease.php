@@ -67,6 +67,13 @@ class Lease extends Model
         'cancel_reason',
         'migrated_from_table',
         'migrated_from_id',
+        // rental-takeon-import.md §6 — read-only, display-only facts about
+        // the tenancy as it stood on the day it was taken on. Never written
+        // by any other flow.
+        'migrated_escalation_percent',
+        'migrated_next_escalation_date',
+        'migrated_opening_arrears',
+        'migrated_last_inspection_date',
         'notice_date',
         'notice_given_by',
         'notice_note',
@@ -84,6 +91,10 @@ class Lease extends Model
         'cancelled_at' => 'datetime',
         'notice_date' => 'date',
         'move_out_date' => 'date',
+        'migrated_escalation_percent' => 'decimal:2',
+        'migrated_next_escalation_date' => 'date',
+        'migrated_opening_arrears' => 'decimal:2',
+        'migrated_last_inspection_date' => 'date',
     ];
 
     /**
