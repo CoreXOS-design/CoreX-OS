@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ExportsRentalList;
+use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
@@ -29,8 +30,21 @@ class RentalFaultReportController extends Controller
 {
     use AuthorizesRentalRecordScope;
     use ExportsRentalList;
+    use SearchesQualifyingRentalProperties;
 
     private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
+    /**
+     * The LIST screen's own property-filter picker — only properties that
+     * actually have a fault report visible to this user, never every
+     * rental property. Distinct from the create screen's own inline
+     * property `<select>` (rental-fault-reports/create.blade.php), which
+     * deliberately keeps offering every rental property, unchanged.
+     */
+    public function searchProperties(Request $request): JsonResponse
+    {
+        return $this->searchQualifyingRentalProperties($request, RentalFaultReport::class);
+    }
 
     /**
      * Search: property address, title/description. Sort: reported_at

@@ -60,6 +60,14 @@ class RentalCommandCentreService
 
     public const SORT_COLUMNS = ['address', 'lease_end', 'status', 'open_faults', 'open_work_orders', 'open_total', 'last_inspection'];
 
+    /**
+     * Needs-action queue controls (2026-10-05 fix round). 'none' is the
+     * EXISTING flat urgency-then-age ordering — kept as the default per
+     * Johan's own instruction to keep any existing grouping too.
+     */
+    public const QUEUE_GROUP_BY_OPTIONS = ['none', 'property', 'date'];
+    public const QUEUE_SORT_OPTIONS = ['urgency', 'date', 'property'];
+
     private const RENTAL_LISTING_TYPES = ['rental', 'to_let', 'to-let', 'lease'];
 
     /**
@@ -525,22 +533,52 @@ class RentalCommandCentreService
      * are bounded by the agency's own open/expiring book, never by total
      * property count).
      */
-    public function queueItems(User $user, string $scope): Collection
-    {
+    /**
+     * 2026-10-05 fix round — $propertyId/$dateFrom/$dateTo narrow the FIVE
+     * underlying rule queries themselves (never a post-fetch PHP filter),
+     * so the new controls sit on top of the SAME query-layer own/branch/all
+     * scoping ($this->applyPropertyIdScope() below, unchanged) rather than
+     * beside or instead of it. $dateFrom/$dateTo apply against each rule's
+     * own existing date column (the same one already used for age_days) —
+     * end_date for the two lease-expiry rules, reported_at for faults,
+     * updated_at for overdue work orders, start_date for start-inspection —
+     * there is no single universal "due date" across five different models,
+     * so each rule's own already-displayed age-basis date is reused rather
+     * than inventing a new one. $sort orders the merged result; 'urgency'
+     * is the EXISTING default (kept, per Johan's instruction not to drop
+     * it), 'date' and 'property' are new.
+     */
+    public function queueItems(
+        User $user,
+        string $scope,
+        ?int $propertyId = null,
+        ?string $dateFrom = null,
+        ?string $dateTo = null,
+        string $sort = 'urgency'
+    ): Collection {
         $agencyId = $user->effectiveAgencyId();
         $windowDays = LeaseSetting::expiryNoticeWindowDaysFor($agencyId);
         $overdueDays = RentalWorkOrderSetting::overdueReminderDaysFor($agencyId);
         $today = now()->startOfDay();
         $items = collect();
+        $applyQueueFilters = function (Builder $query, string $dateColumn) use ($propertyId, $dateFrom, $dateTo) {
+            $query->when($propertyId, fn (Builder $q) => $q->where('property_id', $propertyId))
+                ->when($dateFrom, fn (Builder $q) => $q->whereDate($dateColumn, '>=', $dateFrom))
+                ->when($dateTo, fn (Builder $q) => $q->whereDate($dateColumn, '<=', $dateTo));
+
+            return $query;
+        };
 
         // A — lease expiring in window, no renewal outcome. "No outcome"
         // is vacuous today (leases.md has no outcome-recording field yet,
         // so this fires for every expiring lease — honest, not a bug: it
         // is exactly the set that genuinely needs a human decision).
         $this->applyPropertyIdScope(
-            Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')
-                ->whereBetween('end_date', [$today->toDateString(), $today->copy()->addDays($windowDays)->toDateString()])
-                ->with('property'),
+            $applyQueueFilters(
+                Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')
+                    ->whereBetween('end_date', [$today->toDateString(), $today->copy()->addDays($windowDays)->toDateString()]),
+                'end_date'
+            )->with('property'),
             $user,
             $scope,
             'property_id'
@@ -553,6 +591,7 @@ class RentalCommandCentreService
                 // age_days > 0), but still needs a signed value so the
                 // within-tier sort below puts the SOONEST deadline first.
                 'age_days' => $ageDays,
+                'item_date' => $lease->end_date,
                 'property' => $lease->property,
                 'lease' => $lease,
                 'route' => 'corex.leases.show',
@@ -606,9 +645,11 @@ class RentalCommandCentreService
 
         // B — lease past end date, still active, no outcome recorded.
         $this->applyPropertyIdScope(
-            Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')
-                ->where('end_date', '<', $today->toDateString())
-                ->with('property'),
+            $applyQueueFilters(
+                Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')
+                    ->where('end_date', '<', $today->toDateString()),
+                'end_date'
+            )->with('property'),
             $user,
             $scope,
             'property_id'
@@ -617,6 +658,7 @@ class RentalCommandCentreService
                 'type' => 'record_outcome',
                 'urgency' => 1,
                 'age_days' => (int) abs($today->diffInDays($lease->end_date)),
+                'item_date' => $lease->end_date,
                 'property' => $lease->property,
                 'lease' => $lease,
                 'label' => 'Record outcome',
@@ -631,8 +673,10 @@ class RentalCommandCentreService
         // — the bug this fix exists for (two identical "Fault awaiting
         // owner approval" rows, same property, no way to tell them apart).
         $this->applyPropertyIdScope(
-            RentalFaultReport::query()->where('status', RentalFaultReport::STATUS_AWAITING_APPROVAL)
-                ->with('property'),
+            $applyQueueFilters(
+                RentalFaultReport::query()->where('status', RentalFaultReport::STATUS_AWAITING_APPROVAL),
+                'reported_at'
+            )->with('property'),
             $user,
             $scope,
             'property_id'
@@ -641,6 +685,7 @@ class RentalCommandCentreService
                 'type' => 'fault_awaiting_approval',
                 'urgency' => 2,
                 'age_days' => $fault->reported_at ? (int) abs($today->diffInDays($fault->reported_at)) : 0,
+                'item_date' => $fault->reported_at,
                 'property' => $fault->property,
                 'lease' => null,
                 'label' => 'Open',
@@ -660,7 +705,10 @@ class RentalCommandCentreService
         // definition here than the list screen already uses is exactly the
         // kind of drift this fix round exists to close.
         $this->applyPropertyIdScope(
-            RentalWorkOrder::query()->overdue($overdueDays)->with('property'),
+            $applyQueueFilters(
+                RentalWorkOrder::query()->overdue($overdueDays),
+                'updated_at'
+            )->with('property'),
             $user,
             $scope,
             'property_id'
@@ -669,6 +717,7 @@ class RentalCommandCentreService
                 'type' => 'work_order_overdue',
                 'urgency' => 1,
                 'age_days' => $wo->updated_at ? (int) abs($today->diffInDays($wo->updated_at)) : 0,
+                'item_date' => $wo->updated_at,
                 'property' => $wo->property,
                 'lease' => null,
                 'label' => 'Open',
@@ -680,15 +729,17 @@ class RentalCommandCentreService
 
         // E — active lease with no completed in-inspection.
         $this->applyPropertyIdScope(
-            Lease::query()->where('status', Lease::STATUS_ACTIVE)
-                ->whereNotExists(function ($sub) {
-                    $sub->selectRaw(1)->from('rental_inspections')
-                        ->whereColumn('rental_inspections.lease_id', 'leases.id')
-                        ->whereNull('rental_inspections.deleted_at')
-                        ->where('rental_inspections.type', RentalInspection::TYPE_IN)
-                        ->where('rental_inspections.status', RentalInspection::STATUS_COMPLETED);
-                })
-                ->with('property'),
+            $applyQueueFilters(
+                Lease::query()->where('status', Lease::STATUS_ACTIVE)
+                    ->whereNotExists(function ($sub) {
+                        $sub->selectRaw(1)->from('rental_inspections')
+                            ->whereColumn('rental_inspections.lease_id', 'leases.id')
+                            ->whereNull('rental_inspections.deleted_at')
+                            ->where('rental_inspections.type', RentalInspection::TYPE_IN)
+                            ->where('rental_inspections.status', RentalInspection::STATUS_COMPLETED);
+                    }),
+                'start_date'
+            )->with('property'),
             $user,
             $scope,
             'property_id'
@@ -697,6 +748,7 @@ class RentalCommandCentreService
                 'type' => 'start_inspection',
                 'urgency' => 3,
                 'age_days' => $lease->start_date ? (int) abs($today->diffInDays($lease->start_date)) : 0,
+                'item_date' => $lease->start_date,
                 'property' => $lease->property,
                 'lease' => $lease,
                 'label' => 'Start inspection',
@@ -712,10 +764,80 @@ class RentalCommandCentreService
             ]);
         });
 
-        return $items->sortBy([
-            ['urgency', 'asc'],
-            ['age_days', 'desc'],
-        ])->values();
+        return match ($sort) {
+            // Nulls (no date on the item) sort last regardless of direction
+            // — same "unknown sorts last, never first" rule the table's own
+            // default sort (§10.5) already uses for a vacant property.
+            'date' => $items->sortBy(fn (array $i) => $i['item_date']
+                ? \Illuminate\Support\Carbon::parse($i['item_date'])->timestamp
+                : PHP_INT_MAX)->values(),
+            'property' => $items->sortBy(fn (array $i) => $i['property']?->buildDisplayAddress() ?? "\u{10FFFF}")->values(),
+            // 'urgency' — the EXISTING default, unchanged.
+            default => $items->sortBy([
+                ['urgency', 'asc'],
+                ['age_days', 'desc'],
+            ])->values(),
+        };
+    }
+
+    /**
+     * Needs-action queue — group-by control (2026-10-05 fix round).
+     * 'none' returns $items unchanged (the existing flat ordering, kept as
+     * the default). 'property' buckets items under the property they
+     * belong to, so "what does THIS property need" reads as one list
+     * rather than scattered rows. 'date' buckets by each item's own
+     * item_date (see queueItems() doc) into "Overdue" / a real calendar
+     * date / "No date", ascending, overdue first.
+     */
+    public function groupQueueItems(Collection $items, string $groupBy): Collection
+    {
+        if ($groupBy === 'property') {
+            return $items->groupBy(fn (array $i) => $i['property']?->id ?? 0)
+                ->map(function (Collection $group) {
+                    $property = $group->first()['property'];
+
+                    return [
+                        'heading' => $property?->buildDisplayAddress() ?? 'Unknown property',
+                        'property' => $property,
+                        'items' => $group->values(),
+                    ];
+                })
+                ->sortBy('heading')
+                ->values();
+        }
+
+        if ($groupBy === 'date') {
+            $today = now()->startOfDay();
+
+            return $items->groupBy(function (array $i) use ($today) {
+                if (!$i['item_date']) {
+                    return 'none';
+                }
+
+                return \Illuminate\Support\Carbon::parse($i['item_date'])->startOfDay()->lt($today)
+                    ? 'overdue'
+                    : \Illuminate\Support\Carbon::parse($i['item_date'])->toDateString();
+            })->map(function (Collection $group, string $key) {
+                return [
+                    'heading' => match (true) {
+                        $key === 'overdue' => 'Overdue',
+                        $key === 'none' => 'No date',
+                        default => \Illuminate\Support\Carbon::parse($key)->format('D, j M Y'),
+                    },
+                    // Sorts "Overdue" first, "No date" last, real dates in
+                    // between in calendar order — plain string comparison
+                    // works because real keys are already Y-m-d.
+                    'sort_key' => match (true) {
+                        $key === 'overdue' => '0000-00-00',
+                        $key === 'none' => '9999-99-99',
+                        default => $key,
+                    },
+                    'items' => $group->values(),
+                ];
+            })->sortBy('sort_key')->values();
+        }
+
+        return $items;
     }
 
     public function paginateCollection(Collection $items, int $perPage, int $page, string $pageName): LengthAwarePaginator

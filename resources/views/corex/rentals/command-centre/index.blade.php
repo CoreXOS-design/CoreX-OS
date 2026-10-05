@@ -112,87 +112,120 @@
              to its first 5 rows on narrow screens. Collapse/expand state
              remembered per user. --}}
         <div id="rcc-queue-collapsed-bar" class="{{ $queueCollapsed ? 'flex' : 'hidden' }} w-full lg:w-auto items-center">
-            <button type="button" onclick="corexRccSetQueueCollapsed(false)" class="corex-btn-outline text-xs">Needs action ({{ $queue->total() }}) — Expand</button>
+            <button type="button" onclick="corexRccSetQueueCollapsed(false)" class="corex-btn-outline text-xs">Needs action ({{ $queueTotalCount }}) — Expand</button>
         </div>
 
         <div id="rcc-queue-panel" class="{{ $queueCollapsed ? 'hidden' : '' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="px-3 py-2 flex items-center justify-between gap-2" style="border-bottom: 1px solid var(--border);">
-                <span class="text-sm font-semibold">Needs action ({{ $queue->total() }})</span>
+                <span class="text-sm font-semibold">Needs action ({{ $queueTotalCount }})</span>
                 <button type="button" onclick="corexRccSetQueueCollapsed(true)" class="text-xs flex-shrink-0" style="color: var(--text-muted);">Collapse</button>
             </div>
+
+            {{-- Fix B1 (2026-10-05) — sort / group-by / filter by property and
+                 date range. Query-layer filtering + the existing own/branch/all
+                 scoping happen in RentalCommandCentreService::queueItems();
+                 group-by/sort are remembered per user
+                 (RentalCommandCentreUserPreference — see resolveQueuePreference()). --}}
+            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="px-3 py-2 flex flex-wrap items-center gap-1.5" style="border-bottom: 1px solid var(--border);">
+                @foreach(request()->except(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page']) as $qk => $qv)
+                    @if(!is_array($qv))<input type="hidden" name="{{ $qk }}" value="{{ $qv }}">@endif
+                @endforeach
+                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border);" aria-label="Group needs-action by">
+                    <option value="none" @selected($queueGroupBy === 'none')>No grouping</option>
+                    <option value="property" @selected($queueGroupBy === 'property')>Group by property</option>
+                    <option value="date" @selected($queueGroupBy === 'date')>Group by date</option>
+                </select>
+                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border);" aria-label="Sort needs-action by">
+                    <option value="urgency" @selected($queueSort === 'urgency')>Sort: Urgency</option>
+                    <option value="date" @selected($queueSort === 'date')>Sort: Date</option>
+                    <option value="property" @selected($queueSort === 'property')>Sort: Property</option>
+                </select>
+                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px] max-w-[130px]" style="border: 1px solid var(--border);" aria-label="Filter needs-action by property">
+                    <option value="">All properties</option>
+                    @foreach($queuePropertyOptions as $p)
+                        <option value="{{ $p->id }}" @selected($queuePropertyId === $p->id)>{{ \Illuminate\Support\Str::limit($p->buildDisplayAddress(), 26) }}</option>
+                    @endforeach
+                </select>
+                <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border); width: 104px;" aria-label="Needs-action date from">
+                <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border); width: 104px;" aria-label="Needs-action date to">
+                @if($queuePropertyId || $queueDateFrom || $queueDateTo)
+                <a href="{{ route('corex.rentals.command-centre.index', request()->except(['queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page'])) }}" class="text-[11px]" style="color: var(--text-muted);">Clear</a>
+                @endif
+            </form>
+
             <div>
-                @forelse($queue as $i => $item)
-                <div class="px-3 py-2 flex items-center justify-between gap-2 {{ $i >= 5 ? 'hidden lg:flex' : '' }}" style="border-bottom: 1px solid var(--border);">
-                    <div class="min-w-0">
-                        <div class="text-xs font-medium truncate">{{ $item['detail'] }}{{ $item['age_days'] > 0 ? ' · ' . $item['age_days'] . 'd' : '' }}</div>
-                        <div class="text-[11px] truncate" style="color: var(--text-muted);">{{ $item['property']?->buildDisplayAddress() ?? 'Unknown property' }}</div>
-                    </div>
-                    <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-[11px] px-2 py-1 flex-shrink-0">{{ $item['label'] }}</a>
-                </div>
-                @empty
-                <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
-                @endforelse
+                @if($queueGroupBy === 'none')
+                    @php($i = 0)
+                    @forelse($queue as $item)
+                        @include('corex.rentals.command-centre._queue-row', ['item' => $item, 'index' => $i])
+                        @php($i++)
+                    @empty
+                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                    @endforelse
+                @else
+                    @php($i = 0)
+                    @forelse($queueGroups as $group)
+                        <div class="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide {{ $i >= 5 ? 'hidden lg:block' : '' }}" style="background: color-mix(in srgb, var(--brand-icon,#6366f1) 6%, var(--surface)); color: var(--text-muted);">
+                            {{ $group['heading'] }}
+                        </div>
+                        @foreach($group['items'] as $item)
+                            @include('corex.rentals.command-centre._queue-row', ['item' => $item, 'index' => $i, 'hidePropertyLine' => $queueGroupBy === 'property'])
+                            @php($i++)
+                        @endforeach
+                    @empty
+                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                    @endforelse
+                @endif
             </div>
-            @if($queue->hasPages())
+            @if($queueGroupBy === 'none' && $queue->hasPages())
             <div class="px-3 py-2">{{ $queue->links() }}</div>
+            @elseif($queueGroupBy !== 'none' && $queueGroups?->hasPages())
+            <div class="px-3 py-2">{{ $queueGroups->links() }}</div>
             @endif
         </div>
 
         {{-- §3.3/§4 — full table: search, status/agent/branch/date filters, sort, pagination, empty state. --}}
         <div class="w-full lg:flex-1 min-w-0 space-y-4">
-            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="flex flex-wrap items-end gap-3">
+            {{-- Fix B2 (2026-10-05) — one line at normal desktop widths:
+                 labels dropped in favour of aria-label/placeholder, padding
+                 and control widths cut down, flex-nowrap with a local
+                 horizontal-scroll fallback instead of wrapping to a second
+                 line if a narrower agency's data pushes it past the fold. --}}
+            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="flex flex-nowrap items-center gap-1.5 overflow-x-auto" style="padding-bottom: 2px;">
                 <input type="hidden" name="scope" value="{{ $scope }}">
                 @if($filters['tile'])<input type="hidden" name="tile" value="{{ $filters['tile'] }}">@endif
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-                    <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Address, tenant, landlord, or erf number" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-                    <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">All</option>
-                        @foreach($statusOptions as $s)
-                            <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $humanise($s) }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Agent</label><br>
-                    <select name="agent_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">All</option>
-                        @foreach($agents as $a)
-                            <option value="{{ $a->id }}" @selected((string) ($filters['agent_id'] ?? '') === (string) $a->id)>{{ $a->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Branch</label><br>
-                    <select name="branch_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">All</option>
-                        @foreach($branches as $b)
-                            <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Lease end from</label><br>
-                    <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Lease end to</label><br>
-                    <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Per page</label><br>
-                    <select name="per_page" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                        @foreach([10, 25, 50, 100] as $pp)
-                            <option value="{{ $pp }}" @selected($properties->perPage() === $pp)>{{ $pp }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+                @foreach(request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']) as $qk => $qv)
+                    <input type="hidden" name="{{ $qk }}" value="{{ $qv }}">
+                @endforeach
+                <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 120px;">
+                <select name="status" aria-label="Status" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 86px;">
+                    <option value="">Status</option>
+                    @foreach($statusOptions as $s)
+                        <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $humanise($s) }}</option>
+                    @endforeach
+                </select>
+                <select name="agent_id" aria-label="Agent" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 90px;">
+                    <option value="">Agent</option>
+                    @foreach($agents as $a)
+                        <option value="{{ $a->id }}" @selected((string) ($filters['agent_id'] ?? '') === (string) $a->id)>{{ $a->name }}</option>
+                    @endforeach
+                </select>
+                <select name="branch_id" aria-label="Branch" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 86px;">
+                    <option value="">Branch</option>
+                    @foreach($branches as $b)
+                        <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
+                    @endforeach
+                </select>
+                <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 98px;">
+                <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" aria-label="Lease end to" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 98px;">
+                <select name="per_page" onchange="this.form.submit()" aria-label="Rows per page" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 54px;">
+                    @foreach([10, 25, 50, 100] as $pp)
+                        <option value="{{ $pp }}" @selected($properties->perPage() === $pp)>{{ $pp }}</option>
+                    @endforeach
+                </select>
+                <button type="submit" class="corex-btn-outline text-xs flex-shrink-0">Filter</button>
                 @if(request()->hasAny(['q', 'status', 'agent_id', 'branch_id', 'date_from', 'date_to', 'tile']))
-                    <a href="{{ route('corex.rentals.command-centre.index', ['scope' => $scope]) }}" class="corex-btn-outline text-xs">Clear</a>
+                    <a href="{{ route('corex.rentals.command-centre.index', array_merge(['scope' => $scope], request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']))) }}" class="corex-btn-outline text-xs flex-shrink-0">Clear</a>
                 @endif
             </form>
 
@@ -239,9 +272,9 @@
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->last_inspection_at ? \Illuminate\Support\Carbon::parse($property->last_inspection_at)->format('Y-m-d') : 'Never' }}</td>
                             <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;">
-                                <details class="relative inline-block">
+                                <details class="relative inline-block rcc-actions-menu">
                                     <summary class="corex-btn-outline text-xs cursor-pointer list-none" style="display: inline-block;">Actions ▾</summary>
-                                    <div class="absolute right-0 z-10 mt-1 rounded-md text-xs" style="background: var(--surface); border: 1px solid var(--border); min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
+                                    <div class="rcc-actions-popup absolute right-0 z-10 mt-1 rounded-md text-xs" style="background: var(--surface); border: 1px solid var(--border); min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
                                         @if($property->active_lease_id)
                                         <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open lease</a>
                                         {{-- AT-444 follow-up (2026-10-05) — opens the Lease Hub's matching
@@ -296,5 +329,64 @@ function corexRccSetQueueCollapsed(collapsed) {
         body: JSON.stringify({ preference_key: 'queue_collapsed', value: collapsed })
     });
 }
+
+// Fix B3 (2026-10-05) — the row "Actions ▾" popup rendered BEHIND other
+// rows' own sticky Actions cell/buttons, and got clipped near the bottom
+// of the table's own overflow-x-auto wrapper. Both are the same class of
+// bug: the popup is positioned relative to its row, which sits inside a
+// scroll/clip container and beside other positioned sticky cells. Fixed
+// for EVERY row's menu (not one instance) by switching the open popup to
+// position:fixed with coordinates computed from the button it belongs to
+// — that escapes the table's clipping box and any sticky-column stacking
+// entirely, the standard pattern for a dropdown inside a scrolling table.
+(function () {
+    var menus = document.querySelectorAll('.rcc-actions-menu');
+
+    function closeAllExcept(except) {
+        menus.forEach(function (m) {
+            if (m !== except && m.open) {
+                m.open = false;
+            }
+        });
+    }
+
+    function positionPopup(details) {
+        var summary = details.querySelector('summary');
+        var popup = details.querySelector('.rcc-actions-popup');
+        if (!summary || !popup) {
+            return;
+        }
+
+        var rect = summary.getBoundingClientRect();
+        popup.style.position = 'fixed';
+        popup.style.margin = '0';
+        popup.style.zIndex = '9999';
+
+        // Measure first (display is already visible — <details open> shows
+        // its content before this runs), then flip upward if it would
+        // overflow the bottom of the viewport — covers "rows near the
+        // bottom edge" explicitly.
+        var popupHeight = popup.offsetHeight;
+        var popupWidth = popup.offsetWidth;
+        var opensUpward = (rect.bottom + popupHeight + 4) > window.innerHeight;
+
+        popup.style.top = opensUpward
+            ? Math.max(4, rect.top - popupHeight - 4) + 'px'
+            : (rect.bottom + 4) + 'px';
+
+        var left = rect.right - popupWidth;
+        popup.style.left = Math.max(4, Math.min(left, window.innerWidth - popupWidth - 4)) + 'px';
+        popup.style.right = 'auto';
+    }
+
+    menus.forEach(function (details) {
+        details.addEventListener('toggle', function () {
+            if (details.open) {
+                closeAllExcept(details);
+                positionPopup(details);
+            }
+        });
+    });
+})();
 </script>
 @endsection
