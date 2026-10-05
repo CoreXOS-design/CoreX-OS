@@ -640,4 +640,53 @@ log panel on that SAME page (`show.blade.php:349`, `{{ $entry['description'] }}`
 `LeaseRenewalService::recordNotice()`'s own event description verbatim, and that description has always
 been built as `"{$who} — move-out …"` where `$who` is literally `'Tenant gave notice'`/`'Landlord not
 renewing'` — unchanged by this ticket. The assertion was wrong from the day it shipped; reproduced on a
-clean checkout before touching this file. Reported to Johan, left exactly as found.
+clean checkout before touching this file.
+
+**Johan's ruling on the three flags above, 2026-10-05 — all three actioned:**
+
+1. **`auto_readvertise_on_notice`** — confirmed, not assumed: **none of this gate's four settings
+   (`auto_readvertise_on_notice`, `auto_restore_status_on_lease_ended`,
+   `auto_restore_status_on_lease_cancelled`, `default_pre_let_status`) were ever actually wired into
+   any screen.** `resources/views/corex/settings/leases.blade.php` renders exactly four fields
+   (`expiry_notice_window_days`, `show_lease_type_field`, `default_deposit_months`,
+   `tenant_notice_period_days`) — none of GATE 2's own settings. `config/agency-onboarding-copy.php`
+   has zero matches for any of the four either. §15's own closing line ("All four settings are
+   surfaced in the Setup Wizard's existing 'leases' step and the Lease Settings page") was never
+   true — a documentation error in this spec, not a regression. There is therefore nothing to
+   "retire from the settings screen" — no code change made; this correction is the fix. The column
+   and getter stay exactly as they are, per the ruling.
+2. **`LeaseActionsMenuTest.php` stale-test fix** — landed in a separate commit (not this one), per
+   ruling. Scoped the two `assertDontSee()` calls to the menu button's own raw-HTML text (including
+   its trailing `&hellip;`), which the tenancy-log description never carries — the log entry still
+   renders, correctly, and the test no longer collides with it.
+3. **QA1 real-portal-push risk — investigated read-only on the QA1 host itself, 2026-10-05, nothing
+   triggered:**
+   - **P24 cannot reach production from QA1.** `Property24ApiClient::__construct()` takes its
+     `baseUrl` EXCLUSIVELY from the global `config('services.property24_syndication')['api_url']` —
+     never per-agency, regardless of whether an agency has its own `p24_username`/`p24_password`
+     stored. QA1's `.env` has no `P24_EXDEV_API_URL` override, so the config falls through to its own
+     default: `https://api.exdev.property24-test.com` (P24's own test environment) — confirmed via
+     `grep -c` against `.env`, no value ever printed. Every P24 call from QA1, from any agency, goes
+     to P24's test environment, never production.
+   - **Private Property is fully inert on QA1**: `PP_USERNAME`/`PP_PASSWORD` are blank in `.env`
+     (confirmed by key presence, not by printing values) and `PP_WSDL` points at
+     `services.sandbox.pp.co.za` — PP's own sandbox endpoint.
+   - **No outbound P24/PP activity in the last 7+ days**: every `storage/logs/property24-*.log` and
+     `private_property-*.log` file on QA1 is either 0 bytes or last written **2026-09-25** (rotation
+     of 2026-09-23's content) — nothing from 2026-09-28 onward, and `laravel.log` has zero
+     P24/PrivateProperty-related lines in that window either.
+   - **Correction to this spec's own earlier claim**: a queue worker IS running on QA1 right now
+     (`systemctl status corex-qa1-queue` — active), and `scripts/qa-deploy.sh` restarts it on every
+     deploy. `BUILD_STANDARD.md` §8's "QA is web-only (no queue worker/scheduler)" is **not** true
+     today. This does not change the outbound-safety conclusion above (the sandboxed destination is
+     what protects QA1, not the worker's absence) — but the "no queue worker" reasoning this spec
+     leaned on earlier (§17/§18) was never the real safety mechanism and should not be relied on.
+   - **Net: QA1 cannot reach a real/production Property24 or Private Property endpoint today.** The
+     protection is the sandboxed base URL/WSDL and blank/non-production credentials, not the absence
+     of a queue worker.
+   - **Credential-handling note**: an early investigation command (`cat .env | grep ...`) printed one
+     real secret in full before the redaction pattern was corrected — `P24_IMAP_PASSWORD` (an IMAP
+     mailbox credential used for P24's lead-import email parsing, unrelated to the P24 syndication API
+     credentials discussed above). Flagged immediately when found; that key should be rotated. No
+     other command in this investigation printed a credential value — every check after was
+     key-name/`grep -c`/log-metadata only.
