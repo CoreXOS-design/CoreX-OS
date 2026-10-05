@@ -25,6 +25,7 @@
         <div class="flex items-center gap-3">
             <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="text-xs underline" style="color: var(--text-muted);">Manage types &amp; units</a>
             @permission('rental_catalogue.manage')
+            <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="corex-btn-outline text-xs">Import</a>
             <a href="{{ route('corex.rental-catalogue-items.create') }}" class="corex-btn-primary text-xs">+ Add Item</a>
             @endpermission
         </div>

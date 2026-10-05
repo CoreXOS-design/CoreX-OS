@@ -3891,6 +3891,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.restore');
     });
 
+    // 2026-10-05 — bulk-load a price list: template -> upload -> dry-run
+    // preview -> confirm. Whole group requires .manage (importing always
+    // mutates the catalogue, same as adding/editing a single item).
+    Route::prefix('rental-catalogue-items/import')->middleware('permission:rental_catalogue.manage')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalCatalogueImportController::class, 'index'])->name('corex.rental-catalogue-items.import.index');
+        Route::get('/template', [\App\Http\Controllers\CoreX\RentalCatalogueImportController::class, 'downloadTemplate'])->name('corex.rental-catalogue-items.import.template');
+        Route::post('/upload', [\App\Http\Controllers\CoreX\RentalCatalogueImportController::class, 'upload'])->name('corex.rental-catalogue-items.import.upload');
+        Route::get('/{token}/preview', [\App\Http\Controllers\CoreX\RentalCatalogueImportController::class, 'preview'])->whereUuid('token')->name('corex.rental-catalogue-items.import.preview');
+        Route::post('/{token}/confirm', [\App\Http\Controllers\CoreX\RentalCatalogueImportController::class, 'confirm'])->whereUuid('token')->name('corex.rental-catalogue-items.import.confirm');
+    });
+
     // 2026-10-05 — Johan's ruling: agents/staff are never maintenance crew.
     // Crew are people with no CoreX access, set up by the agency admin,
     // pickable on job cards. Same permission as managing the catalogue
