@@ -2,13 +2,19 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5" x-data="{ search: '', agentId: null }">
+<div class="w-full space-y-5"
+     x-data="{
+         search: '',
+         agentId: null,
+         names: @js($agents->map(fn ($a) => mb_strtolower($a['name']))->values()),
+         matches(name) { return this.search === '' || name.includes(this.search.toLowerCase()); },
+         get noMatch() { return this.search !== '' && ! this.names.some(n => this.matches(n)); }
+     }">
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Start a PPRA Employment Letter</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Pick the agent this letter is for. They will still sign it themselves with their own PIN — this only starts it on their behalf.</p>
             </div>
             <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-btn-outline text-xs">Back to list</a>
         </div>
@@ -40,7 +46,7 @@
         @else
         <div class="rounded-md divide-y max-h-80 overflow-y-auto" style="border:1px solid var(--border); border-color:var(--border);">
             @foreach($agents as $a)
-            <label x-show="search === '' || '{{ strtolower($a['name']) }}'.includes(search.toLowerCase())" x-cloak
+            <label x-show="matches(@js(mb_strtolower($a['name'])))" x-cloak
                    class="flex items-center justify-between gap-3 px-4 py-2.5 cursor-pointer" style="color:var(--text-primary);">
                 <span class="flex items-center gap-3">
                     <input type="radio" name="user_id" value="{{ $a['id'] }}" x-model="agentId" required>
@@ -55,6 +61,7 @@
                 </span>
             </label>
             @endforeach
+            <p x-show="noMatch" x-cloak data-testid="no-agents-match" class="px-4 py-3 text-sm" style="color:var(--text-muted);">No agents match</p>
         </div>
         @endif
 

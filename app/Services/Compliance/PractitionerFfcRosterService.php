@@ -52,6 +52,36 @@ class PractitionerFfcRosterService
     }
 
     /**
+     * Everyone who can hold an FFC, for the Confirmation of Employment letter's
+     * agent picker (.ai/specs/ppra-ffc-employment-letter.md §16).
+     *
+     * rosterFor()'s role whitelist is Johan's 2026-09-28 ruling for the
+     * Inspection Pack and is deliberately left alone. For the letter it
+     * silently dropped any practitioner whose role is not agent/BM/admin —
+     * e.g. an office_admin who is a Candidate Property Practitioner with her
+     * own FFC number. A role is a poor proxy for "holds an FFC", so a user
+     * qualifies here by EITHER being in a practitioner role OR having an FFC
+     * number on file (covers office_admin and any agency-defined custom role).
+     * Assistants are never practitioners (AT-267 §10) and are always excluded.
+     */
+    public function letterCandidatesFor(int $agencyId): Collection
+    {
+        $users = User::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->where('is_assistant', false)
+            ->where('role', '!=', 'assistant')
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->whereIn('role', self::ROLES)
+                    ->orWhere(fn ($has) => $has->whereNotNull('ffc_number')->where('ffc_number', '!=', ''));
+            })
+            ->orderBy('name')
+            ->get();
+
+        return $this->buildRoster($users);
+    }
+
+    /**
      * Item (c): every active user flagged is_principal_practitioner=true
      * for this agency (Phase E, v3 — real flag, not a designation guess).
      * Independent of rosterFor()'s role restriction, since the flag itself

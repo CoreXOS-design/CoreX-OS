@@ -108,7 +108,8 @@ class PpraEmploymentLetterController extends Controller
     }
 
     /**
-     * The agent-picker's candidate list: active practitioners in this agency,
+     * The agent-picker's candidate list: every active FFC-holding practitioner
+     * in this agency, whatever their role (PractitionerFfcRosterService::letterCandidatesFor()),
      * narrowed to the admin's own/branch/all scope — the SAME scope
      * ppra_employment_letters.view resolves for the list screen
      * (PermissionService::getDataScope), so an admin can never start a
@@ -118,7 +119,7 @@ class PpraEmploymentLetterController extends Controller
      */
     private function scopedRoster(User $admin, int $agencyId): Collection
     {
-        $roster = app(PractitionerFfcRosterService::class)->rosterFor($agencyId);
+        $roster = app(PractitionerFfcRosterService::class)->letterCandidatesFor($agencyId);
         $scope  = PermissionService::getDataScope($admin, 'ppra_employment_letters');
 
         if ($scope === 'all') {
