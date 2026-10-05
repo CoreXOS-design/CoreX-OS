@@ -753,3 +753,81 @@ dual-lease logging, rejects a non-renewal-draft lease, HTTP reason-required/succ
 `rentals:prepare-renewal-drafts` and `createRenewalTerm()` directly rather than duplicating
 `LeaseRenewalDraftAutomationTest.php`'s own fixtures) plus one addition to the existing
 `RentalCommandCentreServiceTest.php` proving the tile movement.
+
+## 21. Follow-up 6, 2026-10-05 — REVERTED: no automatic renewal drafting; "Renew lease" is the only way in
+
+**Johan's ruling, 2026-10-05, supersedes §18's own ruling of the day before: no automatic process
+generates leases. A renewal starts ONLY when a user clicks "Renew lease".** §18's "CoreX drafts the
+renewal itself once a lease enters the reminder window" behaviour is retired, same day it shipped.
+
+**What changed:**
+- **`rentals:prepare-renewal-drafts` removed from the scheduler** (`routes/console.php`) — the
+  `Schedule::command(...)->dailyAt('06:15')` entry is deleted outright, not disabled/commented.
+- **`App\Console\Commands\PrepareLeaseRenewalDrafts` retired** — the command class is deleted
+  (git history retains it; nothing else in the codebase called it, so there was no shared code path
+  to preserve by keeping the class around). The two services it orchestrated stay, because both are
+  genuinely shared with the manual path:
+  - `RenewalDraftService::copyForward()`/`draftFromTemplate()` — these ARE the same methods
+    `LeaseRenewalController::draftCopyForward()`/`draftFromTemplate()` call for the agent's own
+    manual "Renew lease" → copy-forward/draft-from-template actions (§9/§14/§15). Unaffected.
+  - `RenewalDraftEligibilityService::decide()` — still live, used by
+    `RentalCommandCentreService::queueItems()` to tell an agent what's missing on the "Review
+    renewal" row before they click "Renew lease", and by the renewal screen's own eligibility
+    preview. This was never itself an unattended-drafting mechanism; it's a read-only decision
+    the Command Centre and the renewal screen both already needed regardless of §18's command.
+- **UI/comment wording describing automatic drafting corrected** (no functional change, text only):
+  `show.blade.php`'s Renew dialog no longer says "CoreX already prepared a renewal draft" (now "A
+  renewal draft is already in progress"); the cancel-renewal-draft dialog no longer says "CoreX will
+  not automatically redraft a renewal for that lease again" (that sentence only made sense when an
+  unattended job existed); code comments in `Lease.php`, `RentalCommandCentreService.php`, and
+  `RenewalDraftEligibilityService.php` that referenced "the scheduled auto-draft command" are
+  updated to describe the agent-initiated flow instead.
+- **"Renewals in progress" tile definition is unchanged, and is now exactly true rather than only
+  usually true**: `Lease::hasPendingRenewalDraft()` already meant "a draft lease is chained to this
+  one via `previous_lease_id`" — with the automatic command gone, that can now only ever be because
+  an agent explicitly started one via "Renew lease" (copy-forward, draft-from-template, or manual
+  upload). No code change was needed for this — removing the command's own draft-creation path was
+  sufficient.
+- **"Expiring in window" is unchanged** — it already surfaced every lease in the agency's reminder
+  window with the "Renew lease" action prominent (`route_params => ['action' => 'renew']`, opening
+  the Lease Hub's renew dialog directly); this was already the entry point regardless of whether a
+  draft happened to already exist, and remains so now that it is the ONLY entry point.
+
+**Existing QA1 data, audited before landing (read-only query against `corex_qa1`, no writes) — only
+ONE lease row anywhere in the table has `previous_lease_id` set: lease #54 (chained to lease #5),
+already `status = cancelled`, created 2026-10-05 11:32:35.** Nothing needs cancelling: it's already
+in the terminal "cancelled" state via the existing "Cancel renewal draft" action, soft-cancelled, not
+deleted. Separately confirmed: **this QA1 host has no cron entry for `/corex-qa1` at all** (checked
+`crontab -l` — only `/corex-demo` and `/corex` have scheduler cron lines; `/corex-qa1` has never run
+`artisan schedule:run` unattended), and `laravel.log` has no "Preparing renewal drafts" lines — so
+the scheduled job was never actually invoked unattended on QA1 in the first place; lease #54 was
+created and cancelled by hand (manual testing of the "Cancel renewal draft" feature itself), not by
+the 06:15 job. There is therefore no backlog of auto-created drafts anywhere on QA1 needing review.
+
+**`hasCancelledRenewalDraft()`/`cancelledRenewalDrafts()` (`Lease.php`) are left in place** even
+though their one caller (the retired command's "don't silently re-create" skip) is gone — the
+relation still correctly reflects real, queryable lease state (a cancelled renewal draft chained to
+this term) that the tenancy log and any future lookup can use; it is not itself an auto-drafting
+mechanism and removing it was not asked for.
+
+**Tests**:
+- `tests/Feature/Leases/LeaseRenewalDraftAutomationTest.php` — **removed entirely** (every case
+  exercised the retired `rentals:prepare-renewal-drafts` command directly via `Artisan::call()`).
+- `tests/Feature/Leases/RenewalDraftEligibilityServiceTest.php` — **new**, replaces the one surviving
+  case from the removed file (`RenewalDraftEligibilityService::decide()` prefers copy-forward over a
+  matching template) plus two more covering its other two branches (draft-from-template when
+  eligible, insufficient-info when neither path qualifies) — this service has no automatic caller any
+  more, but remains live production code via the Command Centre, so its decision logic still needs
+  direct coverage independent of any caller.
+- `tests/Feature/Leases/LeaseRenewalDraftCancellationTest.php` — `test_command_does_not_recreate_a_
+  cancelled_renewal_draft` removed (called the retired command); its docblock and the surviving
+  `test_manual_renew_lease_still_works_after_a_cancelled_draft` are otherwise unchanged (that test
+  never touched the command).
+- `tests/Feature/Leases/LeaseRenewalSchedulerTest.php` — **new**: asserts `routes/console.php`'s
+  registered `Schedule` has no entry whose command contains `rentals:prepare-renewal-drafts`, and
+  that the `PrepareLeaseRenewalDrafts` class no longer exists — so a future change can't silently
+  reintroduce unattended drafting without this test failing.
+- `tests/Feature/Rentals/RentalCommandCentreServiceTest.php` — unchanged behaviourally (the
+  `renewal_draft_ready` and missing-info rows are tested against a directly-created draft `Lease`
+  row, not the command, so both tests remain valid as coverage of agent-initiated drafts); two
+  docblock comments referencing the retired command's own wording corrected, no assertion changed.

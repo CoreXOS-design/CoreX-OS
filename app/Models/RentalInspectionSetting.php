@@ -301,6 +301,14 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
         'auto_send_report_enabled',
+        // §43 — schedule/reschedule/cancel notifications.
+        'notify_tenant_enabled',
+        'notify_landlord_enabled',
+        'notify_inspector_enabled',
+        'notify_via_mail_enabled',
+        'notify_via_whatsapp_enabled',
+        'minimum_notice_days',
+        'reminder_days_before',
     ];
 
     protected $casts = [
@@ -317,6 +325,13 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
         'auto_send_report_enabled' => 'boolean',
+        'notify_tenant_enabled' => 'boolean',
+        'notify_landlord_enabled' => 'boolean',
+        'notify_inspector_enabled' => 'boolean',
+        'notify_via_mail_enabled' => 'boolean',
+        'notify_via_whatsapp_enabled' => 'boolean',
+        'minimum_notice_days' => 'integer',
+        'reminder_days_before' => 'integer',
     ];
 
     /**
@@ -809,5 +824,92 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_mark_threshold');
 
         return $value !== null ? (float) $value : self::DEFAULT_OMR_MARK_THRESHOLD;
+    }
+
+    /**
+     * .ai/specs/rental-inspections.md §43 — which parties are notified on
+     * schedule/reschedule/cancel, which channel(s), the minimum notice an
+     * agent should give (warns, never blocks — enforced by the controller,
+     * not here), and whether/when a reminder fires. All default ON except
+     * WhatsApp (see RentalInspectionNotificationService's own docblock for
+     * why that channel is logged as queued rather than actually sent).
+     */
+    public const DEFAULT_NOTIFY_TENANT_ENABLED = true;
+    public const DEFAULT_NOTIFY_LANDLORD_ENABLED = true;
+    public const DEFAULT_NOTIFY_INSPECTOR_ENABLED = true;
+    public const DEFAULT_NOTIFY_VIA_MAIL_ENABLED = true;
+    public const DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED = false;
+    public const DEFAULT_MINIMUM_NOTICE_DAYS = 1;
+    public const DEFAULT_REMINDER_DAYS_BEFORE = 1;
+
+    public static function notifyTenantFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_TENANT_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_tenant_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_TENANT_ENABLED;
+    }
+
+    public static function notifyLandlordFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_LANDLORD_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_landlord_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_LANDLORD_ENABLED;
+    }
+
+    public static function notifyInspectorFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_INSPECTOR_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_inspector_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_INSPECTOR_ENABLED;
+    }
+
+    public static function notifyViaMailFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_VIA_MAIL_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_via_mail_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_VIA_MAIL_ENABLED;
+    }
+
+    public static function notifyViaWhatsappFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_via_whatsapp_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED;
+    }
+
+    public static function minimumNoticeDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_MINIMUM_NOTICE_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('minimum_notice_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_MINIMUM_NOTICE_DAYS;
+    }
+
+    /** 0 = reminder off, per spec. */
+    public static function reminderDaysBeforeFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REMINDER_DAYS_BEFORE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('reminder_days_before');
+
+        return $value !== null ? (int) $value : self::DEFAULT_REMINDER_DAYS_BEFORE;
     }
 }

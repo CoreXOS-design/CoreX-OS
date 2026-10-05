@@ -6,15 +6,12 @@ namespace Tests\Feature\Leases;
 
 use App\Models\Agency;
 use App\Models\Branch;
-use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\LeaseEvent;
-use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\Rentals\LeaseRenewalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -22,9 +19,8 @@ use Tests\TestCase;
  * "Cancel renewal draft" — a DRAFT lease chained via previous_lease_id gets
  * an explicit cancel path distinct from an ordinary lease cancellation:
  * requires a reason, soft-cancels (never deletes), logs who/when/why on
- * BOTH leases, drops the property out of the Command Centre's "Renewals in
- * progress" tile, and tells rentals:prepare-renewal-drafts never to
- * silently re-create it.
+ * BOTH leases, and drops the property out of the Command Centre's
+ * "Renewals in progress" tile.
  */
 final class LeaseRenewalDraftCancellationTest extends TestCase
 {
@@ -138,40 +134,8 @@ final class LeaseRenewalDraftCancellationTest extends TestCase
     }
 
     /**
-     * rental-renewals.md — rentals:prepare-renewal-drafts must never
-     * silently re-create a draft the agent explicitly cancelled. Only the
-     * manual "Renew lease" path (createRenewalTerm(), unaffected by this
-     * check) starts another one.
-     */
-    public function test_command_does_not_recreate_a_cancelled_renewal_draft(): void
-    {
-        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
-        $agent = $this->makeUser($agency, $branch);
-        $current = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
-            'status' => Lease::STATUS_ACTIVE, 'source' => 'manual',
-            'end_date' => now()->addDays(10)->toDateString(), 'created_by_user_id' => $agent->id,
-        ]));
-        $tenant = $this->makeContact($agency, $branch, 'Tenant', 'Renewing');
-        LeaseTenant::create(['lease_id' => $current->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
-
-        $draft = app(LeaseRenewalService::class)->createRenewalTerm($current, [
-            'start_date' => now()->addDays(11)->toDateString(),
-            'rental_amount' => 9900,
-        ], $agent);
-        app(LeaseRenewalService::class)->cancelRenewalDraft($draft, 'Owner selling', $agent);
-
-        self::assertTrue($current->fresh()->hasCancelledRenewalDraft());
-
-        Artisan::call('rentals:prepare-renewal-drafts');
-
-        self::assertSame(1, Lease::where('previous_lease_id', $current->id)->count());
-        self::assertFalse($current->fresh()->hasPendingRenewalDraft());
-        self::assertStringContainsString('cancelled draft on file: 1', Artisan::output());
-    }
-
-    /**
-     * The manual "Renew lease" path is NOT blocked by an earlier
-     * cancellation — only the automated command skips.
+     * Cancelling a draft marks the term as cancelled, not "never happened" —
+     * a later manual "Renew lease" is a fresh, separate draft.
      */
     public function test_manual_renew_lease_still_works_after_a_cancelled_draft(): void
     {
@@ -219,15 +183,6 @@ final class LeaseRenewalDraftCancellationTest extends TestCase
             'start_date' => now()->toDateString(),
             'source' => 'manual',
         ], $overrides);
-    }
-
-    private function makeContact(Agency $agency, Branch $branch, string $first, string $last): Contact
-    {
-        return Contact::create([
-            'agency_id' => $agency->id, 'branch_id' => $branch->id,
-            'first_name' => $first, 'last_name' => $last,
-            'email' => strtolower($first . '.' . $last) . '-' . uniqid() . '@example.test',
-        ]);
     }
 
     private function makeUser(Agency $agency, Branch $branch): User
