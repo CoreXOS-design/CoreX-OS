@@ -74,3 +74,94 @@ require __DIR__.'/../vendor/autoload.php';
     $_ENV['DB_DATABASE'] = $name;
     $_SERVER['DB_DATABASE'] = $name;
 })();
+
+/*
+|--------------------------------------------------------------------------
+| Tests connect ONLY to the dedicated tests-only MySQL instance — never
+| the shared instance that also serves live/Staging/QA1/QA2/demo.
+| (2026-10-05, Johan-approved — see /root/LANETEST-MYSQL.md)
+|--------------------------------------------------------------------------
+|
+| A second MySQL instance (Docker container corex-lanetest-mysql, bound to
+| 127.0.0.1:3317 only) exists purely for hfc_dash_test_* schemas, with
+| durability settings relaxed (no binlog, no doublewrite, no fsync-per-
+| commit) because this data is always throwaway and rebuilt from
+| database/schema/mysql-schema.sql. Its connection details are forced here
+| the same way DB_DATABASE is forced above — unconditionally, regardless
+| of what DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD a worktree's own .env
+| says — so NO test run can reach the shared instance, not even by
+| accident. Credentials come from /root/.lanetest-mysql-credentials
+| (root-only, outside any worktree, never committed, never echoed).
+*/
+(static function (): void {
+    // ONLY ever active on a box that actually has this file -- the shared
+    // cc1-cc6 Linux box, not a universal requirement. This same bootstrap
+    // runs on every developer's own machine too (Windows/Laragon included,
+    // per CLAUDE.md's "mysql on PATH" section), where this file correctly
+    // does not exist and tests have always used that machine's own local
+    // MySQL via its own .env. Missing file -> do nothing here and let
+    // DB_HOST/PORT/USERNAME/PASSWORD fall through to .env exactly as
+    // before. This must never become a hard failure on a machine that was
+    // never meant to have this file.
+    $credsFile = '/root/.lanetest-mysql-credentials';
+    if (! is_file($credsFile)) {
+        return;
+    }
+
+    $vars = [];
+    foreach (file($credsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        if (preg_match('/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/', $line, $m)) {
+            $vars[$m[1]] = trim($m[2]);
+        }
+    }
+
+    $force = static function (string $key, string $value): void {
+        putenv($key.'='.$value);
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+    };
+
+    $force('DB_HOST', '127.0.0.1');
+    $force('DB_PORT', '3317');
+    $force('DB_USERNAME', $vars['LANETEST_DB_USER'] ?? 'lanetest');
+    $force('DB_PASSWORD', $vars['LANETEST_DB_PASSWORD'] ?? '');
+})();
+
+/*
+|--------------------------------------------------------------------------
+| Persistent-schema fast path — skip RefreshDatabase's own migrate:fresh
+| when scripts/lane-test.sh has ALREADY confirmed this schema is current
+| (2026-10-05, see .ai/STANDARDS.md Standard -1x).
+|--------------------------------------------------------------------------
+|
+| RefreshDatabase (used individually by every *Test.php file, never from
+| this base) always calls migrate:fresh on the first test of a process --
+| that's a FULL wipe + reload of the whole schema, every single `artisan
+| test` invocation, even when nothing changed since the last one. On this
+| box that costs ~270s+ (MySQL durability settings under multi-lane load,
+| not a tooling bug -- see the Standard for the measured numbers).
+|
+| scripts/lane-test.sh now keeps ONE persistent schema per lane and only
+| touches it when a fingerprint (hash of the schema dump + every migration
+| file) says something actually changed. When it's confirmed current, it
+| sets LANE_TEST_SCHEMA_READY=1 for this process. Trust that signal ONLY
+| here, and ONLY by pre-setting RefreshDatabaseState::$migrated -- that is
+| the exact flag RefreshDatabase itself checks before calling
+| migrateDatabases(), so setting it true makes the trait skip straight to
+| wrapping each test in a transaction against the already-correct schema,
+| with zero change to RefreshDatabase or to any of the 978 test files that
+| `use` it.
+|
+| Fails safe: anyone running tests outside lane-test.sh never has this env
+| var set, so RefreshDatabase behaves exactly as it always has (full
+| migrate:fresh on first test) -- this is purely additive.
+|
+| Known trade-off, not hidden: a test that escapes its own wrapping
+| transaction (raw DDL, an explicit commit, multi-connection work) can now
+| leave residue for the NEXT run, where migrate:fresh previously wiped it
+| unconditionally. `scripts/lane-test.sh --fresh` forces a full rebuild to
+| recover from exactly that.
+*/
+if (getenv('LANE_TEST_SCHEMA_READY') === '1') {
+    \Illuminate\Foundation\Testing\RefreshDatabaseState::$migrated = true;
+}

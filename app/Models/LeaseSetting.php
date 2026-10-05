@@ -70,6 +70,7 @@ class LeaseSetting extends Model
         'auto_restore_status_on_lease_ended',
         'auto_restore_status_on_lease_cancelled',
         'default_pre_let_status',
+        'active_rental_statuses',
     ];
 
     protected $casts = [
@@ -80,6 +81,7 @@ class LeaseSetting extends Model
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
         'auto_restore_status_on_lease_cancelled' => 'boolean',
+        'active_rental_statuses' => 'array',
     ];
 
     public static function expiryNoticeWindowDaysFor(?int $agencyId): int
@@ -168,5 +170,36 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->default_pre_let_status ?: self::DEFAULT_PRE_LET_STATUS;
+    }
+
+    /**
+     * Command Centre "Unoccupied" tile (2026-10-05, Johan) — was counting
+     * EVERY rental property with no active lease, including withdrawn/
+     * expired/draft/prospecting/sold/let-out-elsewhere ones. Restricted to
+     * properties whose status this agency considers active rental stock.
+     *
+     * Default = Property::systemStatuses() minus Property::OFF_MARKET_STATUSES
+     * — i.e. 'active', 'for_sale', 'to_let', 'under_offer',
+     * 'other_agency_stock' — the SAME on-market definition
+     * Property::scopeOnMarket()/isOnMarket() already use everywhere else in
+     * CoreX, not a second, rental-specific guess at the same question.
+     * ('for_sale'/'under_offer' are harmless to include even though a pure
+     * rental listing won't normally carry them.)
+     */
+    public static function defaultActiveRentalStatuses(): array
+    {
+        return array_values(array_diff(Property::systemStatuses(), Property::OFF_MARKET_STATUSES));
+    }
+
+    public static function activeRentalStatusesFor(?int $agencyId): array
+    {
+        if ($agencyId && $agencyId > 0) {
+            $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+            if ($row?->active_rental_statuses) {
+                return $row->active_rental_statuses;
+            }
+        }
+
+        return self::defaultActiveRentalStatuses();
     }
 }

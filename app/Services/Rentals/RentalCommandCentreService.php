@@ -49,6 +49,12 @@ class RentalCommandCentreService
         'all' => 'Rental properties',
         'occupied' => 'Occupied',
         'unoccupied' => 'Unoccupied',
+        // Round 7 (2026-10-05, Johan) — the remainder that keeps the tiles
+        // adding up: total = occupied + unoccupied + inactive. Everything
+        // with no active lease that ISN'T "active rental stock" per
+        // LeaseSetting::activeRentalStatusesFor() — withdrawn, expired,
+        // draft, prospecting, sold, let-out-elsewhere, etc.
+        'inactive' => 'Inactive / off market',
         'expiring' => 'Expiring in window',
         'notice_given' => 'Notice given',
         'renewals_in_progress' => 'Renewals in progress',
@@ -279,12 +285,74 @@ class RentalCommandCentreService
     }
 
     /**
-     * §3.1 — all ten tiles, computed from ONE fetch of the scoped
-     * property universe (not one query per tile, not one query per row).
-     * For a given agency this is bounded by the agency's own rental book
-     * size, which is exactly the "aggregate, not N+1" shape the ticket
-     * asks for — see the controller's own query-count report for the
-     * measured total.
+     * Round 7 (2026-10-05, Johan) — "the tile's number and the list it
+     * opens come from ONE shared query definition, so they can never
+     * disagree." A fault report/work order with real data (lease #..,
+     * property #..) confirmed exactly the bug class this guards against:
+     * the OLD tileCounts() hand-rolled its own PHP boolean per tile in a
+     * foreach loop, duplicating — not sharing — the SQL predicate applyTile()
+     * built separately for the ?tile= click. The two could drift (and did:
+     * open_faults/open_work_orders counted RECORDS here, "properties that
+     * have ≥1" there). Every predicate now lives ONCE, in tilePredicateSql()
+     * below, used verbatim by both applyTile()'s WHERE and this method's
+     * CASE WHEN — textually identical SQL, not independently-maintained
+     * logic that merely happens to agree today.
+     */
+    private const TILE_KEYS_FOR_AGGREGATE = [
+        'occupied', 'unoccupied', 'inactive', 'expiring', 'notice_given',
+        'renewals_in_progress', 'month_to_month', 'open_faults', 'open_work_orders',
+        'inspections_due',
+    ];
+
+    /**
+     * The ONE predicate per tile, as a raw SQL boolean expression over the
+     * derived table's own columns (see buildDerivedInnerQuery()) plus its
+     * bindings. Returns null for a tile with no predicate ('all', or an
+     * unknown key) — the caller treats null as "always true."
+     */
+    private function tilePredicateSql(string $tile, string $today, string $windowEnd, array $activeStatuses): ?array
+    {
+        $activeStatusesLower = array_map(fn ($s) => strtolower(trim((string) $s)), $activeStatuses) ?: ['__none__'];
+        $activeStatusPlaceholders = implode(',', array_fill(0, count($activeStatusesLower), '?'));
+
+        return match ($tile) {
+            'occupied' => ['active_lease_id IS NOT NULL', []],
+            // Round 7 — was simply "active_lease_id IS NULL" (every rental
+            // property with no active lease, including withdrawn/expired/
+            // draft/prospecting/sold/let-out-elsewhere ones). Restricted to
+            // properties whose STATUS this agency considers active rental
+            // stock (LeaseSetting::activeRentalStatusesFor()) — the
+            // "inactive" tile below is the restriction's own complement, so
+            // occupied + unoccupied + inactive always equals 'all'.
+            'unoccupied' => ["active_lease_id IS NULL AND LOWER(status) IN ({$activeStatusPlaceholders})", $activeStatusesLower],
+            'inactive' => ["active_lease_id IS NULL AND LOWER(status) NOT IN ({$activeStatusPlaceholders})", $activeStatusesLower],
+            'expiring' => ['active_lease_id IS NOT NULL AND active_end_date BETWEEN ? AND ?', [$today, $windowEnd]],
+            'notice_given' => ['active_lease_id IS NOT NULL AND active_notice_date IS NOT NULL', []],
+            'renewals_in_progress' => ['active_lease_id IS NOT NULL AND pending_renewal_draft_count > 0', []],
+            'month_to_month' => ['active_lease_id IS NOT NULL AND active_end_date IS NULL AND active_month_to_month = 1', []],
+            // Round 7 — the LIST side of these two tiles has always meant
+            // (and still means) "properties with ≥1 open record"; see
+            // tileCounts()'s own 'records' figure below for the total
+            // record count shown alongside this property count.
+            'open_faults' => ['open_faults_count > 0', []],
+            'open_work_orders' => ['open_work_orders_count > 0', []],
+            'inspections_due' => ['(open_inspections_count > 0 OR (active_lease_id IS NOT NULL AND active_lease_completed_in_inspections = 0))', []],
+            default => null,
+        };
+    }
+
+    /**
+     * §3.1 — all eleven tiles, computed from ONE query (one aggregate pass
+     * over the scoped property universe — see tilePredicateSql() above for
+     * why this can never disagree with what clicking a tile lists).
+     * open_faults/open_work_orders are record-based: Johan — "show the
+     * record count as the big number with the property count beside it."
+     * Returned as ['records' => N, 'properties' => M] instead of a plain
+     * int; every other tile stays a plain int. 'records' is SUM() of the
+     * exact same open_*_count column the list's own "Open" cell displays
+     * per row, over the exact same property set the tile's click opens —
+     * by construction, that sum can never diverge from what the opened
+     * list adds up to.
      */
     public function tileCounts(User $user, string $scope): array
     {
@@ -292,82 +360,30 @@ class RentalCommandCentreService
         $windowDays = LeaseSetting::expiryNoticeWindowDaysFor($agencyId);
         $today = now()->toDateString();
         $windowEnd = now()->addDays($windowDays)->toDateString();
+        $activeStatuses = LeaseSetting::activeRentalStatusesFor($agencyId);
 
-        $rows = $this->derivedPropertyQuery($user, $scope)->get([
-            'id',
-            'active_lease_id',
-            'active_end_date',
-            'active_month_to_month',
-            'active_notice_date',
-            'pending_renewal_draft_count',
-            'open_inspections_count',
-            'active_lease_completed_in_inspections',
-        ]);
+        $selects = ['COUNT(*) as agg_all'];
+        $bindings = [];
 
-        $counts = array_fill_keys(array_keys(self::TILES), 0);
-        $counts['all'] = $rows->count();
+        foreach (self::TILE_KEYS_FOR_AGGREGATE as $key) {
+            [$sql, $predicateBindings] = $this->tilePredicateSql($key, $today, $windowEnd, $activeStatuses);
+            $selects[] = "SUM(CASE WHEN {$sql} THEN 1 ELSE 0 END) as agg_{$key}";
+            $bindings = array_merge($bindings, $predicateBindings);
+        }
+        $selects[] = 'SUM(open_faults_count) as agg_open_faults_records';
+        $selects[] = 'SUM(open_work_orders_count) as agg_open_work_orders_records';
 
-        foreach ($rows as $row) {
-            $occupied = $row->active_lease_id !== null;
-            if ($occupied) {
-                $counts['occupied']++;
-            } else {
-                $counts['unoccupied']++;
-            }
+        $row = $this->derivedPropertyQuery($user, $scope)
+            ->selectRaw(implode(', ', $selects), $bindings)
+            ->first();
 
-            if ($occupied && $row->active_end_date && $row->active_end_date >= $today && $row->active_end_date <= $windowEnd) {
-                $counts['expiring']++;
-            }
-
-            // AT-444 follow-up (2026-10-05) — leases.notice_date now exists
-            // (was hardcoded 0 here before AT-444 shipped it). Mirrors
-            // Lease::hasActiveNotice()'s own definition (notice_date !==
-            // null) exactly — an active lease with notice on file.
-            if ($occupied && $row->active_notice_date !== null) {
-                $counts['notice_given']++;
-            }
-
-            if ($occupied && (int) $row->pending_renewal_draft_count > 0) {
-                $counts['renewals_in_progress']++;
-            }
-
-            if ($occupied && !$row->active_end_date && $row->active_month_to_month) {
-                $counts['month_to_month']++;
-            }
-
-            // "Inspections due" — a UNION (this property counted once),
-            // never a sum of the two buckets, to avoid double-counting the
-            // common case where a lease is both "has a scheduled, not yet
-            // completed inspection" AND "has no completed in-inspection
-            // yet" (the same tenancy, one action needed).
-            $hasOpenInspection = (int) $row->open_inspections_count > 0;
-            $missingCompletedInInspection = $occupied && (int) $row->active_lease_completed_in_inspections === 0;
-            if ($hasOpenInspection || $missingCompletedInInspection) {
-                $counts['inspections_due']++;
-            }
+        $counts = ['all' => (int) ($row->agg_all ?? 0)];
+        foreach (self::TILE_KEYS_FOR_AGGREGATE as $key) {
+            $counts[$key] = (int) ($row->{'agg_' . $key} ?? 0);
         }
 
-        // "Open faults"/"Open work orders" — the TOTAL count of open
-        // records in scope (what Johan calls "the sum of the per-row
-        // column"), never the count of PROPERTIES that have ≥1. Computed
-        // as independent, direct counts against the same property-id
-        // scope predicate every other source on this screen uses — not a
-        // SUM() of the row-level column above, but mathematically
-        // identical to one; a direct count is simpler to audit and avoids
-        // re-deriving the open-status set in two places.
-        $counts['open_faults'] = $this->applyPropertyIdScope(
-            RentalFaultReport::query()->whereNotIn('status', self::FAULT_OPEN_STATUSES_EXCLUDED),
-            $user,
-            $scope,
-            'property_id'
-        )->count();
-
-        $counts['open_work_orders'] = $this->applyPropertyIdScope(
-            RentalWorkOrder::query()->whereNotIn('status', self::WORK_ORDER_OPEN_STATUSES_EXCLUDED),
-            $user,
-            $scope,
-            'property_id'
-        )->count();
+        $counts['open_faults'] = ['properties' => $counts['open_faults'], 'records' => (int) ($row->agg_open_faults_records ?? 0)];
+        $counts['open_work_orders'] = ['properties' => $counts['open_work_orders'], 'records' => (int) ($row->agg_open_work_orders_records ?? 0)];
 
         return $counts;
     }
@@ -437,52 +453,27 @@ class RentalCommandCentreService
         return $query;
     }
 
+    /**
+     * Round 7 (2026-10-05) — the WHERE applied here is tilePredicateSql()'s
+     * own SQL string, verbatim — the exact same text tileCounts()'s CASE
+     * WHEN uses for this tile. See that method's docblock for why.
+     */
     public function applyTile(Builder $query, User $user, string $scope, ?string $tile): Builder
     {
+        if (!$tile || $tile === 'all') {
+            return $query;
+        }
+
         $agencyId = $user->effectiveAgencyId();
         $windowDays = LeaseSetting::expiryNoticeWindowDaysFor($agencyId);
         $today = now()->toDateString();
         $windowEnd = now()->addDays($windowDays)->toDateString();
+        $activeStatuses = LeaseSetting::activeRentalStatusesFor($agencyId);
 
-        switch ($tile) {
-            case 'occupied':
-                $query->whereNotNull('active_lease_id');
-                break;
-            case 'unoccupied':
-                $query->whereNull('active_lease_id');
-                break;
-            case 'expiring':
-                $query->whereNotNull('active_lease_id')
-                    ->whereBetween('active_end_date', [$today, $windowEnd]);
-                break;
-            case 'notice_given':
-                // AT-444 follow-up (2026-10-05) — mirrors tileCounts()'s own
-                // definition: occupied + Lease::hasActiveNotice() (notice_date
-                // !== null) exactly, so the tile and this filter can't drift.
-                $query->whereNotNull('active_lease_id')->whereNotNull('active_notice_date');
-                break;
-            case 'renewals_in_progress':
-                $query->whereNotNull('active_lease_id')->where('pending_renewal_draft_count', '>', 0);
-                break;
-            case 'month_to_month':
-                $query->whereNotNull('active_lease_id')->whereNull('active_end_date')->where('active_month_to_month', true);
-                break;
-            case 'open_faults':
-                $query->where('open_faults_count', '>', 0);
-                break;
-            case 'open_work_orders':
-                $query->where('open_work_orders_count', '>', 0);
-                break;
-            case 'inspections_due':
-                $query->where(function (Builder $q) {
-                    $q->where('open_inspections_count', '>', 0)
-                        ->orWhere(function ($q2) {
-                            $q2->whereNotNull('active_lease_id')->where('active_lease_completed_in_inspections', '=', 0);
-                        });
-                });
-                break;
-            default:
-                break;
+        $predicate = $this->tilePredicateSql($tile, $today, $windowEnd, $activeStatuses);
+        if ($predicate) {
+            [$sql, $bindings] = $predicate;
+            $query->whereRaw($sql, $bindings);
         }
 
         return $query;
@@ -797,6 +788,13 @@ class RentalCommandCentreService
                     $property = $group->first()['property'];
 
                     return [
+                        // Round 6 (2026-10-05) — per-group collapse state (Johan)
+                        // persists by this KEY, never by the display heading —
+                        // a renamed/re-addressed property must not silently
+                        // lose its remembered collapsed state, and two
+                        // properties can legitimately share a heading string
+                        // (buildDisplayAddress() isn't guaranteed unique).
+                        'key' => 'property:' . ($property?->id ?? 0),
                         'heading' => $property?->buildDisplayAddress() ?? 'Unknown property',
                         'property' => $property,
                         'items' => $group->values(),
@@ -819,6 +817,11 @@ class RentalCommandCentreService
                     : \Illuminate\Support\Carbon::parse($i['item_date'])->toDateString();
             })->map(function (Collection $group, string $key) {
                 return [
+                    // Same reasoning as the property branch above — the
+                    // bucket key ('overdue'/'none'/a real Y-m-d string) is
+                    // already stable and locale-independent, unlike the
+                    // formatted heading.
+                    'key' => 'date:' . $key,
                     'heading' => match (true) {
                         $key === 'overdue' => 'Overdue',
                         $key === 'none' => 'No date',

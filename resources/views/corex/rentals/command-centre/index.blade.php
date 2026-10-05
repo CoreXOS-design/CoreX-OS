@@ -88,16 +88,32 @@
         </div>
     </div>
 
-    {{-- §3.1 — ten clickable tiles, Properties-screen pstat-v2 pattern. --}}
+    {{-- §3.1 — eleven clickable tiles, Properties-screen pstat-v2 pattern.
+         Round 7 (2026-10-05, Johan) — open_faults/open_work_orders are
+         record-based: tileCounts() returns these two as
+         ['properties' => M, 'records' => N] instead of a plain int, so the
+         big number is the actual record total (what the list's own "Open"
+         column adds up to) and the small text names how many properties
+         that's spread across — never two numbers that look like they
+         disagree because one counts records and the other counts rows. --}}
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         @foreach($tiles as $key => $label)
-        @php $active = $filters['tile'] === $key; @endphp
+        @php
+            $active = $filters['tile'] === $key;
+            $isRecordBased = is_array($tileCounts[$key]);
+            $bigNumber = $isRecordBased ? $tileCounts[$key]['records'] : (int) $tileCounts[$key];
+        @endphp
         <a href="{{ $tileHref($key) }}"
            class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"
            style="{{ $active ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
             <div class="min-w-0">
-                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $tileCounts[$key]) }}</div>
-                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $label }}</div>
+                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format($bigNumber) }}</div>
+                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">
+                    {{ $label }}
+                    @if($isRecordBased)
+                        <span class="font-normal" style="text-transform: none; color: var(--text-muted);">&middot; on {{ number_format($tileCounts[$key]['properties']) }} {{ \Illuminate\Support\Str::plural('property', $tileCounts[$key]['properties']) }}</span>
+                    @endif
+                </div>
             </div>
         </a>
         @endforeach
@@ -127,6 +143,19 @@
                 <button type="button" onclick="corexRccSetQueueCollapsed(true)" class="text-xs flex-shrink-0" style="color: var(--text-muted);">Collapse</button>
             </div>
 
+            {{-- Round 6 (2026-10-05, Johan) — one Expand all/Collapse all
+                 toggle for the per-group disclosures below; only meaningful
+                 (and only shown) once grouping is active. Scoped to the
+                 groups actually rendered on this page of the queue, not
+                 every group across every queue page — "collapse all" reads
+                 as "all I can currently see," matching how the chevrons
+                 themselves work. --}}
+            @if($queueGroupBy !== 'none')
+            <div class="px-3 py-1 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
+                <button type="button" id="rcc-queue-groups-toggle-all" onclick="corexRccToggleAllQueueGroups()" class="text-[11px]" style="color: var(--brand-icon, #0ea5e9); background: none; border: none; cursor: pointer; padding: 0;">Collapse all</button>
+            </div>
+            @endif
+
             {{-- Fix B1 (2026-10-05) — sort / group-by / filter by property and
                  date range. Query-layer filtering + the existing own/branch/all
                  scoping happen in RentalCommandCentreService::queueItems();
@@ -134,32 +163,60 @@
                  (RentalCommandCentreUserPreference — see resolveQueuePreference()).
 
                  Round 4 (2026-10-05, Johan: "make the controls fit on ONE
-                 line at this panel's width") — flex-nowrap + a local
-                 horizontal scroll fallback, same technique the right-hand
-                 filter bar already uses (Fix B2), rather than wrapping to
-                 three lines in a ~300px column. --}}
-            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="px-3 py-2 flex flex-nowrap items-center gap-1 overflow-x-auto flex-shrink-0" style="border-bottom: 1px solid var(--border);">
+                 line at this panel's width") — flex-nowrap, same technique
+                 the right-hand filter bar already uses (Fix B2).
+
+                 Round 5 (2026-10-05, Johan — real-browser check at 1366/1536):
+                 round 4's flex-nowrap row still OVERFLOWED this ~300px panel
+                 (horizontal scrollbar, last date field cut off) — the
+                 overflow-x-auto fallback hid the symptom instead of fixing
+                 it. Removed that fallback on purpose: a horizontal
+                 scrollbar here is itself the defect, not an acceptable
+                 degradation. Fixed by shrinking the three selects further
+                 and replacing the two side-by-side date inputs (180px) with
+                 a single "Dates" disclosure button (~40px) holding both
+                 fields stacked vertically in a dropdown — same net filter,
+                 a fraction of the horizontal width. Not teleported (unlike
+                 row-actions-popup) because this control sits in the fixed
+                 header area of the panel, never inside the independently-
+                 scrolling #rcc-queue-scroll — there's no sticky-column
+                 stacking context here to escape. --}}
+            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="px-3 py-2 flex flex-nowrap items-center gap-1 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
                 @foreach(request()->except(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page']) as $qk => $qv)
                     @if(!is_array($qv))<input type="hidden" name="{{ $qk }}" value="{{ $qv }}">@endif
                 @endforeach
-                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 68px;" aria-label="Group needs-action by">
-                    <option value="none" @selected($queueGroupBy === 'none')>No group</option>
-                    <option value="property" @selected($queueGroupBy === 'property')>By property</option>
+                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="border: 1px solid var(--border); width: 56px;" aria-label="Group needs-action by">
+                    <option value="none" @selected($queueGroupBy === 'none')>No grp</option>
+                    <option value="property" @selected($queueGroupBy === 'property')>By prop</option>
                     <option value="date" @selected($queueGroupBy === 'date')>By date</option>
                 </select>
-                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 58px;" aria-label="Sort needs-action by">
-                    <option value="urgency" @selected($queueSort === 'urgency')>Urgency</option>
+                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="border: 1px solid var(--border); width: 46px;" aria-label="Sort needs-action by">
+                    <option value="urgency" @selected($queueSort === 'urgency')>Urgent</option>
                     <option value="date" @selected($queueSort === 'date')>Date</option>
-                    <option value="property" @selected($queueSort === 'property')>Property</option>
+                    <option value="property" @selected($queueSort === 'property')>Prop</option>
                 </select>
-                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 64px;" aria-label="Filter needs-action by property">
-                    <option value="">Property</option>
+                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="border: 1px solid var(--border); width: 52px;" aria-label="Filter needs-action by property">
+                    <option value="">Prop</option>
                     @foreach($queuePropertyOptions as $p)
                         <option value="{{ $p->id }}" @selected($queuePropertyId === $p->id)>{{ \Illuminate\Support\Str::limit($p->buildDisplayAddress(), 18) }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 90px;" aria-label="Needs-action date from">
-                <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 90px;" aria-label="Needs-action date to">
+                {{-- "Dates" disclosure — replaces two side-by-side date inputs
+                     (180px) with a ~40px button; the two fields live stacked
+                     vertically inside the dropdown instead of side by side,
+                     so the dropdown itself only needs to be as wide as ONE
+                     date input, not two. --}}
+                <details id="rcc-queue-dates" class="relative inline-block flex-shrink-0">
+                    <summary class="rounded-md px-1 py-1 text-[11px] cursor-pointer list-none text-center" style="border: 1px solid var(--border); width: 40px;" aria-label="Needs-action date range">Dates{{ ($queueDateFrom || $queueDateTo) ? ' •' : '' }}</summary>
+                    <div class="absolute z-20 mt-1 rounded-md p-2 space-y-1.5" style="right: 0; width: 132px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
+                        <label class="block text-[10px]" style="color: var(--text-muted);">From
+                            <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="w-full rounded-md px-1 py-1 text-[11px] mt-0.5" style="border: 1px solid var(--border);" aria-label="Needs-action date from">
+                        </label>
+                        <label class="block text-[10px]" style="color: var(--text-muted);">To
+                            <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="w-full rounded-md px-1 py-1 text-[11px] mt-0.5" style="border: 1px solid var(--border);" aria-label="Needs-action date to">
+                        </label>
+                    </div>
+                </details>
                 @if($queuePropertyId || $queueDateFrom || $queueDateTo)
                 <a href="{{ route('corex.rentals.command-centre.index', request()->except(['queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page'])) }}" class="text-[11px] flex-shrink-0" style="color: var(--text-muted);">Clear</a>
                 @endif
@@ -177,13 +234,24 @@
                 @else
                     @php($i = 0)
                     @forelse($queueGroups as $group)
-                        <div class="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide {{ $i >= 5 ? 'hidden lg:block' : '' }}" style="background: color-mix(in srgb, var(--brand-icon,#6366f1) 6%, var(--surface)); color: var(--text-muted);">
-                            {{ $group['heading'] }}
+                        @php($groupCollapsed = in_array($group['key'], $collapsedQueueGroups, true))
+                        <button type="button"
+                                class="rcc-queue-group-heading w-full items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide {{ $i >= 5 ? 'hidden lg:flex' : 'flex' }}"
+                                data-group-key="{{ $group['key'] }}"
+                                onclick="corexRccToggleQueueGroup(this)"
+                                style="background: color-mix(in srgb, var(--brand-icon,#6366f1) 6%, var(--surface)); color: var(--text-muted); border: none; cursor: pointer; text-align: left;">
+                            <span class="flex items-center gap-1 min-w-0">
+                                <svg class="rcc-queue-group-chevron flex-shrink-0" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="transition: transform 0.15s; transform: rotate({{ $groupCollapsed ? '-90deg' : '0deg' }});"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                                <span class="truncate">{{ $group['heading'] }}</span>
+                            </span>
+                            <span class="flex-shrink-0">({{ $group['items']->count() }})</span>
+                        </button>
+                        <div class="rcc-queue-group-items {{ $groupCollapsed ? 'hidden' : '' }}" data-group-key="{{ $group['key'] }}">
+                            @foreach($group['items'] as $item)
+                                @include('corex.rentals.command-centre._queue-row', ['item' => $item, 'index' => $i, 'hidePropertyLine' => $queueGroupBy === 'property'])
+                                @php($i++)
+                            @endforeach
                         </div>
-                        @foreach($group['items'] as $item)
-                            @include('corex.rentals.command-centre._queue-row', ['item' => $item, 'index' => $i, 'hidePropertyLine' => $queueGroupBy === 'property'])
-                            @php($i++)
-                        @endforeach
                     @empty
                     <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
                     @endforelse
@@ -348,6 +416,95 @@ function corexRccSetQueueCollapsed(collapsed) {
     });
 }
 
+// Round 6 (2026-10-05, Johan) — per-property/per-date group collapse in the
+// needs-action queue, plus one Expand-all/Collapse-all toggle. State is
+// read back from the DOM each time (which groups are currently .hidden),
+// not tracked in a separate JS array — self-correcting, and the server
+// round trip always persists exactly what's actually on screen.
+function corexRccAllQueueGroupKeys() {
+    return Array.from(document.querySelectorAll('.rcc-queue-group-heading')).map(function (el) {
+        return el.getAttribute('data-group-key');
+    });
+}
+
+function corexRccCollapsedQueueGroupKeys() {
+    return Array.from(document.querySelectorAll('.rcc-queue-group-items.hidden')).map(function (el) {
+        return el.getAttribute('data-group-key');
+    });
+}
+
+function corexRccPersistCollapsedQueueGroups(keys) {
+    fetch('{{ route('corex.rentals.command-centre.preference') }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+            'Accept': 'application/json'
+        },
+        body: JSON.stringify({ preference_key: 'collapsed_queue_groups', value: keys })
+    });
+}
+
+function corexRccSetQueueGroupCollapsed(key, collapsed) {
+    var items = document.querySelector('.rcc-queue-group-items[data-group-key="' + key + '"]');
+    var heading = document.querySelector('.rcc-queue-group-heading[data-group-key="' + key + '"]');
+    if (!items || !heading) { return; }
+    items.classList.toggle('hidden', collapsed);
+    var chevron = heading.querySelector('.rcc-queue-group-chevron');
+    if (chevron) { chevron.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)'; }
+}
+
+function corexRccUpdateToggleAllQueueGroupsLabel() {
+    var btn = document.getElementById('rcc-queue-groups-toggle-all');
+    if (!btn) { return; }
+    var all = corexRccAllQueueGroupKeys();
+    var collapsed = corexRccCollapsedQueueGroupKeys();
+    btn.textContent = (all.length > 0 && collapsed.length >= all.length) ? 'Expand all' : 'Collapse all';
+}
+
+function corexRccToggleQueueGroup(button) {
+    var key = button.getAttribute('data-group-key');
+    var items = document.querySelector('.rcc-queue-group-items[data-group-key="' + key + '"]');
+    if (!items) { return; }
+    var collapsing = !items.classList.contains('hidden');
+    corexRccSetQueueGroupCollapsed(key, collapsing);
+    corexRccPersistCollapsedQueueGroups(corexRccCollapsedQueueGroupKeys());
+    corexRccUpdateToggleAllQueueGroupsLabel();
+}
+
+function corexRccToggleAllQueueGroups() {
+    var all = corexRccAllQueueGroupKeys();
+    var collapsed = corexRccCollapsedQueueGroupKeys();
+    var collapseAll = collapsed.length < all.length;
+    all.forEach(function (key) { corexRccSetQueueGroupCollapsed(key, collapseAll); });
+    corexRccPersistCollapsedQueueGroups(collapseAll ? all : []);
+    corexRccUpdateToggleAllQueueGroupsLabel();
+}
+
+document.addEventListener('DOMContentLoaded', corexRccUpdateToggleAllQueueGroupsLabel);
+
+// Round 5 (2026-10-05) — the "Dates" disclosure above is a single control,
+// not a per-row popup, so it doesn't need row-actions-popup's teleport
+// machinery (it isn't inside a sticky-column/scroll-clip context). It does
+// still need the ordinary disclosure courtesies a native <details> doesn't
+// give for free: close on outside click and on Escape.
+(function () {
+    var datesDetails = document.getElementById('rcc-queue-dates');
+    if (!datesDetails) { return; }
+
+    document.addEventListener('click', function (e) {
+        if (datesDetails.open && !datesDetails.contains(e.target)) {
+            datesDetails.open = false;
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && datesDetails.open) {
+            datesDetails.open = false;
+        }
+    });
+})();
+
 // Fix B3 (2026-10-05) / round 2 (2026-10-05, same day): the row "Actions ▾"
 // popup's own stacking-context fix (position:fixed computed from the
 // button) was still painted BEHIND later rows' sticky Actions cells — a
@@ -365,27 +522,50 @@ function corexRccSetQueueCollapsed(collapsed) {
 // whole page scrolling to reach a row. #rcc-layout's own top is wherever
 // the tiles/heading pushed it to (varies by scope-switcher/print-button
 // wrapping), so the available height has to be measured, not hardcoded.
+//
+// Round 6 (2026-10-05, Johan, real-browser check): a flat
+// `window.innerHeight - top` estimate still left an outer scrollbar — it
+// has no way to know about every padding layer between #rcc-layout and
+// the viewport's bottom edge that it doesn't own (<main id="appScroll">'s
+// own padding, the shared .hfc-card wrapper the layout renders this
+// page's content section inside, this page's own container padding). Rather than
+// hardcode that stack (fragile — it lives in the shared layout, not here,
+// and any of it changing silently breaks this number again), measure the
+// ACTUAL resulting overflow on #appScroll — the real scrolling element;
+// html/body never scroll, by the layout's own h-screen + overflow-hidden
+// wrapper — and subtract exactly that much. Self-correcting regardless of
+// what's below #rcc-layout or how the QA/demo environment banners (also
+// outside this page, above #rcc-layout) change its height.
 (function () {
+    function applyHeight(px) {
+        var queuePanel = document.getElementById('rcc-queue-panel');
+        var tableSection = document.getElementById('rcc-table-section');
+        if (queuePanel) { queuePanel.style.height = px + 'px'; }
+        if (tableSection) { tableSection.style.height = px + 'px'; }
+    }
+
     function sizeScrollPanels() {
         var layout = document.getElementById('rcc-layout');
         if (!layout) { return; }
 
-        // Height for the PANELS, not their inner scroll divs directly —
-        // each panel's own flex column (header/controls flex-shrink-0,
-        // the scroll div flex-1, pagination flex-shrink-0) is what actually
-        // allocates the remaining space to the scroll area. Setting this on
-        // the inner scroll div instead would double-count the header/
-        // controls/pagination height and overshoot the viewport.
         var top = layout.getBoundingClientRect().top;
-        var height = Math.max(240, window.innerHeight - top - 16) + 'px';
-        var queuePanel = document.getElementById('rcc-queue-panel');
-        var tableSection = document.getElementById('rcc-table-section');
-        if (queuePanel) { queuePanel.style.height = height; }
-        if (tableSection) { tableSection.style.height = height; }
+        var height = Math.max(240, window.innerHeight - top);
+        applyHeight(height);
+
+        var appScroll = document.getElementById('appScroll');
+        if (appScroll) {
+            var overflow = appScroll.scrollHeight - appScroll.clientHeight;
+            if (overflow > 0) {
+                applyHeight(Math.max(240, height - overflow));
+            }
+        }
     }
 
     window.addEventListener('resize', sizeScrollPanels);
     document.addEventListener('DOMContentLoaded', sizeScrollPanels);
+    // Fonts/images can still reflow the title/tiles row after
+    // DOMContentLoaded — re-measure once everything has actually painted.
+    window.addEventListener('load', sizeScrollPanels);
     sizeScrollPanels();
 })();
 </script>
