@@ -244,7 +244,7 @@
                 @if($isDraft)
                     {{-- Client-side only — nothing posted here exists until the Save button submits job-card-create-form below. --}}
                     <template x-for="(task, ti) in tasks" :key="task.key">
-                        <div class="rounded-md p-3 space-y-2" style="border: 1px solid var(--border);">
+                        <div class="rounded-md p-3 space-y-2" style="border: 1px solid var(--border);" :data-draft-task-index="ti">
                             <div class="flex items-center gap-2">
                                 <span class="text-sm font-medium" x-text="(ti + 1) + ' -'"></span>
                                 <input type="text" :name="`tasks[${ti}][description]`" x-model="task.description" form="job-card-create-form" required maxlength="500" class="flex-1 rounded-md px-2 py-1.5 text-sm" style="border: 1px solid var(--border);">

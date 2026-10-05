@@ -92,6 +92,14 @@ require __DIR__.'/../vendor/autoload.php';
 | says — so NO test run can reach the shared instance, not even by
 | accident. Credentials come from /root/.lanetest-mysql-credentials
 | (root-only, outside any worktree, never committed, never echoed).
+|
+| DB_SOCKET is force-EMPTY here too (2026-10-05, cc2 bug report). Laravel's
+| mysql connection config is 'unix_socket' => env('DB_SOCKET', ''), and the
+| MySQL PDO connector prefers a non-empty unix_socket over host/port
+| entirely. A worktree whose .env sets DB_SOCKET (pointing at the SHARED
+| instance's socket) silently routed the connection there as the
+| 'lanetest' user, who doesn't exist on that instance -- "Access denied",
+| not a hostname problem. Clearing it here removes that path for good.
 */
 (static function (): void {
     // ONLY ever active on a box that actually has this file -- the shared
@@ -125,6 +133,20 @@ require __DIR__.'/../vendor/autoload.php';
     $force('DB_PORT', '3317');
     $force('DB_USERNAME', $vars['LANETEST_DB_USER'] ?? 'lanetest');
     $force('DB_PASSWORD', $vars['LANETEST_DB_PASSWORD'] ?? '');
+    $force('DB_SOCKET', '');
+
+    // Guard: refuse to proceed if DB_SOCKET somehow isn't empty after the
+    // force-set above -- a non-empty unix_socket silently wins over
+    // host/port in Laravel's MySQL connector, which is exactly the bug
+    // this block exists to close. Never let a test run fall through to
+    // the shared instance's socket by any path.
+    if (getenv('DB_SOCKET') !== '' || ($_ENV['DB_SOCKET'] ?? '') !== '') {
+        fwrite(STDERR, PHP_EOL
+            .'  [TEST SAFETY GUARD] DB_SOCKET is not empty after being forced empty --'.PHP_EOL
+            .'  refusing to risk a test run connecting via a unix socket instead of'.PHP_EOL
+            .'  the dedicated tests-only instance at 127.0.0.1:3317.'.PHP_EOL.PHP_EOL);
+        exit(1);
+    }
 })();
 
 /*
