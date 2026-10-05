@@ -111,7 +111,7 @@
     // ── Active group detection (ONE mechanism: routeIs) ──
     $activeGroup = null;
     if (request()->routeIs(
-        'worksheet.*', 'rentals.*',
+        'worksheet.*',
         'agent.dashboard', 'agent.daily*', 'agent.deals.*',
         'bm.performance*', 'bm.daily*', 'bm.listings*', 'bm.my.dashboard',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
@@ -141,8 +141,6 @@
         $activeGroup = 'hidden';
     } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
         $activeGroup = 'documents';
-    } elseif (request()->routeIs('rental.*')) {
-        $activeGroup = 'rentals';
     } elseif (request()->routeIs('compliance.*')
         && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*')) {
         // AT-161 IA re-cut — the compliance.comm-* routes (Message Archive, Flagged
@@ -322,17 +320,15 @@
     // Evaluation is a drill-down of the System Developer → Hidden panel, so
     // opening it must also open its parent panel underneath.
     //
-    // 'rentals' REMOVED from this map 2026-09-07 (temporary, reversible —
-    // see .ai/specs/rental-applications.md "Temporary Rentals-panel
-    // visibility"). Johan asked to see the old Hidden→Rentals panel
-    // unhidden so he can click through it himself before deciding what
-    // stays; it now renders as its own top-level group instead of nested
-    // under Hidden. To reverse: put 'rentals' => 'hidden' back here.
+    // AT-439 (2026-10-05) — the legacy Hidden→Rentals panel this map used to
+    // reference ('rentals' => 'hidden', removed 2026-09-07 per
+    // .ai/specs/rental-applications.md) is retired entirely; nothing maps to
+    // it any more.
     $navGroupParents = [
         'evaluation' => 'hidden',
     ];
 
-    // Full open-chain for the active group, root-most first: ['hidden','rentals'].
+    // Full open-chain for the active group, root-most first.
     $activeChain = [];
     for ($_g = $activeGroup; $_g !== null; $_g = $navGroupParents[$_g] ?? null) {
         array_unshift($activeChain, $_g);
@@ -2963,37 +2959,11 @@
                 @endif
                 @endfeature
 
-                {{-- Rentals — nested drill-down --}}
-                @permission('view_rentals')
-                @feature('rentals')
-                <div>
-                    <button type="button" @click="push('rentals')"
-                            class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('rentals') ? 'active' : '' }}">
-                        <span>Rentals</span>
-                        <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                    </button>
-
-                    <div class="corex-nav-panel {{ $groupOpen('rentals') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('rentals') }">
-                        <button type="button" @click="pop()" class="corex-nav-back">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                            <span>Back</span>
-                        </button>
-                        <div class="corex-nav-panel-title">Rentals</div>
-                        <a href="{{ route('rentals.index') }}" class="corex-nav-subitem {{ request()->routeIs('rentals.*') ? 'active' : '' }}">Rentals</a>
-                        @permission('view_rentals')
-                        <a href="{{ route('rental.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('rental.dashboard') ? 'active' : '' }}">Dashboard</a>
-                        @endpermission
-                        @permission('access_rental_signatures')
-                        <a href="{{ route('rental.signatures') }}" class="corex-nav-subitem {{ request()->routeIs('rental.signatures*') ? 'active' : '' }}">Electronic Signatures</a>
-                        @endpermission
-                        @permission('view_rentals')
-                        <a href="{{ route('rental.active-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.active-leases') ? 'active' : '' }}">Active Leases</a>
-                        <a href="{{ route('rental.expired-leases') }}" class="corex-nav-subitem {{ request()->routeIs('rental.expired-leases') ? 'active' : '' }}">Expired Leases</a>
-                        @endpermission
-                    </div>
-                </div>
-                @endfeature
-                @endpermission
+                {{-- AT-439 — the legacy hidden "Rentals" drill-down (RentalsController/
+                     RentalDivisionController/RentalPropertyController) is retired per
+                     Johan's 2026-10-05 ruling. Superseded by the Leases screen and the
+                     Rental Command Centre, both in the Rental Applications group above.
+                     Old URLs redirect (routes/web.php), never 404. --}}
 
                 {{-- Evaluation reports hidden 2026-09-19 (sample-data mock-up) — see the
                      evaluation.index route in routes/web.php. Restore this drill-down
