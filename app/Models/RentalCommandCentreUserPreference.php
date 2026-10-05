@@ -21,6 +21,9 @@ class RentalCommandCentreUserPreference extends Model
 
     public const DEFAULTS = [
         'queue_collapsed' => false,
+        // 2026-10-05 fix round — needs-action queue group-by/sort controls.
+        'queue_group_by' => 'none',
+        'queue_sort' => 'urgency',
     ];
 
     public function user(): BelongsTo

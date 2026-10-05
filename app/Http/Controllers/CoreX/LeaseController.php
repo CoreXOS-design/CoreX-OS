@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ExportsRentalList;
+use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Models\Lease;
 use App\Models\LeaseEscalation;
 use App\Models\LeaseTenant;
@@ -31,6 +32,7 @@ class LeaseController extends Controller
 {
     use AuthorizesRentalRecordScope;
     use ExportsRentalList;
+    use SearchesQualifyingRentalProperties;
 
     /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
     private const LEASE_EXPIRING_SOON_DAYS = 60;
@@ -69,6 +71,12 @@ class LeaseController extends Controller
 
         $showArchived = $request->boolean('archived');
         $query = $this->filteredLeasesQuery($request, $showArchived);
+
+        // The property-filter picker (searchProperties() below) — pre-fill
+        // its label when a property_id already arrived in the querystring.
+        $filteredProperty = ($propertyId = $request->get('property_id'))
+            ? Property::find($propertyId)
+            : null;
 
         if ($sort === 'property') {
             $query->join('properties', 'properties.id', '=', 'leases.property_id')
@@ -121,6 +129,7 @@ class LeaseController extends Controller
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
             'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
+            'filteredProperty' => $filteredProperty,
             'tileCounts' => $tileCounts,
             'resolvedScope' => $resolvedScope,
             'scopeOptions' => $scopeOptions,
@@ -139,7 +148,7 @@ class LeaseController extends Controller
 
         $query = Lease::query()
             ->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'tenants.contact']);
+            ->with(['property.contacts', 'tenants.contact']);
 
         if ($onlyArchived) {
             $query->onlyTrashed();
@@ -154,6 +163,15 @@ class LeaseController extends Controller
                         $cc->where('first_name', 'like', "%{$search}%")
                             ->orWhere('last_name', 'like', "%{$search}%");
                     });
+                })->orWhereHas('property.contacts', function ($c) use ($search) {
+                    // Landlord name is searchable too (task ask) — same
+                    // strict role set as Lease::landlordContacts(), never
+                    // a tenant-as-landlord match.
+                    $c->whereIn('contact_property.role', ['landlord', 'lessor', 'seller', 'owner'])
+                        ->where(function ($cc) use ($search) {
+                            $cc->where('first_name', 'like', "%{$search}%")
+                                ->orWhere('last_name', 'like', "%{$search}%");
+                        });
                 });
             });
         }
@@ -184,6 +202,19 @@ class LeaseController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * The LIST screen's own property-filter picker — only properties that
+     * actually have a lease visible to this user (leases.md §7's own
+     * scopeVisibleTo(), same scope as the list query itself), never every
+     * rental property. Distinct from the create screen's own property
+     * `<select>` (leases/create.blade.php), which deliberately keeps
+     * offering every rental property, unchanged.
+     */
+    public function searchProperties(Request $request): JsonResponse
+    {
+        return $this->searchQualifyingRentalProperties($request, Lease::class);
     }
 
     /** Human-readable active-filter summary for the print-list header/export filename — shared shape across all four rental lists. */
@@ -236,10 +267,11 @@ class LeaseController extends Controller
             ->orderBy('leases.end_date')
             ->get();
 
-        $headers = ['Property', 'Tenant(s)', 'Status', 'Start', 'End', 'Rent'];
+        $headers = ['Property', 'Tenant(s)', 'Landlord', 'Status', 'Start', 'End', 'Rent'];
         $rows = $leases->map(fn (Lease $lease) => [
             $lease->property?->buildDisplayAddress() ?? 'Unknown property',
             $lease->tenantNames(),
+            $lease->landlordNames(),
             ucfirst($lease->status),
             $lease->start_date?->format('Y-m-d') ?? '',
             $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : ''),

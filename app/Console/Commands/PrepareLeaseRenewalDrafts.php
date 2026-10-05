@@ -32,7 +32,10 @@ use Illuminate\Validation\ValidationException;
  * second run the same day (or the next) does nothing for a lease that
  * already has an open draft. Also skips a lease with an outcome already
  * on file — notice (either party) or month-to-month — since none of those
- * leases are renewing.
+ * leases are renewing. Also skips (Lease::hasCancelledRenewalDraft()) a
+ * lease whose renewal draft the agent explicitly cancelled — this run
+ * never silently re-creates one; only the agent's own "Renew lease"
+ * action (a different code path that does not check this) starts another.
  */
 class PrepareLeaseRenewalDrafts extends Command
 {
@@ -47,6 +50,7 @@ class PrepareLeaseRenewalDrafts extends Command
         $drafted = 0;
         $skippedOutcome = 0;
         $skippedAlreadyDrafted = 0;
+        $skippedCancelledDraft = 0;
         $skippedNoAgent = 0;
         $insufficientInfo = 0;
 
@@ -75,6 +79,15 @@ class PrepareLeaseRenewalDrafts extends Command
 
                 if ($lease->hasPendingRenewalDraft()) {
                     $skippedAlreadyDrafted++;
+                    continue;
+                }
+
+                // An agent explicitly cancelled a renewal draft for this
+                // term — never silently re-create it. Only "Renew lease"
+                // (the manual path, which does not check this) drafts
+                // another one from here on.
+                if ($lease->hasCancelledRenewalDraft()) {
+                    $skippedCancelledDraft++;
                     continue;
                 }
 
@@ -114,8 +127,8 @@ class PrepareLeaseRenewalDrafts extends Command
 
         $this->info(
             "Done. Drafted: {$drafted}, not enough info: {$insufficientInfo}, "
-            . "already had a draft: {$skippedAlreadyDrafted}, outcome already on file: {$skippedOutcome}, "
-            . "no agent to draft as: {$skippedNoAgent}."
+            . "already had a draft: {$skippedAlreadyDrafted}, cancelled draft on file: {$skippedCancelledDraft}, "
+            . "outcome already on file: {$skippedOutcome}, no agent to draft as: {$skippedNoAgent}."
         );
 
         return 0;

@@ -3349,6 +3349,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Must sit before /{lease} so 'print-list'/'export' never bind as a lease id.
         Route::get('/print-list', [\App\Http\Controllers\CoreX\LeaseController::class, 'printList'])->name('corex.leases.print-list');
         Route::get('/export', [\App\Http\Controllers\CoreX\LeaseController::class, 'export'])->name('corex.leases.export');
+        // The list screen's own property-filter picker — qualifying properties
+        // only (only properties with a lease visible to this user), never
+        // every rental property. Must sit before /{lease} for the same reason.
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchProperties'])->name('corex.leases.search-properties');
         Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3374,6 +3378,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->name('corex.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->name('corex.leases.renewal.notice.reverse');
             Route::post('/notice/change-outcome', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'changeNoticeOutcome'])->name('corex.leases.renewal.notice.change-outcome');
+            // Renewal-draft cancellation — {lease} here is the DRAFT itself.
+            Route::post('/cancel-draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'cancelDraft'])->name('corex.leases.renewal.cancel-draft');
         });
 
         Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])
@@ -3708,6 +3714,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // same greedy-binding reason /create is.
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'printList'])->name('corex.rental-fault-reports.print-list');
         Route::get('/export', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'export'])->name('corex.rental-fault-reports.export');
+        // The list screen's own property-filter picker — qualifying properties
+        // only (only properties with a fault report visible to this user).
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'searchProperties'])->name('corex.rental-fault-reports.search-properties');
         Route::get('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'show'])->name('corex.rental-fault-reports.show');
         // §"Printing" — landlord-facing PDF. Same .view gate as show() itself.
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
@@ -3748,6 +3757,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-442 fix #2 — the create screen's searchable property picker.
         Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchProperties'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.search-properties');
+        // The LIST screen's own property-filter picker — qualifying
+        // properties only (only properties with a work order visible to
+        // this user). Distinct from search-properties above (the create
+        // form's picker, unaffected).
+        Route::get('/search-filter-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchFilterProperties'])->name('corex.rental-work-orders.search-filter-properties');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
         // AT-439 Part 3 — shared rental list standard: print-list/export, same
@@ -3822,6 +3836,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('rental-job-cards')->middleware('permission:rental_job_cards.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'index'])->name('corex.rental-job-cards.index');
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'printList'])->name('corex.rental-job-cards.print-list');
+        // The list screen's own property-filter picker — qualifying properties
+        // only (only properties with a job card visible to this user).
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'searchProperties'])->name('corex.rental-job-cards.search-properties');
         Route::get('/create', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'create'])
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'store'])
@@ -4536,6 +4553,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::patch('/{vatType}/default', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'makeDefault'])->name('admin.vat-types.default');
         Route::delete('/{vatType}', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'archive'])->name('admin.vat-types.archive');
         Route::post('/{vatType}/restore', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'restore'])->name('admin.vat-types.restore');
+    });
+
+    // Pastel-style enhancement, 2026-10-05 — the catalogue TYPE and UNIT
+    // lists, same Company Settings surface/permission as VAT Types above,
+    // also linked directly from the catalogue screen itself.
+    Route::prefix('admin/company-settings/{agency}/catalogue-item-types')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'store'])->name('admin.catalogue-item-types.store');
+        Route::put('/{catalogueItemType}', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'update'])->name('admin.catalogue-item-types.update');
+        Route::delete('/{catalogueItemType}', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'archive'])->name('admin.catalogue-item-types.archive');
+        Route::post('/{catalogueItemType}/restore', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'restore'])->name('admin.catalogue-item-types.restore');
+        Route::post('/reorder', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'reorder'])->name('admin.catalogue-item-types.reorder');
+    });
+    Route::prefix('admin/company-settings/{agency}/catalogue-units')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'store'])->name('admin.catalogue-units.store');
+        Route::put('/{catalogueUnit}', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'update'])->name('admin.catalogue-units.update');
+        Route::delete('/{catalogueUnit}', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'archive'])->name('admin.catalogue-units.archive');
+        Route::post('/{catalogueUnit}/restore', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'restore'])->name('admin.catalogue-units.restore');
+        Route::post('/reorder', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'reorder'])->name('admin.catalogue-units.reorder');
     });
 
 

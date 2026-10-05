@@ -11,25 +11,36 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 /**
  * AT-442 — an agency's own labour/part catalogue, consumed by internal job
  * cards (rental-work-orders.md §14). Full CRUD, per-agency, soft-delete
- * only. No seeded defaults — unlike RentalFaultType/AgencyServiceType, this
- * list is agency-specific pricing and naming from day one with nothing
- * sensible to seed.
+ * only. No seeded defaults of its own — unlike RentalFaultType/
+ * AgencyServiceType, item pricing and naming is agency-specific from day
+ * one with nothing sensible to seed; its `type`/`unit`, however, now pick
+ * FROM an agency-configurable list each (RentalCatalogueItemType/
+ * RentalCatalogueUnit — Pastel-style enhancement, 2026-10-05).
+ *
+ * `default_price` is ALWAYS the excl-VAT amount, regardless of the agency's
+ * capture mode — "store unambiguously" (Johan). When the agency types
+ * prices incl-VAT, the create/edit form converts what was typed down to
+ * excl before saving (RentalCatalogueItemController); when a job card line
+ * pre-fills from this item, RentalJobCardVatService converts back up to
+ * whatever the agency currently captures on lines.
  */
 class RentalCatalogueItem extends Model
 {
     use BelongsToAgency;
     use SoftDeletes;
 
-    public const TYPE_LABOUR = 'labour';
-    public const TYPE_PART = 'part';
+    /** @deprecated kept as shared "kind" vocabulary — see RentalCatalogueItemType::KIND_*. The old `type` column no longer exists. */
+    public const TYPE_LABOUR = RentalCatalogueItemType::KIND_LABOUR;
+    public const TYPE_PART = RentalCatalogueItemType::KIND_PART;
 
     protected $fillable = [
         'agency_id',
-        'type',
+        'rental_catalogue_item_type_id',
         'name',
-        'unit',
+        'rental_catalogue_unit_id',
         'default_price',
         'default_rental_vat_type_id',
+        'default_custom_vat_rate',
         'is_active',
         'sort_order',
         'created_by_user_id',
@@ -37,13 +48,30 @@ class RentalCatalogueItem extends Model
 
     protected $casts = [
         'default_price' => 'decimal:2',
+        'default_custom_vat_rate' => 'decimal:2',
         'is_active' => 'boolean',
         'sort_order' => 'integer',
     ];
 
+    public function catalogueItemType(): BelongsTo
+    {
+        return $this->belongsTo(RentalCatalogueItemType::class, 'rental_catalogue_item_type_id');
+    }
+
+    public function catalogueUnit(): BelongsTo
+    {
+        return $this->belongsTo(RentalCatalogueUnit::class, 'rental_catalogue_unit_id');
+    }
+
     public function defaultVatType(): BelongsTo
     {
         return $this->belongsTo(RentalVatType::class, 'default_rental_vat_type_id');
+    }
+
+    /** The underlying kind (labour|part) this item's type maps to — what RentalReportService groups by. Never re-derive type-level logic from this; it's a read, not a classification decision. */
+    public function kind(): ?string
+    {
+        return $this->catalogueItemType?->kind;
     }
 
     public function scopeActive(Builder $query): Builder

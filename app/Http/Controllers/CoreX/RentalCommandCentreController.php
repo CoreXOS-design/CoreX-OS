@@ -56,6 +56,31 @@ class RentalCommandCentreController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * 2026-10-05 fix round — resolves the needs-action queue's sort/
+     * group-by choice for THIS request: an explicit query-string value
+     * wins and is persisted (write-through, same "remembered per user" as
+     * queue_collapsed, just via the normal GET instead of a second async
+     * call, since changing either already requires a server round trip to
+     * re-group/re-sort); otherwise falls back to the user's last saved
+     * choice, or the documented default.
+     */
+    private function resolveQueuePreference(Request $request, User $user, array $prefState, string $key, array $validOptions, string $default): string
+    {
+        $requested = $request->get($key);
+
+        if ($requested !== null) {
+            $value = in_array($requested, $validOptions, true) ? $requested : $default;
+            RentalCommandCentreUserPreference::setFor($user->id, $key, $value);
+
+            return $value;
+        }
+
+        $saved = $prefState[$key] ?? $default;
+
+        return in_array($saved, $validOptions, true) ? $saved : $default;
+    }
+
     private function buildViewData(Request $request, RentalCommandCentreService $service, bool $forPrint = false): array
     {
         $user = $request->user();
@@ -88,18 +113,67 @@ class RentalCommandCentreController extends Controller
         $tableQuery = $service->tableQuery($user, $scope, $filters);
         $service->applySort($tableQuery, $sort, $direction);
 
+        $queueGroupBy = 'none';
+        $queueSort = 'urgency';
+        $queuePropertyId = null;
+        $queueDateFrom = null;
+        $queueDateTo = null;
+        $queuePropertyOptions = collect();
+        $queueTotalCount = 0;
+        $queue = collect();
+        $queueGroups = null;
+
         if ($forPrint) {
             $properties = $tableQuery->with('agent')->limit(1000)->get();
-            $queue = collect();
         } else {
             $perPage = $this->resolvePerPage($request);
             $properties = $tableQuery->with('agent')->paginate($perPage)->withQueryString();
 
-            // 8/page — the queue sits in a ~40%-width column beside the
-            // table on wide screens (approved mockup); 20 rows no longer
-            // fits without pushing the table off screen.
-            $queueItems = $service->queueItems($user, $scope);
-            $queue = $service->paginateCollection($queueItems, 8, max(1, (int) $request->get('queue_page', 1)), 'queue_page');
+            // Fixes B1 (Johan, 2026-10-05) — sort + group-by + filter by
+            // property and date range on the needs-action queue, enforced
+            // at the query layer via the SAME own/branch/all scoping the
+            // five rule queries already use (RentalCommandCentreService::
+            // applyPropertyIdScope() — unchanged), and remembered per user.
+            $prefState = RentalCommandCentreUserPreference::stateFor($user->id);
+            $queueGroupBy = $this->resolveQueuePreference($request, $user, $prefState, 'queue_group_by', RentalCommandCentreService::QUEUE_GROUP_BY_OPTIONS, 'none');
+            $queueSort = $this->resolveQueuePreference($request, $user, $prefState, 'queue_sort', RentalCommandCentreService::QUEUE_SORT_OPTIONS, 'urgency');
+            $queuePropertyId = $request->filled('queue_property_id') ? (int) $request->get('queue_property_id') : null;
+            $queueDateFrom = $request->get('queue_date_from');
+            $queueDateTo = $request->get('queue_date_to');
+
+            // Fetched WITHOUT the property filter so the "filter by
+            // property" dropdown can offer every property that currently
+            // has a needs-action item (date range + scope still applied) —
+            // the property filter itself is then a plain narrowing of this
+            // same already-scoped set, never a second, looser query.
+            $queueItemsAll = $service->queueItems($user, $scope, null, $queueDateFrom, $queueDateTo, $queueSort);
+            $queuePropertyOptions = $queueItemsAll->pluck('property')->filter()
+                ->unique(fn ($p) => $p->id)
+                ->sortBy(fn ($p) => $p->buildDisplayAddress())
+                ->values();
+
+            $queueItems = $queuePropertyId
+                ? $queueItemsAll->filter(fn (array $i) => ($i['property']?->id) === $queuePropertyId)->values()
+                : $queueItemsAll;
+            $queueTotalCount = $queueItems->count();
+
+            $queuePage = max(1, (int) $request->get('queue_page', 1));
+            if ($queueGroupBy === 'none') {
+                // 8/page — the queue sits in a ~40%-width column beside the
+                // table on wide screens (approved mockup); 20 rows no longer
+                // fits without pushing the table off screen.
+                $queue = $service->paginateCollection($queueItems, 8, $queuePage, 'queue_page');
+            } else {
+                // Grouped views paginate by GROUP (8/page), not by item —
+                // a group is a unit the agent reads together (one property,
+                // or one date).
+                $queueGroups = $service->paginateCollection(
+                    $service->groupQueueItems($queueItems, $queueGroupBy),
+                    8,
+                    $queuePage,
+                    'queue_page'
+                );
+            }
         }
 
         // Batched tenant-name lookup for the CURRENT page only — one extra
@@ -128,6 +202,14 @@ class RentalCommandCentreController extends Controller
             'properties' => $properties,
             'tenantNamesByLeaseId' => $tenantNamesByLeaseId,
             'queue' => $queue,
+            'queueGroups' => $queueGroups,
+            'queueGroupBy' => $queueGroupBy,
+            'queueSort' => $queueSort,
+            'queuePropertyId' => $queuePropertyId,
+            'queueDateFrom' => $queueDateFrom,
+            'queueDateTo' => $queueDateTo,
+            'queuePropertyOptions' => $queuePropertyOptions,
+            'queueTotalCount' => $queueTotalCount,
             'hasAnyRentalProperties' => $hasAnyRentalProperties,
             'branches' => Branch::query()->orderBy('name')->get(['id', 'name']),
             'agents' => $this->agencyAgents($user),

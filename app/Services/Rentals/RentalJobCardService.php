@@ -173,22 +173,28 @@ class RentalJobCardService
 
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
         $quantity = (float) ($attributes['quantity'] ?? 1);
-        $unitPrice = $pricesOn ? ($attributes['unit_price'] ?? $catalogueItem?->default_price) : null;
+        $agency = $jobCard->agency ?? \App\Models\Agency::withoutGlobalScopes()->find($jobCard->agency_id);
+        // Pastel-style enhancement, 2026-10-05 — a catalogue item's default
+        // price is always stored excl-VAT; converted here to whatever the
+        // agency currently captures on job card lines (RentalJobCardVatService).
+        $catalogueDefaultPrice = $catalogueItem && $agency ? $this->vat->catalogueDefaultPriceForLine($catalogueItem, $agency) : $catalogueItem?->default_price;
+        $unitPrice = $pricesOn ? ($attributes['unit_price'] ?? $catalogueDefaultPrice) : null;
 
         // VAT type — the agent's explicit pick on this line, else the
         // catalogue item's own default, else the agency's default type.
         // Null for an agency that isn't VAT registered (nothing to pick).
         $vatTypeId = $attributes['rental_vat_type_id'] ?? $this->vat->defaultVatTypeIdFor($jobCard->agency_id, $catalogueItem);
-        $customVatRate = $attributes['custom_vat_rate'] ?? null;
+        $customVatRate = $attributes['custom_vat_rate'] ?? $catalogueItem?->default_custom_vat_rate;
 
         $line = $jobCard->lines()->create([
             'agency_id' => $jobCard->agency_id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
-            // AT-442 fix #5 — a catalogue item keeps its OWN type; the posted
-            // 'type' only applies to a free-text line (no catalogue item).
-            'type' => $catalogueItem?->type ?? $attributes['type'] ?? RentalCatalogueItem::TYPE_LABOUR,
+            // AT-442 fix #5 — a catalogue item keeps its OWN type (now its
+            // type's underlying kind — Pastel-style enhancement, 2026-10-05);
+            // the posted 'type' only applies to a free-text line (no catalogue item).
+            'type' => $catalogueItem?->kind() ?? $attributes['type'] ?? RentalCatalogueItem::TYPE_LABOUR,
             'description' => $attributes['description'] ?? $catalogueItem?->name ?? '',
-            'unit' => $attributes['unit'] ?? $catalogueItem?->unit,
+            'unit' => $attributes['unit'] ?? $catalogueItem?->catalogueUnit?->name,
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $unitPrice !== null ? round($quantity * (float) $unitPrice, 2) : null,

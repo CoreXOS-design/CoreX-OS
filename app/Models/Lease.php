@@ -127,6 +127,22 @@ class Lease extends Model
         return $this->renewalDrafts()->exists();
     }
 
+    /**
+     * rental-renewals.md — a renewal draft the agent explicitly cancelled
+     * for this term. rentals:prepare-renewal-drafts checks this so a
+     * cancelled draft is never silently re-created on its next run — only
+     * an agent explicitly using "Renew lease" creates another one.
+     */
+    public function cancelledRenewalDrafts(): HasMany
+    {
+        return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_CANCELLED);
+    }
+
+    public function hasCancelledRenewalDraft(): bool
+    {
+        return $this->cancelledRenewalDrafts()->exists();
+    }
+
     public function tenants(): HasMany
     {
         return $this->hasMany(LeaseTenant::class);
@@ -255,16 +271,38 @@ class Lease extends Model
             return collect();
         }
 
-        $landlords = $this->property->contactsForRole('landlord')
-            ->merge($this->property->contactsForRole('lessor'))
-            ->unique('id')
-            ->values();
+        // Leases list (leases.md §7) eager-loads 'property.contacts' and
+        // calls this per row — Property::contactsForRole() always issues a
+        // fresh query via $this->contacts()->get() regardless of what's
+        // eager-loaded, so it would N+1 on a paginated list. Reuse the
+        // already-loaded collection when present; Property.php itself is
+        // untouched (shared with sales-side callers) — the identical
+        // pivot-role matching (Property::pivotRolesForContactRole()) is
+        // replicated here, scoped to this one call site.
+        $contacts = $this->property->relationLoaded('contacts')
+            ? $this->property->contacts
+            : $this->property->contacts()->get();
+
+        $matchRole = fn (array $roles) => $contacts->filter(function ($c) use ($roles) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $roles, true);
+        })->values();
+
+        $landlords = $matchRole(['landlord'])->merge($matchRole(['lessor']))->unique('id')->values();
 
         if ($landlords->isNotEmpty()) {
             return $landlords;
         }
 
-        return $this->property->contactsForRole('seller_owner');
+        return $matchRole(['seller', 'owner']);
+    }
+
+    /** Leases list (leases.md §7) — same shape as tenantNames(), for the landlord column + export. */
+    public function landlordNames(): string
+    {
+        $names = $this->landlordContacts()->map(fn (Contact $c) => $c->full_name)->filter();
+
+        return $names->isEmpty() ? 'No landlord linked' : $names->implode(', ');
     }
 
     /**

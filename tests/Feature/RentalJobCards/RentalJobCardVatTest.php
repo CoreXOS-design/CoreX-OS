@@ -10,6 +10,8 @@ use App\Models\Contact;
 use App\Models\PerformanceSetting;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
 use App\Models\RentalJobCard;
 use App\Models\RentalVatType;
 use App\Models\RentalWorkOrder;
@@ -67,8 +69,20 @@ final class RentalJobCardVatTest extends TestCase
         // happens in the real agency-provisioning flow) — seed explicitly,
         // same convention every other per-agency seeded list's tests use.
         RentalVatType::seedDefaultsFor($this->agency->id);
+        RentalCatalogueItemType::seedDefaultsFor($this->agency->id);
+        RentalCatalogueUnit::seedDefaultsFor($this->agency->id);
         $this->service = app(RentalJobCardService::class);
         $this->vat = app(RentalJobCardVatService::class);
+    }
+
+    private function partTypeId(?Agency $agency = null): int
+    {
+        return RentalCatalogueItemType::where('agency_id', ($agency ?? $this->agency)->id)->where('kind', 'part')->firstOrFail()->id;
+    }
+
+    private function eachUnitId(?Agency $agency = null): int
+    {
+        return RentalCatalogueUnit::where('agency_id', ($agency ?? $this->agency)->id)->where('name', 'Each')->firstOrFail()->id;
     }
 
     private function makeJobCard(): RentalJobCard
@@ -232,8 +246,8 @@ final class RentalJobCardVatTest extends TestCase
         RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['no_approval_spend_threshold' => 500]);
 
         $catalogueItem = RentalCatalogueItem::create([
-            'agency_id' => $this->agency->id, 'type' => RentalCatalogueItem::TYPE_PART,
-            'name' => 'Geyser element', 'unit' => 'each', 'default_price' => 450, 'sort_order' => 1,
+            'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
+            'name' => 'Geyser element', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 450, 'sort_order' => 1,
             'default_rental_vat_type_id' => $this->standardType()->id, 'created_by_user_id' => $this->admin->id,
         ]);
         $jobCard = $this->makeJobCard();
@@ -266,8 +280,8 @@ final class RentalJobCardVatTest extends TestCase
     {
         $this->agency->update(['vat_registered' => true]);
         $item = RentalCatalogueItem::create([
-            'agency_id' => $this->agency->id, 'type' => RentalCatalogueItem::TYPE_PART,
-            'name' => 'Tap washer', 'unit' => 'each', 'default_price' => 20,
+            'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
+            'name' => 'Tap washer', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 20,
             'default_rental_vat_type_id' => $this->noVatType()->id, 'created_by_user_id' => $this->admin->id,
         ]);
 
@@ -276,5 +290,58 @@ final class RentalJobCardVatTest extends TestCase
 
         $resolvedForFreeText = $this->vat->defaultVatTypeIdFor($this->agency->id, null);
         $this->assertSame($this->standardType()->id, $resolvedForFreeText);
+    }
+
+    // ── Pastel-style enhancement, 2026-10-05 — catalogue default_price is
+    //    always excl-VAT; a job card line picking the item converts it to
+    //    whatever the agency currently captures on lines ──────────────────
+
+    public function test_line_inherits_catalogue_price_converted_to_incl_when_agency_captures_incl(): void
+    {
+        $this->agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_INCL]);
+        \App\Models\PerformanceSetting::set('vat_rate', '15', $this->agency->id);
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
+            'name' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100,
+            'default_rental_vat_type_id' => $this->standardType()->id, 'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $jobCard = $this->makeJobCard();
+        $line = $this->service->addLine($jobCard, ['rental_catalogue_item_id' => $item->id, 'quantity' => 1], $this->admin);
+
+        // Catalogue default_price is 100 excl; agency captures incl -> line unit_price should be 115.
+        $this->assertSame('115.00', (string) $line->unit_price);
+        $this->assertSame($this->standardType()->id, $line->rental_vat_type_id);
+    }
+
+    public function test_line_inherits_catalogue_price_unconverted_when_agency_captures_excl(): void
+    {
+        $this->agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_EXCL]);
+        \App\Models\PerformanceSetting::set('vat_rate', '15', $this->agency->id);
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
+            'name' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100,
+            'default_rental_vat_type_id' => $this->standardType()->id, 'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $jobCard = $this->makeJobCard();
+        $line = $this->service->addLine($jobCard, ['rental_catalogue_item_id' => $item->id, 'quantity' => 1], $this->admin);
+
+        $this->assertSame('100.00', (string) $line->unit_price);
+    }
+
+    public function test_line_inherits_catalogue_unit_and_type_name(): void
+    {
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
+            'name' => 'Screws (box)', 'rental_catalogue_unit_id' => \App\Models\RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Box')->firstOrFail()->id,
+            'default_price' => 50, 'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $jobCard = $this->makeJobCard();
+        $line = $this->service->addLine($jobCard, ['rental_catalogue_item_id' => $item->id, 'quantity' => 2], $this->admin);
+
+        $this->assertSame('Box', $line->unit);
+        $this->assertSame('part', $line->type);
     }
 }

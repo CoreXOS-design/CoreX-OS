@@ -377,3 +377,101 @@ Tests: `tests/Feature/Rentals/RentalCommandCentreServiceTest.php` —
 `test_review_renewal_queue_item_links_to_the_renew_dialog` (plus the pre-existing
 `test_notice_given_tile_is_zero_when_no_lease_has_notice`, renamed from its old "no field exists yet"
 wording now that the field exists).
+
+---
+
+## 13. Johan's three reported faults, fixed (2026-10-05)
+
+Three defects Johan found walking the deployed screen on QA1. All three fixed same day,
+same branch-off-QA1-worktree discipline; `RentalCommandCentreServiceTest.php` grew from 34 to 43
+passing tests.
+
+### 13.1 Needs-action queue — sort, group-by, filter by property and date range
+
+The needs-action queue (§3.2) was a single flat list with no controls at all. It now has four, all
+in the queue panel's own small header form, none of them Alpine (plain `<select onchange="this.
+form.submit()">`/`<input type="date">`, matching this page's existing Alpine-free, `<details>`-only
+design):
+
+- **Sort** (`queue_sort` — `urgency` default/unchanged, `date`, `property`) — orders the merged
+  five-rule result. `RentalCommandCentreService::queueItems()`'s own closing `match()` picks the
+  comparator; `'urgency'` is the EXACT pre-existing `sortBy([['urgency','asc'],['age_days','desc']])`,
+  kept as the default per Johan's own instruction not to drop the existing ordering.
+- **Group by** (`queue_group_by` — `none` default/unchanged, `property`, `date`) — a NEW
+  `RentalCommandCentreService::groupQueueItems()`. `property` buckets items under the property they
+  belong to (heading = that property's own `buildDisplayAddress()`, items nested under it — the
+  per-row property-address line is suppressed inside this mode since the heading already names it,
+  via `_queue-row.blade.php`'s `$hidePropertyLine`). `date` buckets by each item's own `item_date`
+  (new field on every pushed item — the SAME column already used for that rule's `age_days`:
+  `end_date` for the two lease-expiry rules, `reported_at` for faults, `updated_at` for overdue work
+  orders, `start_date` for start-inspection) into `Overdue` / a real calendar date / `No date`,
+  ascending, overdue first. `none` is the untouched original flat list — kept, not replaced, exactly
+  as Johan asked.
+- **Filter by property** (`queue_property_id`) and **filter by date range** (`queue_date_from`/
+  `queue_date_to`) — pushed into EACH of the five rule queries' own `WHERE` clause (never a
+  post-fetch PHP filter), sitting on top of the SAME `applyPropertyIdScope()` own/branch/all
+  predicate every rule already used — a user cannot request another agent's/branch's property id to
+  see past their own scope ceiling (`test_queue_property_filter_cannot_escape_own_scope`). The
+  property dropdown's options are derived from the SAME date-filtered (but not yet property-
+  filtered) scoped set, so it only ever offers properties that genuinely have a queue item right now.
+- **Remembered per user** — `queue_group_by`/`queue_sort` persist via the existing
+  `RentalCommandCentreUserPreference` JSON-blob mechanism (same table `queue_collapsed` already
+  uses; two new keys added to `DEFAULTS`). Unlike `queue_collapsed` (client-side toggle + a separate
+  async `POST /preference` call), the write happens INLINE in `RentalCommandCentreController::
+  resolveQueuePreference()` during the normal page GET: an explicit `queue_group_by`/`queue_sort` in
+  the query string wins AND is saved for next time; omitted, it falls back to the user's last saved
+  choice. This needed no second round-trip because changing either already requires a full
+  server-side re-group/re-sort, unlike collapse which is pure CSS. The property/date-range filters
+  are NOT remembered — they behave like the table's own existing filters (query-string-driven,
+  reset on a fresh visit), which is the existing pattern this page already uses for `q`/`status`/
+  `agent_id`/etc.
+- **Pagination** — unchanged (8/page) when ungrouped. When grouped, pagination is by GROUP (8
+  groups/page, via the same `paginateCollection()` helper applied to the group collection instead of
+  the item collection) — a group is the unit an agent reads together.
+
+Tests: `test_queue_filter_by_property_narrows_to_that_propertys_items_only`,
+`test_queue_property_filter_cannot_escape_own_scope`,
+`test_queue_date_range_filters_against_each_rules_own_date_column`,
+`test_queue_sort_by_date_orders_soonest_item_date_first_nulls_last`,
+`test_queue_sort_by_property_orders_alphabetically_by_address`,
+`test_group_queue_items_by_property_nests_that_propertys_items_under_it`,
+`test_group_queue_items_by_date_buckets_overdue_separately_from_future`,
+`test_group_queue_items_none_returns_the_existing_flat_list_unchanged`,
+`test_queue_group_by_and_sort_choice_is_remembered_per_user`.
+
+### 13.2 Full-table search bar — one line at normal desktop widths
+
+The §4 filter form (search, status, agent, branch, lease-end date range, per-page, Filter, Clear)
+wrapped onto two lines at normal desktop widths — nine stacked `<label>…<br><input>` blocks at
+`px-3 py-2` text-xs each, with no ceiling on their combined width. Fixed by dropping the visible
+stacked labels in favour of `placeholder`/`aria-label` (same information, no vertical label row),
+shrinking padding to `px-2 py-1` and giving every control an explicit, narrow width, and switching
+the row from `flex-wrap` to `flex-nowrap` with a LOCAL `overflow-x-auto` safety net on the form
+itself (never the page) — so a pathologically narrow case scrolls horizontally inside the bar
+instead of wrapping to a second line, which was the actual defect. No helper/instructional text was
+added anywhere in this fix, per the instruction.
+
+### 13.3 Row "Actions ▾" popup — stacking/overflow fixed as a class
+
+Clicking a row's "Actions ▾" button opened a popup that rendered behind OTHER rows' own sticky
+Actions cell, and could clip near the bottom of the table's `overflow-x-auto` wrapper — both
+symptoms of the same root cause: the popup was positioned relative to its own row, which sits
+inside a scrolling/clipping container alongside other `position: sticky` cells. Fixed once, for
+EVERY row (a `querySelectorAll('.rcc-actions-menu')` loop in `index.blade.php`'s existing script
+block, not a per-row fix), by switching the open popup to `position: fixed` with coordinates
+computed from its own `<summary>` button's `getBoundingClientRect()` — this escapes the table's
+clipping box and any sticky-column stacking entirely, the standard pattern for a dropdown inside a
+scrolling table. Opening a menu also closes any other open one. The computed position flips upward
+when opening downward would overflow the viewport bottom — covering "the last rows near the bottom
+edge" explicitly, the case Johan named. No PHPUnit test (this is real-browser DOM/CSS behaviour,
+outside what a server-rendered-HTML assertion can see) — per Standard −1s/−1r, a lane does not
+build a browser verification harness for this; Johan verifies it directly on QA1.
+
+### 13.4 "Expiring in window" — confirmed already agency-configurable (no change needed)
+
+Checked before building anything else (Johan's question A1): `expiry_notice_window_days` on
+`lease_settings` (`LeaseSetting::expiryNoticeWindowDaysFor()`, default 60) was ALREADY a genuine
+per-agency setting, set on screen at **Settings → Rental/Lease Settings**
+(`/corex/settings/leases`, `LeaseSettingsController`) and also offered in the Agency Onboarding
+Setup Wizard (`config/agency-onboarding-copy.php`). Non-negotiable #9/§10a's "make it a setting if
+it isn't one" did not apply — it already was one, built before this fix round. No code change.
