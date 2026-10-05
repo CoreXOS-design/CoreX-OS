@@ -84,7 +84,19 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $this->assertSame($this->property->id, $ownLease->property_id);
     }
 
-    public function test_store_ignores_a_property_id_that_does_not_match_the_posted_lease_and_uses_the_leases_own_property(): void
+    /**
+     * Updated 2026-10-05 after merging origin/QA1 (7cd2848d5) — the Staging
+     * audit (L2) independently added `Rule::exists('leases','id')->where
+     * ('property_id', $propertyId)` to THIS controller's store() validation,
+     * which now REJECTS a mismatched lease/property pair outright (422/
+     * redirect-with-errors) before my own "lease wins, correct and proceed"
+     * block ever runs — a stricter guard than mine, same goal. My block is
+     * harmless dead code here now (kept per instruction — see the spec note
+     * on this merge); RentalJobCardController::store() has no such
+     * validation rule, so the identical guard there (tested below) is still
+     * the one actually doing the work.
+     */
+    public function test_store_rejects_a_property_id_that_does_not_match_the_posted_lease(): void
     {
         $otherLease = $this->lease($this->otherProperty);
 
@@ -99,15 +111,8 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
             'description' => 'Leaking tap.',
         ]);
 
-        $response->assertRedirect();
-        $jobCard = \App\Models\RentalJobCard::firstWhere('title', 'ZZ TEST job card walk - leaking tap');
-        $this->assertNotNull($jobCard);
-
-        // The lease wins (Johan's ruling) — property_id is corrected to the
-        // lease's OWN property, never left pointed at the mismatched one.
-        $this->assertSame($otherLease->id, $jobCard->lease_id);
-        $this->assertSame($this->otherProperty->id, $jobCard->property_id);
-        $this->assertSame($this->otherProperty->id, $jobCard->workOrder->property_id);
+        $response->assertSessionHasErrors('lease_id');
+        $this->assertNull(\App\Models\RentalJobCard::firstWhere('title', 'ZZ TEST job card walk - leaking tap'));
     }
 
     public function test_job_card_controller_store_applies_the_same_lease_wins_guard(): void
