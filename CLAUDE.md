@@ -351,6 +351,7 @@ The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, mis
 - **A test command that takes >60s during active work is a rule violation. Kill it and target one file.** Do NOT run `tests/Feature/<Module>` directories, `php artisan test` with no path, or `scripts/dev-check.ps1` mid-task.
 - **The full sweep runs ONLY when Johan explicitly says so, or at final merge.** Never infer permission from "I want to be thorough" — thoroughness here means the right single file, not the whole tree.
 - When you need to know whether a failure is yours vs baseline: reason about it from the diff (does my change touch the asserted value?), do NOT run the suite to find out.
+- **ALL test runs go through `scripts/lane-test.sh <files>` — never call `php8.2 artisan test` or `vendor/bin/phpunit` directly.** Six+ lanes share one MySQL instance; `lane-test.sh` takes the shared `/tmp/corex-lane-test.lock`, prints who's holding it and for how long while you wait, and self-heals your worktree's `TEST_DB_DATABASE` schema (recreates + bootstraps from `database/schema/mysql-schema.sql`) if it's missing — e.g. after a disk clean-up drops idle `hfc_dash_test_*` schemas. `scripts/lane-test.sh --status` checks the queue without joining it. Never run two test processes against your own worktree database at once (Standard −1k), and never kill another lane's run through this lock — see `.ai/STANDARDS.md` Standard −1x for the full contract.
 
 ---
 
