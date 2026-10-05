@@ -2725,10 +2725,10 @@ only scrollers), floor lowered to 120px, height floored to whole pixels, and the
 anything above the panels changes size (ResizeObserver) and after fonts load. Below 1024px nothing
 changes — stacked page scroll. Verified 1366 and 1920 wide, 560–1080 tall, at 1× / 1.1× / 1.25× / 1.5×.
 
-**Known, not changed (outside this scope — reported):** the same "reload jumps to top" happens on the
-other forms of this screen (task add/rename/archive, crew assign, schedule, sign-offs — one
-`data-keep-scroll` attribute each); adding or archiving a line on a quoted/completed card is still
-allowed by the screen and the add path does not freeze the new line's VAT figures.
+**Known, not changed (outside this scope — reported; ALL RESOLVED in §14.21 below):** the same "reload
+jumps to top" happens on the other forms of this screen (task add/rename/archive, crew assign, schedule,
+sign-offs — one `data-keep-scroll` attribute each); adding or archiving a line on a quoted/completed card
+is still allowed by the screen and the add path does not freeze the new line's VAT figures.
 
 **Tests:** `tests/Feature/RentalJobCards/RentalJobCardLineEditTest.php` — every editable field persists
 and totals/subtotal/VAT breakdown follow; a different item re-copies its code, free text clears it, an
@@ -2817,6 +2817,40 @@ column or VAT line anywhere (unchanged). When the agency captures prices INCLUDI
 header reads "Unit price (incl VAT)" so the row still adds up.
 
 No new permission or setting (actions on an existing record) — nothing for the Setup Wizard.
+
+**Found while click-proving, handled:** the task TICK checkbox cancelled its own click
+(`onclick="return false"`), so ticking only worked on the padding around the box. The box now submits
+the form itself (`onclick="event.preventDefault(); this.form.requestSubmit();"` — `requestSubmit()` keeps
+the `data-keep-scroll` handler); the state shown always comes from the server after the reload.
+
+**Found while click-proving, REPORTED NOT FIXED (outside this scope):** the "Set" button on Schedule
+returns a 500 whenever a date is filled in — `RentalJobCardController::schedule()` hands the validated
+date STRINGS to `RentalJobCard::schedule(?\DateTimeInterface …)` (`app/Models/RentalJobCard.php`), which
+rejects a string with a TypeError. Blank dates work. One-line fix (parse to Carbon) awaiting an explicit go.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardFollowUpsTest.php` (25 cases) — every card form carries
+`data-keep-scroll` and the tick box submits; task actions flash `jc_focus_task`; a completed AND a
+cancelled card refuses every add / edit / archive / restore / tick / rename on lines and tasks, changes
+nothing, and the service itself refuses (not only the controller); the closed screen renders none of the
+controls and the mobile tick is a clean 422; a line added after sending has its VAT snapshot and is in the
+totals, and `breakdown()` never skips an unfrozen line; first send = Rev 1, re-send = Rev 2 superseding
+Rev 1 (kept, not deleted, one current quote, Rev 2 totals include the post-send line); "changed since
+sent" appears after any edit and clears on re-send; a recorded owner approval of Rev 1 does not carry
+over (over-limit Rev 2 is pending, card back to Quoted, `approval_superseded` logged); a superseded
+revision cannot be re-selected; the revised-quote mail goes to the landlord only; a closed card cannot
+send; quote download is scoped to its card and agency; the migration back-fill labels legacy multi-send
+quotes 1..n; the printouts drop the VAT type column and show per-line / subtotal / total VAT amounts
+(several rates add a Total VAT line; a non-VAT agency shows none; incl-capture labels the unit price);
+real dompdf output still renders.
+
+**Files:** `database/migrations/2026_10_08_120000_add_revisions_to_rental_work_order_quotes_table.php`
+(new), `app/Models/{RentalJobCard,RentalWorkOrderQuote,RentalWorkOrder}.php`,
+`app/Services/Rentals/{RentalJobCardService,RentalJobCardVatService,RentalDocumentPdfService}.php`,
+`app/Http/Controllers/CoreX/RentalJobCardController.php` (+ `downloadQuote`, `refuseIfClosed`),
+`app/Http/Controllers/Api/MobileRentalJobCardController.php`, `app/Mail/Rentals/RentalWorkOrderOwnerMail.php`,
+`resources/views/corex/rental-job-cards/{show,_lines-table,_pdf-lines-table,print,quote-pdf}.blade.php`,
+`resources/views/emails/rentals/work-order-owner.blade.php`, `routes/web.php`
+(`corex.rental-job-cards.quotes.download`).
 
 ---
 
