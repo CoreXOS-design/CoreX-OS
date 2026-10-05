@@ -24,7 +24,10 @@
 @endphp
 
 @section('content')
-<div class="p-6 space-y-4">
+<div class="p-6 space-y-4" x-data="rentalFaultReportsPropertyFilter({{ Js::from([
+    'propertyId' => $filteredProperty?->id ?? ($filters['property_id'] ?? ''),
+    'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
+]) }})">
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Fault Reports</h1>
         @permission('rental_fault_reports.create')
@@ -98,6 +101,23 @@
                 @endforeach
             </select>
         </div>
+        <div class="relative">
+            <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
+            {{-- Only properties with a fault report visible to this user —
+                 never every rental property (that's the create form's own
+                 job, unaffected). --}}
+            <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
+                   placeholder="Search properties by address…"
+                   class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <input type="hidden" name="property_id" x-model="selectedPropertyId">
+            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto bg-white" style="border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
+                <template x-for="p in propertyResults" :key="p.id">
+                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">
+                        <span x-text="p.label"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Outcome</label><br>
             <select name="outcome" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -116,10 +136,30 @@
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'outcome', 'date_from', 'date_to']))
+        @if(request()->hasAny(['q', 'status', 'outcome', 'property_id', 'date_from', 'date_to']))
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
+
+    <script>
+    function rentalFaultReportsPropertyFilter(old) {
+        old = old || {};
+        return {
+            propertyQuery: old.propertyLabel || '', propertyResults: [],
+            selectedPropertyId: old.propertyId || '',
+            async searchProperties() {
+                if (this.propertyQuery.length < 2) { this.propertyResults = []; return; }
+                const res = await fetch('{{ route('corex.rental-fault-reports.search-properties', ['archived' => $showArchived ? 1 : 0]) }}&q=' + encodeURIComponent(this.propertyQuery));
+                this.propertyResults = await res.json();
+            },
+            selectProperty(p) {
+                this.selectedPropertyId = p.id;
+                this.propertyResults = [];
+                this.propertyQuery = p.label;
+            },
+        };
+    }
+    </script>
 
     {{-- §"Navigation" — reached via a link (property tab, lease's own page,
          contact's own page), never a dropdown of every property/lease. --}}

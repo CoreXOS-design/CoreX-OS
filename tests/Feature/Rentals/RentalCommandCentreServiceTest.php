@@ -16,6 +16,7 @@ use App\Models\RentalWorkOrder;
 use App\Models\RentalCommandCentreUserPreference;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RentalCommandCentreService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -294,6 +295,44 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertSame(1, $tiles['renewals_in_progress']);
         self::assertSame($tiles['renewals_in_progress'], $filtered->count());
         self::assertSame($renewing->id, $filtered->first()->id);
+    }
+
+    /**
+     * "Cancel renewal draft" — the property drops out of "Renewals in
+     * progress" the moment the draft is cancelled. "Expiring in window" is
+     * independently derived from the same row (end_date within the
+     * reminder window) — the two tiles are NOT mutually exclusive, so a
+     * property can sit in both at once while a draft is pending; this
+     * proves it still sits in "Expiring in window" once the draft is gone,
+     * never a stored/toggled state that would need its own "move" logic.
+     */
+    public function test_cancelling_a_renewal_draft_drops_the_property_from_renewals_in_progress_while_it_stays_in_expiring(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $current = $this->makeActiveLease($agency, $branch, $property, [
+            'end_date' => now()->addDays(10)->toDateString(),
+        ]);
+        $draft = app(LeaseRenewalService::class)->createRenewalTerm($current, [
+            'start_date' => now()->addDays(11)->toDateString(),
+            'rental_amount' => 9900,
+        ], $agent);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $beforeTiles = $this->service->tileCounts($agent, 'all');
+        self::assertSame(1, $beforeTiles['renewals_in_progress']);
+        self::assertSame(1, $beforeTiles['expiring']);
+
+        $rowBefore = $this->service->derivedPropertyQuery($agent, 'all')->first();
+        self::assertSame($draft->id, $rowBefore->pending_renewal_draft_lease_id);
+
+        app(LeaseRenewalService::class)->cancelRenewalDraft($draft, 'Owner decided to sell', $agent);
+
+        $afterTiles = $this->service->tileCounts($agent, 'all');
+        self::assertSame(0, $afterTiles['renewals_in_progress']);
+        self::assertSame(1, $afterTiles['expiring']);
     }
 
     public function test_review_renewal_queue_item_links_to_the_renew_dialog(): void
@@ -787,6 +826,181 @@ final class RentalCommandCentreServiceTest extends TestCase
         // A second user's preference is independent.
         $otherAgent = User::factory()->create(['role' => 'agent']);
         self::assertFalse(RentalCommandCentreUserPreference::stateFor($otherAgent->id)['queue_collapsed']);
+    }
+
+    // ───────────────── 2026-10-05 fix round (B1) — queue sort/group-by/filter ─────────────────
+
+    public function test_queue_filter_by_property_narrows_to_that_propertys_items_only(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $propertyA = $this->makeRentalProperty($agency, $branch, $agent);
+        $propertyB = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeFaultReport($agency, $branch, $propertyA, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        $this->makeFaultReport($agency, $branch, $propertyB, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all', $propertyA->id);
+
+        self::assertCount(1, $items);
+        self::assertSame($propertyA->id, $items->first()['property']->id);
+    }
+
+    /**
+     * The new property filter is a narrowing of the SAME already-scoped
+     * query, never a second, looser one — requesting another agent's
+     * property id while scoped to 'own' must return nothing, not that
+     * agent's item.
+     */
+    public function test_queue_property_filter_cannot_escape_own_scope(): void
+    {
+        [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();
+        $agentTwo = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $propertyTwo = $this->makeRentalProperty($agency, $branch, $agentTwo);
+        $this->makeFaultReport($agency, $branch, $propertyTwo, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+
+        $this->grantScope($agentOne, 'rental_command_centre', 'own', $agency->id);
+        $this->actingAs($agentOne);
+
+        $items = $this->service->queueItems($agentOne, 'own', $propertyTwo->id);
+
+        self::assertCount(0, $items);
+    }
+
+    public function test_queue_date_range_filters_against_each_rules_own_date_column(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $recentFault = $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        RentalFaultReport::where('id', $recentFault->id)->update(['reported_at' => now()->subDays(5)]);
+        $oldFault = $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        RentalFaultReport::where('id', $oldFault->id)->update(['reported_at' => now()->subDays(40)]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all', null, now()->subDays(10)->toDateString(), null);
+        $faultIds = $items->filter(fn ($i) => $i['type'] === 'fault_awaiting_approval')->pluck('route_params.rentalFaultReport');
+
+        self::assertTrue($faultIds->contains($recentFault->id));
+        self::assertFalse($faultIds->contains($oldFault->id));
+    }
+
+    public function test_queue_sort_by_date_orders_soonest_item_date_first_nulls_last(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $soonFault = $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        RentalFaultReport::where('id', $soonFault->id)->update(['reported_at' => now()->subDays(2)]);
+        $laterFault = $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        RentalFaultReport::where('id', $laterFault->id)->update(['reported_at' => now()->subDays(20)]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all', null, null, null, 'date')
+            ->filter(fn ($i) => $i['type'] === 'fault_awaiting_approval')
+            ->values();
+
+        self::assertSame($laterFault->id, $items[0]['route_params']['rentalFaultReport']);
+        self::assertSame($soonFault->id, $items[1]['route_params']['rentalFaultReport']);
+    }
+
+    public function test_queue_sort_by_property_orders_alphabetically_by_address(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $propertyZ = $this->makeRentalProperty($agency, $branch, $agent, ['title' => 'Zebra Lane 1']);
+        $propertyA = $this->makeRentalProperty($agency, $branch, $agent, ['title' => 'Acacia Lane 1']);
+        $this->makeFaultReport($agency, $branch, $propertyZ, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        $this->makeFaultReport($agency, $branch, $propertyA, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all', null, null, null, 'property')->values();
+
+        self::assertSame($propertyA->id, $items[0]['property']->id);
+        self::assertSame($propertyZ->id, $items[1]['property']->id);
+    }
+
+    public function test_group_queue_items_by_property_nests_that_propertys_items_under_it(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL, 'Leaking roof');
+        $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL, 'Broken gate motor');
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all')
+            ->filter(fn ($i) => $i['type'] === 'fault_awaiting_approval');
+        $groups = $this->service->groupQueueItems($items, 'property');
+
+        self::assertCount(1, $groups);
+        self::assertSame($property->buildDisplayAddress(), $groups->first()['heading']);
+        self::assertCount(2, $groups->first()['items']);
+        self::assertEqualsCanonicalizing(
+            ['Leaking roof', 'Broken gate motor'],
+            $groups->first()['items']->pluck('detail')->all()
+        );
+    }
+
+    public function test_group_queue_items_by_date_buckets_overdue_separately_from_future(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        // Rule B (record_outcome) fires for a lease whose end_date is already in
+        // the past — a genuine "overdue" item_date.
+        $this->makeActiveLease($agency, $branch, $property, ['end_date' => now()->subDays(5)->toDateString()]);
+        $futureProperty = $this->makeRentalProperty($agency, $branch, $agent);
+        // Rule A (review_renewal) fires for a lease expiring inside the window —
+        // a genuine future item_date.
+        $this->makeActiveLease($agency, $branch, $futureProperty, ['end_date' => now()->addDays(10)->toDateString()]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all');
+        $groups = $this->service->groupQueueItems($items, 'date');
+
+        self::assertSame('Overdue', $groups->first()['heading']);
+        self::assertTrue($groups->first()['items']->contains(fn ($i) => $i['type'] === 'record_outcome'));
+        self::assertTrue($groups->last()['items']->contains(fn ($i) => $i['type'] === 'review_renewal'));
+    }
+
+    public function test_group_queue_items_none_returns_the_existing_flat_list_unchanged(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $items = $this->service->queueItems($agent, 'all');
+
+        self::assertSame($items->all(), $this->service->groupQueueItems($items, 'none')->all());
+    }
+
+    public function test_queue_group_by_and_sort_choice_is_remembered_per_user(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $this->get(route('corex.rentals.command-centre.index', ['queue_group_by' => 'property', 'queue_sort' => 'date']))
+            ->assertOk();
+
+        self::assertSame('property', RentalCommandCentreUserPreference::stateFor($agent->id)['queue_group_by']);
+        self::assertSame('date', RentalCommandCentreUserPreference::stateFor($agent->id)['queue_sort']);
+
+        // A later visit with NO explicit choice in the query string reuses
+        // the remembered one — proven by rendering successfully with the
+        // grouped-by-property code path active (queueGroups, not queue).
+        $this->get(route('corex.rentals.command-centre.index'))->assertOk();
+        self::assertSame('property', RentalCommandCentreUserPreference::stateFor($agent->id)['queue_group_by']);
     }
 
     // ───────────────────────────── fixtures ─────────────────────────────

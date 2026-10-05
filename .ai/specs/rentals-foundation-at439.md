@@ -387,3 +387,96 @@ directly on `RentalsController`'s now-deleted CRUD routes (`rentals.store`/`.upd
 `.index`). Removed (with an explanatory comment) rather than left to fail — the attack surface
 they guarded (creating/editing a `rentals` row via that controller) no longer exists for any agency
 to attack. No other test file referenced anything retired in this round.
+
+---
+
+## 11. QA1-walk follow-up, 2026-10-05 — Job Cards create button; list-filter property picker, qualifying properties only
+
+Three items Johan found testing QA1. §4 above still has the shared list-standard component itself
+("the Own|Branch|All UI switch... built once, consumed by every later stage") as a separate, not-yet-
+built item — nothing here depends on it or substitutes for it.
+
+### 11.1 Job Cards list had no "New Job Card" button
+
+Every sibling list (Fault Reports → "Report a Fault", Work Orders → "New Work Order") has a create
+button in its header; Job Cards (`rental-job-cards/index.blade.php`) did not — the only header
+control was "Print list". The create screen itself (`corex.rental-job-cards.create`) already works
+fine opened cold (no `property_id`/`lease_id`/`fault_report_id` query param → renders its own
+property picker with nothing pre-selected) — it was simply unreachable from the list. Fixed: added
+`@permission('rental_job_cards.create') <a href="...">New Job Card</a> @endpermission`, same pattern
+and same `corex-btn-primary` class as the other two lists, forwarding `property_id`/`lease_id` from
+the querystring exactly as `rental-work-orders/index.blade.php` already does.
+
+**Found, not fixed (reported per non-negotiable #2 — explicitly out of this item's scope):** the job
+card create screen's own property picker (`rental-job-cards/create.blade.php`, reached only when no
+`property_id`/`lease_id`/`fault_report_id` is pre-supplied) is a plain, unscoped, alphabetical
+`<select>` capped at 500 rows — the exact shape §14.16 item #2 of `rental-work-orders.md` already
+fixed on the Work Order create screen (replaced with a searchable, scoped, debounced picker). Job
+Cards' own create screen was never given the same fix. Flagged for Johan; not changed here because
+the instruction for this round was the list button only, and the create-form picker is explicitly
+the CREATE form's own concern (§11.3 below leaves every create-form picker untouched by design).
+
+### 11.2 Leases list — landlord shown under tenant
+
+See `leases.md` §7.1 for the full writeup (search field, export column, eager-load, the
+never-a-tenant-as-landlord guarantee). Summarised here only because it's part of the same QA1-walk
+round: `Lease::landlordContacts()` (already tenant-safe, AT-444) now reuses an eager-loaded
+`property.contacts` collection instead of re-querying per row.
+
+### 11.3 List-filter property picker — qualifying properties only, one shared mechanism
+
+Johan's finding: the property filter on Leases/Fault Reports/Work Orders/Job Cards "currently offers
+every property" and should only offer properties that actually have a record in that section.
+**Investigated first, per non-negotiable #2/#3 — reported here because what was found differs from
+the premise, not silently reinterpreted:** none of the six rentals list screens (Leases, Fault
+Reports, Work Orders, Job Cards, Inspections, Rental Applications) had a property **dropdown** on
+their list/filter UI at all before this round. `property_id`/`lease_id` filtering existed on Leases/
+Fault Reports/Work Orders already (not Job Cards — added here, see below) but was reachable only via
+a link from elsewhere (the property tab, a lease page, the rental context bar's chips), rendered
+back as a read-only clearable badge, never a dropdown a user could pick from directly. The *only*
+existing "offers every property" dropdown lived on the CREATE forms
+(`RentalWorkOrderController::searchProperties()`, `RentalApplicationController::searchProperties()`,
+plus three inline unscoped `<select>`s on Leases/Fault Reports/Job Cards' own create screens) — which
+the task explicitly says must stay untouched.
+
+**What was built, given that:** a real, user-facing, search-as-you-type property filter was added to
+each of the four named list screens (Leases, Fault Reports, Work Orders, Job Cards) — restricted, from
+the first line of code, to properties that actually have a record in that section visible to the
+acting user. Inspections and Rental Applications were checked and confirmed to have no such dropdown
+either — per the task's own "apply the same rule if they have the same dropdown," nothing was added
+there (no dropdown existed to restrict).
+
+**One shared mechanism** (`App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties`, fix-
+the-class per BUILD_STANDARD §6): `searchQualifyingRentalProperties(Request $request, string
+$sectionModelClass, string $propertyIdColumn = 'property_id')` builds `Property::query()
+->where('listing_type','rental')->visibleTo($user)->whereIn('id', <$sectionModelClass>::query()
+->visibleTo($user, $scope)->when($archived, fn($q) => $q->onlyTrashed())->select($propertyIdColumn)
+->distinct())->searchAddress($term)` — every caller supplies only its own section model class; the
+own/branch/agency scoping (the section's own `scopeVisibleTo()`, the exact same one each list's own
+query already uses), the property-level scoping (`Property::scopeVisibleTo()`), the address search,
+and the archived-state rule can never drift per screen because there is exactly one query shape.
+
+**Per-screen wiring, each a separately-named endpoint so no CREATE-form picker is ever touched:**
+
+| Screen | New endpoint | Section model | Notes |
+|---|---|---|---|
+| Leases | `corex.leases.search-properties` | `Lease` | No existing endpoint of any name — new. |
+| Fault Reports | `corex.rental-fault-reports.search-properties` | `RentalFaultReport` | No existing endpoint — new. |
+| Work Orders | `corex.rental-work-orders.search-filter-properties` | `RentalWorkOrder` | Deliberately NOT `search-properties` — that name is already the CREATE form's own unscoped picker (AT-442 fix #2); reusing it would have broken the create screen's own contract. |
+| Job Cards | `corex.rental-job-cards.search-properties` | `RentalJobCard` | No existing endpoint — new. Job Cards' list also gained a real `property_id` query filter in `index()` itself (it had none before this round) and `$filteredProperty` resolution for the picker's own label pre-fill. |
+
+Each list's filter `<form>` gained the same Alpine widget already proven on the Work Order/Rental
+Application CREATE screens (debounced text input → fetch → click-to-select → hidden `property_id`
+input) — copied verbatim in shape, not reinvented, per the INVESTIGATE → COPY → ADAPT pattern.
+
+**Archived state**: the picker takes the list's own `archived` flag — ticking "Show archived" on the
+list and then searching the picker offers properties with an *archived* record in that section,
+matching what the list itself is currently showing (never a live+archived mix).
+
+**Tests**: `LeaseListStandardTest`, `RentalFaultReportListStandardTest`,
+`RentalWorkOrderListStandardTest`, and the new `RentalJobCardListScreenTest` each cover: only
+qualifying properties returned, cross-agency isolation (another agency's qualifying property never
+appears), own-scope narrowing (Leases), the archived-state split (Fault Reports), and — explicitly —
+that the CREATE form's own picker still offers a property with zero records in that section
+(`RentalWorkOrderListStandardTest::test_create_forms_own_property_picker_still_offers_properties_with_no_work_order`),
+proving item 3 did not regress the thing it was told to leave alone.

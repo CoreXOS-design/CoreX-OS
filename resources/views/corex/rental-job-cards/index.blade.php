@@ -10,10 +10,16 @@
 --}}
 
 @section('content')
-<div class="p-6 space-y-4">
+<div class="p-6 space-y-4" x-data="rentalJobCardsPropertyFilter({{ Js::from([
+    'propertyId' => $filteredProperty?->id ?? ($filters['property_id'] ?? ''),
+    'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
+]) }})">
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Job Cards</h1>
         <div class="flex items-center gap-2">
+            @permission('rental_job_cards.create')
+            <a href="{{ route('corex.rental-job-cards.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs">New Job Card</a>
+            @endpermission
             <a href="{{ route('corex.rental-job-cards.print-list', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print list</a>
         </div>
     </div>
@@ -82,6 +88,23 @@
                 @endforeach
             </select>
         </div>
+        <div class="relative">
+            <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
+            {{-- Only properties with a job card visible to this user — never
+                 every rental property (that's the create form's own job,
+                 unaffected). --}}
+            <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
+                   placeholder="Search properties by address…"
+                   class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <input type="hidden" name="property_id" x-model="selectedPropertyId">
+            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto bg-white" style="border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
+                <template x-for="p in propertyResults" :key="p.id">
+                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">
+                        <span x-text="p.label"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">From</label><br>
             <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -94,7 +117,30 @@
             <input type="checkbox" name="archived" value="1" @checked($showArchived)> Show archived
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        @if(request()->hasAny(['q', 'status', 'assigned_user_id', 'property_id', 'date_from', 'date_to', 'overdue']))
+            <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-btn-outline text-xs">Clear</a>
+        @endif
     </form>
+
+    <script>
+    function rentalJobCardsPropertyFilter(old) {
+        old = old || {};
+        return {
+            propertyQuery: old.propertyLabel || '', propertyResults: [],
+            selectedPropertyId: old.propertyId || '',
+            async searchProperties() {
+                if (this.propertyQuery.length < 2) { this.propertyResults = []; return; }
+                const res = await fetch('{{ route('corex.rental-job-cards.search-properties', ['archived' => $showArchived ? 1 : 0]) }}&q=' + encodeURIComponent(this.propertyQuery));
+                this.propertyResults = await res.json();
+            },
+            selectProperty(p) {
+                this.selectedPropertyId = p.id;
+                this.propertyResults = [];
+                this.propertyQuery = p.label;
+            },
+        };
+    }
+    </script>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-sm">

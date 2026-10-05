@@ -119,9 +119,20 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-landlord-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Landlord not renewing&hellip;</button>
                                 @endif
                             @endif
-                            @permission('leases.cancel')
-                                <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel lease&hellip;</button>
-                            @endpermission
+                            {{-- A draft chained to a previous (renewing) lease is a renewal
+                                 draft — cancelling it is a distinct action from cancelling an
+                                 ordinary lease: it requires a reason, logs who/when/why on BOTH
+                                 this draft and the lease it was drafted from, and tells
+                                 rentals:prepare-renewal-drafts never to silently re-draft it.
+                                 Gated like the renew action (leases.renew, this whole menu's own
+                                 permission), not leases.cancel. --}}
+                            @if($lease->status === 'draft' && $lease->previous_lease_id)
+                                <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel-renewal-draft')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel renewal draft&hellip;</button>
+                            @else
+                                @permission('leases.cancel')
+                                    <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel lease&hellip;</button>
+                                @endpermission
+                            @endif
                         </div>
                     </div>
                 @endif
@@ -153,6 +164,10 @@
                         <p class="text-sm" style="color: var(--text-muted);">CoreX already prepared a renewal draft — R{{ number_format((float) $pendingRenewalDraft->rental_amount, 2) }}/mo from {{ $pendingRenewalDraft->start_date?->format('Y-m-d') }}. Review and send when ready, or start a different one on the renewal screen.</p>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            {{-- Takes the agent straight to the draft's own Lease Hub page,
+                                 where "Cancel renewal draft…" asks for a reason and logs it on
+                                 both leases — one confirmation dialog, not duplicated here. --}}
+                            <a href="{{ route('corex.leases.show', $pendingRenewalDraft) }}" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Cancel renewal draft&hellip;</a>
                             <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="corex-btn-outline text-xs">Start a different renewal</a>
                             @if($pendingRenewalDraft->renewal_draft_flow_id)
                                 <a href="{{ route('docuperfect.esign.step', ['flow' => $pendingRenewalDraft->renewal_draft_flow_id, 'step' => 2]) }}" class="corex-btn-primary text-xs">Review draft</a>
@@ -276,23 +291,48 @@
             @endif
         @endif
 
-        @permission('leases.cancel')
-            <x-modal name="lease-dialog-cancel" :show="$errors->has('cancel_reason')" focusable>
-                <form method="POST" action="{{ route('corex.leases.cancel', $lease) }}" class="p-6 space-y-3">
-                    @csrf
-                    <h2 class="text-lg font-medium">Cancel this lease</h2>
-                    <div>
-                        <label class="text-xs font-medium">Reason for cancellation (required)</label>
-                        <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('cancel_reason') }}</textarea>
-                        <x-input-error :messages="$errors->get('cancel_reason')" class="mt-1" />
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
-                        <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
-                    </div>
-                </form>
-            </x-modal>
-        @endpermission
+        {{-- Mutually exclusive with the renewal-draft modal below: a lease is
+             either an ordinary draft/active lease (this one) or a renewal
+             draft chained via previous_lease_id (the other one), never both
+             — so the two never collide on the shared cancel_reason field. --}}
+        @unless($lease->status === 'draft' && $lease->previous_lease_id)
+            @permission('leases.cancel')
+                <x-modal name="lease-dialog-cancel" :show="$errors->has('cancel_reason')" focusable>
+                    <form method="POST" action="{{ route('corex.leases.cancel', $lease) }}" class="p-6 space-y-3">
+                        @csrf
+                        <h2 class="text-lg font-medium">Cancel this lease</h2>
+                        <div>
+                            <label class="text-xs font-medium">Reason for cancellation (required)</label>
+                            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('cancel_reason') }}</textarea>
+                            <x-input-error :messages="$errors->get('cancel_reason')" class="mt-1" />
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+                        </div>
+                    </form>
+                </x-modal>
+            @endpermission
+        @else
+            @permission('leases.renew')
+                <x-modal name="lease-dialog-cancel-renewal-draft" :show="$errors->has('cancel_reason')" focusable>
+                    <form method="POST" action="{{ route('corex.leases.renewal.cancel-draft', $lease) }}" class="p-6 space-y-3">
+                        @csrf
+                        <h2 class="text-lg font-medium">Cancel this renewal draft</h2>
+                        <p class="text-sm" style="color: var(--text-muted);">This draft (for <a href="{{ route('corex.leases.show', $lease->previous_lease_id) }}" class="underline">lease #{{ $lease->previous_lease_id }}</a>) will be cancelled and kept for history — never deleted. CoreX will not automatically redraft a renewal for that lease again; use "Renew lease" there to start a new one manually.</p>
+                        <div>
+                            <label class="text-xs font-medium">Reason for cancellation (required)</label>
+                            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('cancel_reason') }}</textarea>
+                            <x-input-error :messages="$errors->get('cancel_reason')" class="mt-1" />
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+                        </div>
+                    </form>
+                </x-modal>
+            @endpermission
+        @endif
     @endif
 
     <x-rental-context-bar :lease="$lease" current="lease" />

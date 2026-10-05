@@ -143,4 +143,73 @@ final class RentalFaultReportListStandardTest extends TestCase
             ->assertOk()
             ->assertSee('Faults (2)', false);
     }
+
+    // ── Item 3 — the list screen's own property-filter picker ──────────
+
+    /**
+     * Only properties that actually have a fault report visible to this
+     * user, never every rental property — the unscoped picker stays on
+     * the create screen only (rental-fault-reports/create.blade.php),
+     * unaffected by this endpoint.
+     */
+    public function test_search_properties_only_returns_properties_with_a_visible_fault_report(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $withFault = $this->property($admin, 'Has a fault report');
+        $this->faultReport($withFault, $admin);
+        $withoutFault = $this->property($admin, 'No fault report at all');
+
+        $response = $this->actingAs($admin)->getJson(route('corex.rental-fault-reports.search-properties', ['q' => 'fault']));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id')->all();
+        $this->assertContains($withFault->id, $ids);
+        $this->assertNotContains($withoutFault->id, $ids);
+    }
+
+    public function test_search_properties_never_returns_another_agencys_property(): void
+    {
+        $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
+        $otherBranch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $otherAgency->id]);
+        $otherAdmin = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'admin']);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $otherAgency->id, 'agent_id' => $otherAdmin->id, 'branch_id' => $otherBranch->id,
+            'title' => 'Other agency faulty property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        RentalFaultReport::create([
+            'agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'property_id' => $otherProperty->id,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $otherAdmin->id,
+            'reported_channel' => RentalFaultReport::CHANNEL_IN_PERSON, 'captured_by_user_id' => $otherAdmin->id,
+            'title' => 'Fault', 'description' => 'desc', 'status' => RentalFaultReport::STATUS_REPORTED,
+            'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(),
+            'created_by_user_id' => $otherAdmin->id,
+        ]);
+
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($admin)->getJson(route('corex.rental-fault-reports.search-properties', ['q' => 'faulty']));
+
+        $response->assertOk();
+        $this->assertSame([], $response->json());
+    }
+
+    public function test_search_properties_respects_archived_flag(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $archivedProperty = $this->property($admin, 'Archived fault query');
+        $archivedFault = $this->faultReport($archivedProperty, $admin);
+        $archivedFault->delete();
+        $liveProperty = $this->property($admin, 'Live fault query');
+        $this->faultReport($liveProperty, $admin);
+
+        $live = $this->actingAs($admin)->getJson(route('corex.rental-fault-reports.search-properties', ['q' => 'query']));
+        $liveIds = collect($live->json())->pluck('id')->all();
+        $this->assertContains($liveProperty->id, $liveIds);
+        $this->assertNotContains($archivedProperty->id, $liveIds);
+
+        $archived = $this->actingAs($admin)->getJson(route('corex.rental-fault-reports.search-properties', ['q' => 'query', 'archived' => 1]));
+        $archivedIds = collect($archived->json())->pluck('id')->all();
+        $this->assertContains($archivedProperty->id, $archivedIds);
+        $this->assertNotContains($liveProperty->id, $archivedIds);
+    }
 }

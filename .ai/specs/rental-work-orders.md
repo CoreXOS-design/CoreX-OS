@@ -1408,6 +1408,12 @@ entry under the existing Rentals section, alongside Leases and Rental Inspection
   already used by leases and rental inspections. Direct-URL access to another agency's work order by ID
   is a 404 via the global scope, not a hidden link.
 
+**2026-10-05 QA1-walk follow-up** (`rentals-foundation-at439.md` §11 — full writeup): the property
+filter above is now a real search-as-you-type picker (`corex.rental-work-orders.search-filter-
+properties` — deliberately NOT the existing `search-properties` name, which is the CREATE screen's
+own unscoped picker, AT-442 fix #2, left untouched), restricted to properties with a work order
+visible to this user. Previously `property_id` was reachable only via a link from elsewhere.
+
 ### 6a. Fault reports — a third surface, 2026-09-24 amendment
 
 Same floor, own screens — a fault report is its own record (§3a), not a tab within work orders:
@@ -1420,6 +1426,11 @@ sidebar entry under Rentals alongside Leases, Rental Inspections, and Rental Wor
 sort/filter/pagination/empty-state/scoping floor as §6's work-order list (property, tenant, title/
 description search; reported date default sort; status, outcome, and date-range filters; agency+own/
 branch scoping via `BelongsToAgency`+`AgencyScope`).
+
+**2026-10-05 QA1-walk follow-up** (`rentals-foundation-at439.md` §11): the property filter is now a
+real search-as-you-type picker (`corex.rental-fault-reports.search-properties` — new, this list had
+no endpoint of its own before), restricted to properties with a fault report visible to this user
+and respecting the list's own "Show archived" state.
 
 **Attached to the out-inspection screen** — the piece Johan actually asked for (§3a.5): when an
 out-inspection is open, a "Fault & Repair History" block queries `rental_fault_reports` scoped to
@@ -2189,6 +2200,12 @@ the agency_appoints route.
 - **Direct-URL access by ID is blocked, not just absent from the menu** — every show/edit/action route
   resolves through the global `AgencyScope` + `scopeVisibleTo()`; a cross-agency job card id 404s
   (proven by test, §14.11).
+
+**2026-10-05 QA1-walk follow-up** (see `rentals-foundation-at439.md` §11 for the full writeup): the
+list had no "New Job Card" button at all — added, same pattern as the other two lists. The list also
+gained its own property-filter picker (`corex.rental-job-cards.search-properties`, qualifying
+properties only — only a property with a job card visible to this user, never every rental
+property) and, with it, a real `property_id` query filter in `index()` (it had none before).
 
 Work order detail screen (`rental-work-orders/show.blade.php`) widened from `max-w-3xl` to
 `max-w-7xl` (full-width, per instruction) and now shows a "Job card" block inline when
