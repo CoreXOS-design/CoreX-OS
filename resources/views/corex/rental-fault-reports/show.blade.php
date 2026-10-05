@@ -29,8 +29,11 @@
                 <span class="ds-badge ds-badge-muted">{{ $faultReport->faultType->name }}</span>
             @endif
             <span class="text-xs">
-                @if($faultReport->property)
+                @if($faultReport->property && !$faultReport->property->trashed())
                     <a href="{{ route('corex.properties.show', $faultReport->property->id) }}" style="color:var(--brand-icon,#2563eb);">{{ $faultReport->property->buildDisplayAddress() }}</a>
+                @elseif($faultReport->property)
+                    {{-- A trashed property's own show route 404s under default route-model binding — never a dead link. --}}
+                    <span style="color: var(--text-muted);">{{ $faultReport->property->buildDisplayAddress() }} (archived)</span>
                 @else
                     <span style="color: var(--text-muted);">Unknown property</span>
                 @endif

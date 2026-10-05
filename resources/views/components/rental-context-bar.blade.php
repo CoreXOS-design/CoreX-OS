@@ -27,7 +27,14 @@
 @php
     /** @var \App\Models\Lease|null $lease */
     /** @var \App\Models\Property|null $property */
+    // Deleted-related-record rule (.ai/BUILD_STANDARD.md §4): $lease->property
+    // is withTrashed() now, so this can resolve to an ARCHIVED property
+    // instead of going null — never skip the whole bar just because the
+    // property was archived, but never link to a show route that 404s
+    // under default route-model binding for a trashed record either.
     $property = $property ?? $lease?->property;
+    $propertyTrashed = (bool) $property?->trashed();
+    $leaseTrashed = (bool) $lease?->trashed();
 @endphp
 
 @if($property)
@@ -42,25 +49,26 @@
         $landlordNames = $landlords->isEmpty() ? 'Not linked' : $landlords->map(fn ($c) => $c->full_name)->implode(', ');
         // AT-439 follow-up — same "no dead end" treatment as the Lease Hub
         // (corex/leases/show.blade.php): an empty landlord names a concrete
-        // next step instead of just "Not linked".
-        $landlordLinkRoute = route('corex.properties.show', ['property' => $property, 'tab' => 'contacts']);
+        // next step instead of just "Not linked". Suppressed entirely when
+        // the property is archived — its own contacts tab 404s.
+        $landlordLinkRoute = $propertyTrashed ? null : route('corex.properties.show', ['property' => $property, 'tab' => 'contacts']);
 
         $chips = [
-            'property' => ['label' => 'Property', 'route' => route('corex.properties.show', $property), 'count' => null],
-            'lease' => ['label' => 'Lease', 'route' => $lease ? route('corex.leases.show', $lease) : route('corex.leases.index', ['property_id' => $property->id]), 'count' => null],
+            'property' => ['label' => 'Property' . ($propertyTrashed ? ' (archived)' : ''), 'route' => $propertyTrashed ? null : route('corex.properties.show', $property), 'count' => null],
+            'lease' => ['label' => 'Lease' . ($leaseTrashed ? ' (archived)' : ''), 'route' => $lease ? ($leaseTrashed ? null : route('corex.leases.show', $lease)) : ($propertyTrashed ? null : route('corex.leases.index', ['property_id' => $property->id])), 'count' => null],
             'application' => ['label' => 'Application', 'route' => $lease?->rental_application_id ? route('corex.rental-applications.show', $lease->rental_application_id) : null, 'count' => null],
             'inspections' => ['label' => 'Inspections', 'route' => route('corex.rental-inspections.index', array_filter(['lease_id' => $lease?->id, 'property_id' => $property->id])), 'count' => $inspectionsCount],
             'faults' => ['label' => 'Faults', 'route' => route('corex.rental-fault-reports.index', array_filter(['lease_id' => $lease?->id, 'property_id' => $property->id])), 'count' => $faultsCount],
             'work_orders' => ['label' => 'Work orders', 'route' => route('corex.rental-work-orders.index', array_filter(['lease_id' => $lease?->id, 'property_id' => $property->id])), 'count' => $workOrdersCount],
-            'inventory' => ['label' => 'Inventory', 'route' => route('corex.properties.show', ['property' => $property, 'tab' => 'inventory']), 'count' => $inventoriesCount],
-            'documents' => ['label' => 'Documents', 'route' => route('corex.properties.show', ['property' => $property, 'tab' => 'drive']), 'count' => $documentsCount],
+            'inventory' => ['label' => 'Inventory', 'route' => $propertyTrashed ? null : route('corex.properties.show', ['property' => $property, 'tab' => 'inventory']), 'count' => $inventoriesCount],
+            'documents' => ['label' => 'Documents', 'route' => $propertyTrashed ? null : route('corex.properties.show', ['property' => $property, 'tab' => 'drive']), 'count' => $documentsCount],
             'tenant' => ['label' => $tenantNames, 'route' => null, 'count' => null],
             'landlord' => ['label' => $landlordNames, 'route' => null, 'count' => null],
         ];
     @endphp
     <div class="flex flex-wrap items-center gap-2 rounded-md p-2 text-xs mb-3" style="background: var(--surface-2); border: 1px solid var(--border);">
         @foreach($chips as $key => $chip)
-            @continue(!$chip['route'] && !in_array($key, ['tenant', 'landlord'], true))
+            @continue(!$chip['route'] && !in_array($key, ['tenant', 'landlord', 'property', 'lease'], true))
             @php $isCurrent = $current === $key; @endphp
             @if($chip['route'])
                 <a href="{{ $chip['route'] }}"
@@ -72,7 +80,9 @@
                 <span class="rounded-full px-3 py-1" style="background: var(--surface-1, #fff); border: 1px dashed var(--border); color: var(--text-muted);">
                     @if($key === 'landlord' && $landlords->isEmpty())
                         No landlord linked
-                        <a href="{{ $landlordLinkRoute }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                        @if($landlordLinkRoute)
+                            <a href="{{ $landlordLinkRoute }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                        @endif
                     @else
                         {{ $chip['label'] }}
                     @endif

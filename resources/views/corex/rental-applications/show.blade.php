@@ -40,7 +40,7 @@
         <x-slot name="left">
             <div class="min-w-0">
                 <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
-                    {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
+                    {{ $rentalApplication->contact?->full_name ?? 'Rental Application' }}
                 </h1>
                 {{-- displayStatusLabel() is the one shared place this text is
                      decided — every rental-application status badge calls

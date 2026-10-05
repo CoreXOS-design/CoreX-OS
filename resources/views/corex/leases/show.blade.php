@@ -70,7 +70,7 @@
     {{-- Header: address, status, tenant(s), rent, term, actions. --}}
     <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-            <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
+            <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
                 @if($leaseStateMarker)
@@ -433,16 +433,34 @@
                     <span style="color: var(--text-muted);">Landlord(s):</span>
                     @if($landlords->isEmpty())
                         No landlord linked
-                        <a href="{{ route('corex.properties.show', $lease->property) }}?tab=contacts" class="underline text-xs" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                        {{-- A trashed property can't be navigated to (its own show route 404s under
+                             default route-model binding) — no point offering a dead-end "Link landlord". --}}
+                        @if($lease->property && !$lease->property->trashed())
+                            <a href="{{ route('corex.properties.show', $lease->property) }}?tab=contacts" class="underline text-xs" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                        @elseif($lease->property?->trashed())
+                            <span class="text-xs" style="color: var(--text-muted);">(property archived)</span>
+                        @endif
                     @else
                         {{ $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}
                     @endif
                 </div>
                 @if($lease->previousLease)
-                    <div class="text-xs" style="color: var(--text-muted);">Renewed from <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.</div>
+                    <div class="text-xs" style="color: var(--text-muted);">Renewed from
+                        @if($lease->previousLease->trashed())
+                            lease #{{ $lease->previousLease->id }} (archived).
+                        @else
+                            <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.
+                        @endif
+                    </div>
                 @endif
                 @if($lease->renewedLease)
-                    <div class="text-xs" style="color: var(--text-muted);">Renewed into <a href="{{ route('corex.leases.show', $lease->renewedLease) }}" class="underline">lease #{{ $lease->renewedLease->id }}</a>.</div>
+                    <div class="text-xs" style="color: var(--text-muted);">Renewed into
+                        @if($lease->renewedLease->trashed())
+                            lease #{{ $lease->renewedLease->id }} (archived).
+                        @else
+                            <a href="{{ route('corex.leases.show', $lease->renewedLease) }}" class="underline">lease #{{ $lease->renewedLease->id }}</a>.
+                        @endif
+                    </div>
                 @endif
                 @if($lease->status === 'cancelled')
                     <div class="text-xs" style="color: var(--ds-crimson);">Cancelled {{ $lease->cancelled_at?->format('Y-m-d') }}: {{ $lease->cancel_reason }}</div>

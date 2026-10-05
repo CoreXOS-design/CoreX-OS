@@ -53,7 +53,7 @@
                 @forelse($notices as $notice)
                     <tr style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-2">{{ $notice->sent_at?->format('d M Y H:i') }}</td>
-                        <td class="px-4 py-2">{{ $notice->lease?->property?->buildDisplayAddress() }}</td>
+                        <td class="px-4 py-2">{{ $notice->lease?->property?->buildDisplayAddress() }}{{ $notice->lease?->property?->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-2">{{ ucfirst(str_replace('_', ' ', $notice->notice_type)) }}</td>
                         <td class="px-4 py-2">
                             @if($notice->sent_to_tenant)<span class="ds-badge ds-badge-muted">Tenant</span>@endif

@@ -15,7 +15,7 @@
     <div class="min-w-0">
         <div class="text-xs font-medium truncate">{{ $item['detail'] }}{{ $item['age_days'] > 0 ? ' · ' . $item['age_days'] . 'd' : '' }}</div>
         @unless($hidePropertyLine ?? false)
-        <div class="text-[11px] truncate" style="color: var(--text-muted);">{{ $item['property']?->buildDisplayAddress() ?? 'Unknown property' }}</div>
+        <div class="text-[11px] truncate" style="color: var(--text-muted);">{{ $item['property']?->buildDisplayAddress() ?? 'Unknown property' }}{{ $item['property']?->trashed() ? ' (archived)' : '' }}</div>
         @endunless
     </div>
     <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-[11px] px-2 py-1 flex-shrink-0">{{ $item['label'] }}</a>

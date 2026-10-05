@@ -36,9 +36,10 @@ class RentalNotice extends Model
         'sent_at' => 'datetime',
     ];
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function template(): BelongsTo

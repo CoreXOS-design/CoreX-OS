@@ -164,12 +164,14 @@
             <tbody>
                 @forelse($leases as $lease)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="lease-row-{{ $lease->id }}">
-                    <td class="px-4 py-2">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
+                    <td class="px-4 py-2">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">
                         <div>{{ $lease->tenantNames() }}</div>
                         @if($lease->landlordContacts()->isNotEmpty())
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $lease->landlordNames() }}</div>
-                        @elseif($lease->property)
+                        @elseif($lease->property && !$lease->property->trashed())
+                            {{-- A trashed property's own show route 404s under default route-model
+                                 binding — never offer a dead-end "No landlord linked" link. --}}
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 <a href="{{ route('corex.properties.show', ['property' => $lease->property_id, 'tab' => 'contacts']) }}" class="underline">No landlord linked</a>
                             </div>

@@ -219,7 +219,7 @@
             <tbody>
                 @forelse($workOrders as $workOrder)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="work-order-row-{{ $workOrder->id }}">
-                    <td class="px-4 py-2">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
+                    <td class="px-4 py-2">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->title }}</td>
                     <td class="px-4 py-2">
                         @if($showArchived)

@@ -150,7 +150,7 @@
             <tbody>
                 @forelse($inspections as $inspection)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="rental-inspection-row-{{ $inspection->id }}">
-                    <td class="px-4 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
+                    <td class="px-4 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">{{ $inspection->lease?->tenantNames() ?? '—' }}</td>
                     <td class="px-4 py-2">{{ ucfirst(str_replace('_', '-', $inspection->type)) }}</td>
                     <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
