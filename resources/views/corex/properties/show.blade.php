@@ -4280,11 +4280,11 @@
                  invited from here too, same mechanism as the Lease Hub. --}}
             @unless($isNew)
                 @php
-                    // AT-445 regression (2026-10-05, 6b14f9e4c) — the inline
-                    // @php(...) form's own extraction regex is NOT paren-
+                    // AT-445 regression (2026-10-05, 6b14f9e4c) -- the inline
+                    // one-liner form's own extraction regex is NOT paren-
                     // balance-aware: it closes the directive at the FIRST
                     // literal ')' it finds, which here was leases()'s own
-                    // empty parens — not the one actually closing this
+                    // empty parens -- not the one actually closing this
                     // statement. Everything from ->where(...) onward was
                     // left as literal, uncompiled text, and because Blade's
                     // single-pass compiler had already moved past this
@@ -4292,8 +4292,12 @@
                     // panel (lease_period, showLeaseType, has_deposit, the
                     // AT-402/rental-work-orders/rentals-faults-work-orders
                     // comments) rendered as raw Blade source instead of
-                    // compiling. Block form has no such regex — @endphp is
-                    // a literal token match, not a paren count.
+                    // compiling. Block form has no such regex -- the closing
+                    // php-block tag is a literal token match, not a paren
+                    // count. IMPORTANT: never write the literal opening or
+                    // closing php-block tag name inside ANY comment in this
+                    // file -- Blade extracts raw php blocks BEFORE stripping
+                    // comments, so the token is live even inside a comment.
                     $currentLease = $property->leases()->where('status', 'active')->first();
                 @endphp
                 <div class="rounded-md p-4 space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -4469,11 +4473,12 @@
                      below (those are the property's ASKING terms; a lease's
                      rental_amount is the AGREED terms for a specific tenancy —
                      leases.md §6 is explicit these are not the same fact). --}}
-                {{-- Block form, never the one-liner @php(...) -- see this file's own
+                {{-- Block form, never the inline one-liner -- see this file's own
                      AT-243/AT-252 comment ~280 lines below (Linked Contacts section)
                      for exactly why: the one-liner has no guard in Blade's raw-PHP
-                     extraction regex and swallows every line up to the next @endphp
-                     in the whole file. --}}
+                     extraction regex and swallows every line up to the next closing
+                     php-block tag in the whole file. (Never write the literal php-block
+                     tag names inside any comment here -- see the AT-445 comment above.) --}}
                 @php
                     $activeLease = \App\Models\Lease::where('property_id', $property->id)->where('status', 'active')->with('tenants.contact')->first();
                 @endphp
@@ -9322,16 +9327,16 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($linkedContacts as $c)
-                {{-- Keep this a block, never the one-liner form. (The @@ below are Blade
-                     escapes — they must NOT become live directives inside this comment.)
-
-                     Blade lifts raw PHP out with /(?<!@)@@php(.*?)@@endphp/s BEFORE it
-                     strips comments or compiles directives, and that regex has no guard
-                     for the @@php(...) one-liner. So a lone one-liner is read as a block
-                     OPENER and swallows every line up to the next @@endphp in the file.
-                     Here it reached the History tab's block ~280 lines below, so that
-                     tab's @@if never compiled and the page died on "unexpected endif" —
-                     the entire property page 500'd. (AT-243 regression, fixed in AT-252.) --}}
+                {{-- Keep this a block, never the one-liner form. Never write the literal
+                     opening or closing php-block tag name inside ANY comment in this
+                     file, even doubled -- Blade lifts raw PHP out BEFORE it strips
+                     comments or compiles directives, and that extraction has no guard
+                     for the one-liner form: a lone one-liner is read as a block OPENER
+                     and swallows every line up to the next closing tag it finds anywhere
+                     in the file, comment or not. Here it reached the History tab's block
+                     ~280 lines below, so that tab's conditional never compiled and the
+                     page died on "unexpected endif" -- the entire property page 500'd.
+                     (AT-243 regression, fixed in AT-252.) --}}
                 @php
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp
