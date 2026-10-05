@@ -337,6 +337,16 @@ final class RentalInspectionFollowUpTest extends TestCase
         $this->assertSame(2, RentalWorkOrder::count(), 'obsA\'s existing work order must not be duplicated — only obsB gets a new one.');
     }
 
+    /**
+     * Just-merged origin/QA1 audit fix (f057e8dd2, "Audit M1") added
+     * RentalInspection::resolveRouteBinding(), scoping the route-model
+     * binding itself through scopeVisibleTo() — an out-of-scope id now
+     * resolves to NO model at all (404) before this controller's own
+     * guardRentalRecordScope() is ever reached, same as every other
+     * RentalInspectionController action (RentalInspectionScopeGuardTest's
+     * own assertNotFound() calls, not assertForbidden()). This test follows
+     * that same, now-standard expectation.
+     */
     public function test_an_out_of_scope_user_cannot_raise_a_fault_report_from_this_inspection(): void
     {
         $other = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
@@ -356,7 +366,7 @@ final class RentalInspectionFollowUpTest extends TestCase
 
         $this->actingAs($other)
             ->post(route('corex.rental-inspections.follow-up.fault-reports', $inspection), ['observation_ids' => [$observation->id]])
-            ->assertForbidden();
+            ->assertNotFound();
 
         $this->assertSame(0, RentalFaultReport::count());
     }
