@@ -576,6 +576,12 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
         Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
 
+        // Pre-check (.ai/specs/deeds-capture.md §9) — called BEFORE the extension
+        // reveals an owner ID (CMA Info's paid, R3-per-ID step). Read-only; mirrors
+        // the check-search precedent above.
+        Route::post('/deeds-capture/check-duplicate', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'checkDuplicate'])->name('v1.deeds-capture.check-duplicate');
+        Route::post('/deeds-capture/check-duplicate/decision', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'logPrecheckDecision'])->name('v1.deeds-capture.check-duplicate.decision');
+
         // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
         Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
 
