@@ -110,6 +110,35 @@
             </div>
         </div>
 
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Active rental stock (Command Centre)</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The Rentals Command Centre's "Unoccupied" tile counts a vacant
+                    property only if its status is one of these — tick every status
+                    that still counts as live, available rental stock for your agency.
+                    Anything else with no active lease (withdrawn, expired, sold, let
+                    out elsewhere, etc.) shows under "Inactive / off market" instead.
+                </p>
+                <input type="hidden" name="active_rental_statuses_present" value="1">
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    @foreach($allowedPropertyStatuses as $statusSlug)
+                        <label class="flex items-center gap-2 text-sm">
+                            <input type="checkbox" name="active_rental_statuses[]" value="{{ $statusSlug }}"
+                                   @checked(in_array($statusSlug, old('active_rental_statuses', $activeRentalStatuses), true))>
+                            {{ ucwords(str_replace('_', ' ', $statusSlug)) }}
+                        </label>
+                    @endforeach
+                </div>
+                <p class="text-xs mt-2" style="color: var(--text-muted);">
+                    Default: {{ implode(', ', array_map(fn ($s) => ucwords(str_replace('_', ' ', $s)), $activeRentalStatusesDefault)) }}
+                    — the same "on market" definition CoreX already uses for your Properties list.
+                </p>
+            </div>
+        </div>
+
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>

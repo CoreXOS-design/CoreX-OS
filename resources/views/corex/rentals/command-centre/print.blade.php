@@ -45,7 +45,13 @@
 
 <div class="tiles">
     @foreach($tiles as $key => $label)
-        <div class="tile"><div class="n">{{ number_format((int) $tileCounts[$key]) }}</div><div class="l">{{ $label }}</div></div>
+        {{-- Round 7 (2026-10-05) — open_faults/open_work_orders are record-based:
+             tileCounts() returns ['properties' => M, 'records' => N] for these two. --}}
+        @php
+            $isRecordBased = is_array($tileCounts[$key]);
+            $bigNumber = $isRecordBased ? $tileCounts[$key]['records'] : (int) $tileCounts[$key];
+        @endphp
+        <div class="tile"><div class="n">{{ number_format($bigNumber) }}</div><div class="l">{{ $label }}{{ $isRecordBased ? ' (on ' . $tileCounts[$key]['properties'] . ')' : '' }}</div></div>
     @endforeach
 </div>
 
