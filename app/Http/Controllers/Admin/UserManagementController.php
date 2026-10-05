@@ -211,6 +211,8 @@ class UserManagementController extends Controller
             'role'          => ['required', Rule::in(Role::roleNames())],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
             'designation'   => ['nullable', 'string', 'max:100'],
+            'full_first_names' => ['nullable', 'string', 'max:150'],
+            'ppra_category'    => ['nullable', 'string', Rule::in(\App\Models\User::PPRA_CATEGORIES)],
             'agent_cut_percent'           => ['nullable', 'numeric', 'min:0', 'max:100'],
             'paye_method'                 => ['nullable', 'in:percentage,fixed'],
             'paye_value'                  => ['nullable', 'numeric', 'min:0'],
@@ -320,6 +322,8 @@ class UserManagementController extends Controller
             'branch_id'                   => ($data['branch_id'] ?? null) ?: null,
             'agency_id'                   => auth()->user()?->effectiveAgencyId(),
             'designation'                 => ($data['designation'] ?? null) ?: null,
+            'full_first_names'            => trim((string) ($data['full_first_names'] ?? '')) ?: null,
+            'ppra_category'               => ($data['ppra_category'] ?? null) ?: null,
             // Agent Activation Gate (.ai/specs/agent-activation-gate.md) — an invited
             // agent stays inactive until they set a password and sign in for the first
             // time. AgencyAdminFirstLoginService flips this on genuine first login. The
@@ -530,6 +534,8 @@ class UserManagementController extends Controller
             'role'          => ['required', Rule::in(Role::roleNames())],
             'branch_id'     => ['nullable', 'integer', 'exists:branches,id'],
             'designation'   => ['nullable', 'string', 'max:100'],
+            'full_first_names' => ['nullable', 'string', 'max:150'],
+            'ppra_category'    => ['nullable', 'string', Rule::in(\App\Models\User::PPRA_CATEGORIES)],
             'agent_cut_percent'           => ['nullable', 'numeric', 'min:0', 'max:100'],
             'paye_method'                 => ['nullable', 'in:percentage,fixed'],
             'paye_value'                  => ['nullable', 'numeric', 'min:0'],
@@ -567,6 +573,8 @@ class UserManagementController extends Controller
         $originalPpraStatus      = $user->getOriginal('ppra_status');
         $originalBranchId        = $user->getOriginal('branch_id');
         $originalIsPrincipalPractitioner = (bool) $user->getOriginal('is_principal_practitioner');
+        $originalFullFirstNames = $user->getOriginal('full_first_names');
+        $originalPpraCategory   = $user->getOriginal('ppra_category');
         $originalCommissionPlan  = [
             'agent_cut_percent'         => $user->getOriginal('agent_cut_percent'),
             'paye_method'               => $user->getOriginal('paye_method'),
@@ -585,6 +593,8 @@ class UserManagementController extends Controller
         $user->is_admin   = in_array($data['role'], ['admin', 'super_admin']) ? 1 : 0;
         $user->branch_id  = ($data['branch_id'] ?? null) ?: null;
         $user->designation = ($data['designation'] ?? null) ?: null;
+        $user->full_first_names = trim((string) ($data['full_first_names'] ?? '')) ?: null;
+        $user->ppra_category    = ($data['ppra_category'] ?? null) ?: null;
         // show_on_website and exclude_from_p24 are managed in edit mode by their
         // own instant AJAX switches, which submit NO field on the main form. Only
         // assign them when the request actually carries the field — otherwise a
@@ -665,6 +675,17 @@ class UserManagementController extends Controller
                 event(new \App\Events\Agent\AgentBranchAssigned(
                     user: $fresh,
                     branch: $branch,
+                    actorUserId: auth()->id(),
+                ));
+            }
+        }
+        foreach (['full_first_names' => $originalFullFirstNames, 'ppra_category' => $originalPpraCategory] as $ppraField => $ppraOriginal) {
+            if ((string) $ppraOriginal !== (string) $fresh->{$ppraField}) {
+                event(new \App\Events\Agent\AgentPpraLetterDetailsChanged(
+                    user: $fresh,
+                    field: $ppraField,
+                    from: $ppraOriginal !== null ? (string) $ppraOriginal : null,
+                    to: $fresh->{$ppraField} !== null ? (string) $fresh->{$ppraField} : null,
                     actorUserId: auth()->id(),
                 ));
             }

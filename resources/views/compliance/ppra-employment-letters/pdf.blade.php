@@ -4,127 +4,81 @@
     <meta charset="UTF-8">
     <title>PPRA Confirmation of Employment — {{ $agent->name }}</title>
     <style>
-        {{-- Header/footer shape borrowed from
-             resources/views/admin/ppra-inspection-pack/letterhead-sample.blade.php
-             (Inspection Pack letterhead pattern) — same layout, same fields,
-             this module's own body content in .body-area. --}}
+        {{-- Reproduces the agency's Word "letter of employment" (.ai/specs/ppra-ffc-employment-letter.md §18).
+             The letterhead is the shared company-header component (Company Settings), not drawn here. --}}
+        @page {
+            size: A4;
+            margin: 14mm 18mm 20mm 18mm;
+            @bottom-right { content: "Page " counter(page) " of " counter(pages); font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #000; }
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #1e293b; }
-        .page { padding: 40px 48px; min-height: 700px; position: relative; }
-        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #0d9488; padding-bottom: 16px; margin-bottom: 24px; }
-        .header img.logo { max-height: 70px; }
-        .header .agency-name { font-size: 18px; font-weight: 700; color: #0f172a; }
-        .header .agency-legal { font-size: 11px; color: #64748b; }
-        .body-area { min-height: 460px; padding-bottom: 90px; }
-        .footer { position: absolute; bottom: 40px; left: 48px; right: 48px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 10px; color: #94a3b8; }
-        .footer .ppra { font-weight: 700; color: #334155; }
-
-        .letter-date { margin-bottom: 18px; }
-        .ppra-address { white-space: pre-line; margin-bottom: 18px; line-height: 1.5; }
-        .letter-re { font-weight: 700; text-transform: uppercase; margin-bottom: 18px; }
-        .letter-body { line-height: 1.6; margin-bottom: 22px; }
-        .mentor-heading { font-weight: 700; margin-bottom: 8px; }
-        table.mentor-table { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
-        table.mentor-table th, table.mentor-table td { border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; font-size: 11px; }
-        table.mentor-table th { background: #f1f5f9; font-weight: 700; }
-
-        .signature-blocks { display: flex; justify-content: space-between; gap: 32px; margin-top: 36px; }
-        .signature-block { width: 46%; }
-        .signature-label { font-weight: 700; margin-bottom: 28px; }
-        .signature-line { border-bottom: 1px solid #1e293b; height: 42px; display: flex; align-items: flex-end; margin-bottom: 4px; }
-        .signature-line img { max-height: 40px; max-width: 100%; }
-        .signature-name { font-weight: 700; font-size: 11px; }
-        .signature-title { font-size: 10px; color: #64748b; }
-        .signature-meta { font-size: 9px; color: #94a3b8; margin-top: 2px; }
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #000; line-height: 1.35; }
+        .letter-date { margin-top: 14pt; margin-bottom: 14pt; }
+        .ppra-address { margin-bottom: 14pt; }
+        .letter-re { font-weight: 700; margin-bottom: 14pt; }
+        .letter-body { margin-bottom: 14pt; }
+        .mentor-heading { font-weight: 700; margin-bottom: 6pt; }
+        table.mentor-table { width: 100%; border-collapse: collapse; margin-bottom: 22pt; }
+        table.mentor-table td { border: 1px solid #000; padding: 4pt 6pt; text-align: left; vertical-align: top; width: 50%; }
+        table.sign-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        table.sign-table td { vertical-align: bottom; padding: 0; }
+        table.sign-table td.gap { width: 8%; }
+        table.sign-table td.col { width: 46%; }
+        .sign-heading { font-weight: 700; }
+        .sign-img-cell { height: 62pt; border-bottom: 1px dashed #000; }
+        .sign-img-cell img { max-height: 58pt; max-width: 100%; display: block; }
+        .sign-name { padding-top: 3pt; vertical-align: top; }
+        .sign-title { font-weight: 700; vertical-align: top; }
     </style>
 </head>
 <body>
-<div class="page">
-    <div class="header">
-        <div>
-            <div class="agency-name">{{ $agency->trading_name ?? $agency->name }}</div>
-            @if($agency->trading_name && $agency->trading_name !== $agency->name)
-                <div class="agency-legal">{{ $agency->name }}</div>
-            @endif
-        </div>
-        @if($agency->logo_path)
-            <img class="logo" src="{{ public_path('storage/' . $agency->logo_path) }}" alt="Logo">
-        @endif
+    {{-- The agency's own letterhead, exactly as Company Settings builds it (branch overrides when the letter is branch-bound). --}}
+    @if($branch)
+        @include('docuperfect.web-templates.components.company-header', ['branch' => $branch, 'logo_url' => $logoData])
+    @else
+        @include('docuperfect.web-templates.components.company-header', ['previewAgency' => $agency, 'logo_url' => $logoData])
+    @endif
+
+    <div class="letter-date">Date {{ $letterDate }}</div>
+
+    <div class="ppra-address">{!! nl2br(e(trim($ppraAddressBlock))) !!}</div>
+
+    <div class="letter-re">RE: CONFIRMATION OF EMPLOYMENT FOR A {{ $ppraCategory }}</div>
+
+    <div class="letter-body">
+        This serves to confirm that ({{ strtoupper(trim($agentFirstNames . ' ' . $agentSurname)) }}), ID number ({{ $agentIdNumber }})
+        seven digit reference number ({{ $agentFfcNumber }}) is in the employ of
+        (<strong>{{ $companyLine }}</strong>) (<strong>{{ $agencyPpraNumber }}</strong>).
     </div>
 
-    <div class="body-area">
-        <div class="letter-date">{{ $letterDate }}</div>
+    <div class="mentor-heading">Mentor's details:</div>
+    <table class="mentor-table">
+        <tr><td>Name</td><td>{{ $principalFirstNames }}</td></tr>
+        <tr><td>Surname</td><td>{{ $principalSurname }}</td></tr>
+        <tr><td>Seven digit reference number:</td><td>{{ $principalFfcNumber }}</td></tr>
+    </table>
 
-        <div class="ppra-address">{{ $ppraAddressBlock }}</div>
-
-        <div class="letter-re">RE: Confirmation of Employment for a {{ $designation }}</div>
-
-        <div class="letter-body">
-            This serves to confirm that ({{ $agent->name }}), ID number ({{ $agentIdNumber }})
-            seven digit reference number ({{ $agentFfcNumber }}) is in the employ of
-            ({{ $agencyLegalName }} t/a {{ $agencyTradingName }}) ({{ $agencyPpraNumber }}).
-        </div>
-
-        <div class="mentor-heading">Mentor's details:</div>
-        <table class="mentor-table">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Surname</th>
-                    <th>Seven digit reference number</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>{{ $principalFirstName }}</td>
-                    <td>{{ $principalSurname }}</td>
-                    <td>{{ $principalFfcNumber }}</td>
-                </tr>
-            </tbody>
-        </table>
-
-        <div>Yours faithfully,</div>
-
-        <div class="signature-blocks">
-            <div class="signature-block">
-                <div class="signature-line">
-                    @if($principalSignatureImage)
-                        <img src="{{ $principalSignatureImage }}" alt="Principal signature">
-                    @endif
-                </div>
-                <div class="signature-name">{{ $principal?->name ?? '' }}</div>
-                <div class="signature-title">Principal Estate Agent</div>
-                @if($principalSignedAt)
-                    <div class="signature-meta">Signed {{ $principalSignedAt }}</div>
-                @endif
-            </div>
-            <div class="signature-block">
-                <div class="mentor-heading" style="margin-bottom:0;">Employment accepted by</div>
-                <div class="signature-line">
-                    @if($agentSignatureImage)
-                        <img src="{{ $agentSignatureImage }}" alt="Agent signature">
-                    @endif
-                </div>
-                <div class="signature-name">{{ $agent->name }}</div>
-                <div class="signature-title">{{ $designation }}</div>
-                @if($agentSignedAt)
-                    <div class="signature-meta">Signed {{ $agentSignedAt }}</div>
-                @endif
-            </div>
-        </div>
-    </div>
-
-    <div class="footer">
-        <div>
-            {{ $agency->trading_name ?? $agency->name }}
-            @if($agency->address) &bull; {{ $agency->address }} @endif
-        </div>
-        <div>
-            @if($agency->phone){{ $agency->phone }} @endif
-            @if($agency->email) &bull; {{ $agency->email }} @endif
-            @if($agencyPpraNumber) &bull; <span class="ppra">PPRA Reg. No: {{ $agencyPpraNumber }}</span> @endif
-        </div>
-    </div>
-</div>
+    <table class="sign-table">
+        <tr>
+            <td class="col sign-heading">Yours faithfully</td>
+            <td class="gap"></td>
+            <td class="col sign-heading">Employment accepted by</td>
+        </tr>
+        <tr>
+            <td class="col sign-img-cell">@if($principalSignatureImage)<img src="{{ $principalSignatureImage }}" alt="Principal signature">@endif</td>
+            <td class="gap"></td>
+            <td class="col sign-img-cell">@if($agentSignatureImage)<img src="{{ $agentSignatureImage }}" alt="Practitioner signature">@endif</td>
+        </tr>
+        <tr>
+            <td class="col sign-name">{{ $principal ? trim($principal->letterFirstNames() . ' ' . $principal->letterSurname()) : '' }}</td>
+            <td class="gap"></td>
+            <td class="col sign-name">{{ trim($agentFirstNames . ' ' . $agentSurname) }}</td>
+        </tr>
+        <tr>
+            <td class="col sign-title">Principal Estate Agent</td>
+            <td class="gap"></td>
+            <td class="col sign-title">{{ $ppraCategoryLabel }}</td>
+        </tr>
+    </table>
 </body>
 </html>
