@@ -215,19 +215,31 @@ class Lease extends Model
      * ONLY definition of this method — the other, AT-440/cc3 copy was
      * removed during a 2026-10-04 QA1 outage (duplicate-declaration 500,
      * 96b4f3ca0) by keeping this (AT-439's canonical contact-role-key,
-     * N-party) version; that emergency pick was about stopping the
-     * redeclare crash, not a design call against the OTHER version's
-     * single-contact `Property::sellerOwnerContact()` fallback — the
-     * outage fix's own commit message flagged the loss explicitly rather
-     * than claiming it was intentional. Restored here (AT-444 follow-up 3,
-     * 2026-10-05, Johan's ruling): a property whose owner is linked only
-     * as seller/owner, with no landlord/lessor pivot role tagged at all,
-     * now still resolves to that one contact — the exact gap flagged
-     * against all three of this method's callers (LeaseController::show()'s
-     * Lease Terms card, RentalDocumentPdfService::leaseTenancyReportPdf(),
-     * the shared rental-context-bar component). Only a true gap — zero
-     * landlord/lessor pivots — falls back; any tagged landlord/lessor
-     * contact is returned as-is, never merged with the fallback.
+     * N-party) version.
+     *
+     * AT-444 (2026-10-05): the 2026-10-04 "AT-444 follow-up 3" revision had
+     * restored a fallback to `Property::sellerOwnerContact()` for a property
+     * with zero landlord/lessor pivots — but that method's own job (AT-105,
+     * PDF Splitter filing) is to guess the SOLE linked contact when none is
+     * tagged seller-side, with NO awareness of whether that sole contact is
+     * actually a tenant. On a property linked ONLY to its tenant, that
+     * fallback returned the tenant AS the landlord — confirmed on QA1,
+     * property 5792 / lease 10 (Andre Roets, the lease's tenant, shown as
+     * both party chips in the rental context bar). `sellerOwnerContact()`
+     * itself is NOT changed here — it is shared with sales-side callers
+     * (PDF Splitter, Deal Register, match-card, Proforma) whose behaviour is
+     * out of scope — this method simply stops calling it.
+     *
+     * The fallback is now a second EXPLICIT role check (seller/owner pivot
+     * tags, via `contactsForRole('seller_owner')`), used ONLY when nothing
+     * is tagged landlord/lessor — never a guess at "the only contact on
+     * file." A contact whose role is tenant/occupant/applicant — anything
+     * other than landlord/lessor/seller/owner — can never be returned
+     * here. A true gap (no contact tagged any of the four roles) returns
+     * an empty collection; every caller (Lease Hub, rental-context-bar,
+     * tenancy report PDF, rental notices, renewal recipients, owner/
+     * landlord-decision-needed mail) already renders "No landlord linked"
+     * / "—" for an empty result rather than inventing one.
      */
     public function landlordContacts(): \Illuminate\Support\Collection
     {
@@ -244,9 +256,7 @@ class Lease extends Model
             return $landlords;
         }
 
-        $fallback = $this->property->sellerOwnerContact();
-
-        return $fallback ? collect([$fallback]) : collect();
+        return $this->property->contactsForRole('seller_owner');
     }
 
     /**

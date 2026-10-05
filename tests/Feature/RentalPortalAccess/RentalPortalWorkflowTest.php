@@ -240,4 +240,115 @@ class RentalPortalWorkflowTest extends TestCase
         $timeline = app(\App\Services\Rentals\LeaseTimelineService::class)->allEntriesFor($this->lease);
         $this->assertTrue($timeline->contains(fn ($e) => $e['type'] === 'rental_notice'));
     }
+
+    /**
+     * AT-444 regression (2026-10-05) — confirmed on QA1, property 5792 /
+     * lease 10: a property linked ONLY to its tenant (no landlord/owner/
+     * seller/lessor contact at all) must never have its tenant mailed a
+     * landlord-addressed notice. Builds its own property/lease (the
+     * class setUp() always attaches a real landlord) so the "only a
+     * tenant" shape is genuine, not incidental.
+     */
+    public function test_notice_to_landlord_sends_nothing_when_the_property_has_only_a_tenant_linked(): void
+    {
+        $property = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->property->branch_id,
+            'title' => 'Tenant-Only Unit', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $lease = Lease::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id,
+            'status' => 'active', 'rental_amount' => 9000, 'deposit_amount' => 9000,
+            'start_date' => now()->subMonth(), 'is_month_to_month' => true, 'lease_type' => 'residential', 'source' => 'manual',
+        ]);
+        $onlyContact = Contact::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $property->branch_id,
+            'first_name' => 'Andre', 'last_name' => 'Roets', 'email' => 'andre+' . uniqid() . '@example.com',
+        ]);
+        $property->contacts()->attach($onlyContact->id, ['role' => 'tenant']);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $onlyContact->id, 'is_primary' => true]);
+
+        $template = RentalNoticeTemplate::create([
+            'agency_id' => $this->agency->id, 'name' => 'Standard Breach', 'notice_type' => RentalNoticeTemplate::TYPE_BREACH,
+            'body_html' => '<p>Arrears are {{arrears_amount}}.</p>', 'is_active' => true,
+        ]);
+
+        app(\App\Services\Rentals\RentalNoticeService::class)->send($lease, $template, ['arrears_amount' => 'R 1,500'], false, true, $this->agent);
+
+        // The tenant is the ONLY contact on the property — if the old
+        // sole-contact fallback were still in play, this assertion fails
+        // because the tenant's own email would have been queued instead.
+        Mail::assertNothingQueued();
+    }
+
+    /**
+     * AT-444 regression (2026-10-05) — RentalPortalScopeService is the
+     * query-layer gate for the tenant/landlord portal (AT-445) and was
+     * independently confirmed NOT to share the sellerOwnerContact() /
+     * landlordContacts() fallback bug: it resolves landlord status purely
+     * from the explicit contact_property pivot role, never from "the only
+     * contact on file." This proves it directly rather than by reading
+     * the source — a tenant-tagged contact must never be treated as a
+     * landlord for portal access, even on a property with no other
+     * contact linked at all.
+     */
+    public function test_tenant_is_never_treated_as_a_landlord_by_the_portal_scope_service(): void
+    {
+        $property = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->property->branch_id,
+            'title' => 'Tenant-Only Unit 2', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $onlyContact = Contact::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $property->branch_id,
+            'first_name' => 'Andre', 'last_name' => 'Roets', 'email' => 'andre2+' . uniqid() . '@example.com',
+        ]);
+        $property->contacts()->attach($onlyContact->id, ['role' => 'tenant']);
+
+        $scope = app(\App\Services\Rentals\RentalPortalScopeService::class);
+
+        $this->assertFalse($scope->isLandlord($onlyContact));
+        $this->assertSame([], $scope->landlordPropertyIds($onlyContact));
+    }
+
+    /**
+     * AT-444 regression (2026-10-05) — the OTHER "owner notification" path
+     * (RentalPortalNotificationService::notifyLandlordDecisionNeeded(),
+     * distinct from RentalNoticeService above) has its own extra fallback
+     * to contactsForRole('landlord'/'lessor') when Lease::landlordContacts()
+     * comes back empty — but it only reaches that safe fallback if
+     * landlordContacts() is actually empty. Before this fix,
+     * landlordContacts() was never empty on a sole-tenant property (the
+     * old fallback always found the tenant), so this safe branch never
+     * ran and the tenant was mailed instead. Proves no mail goes out at
+     * all once landlordContacts() correctly returns empty.
+     */
+    public function test_owner_decision_needed_notification_never_emails_the_tenant_when_property_has_only_a_tenant_linked(): void
+    {
+        $property = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->property->branch_id,
+            'title' => 'Tenant-Only Unit 3', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $lease = Lease::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id,
+            'status' => 'active', 'rental_amount' => 9000, 'deposit_amount' => 9000,
+            'start_date' => now()->subMonth(), 'is_month_to_month' => true, 'lease_type' => 'residential', 'source' => 'manual',
+        ]);
+        $onlyContact = Contact::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $property->branch_id,
+            'first_name' => 'Andre', 'last_name' => 'Roets', 'email' => 'andre3+' . uniqid() . '@example.com',
+        ]);
+        $property->contacts()->attach($onlyContact->id, ['role' => 'tenant']);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $onlyContact->id, 'is_primary' => true]);
+
+        $fault = RentalFaultReport::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id, 'lease_id' => $lease->id,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_TENANT, 'reported_by_contact_id' => $onlyContact->id,
+            'reported_channel' => RentalFaultReport::CHANNEL_APP, 'title' => 'Leak', 'description' => 'Leak',
+            'status' => RentalFaultReport::STATUS_REPORTED, 'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(),
+        ]);
+
+        app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyLandlordDecisionNeeded($fault);
+
+        Mail::assertNothingQueued();
+        Mail::assertNothingSent();
+    }
 }
