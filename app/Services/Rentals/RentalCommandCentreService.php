@@ -602,10 +602,10 @@ class RentalCommandCentreService
                 'route_params' => ['lease' => $lease->id, 'action' => 'renew'],
             ];
 
-            // AT-444 follow-up 3 (2026-10-05) — §5: the scheduled
-            // rentals:prepare-renewal-drafts command already drafted this
-            // (Lease::hasPendingRenewalDraft() is the SAME definition the
-            // "Renewals in progress" tile uses, so the two can never drift).
+            // rental-renewals.md §21 — an agent already started a renewal
+            // for this lease via "Renew lease" (Lease::hasPendingRenewalDraft()
+            // is the SAME definition the "Renewals in progress" tile uses, so
+            // the two can never drift).
             if ($lease->hasPendingRenewalDraft()) {
                 $draft = $lease->renewalDrafts()->first();
                 $items->push($base + [
@@ -618,9 +618,9 @@ class RentalCommandCentreService
             }
 
             // A lease with an outcome already on file (notice either side,
-            // month-to-month) is never drafted by that command — querying
-            // its eligibility here would be wasted work and could label a
-            // lease that is not renewing at all as "missing info".
+            // month-to-month) is not renewing at all — querying its
+            // eligibility here would be wasted work and could mislabel it
+            // "missing info".
             if (!$lease->hasActiveNotice() && !$lease->is_month_to_month) {
                 $agent = $lease->createdByUser;
                 $decision = $agent ? app(RenewalDraftEligibilityService::class)->decide($lease, $agent) : null;
