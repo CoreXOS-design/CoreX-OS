@@ -39,9 +39,13 @@ class PpraEmploymentLetterService
      * array when nothing is missing. Each entry names exactly what's absent
      * and where to go fix it — never a silently blank merge field.
      *
-     * @return list<array{label:string,fix_url:string}>
+     * `fix_url` is null when the viewer cannot act on the fix themselves (the
+     * firm number lives in Company Settings, which needs
+     * manage_performance_settings) — the message is shown without a link.
+     *
+     * @return list<array{label:string,fix_url:?string}>
      */
-    public function missingFieldsFor(User $agent, Agency $agency): array
+    public function missingFieldsFor(User $agent, Agency $agency, ?User $viewer = null): array
     {
         $missing = [];
 
@@ -60,7 +64,13 @@ class PpraEmploymentLetterService
         if (trim((string) ($agency->ppra_number ?? '')) === '') {
             $branch = $agent->effectiveBranchId() ? \App\Models\Branch::find($agent->effectiveBranchId()) : null;
             if (trim((string) ($branch?->ppra_number ?? '')) === '') {
-                $missing[] = ['label' => 'The agency\'s PPRA firm number is not set', 'fix_url' => route('corex.settings')];
+                // Company Settings → Company tab → "PPRA Registration Number" (agencies.ppra_number).
+                $missing[] = [
+                    'label'   => 'The agency\'s PPRA firm number is not set',
+                    'fix_url' => $viewer?->hasPermission('manage_performance_settings')
+                        ? route('admin.company-settings') . '#company'
+                        : null,
+                ];
             }
         }
 
