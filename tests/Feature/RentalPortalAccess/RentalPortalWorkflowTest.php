@@ -235,7 +235,9 @@ class RentalPortalWorkflowTest extends TestCase
             return $mail->hasTo($this->tenant->email);
         });
 
+        // 'rental_notice', not 'notice' — origin/QA1's own renewalEventEntries()
+        // already uses 'notice' for a lease-renewal intent event (no document).
         $timeline = app(\App\Services\Rentals\LeaseTimelineService::class)->allEntriesFor($this->lease);
-        $this->assertTrue($timeline->contains(fn ($e) => $e['type'] === 'notice'));
+        $this->assertTrue($timeline->contains(fn ($e) => $e['type'] === 'rental_notice'));
     }
 }
