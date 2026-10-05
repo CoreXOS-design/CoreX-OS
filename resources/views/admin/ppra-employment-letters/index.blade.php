@@ -8,8 +8,10 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PPRA FFC Employment Letters</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Every Confirmation of Employment letter generated for an FFC renewal.</p>
             </div>
+            @if(auth()->user()->hasPermission('ppra_employment_letters.manage'))
+            <a href="{{ route('admin.ppra-employment-letters.create') }}" class="corex-btn-primary text-xs">New letter</a>
+            @endif
         </div>
     </div>
 
@@ -82,9 +84,15 @@
                 <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">
                     {{ request()->hasAny(['search','status','branch_id','year']) ? 'No letters match this filter' : ($showArchived ? 'No archived letters' : 'No letters yet') }}
                 </h3>
-                <p class="text-sm" style="color:var(--text-muted);">
-                    {{ request()->hasAny(['search','status','branch_id','year']) ? 'Try a different search or filter.' : 'A letter is started by the agent themselves from My Portal > Documents.' }}
-                </p>
+                @if(request()->hasAny(['search','status','branch_id','year']))
+                <p class="text-sm" style="color:var(--text-muted);">Try a different search or filter.</p>
+                @elseif($showArchived)
+                <p class="text-sm" style="color:var(--text-muted);">Nothing has been archived.</p>
+                @else
+                @if(auth()->user()->hasPermission('ppra_employment_letters.manage'))
+                <a href="{{ route('admin.ppra-employment-letters.create') }}" class="corex-btn-primary text-xs inline-block mt-2">New letter</a>
+                @endif
+                @endif
             </div>
         @else
             <table class="w-full text-sm">

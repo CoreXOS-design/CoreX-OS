@@ -1273,6 +1273,17 @@ return [
                 // should have access but agencies can set who can use inventory" —
                 // a sensible broad default, agency-configurable via Role Manager.
                 'rental_inventories.view', 'rental_inventories.create',
+                // PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) —
+                // office_admin had NO config defaults here at all when this feature
+                // shipped (same AT-118 gap this role's own comment above describes),
+                // so an office_admin holding a property-practitioner designation and
+                // their own FFC number (e.g. a "Candidate Property Practitioner") had
+                // no way to see or start their letter — not even the My Portal nav
+                // entry appeared. own scope for .view via scope_defaults fallback;
+                // sign_as_principal only takes effect when combined with the resolved
+                // principal_user_id on a given letter, so granting it broadly here is
+                // safe — same reasoning already used for agent/branch_manager above.
+                'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
             ],
         ],
 
