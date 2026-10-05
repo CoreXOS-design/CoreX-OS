@@ -1613,15 +1613,14 @@
                  pane never rendered — a blank area with no error, for every user, every time. --}}
             @unless($isAssistant ?? false)
             <div x-show="sub.documents === 'ppra_employment_letter'" x-cloak class="pg-pane pg-pane-col">
-                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-primary); margin-bottom:4px;">PPRA FFC Employment Letter</div>
-                <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Confirmation of Employment letter for your FFC renewal — signed by you and the agency's principal.</p>
+                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-primary); margin-bottom:12px;">PPRA FFC Employment Letter</div>
 
                 @if(($ppraLetterMissing ?? []) !== [])
                 <div class="rounded-md" style="font-size:0.75rem; color:var(--ds-amber); background:color-mix(in srgb, var(--ds-amber) 10%, transparent); padding:8px 10px; margin-bottom:10px;">
                     <div style="font-weight:600; margin-bottom:4px;">Before you can start a letter:</div>
                     <ul style="margin:0; padding-left:16px;">
                         @foreach($ppraLetterMissing as $m)
-                        <li><a href="{{ $m['fix_url'] }}" style="color:var(--ds-amber); text-decoration:underline;">{{ $m['label'] }}</a></li>
+                        <li>@if(! empty($m['fix_url']))<a href="{{ $m['fix_url'] }}" style="color:var(--ds-amber); text-decoration:underline;">{{ $m['label'] }}</a>@else{{ $m['label'] }}@endif</li>
                         @endforeach
                     </ul>
                 </div>
