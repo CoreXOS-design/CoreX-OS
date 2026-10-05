@@ -21,6 +21,7 @@ class LeaseEvent extends Model
     public const TYPE_NOTICE_OUTCOME_CHANGED = 'notice_outcome_changed';
     public const TYPE_RENEWAL_DRAFT_CREATED = 'renewal_draft_created';
     public const TYPE_RENEWAL_ACTIVATED = 'renewal_activated';
+    public const TYPE_RENEWAL_DRAFT_CANCELLED = 'renewal_draft_cancelled';
 
     protected $fillable = [
         'lease_id',

@@ -248,6 +248,15 @@ class RentalCommandCentreService
                 '(SELECT COUNT(*) FROM leases pl WHERE pl.previous_lease_id = active_lease.id '
                 . 'AND pl.status = ? AND pl.deleted_at IS NULL) as pending_renewal_draft_count',
                 [Lease::STATUS_DRAFT]
+            )
+            // "Cancel renewal draft" row action — the draft's own id, so the
+            // row can link straight to it without a second query per row.
+            // Same WHERE as pending_renewal_draft_count above; only the
+            // SELECT differs.
+            ->selectRaw(
+                '(SELECT pl2.id FROM leases pl2 WHERE pl2.previous_lease_id = active_lease.id '
+                . 'AND pl2.status = ? AND pl2.deleted_at IS NULL ORDER BY pl2.id DESC LIMIT 1) as pending_renewal_draft_lease_id',
+                [Lease::STATUS_DRAFT]
             );
 
         if ($scope === 'branch') {

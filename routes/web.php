@@ -3371,6 +3371,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->name('corex.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->name('corex.leases.renewal.notice.reverse');
             Route::post('/notice/change-outcome', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'changeNoticeOutcome'])->name('corex.leases.renewal.notice.change-outcome');
+            // Renewal-draft cancellation — {lease} here is the DRAFT itself.
+            Route::post('/cancel-draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'cancelDraft'])->name('corex.leases.renewal.cancel-draft');
         });
 
         Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])

@@ -249,6 +249,9 @@
                                              ignored by the hub if not valid for the lease's current state. --}}
                                         <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'renew']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Renew</a>
                                         <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'tenant-notice']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Record notice</a>
+                                        @if((int) $property->pending_renewal_draft_count > 0 && $property->pending_renewal_draft_lease_id)
+                                        <a href="{{ route('corex.leases.show', $property->pending_renewal_draft_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--ds-red, #dc2626);">Cancel renewal draft</a>
+                                        @endif
                                         @endif
                                         <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
                                         <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>

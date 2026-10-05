@@ -16,6 +16,7 @@ use App\Models\RentalWorkOrder;
 use App\Models\RentalCommandCentreUserPreference;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RentalCommandCentreService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -294,6 +295,44 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertSame(1, $tiles['renewals_in_progress']);
         self::assertSame($tiles['renewals_in_progress'], $filtered->count());
         self::assertSame($renewing->id, $filtered->first()->id);
+    }
+
+    /**
+     * "Cancel renewal draft" — the property drops out of "Renewals in
+     * progress" the moment the draft is cancelled. "Expiring in window" is
+     * independently derived from the same row (end_date within the
+     * reminder window) — the two tiles are NOT mutually exclusive, so a
+     * property can sit in both at once while a draft is pending; this
+     * proves it still sits in "Expiring in window" once the draft is gone,
+     * never a stored/toggled state that would need its own "move" logic.
+     */
+    public function test_cancelling_a_renewal_draft_drops_the_property_from_renewals_in_progress_while_it_stays_in_expiring(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $current = $this->makeActiveLease($agency, $branch, $property, [
+            'end_date' => now()->addDays(10)->toDateString(),
+        ]);
+        $draft = app(LeaseRenewalService::class)->createRenewalTerm($current, [
+            'start_date' => now()->addDays(11)->toDateString(),
+            'rental_amount' => 9900,
+        ], $agent);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $beforeTiles = $this->service->tileCounts($agent, 'all');
+        self::assertSame(1, $beforeTiles['renewals_in_progress']);
+        self::assertSame(1, $beforeTiles['expiring']);
+
+        $rowBefore = $this->service->derivedPropertyQuery($agent, 'all')->first();
+        self::assertSame($draft->id, $rowBefore->pending_renewal_draft_lease_id);
+
+        app(LeaseRenewalService::class)->cancelRenewalDraft($draft, 'Owner decided to sell', $agent);
+
+        $afterTiles = $this->service->tileCounts($agent, 'all');
+        self::assertSame(0, $afterTiles['renewals_in_progress']);
+        self::assertSame(1, $afterTiles['expiring']);
     }
 
     public function test_review_renewal_queue_item_links_to_the_renew_dialog(): void

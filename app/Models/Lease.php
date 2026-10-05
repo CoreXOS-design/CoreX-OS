@@ -127,6 +127,22 @@ class Lease extends Model
         return $this->renewalDrafts()->exists();
     }
 
+    /**
+     * rental-renewals.md — a renewal draft the agent explicitly cancelled
+     * for this term. rentals:prepare-renewal-drafts checks this so a
+     * cancelled draft is never silently re-created on its next run — only
+     * an agent explicitly using "Renew lease" creates another one.
+     */
+    public function cancelledRenewalDrafts(): HasMany
+    {
+        return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_CANCELLED);
+    }
+
+    public function hasCancelledRenewalDraft(): bool
+    {
+        return $this->cancelledRenewalDrafts()->exists();
+    }
+
     public function tenants(): HasMany
     {
         return $this->hasMany(LeaseTenant::class);

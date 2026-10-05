@@ -690,3 +690,66 @@ clean checkout before touching this file.
      credentials discussed above). Flagged immediately when found; that key should be rotated. No
      other command in this investigation printed a credential value — every check after was
      key-name/`grep -c`/log-metadata only.
+
+## 20. Follow-up 5, 2026-10-05 — "Cancel renewal draft"
+
+A renewal draft (a DRAFT lease chained to its term via `previous_lease_id` — created either by the
+agent via "Renew lease" or auto-drafted by `rentals:prepare-renewal-drafts`, §5/§18) previously had no
+way out except activation. An agent who no longer wants that draft (terms fell through, owner decided
+to sell, tenant withdrew) could only let it sit there, or activate it anyway.
+
+**Built**: "Cancel renewal draft" — requires a reason, soft-cancels the draft (`status` →
+`cancelled`, `cancelled_at`/`cancelled_by_user_id`/`cancel_reason` set — never a hard delete, same as
+every other lease cancellation), and logs `LeaseEvent::TYPE_RENEWAL_DRAFT_CANCELLED` on **both** leases
+— the draft itself, and the lease it was drafted from — so either lease's own tenancy log shows what
+happened and why. New service method: `LeaseRenewalService::cancelRenewalDraft()`. New route/action:
+`corex.leases.renewal.cancel-draft` → `LeaseRenewalController::cancelDraft()`, gated by `leases.renew`
+(the same key every other renewal action uses — no new permission key) and the existing
+`guardRentalRecordScope()` agency/branch check.
+
+**Reachable from three places, all pointing at the SAME confirmation dialog on the draft's own Lease
+Hub page** (deliberately not duplicated three times):
+1. The draft lease's own page — "Lease actions ▾" shows "Cancel renewal draft…" instead of the
+   ordinary "Cancel lease…" whenever the lease being viewed is itself a draft chained via
+   `previous_lease_id` (`Lease::STATUS_DRAFT` + `previous_lease_id` set). An ordinary draft/active
+   lease's menu and modal are unchanged.
+2. The CURRENT (active) lease's "Renew this lease" dialog — when CoreX already has a pending draft
+   (`$pendingRenewalDraft`), a new "Cancel renewal draft…" link sits alongside the existing "Start a
+   different renewal"/"Review draft" links and takes the agent straight to the draft's own page.
+3. The Command Centre's "Renewals in progress" row actions — a new "Cancel renewal draft" link,
+   shown only when the row's `pending_renewal_draft_count > 0`, resolving the draft's id via a new
+   correlated-subquery column (`pending_renewal_draft_lease_id`, same WHERE as the existing
+   `pending_renewal_draft_count`) added to `RentalCommandCentreService::derivedPropertyQuery()`.
+
+**Tile movement — no new code needed, by design.** "Renewals in progress" and "Expiring in window" are
+each independently derived from the same row (`pending_renewal_draft_count > 0` vs. `active_end_date`
+within the agency's reminder window) — they are NOT mutually exclusive buckets a lease is "moved"
+between. Cancelling the draft simply makes `Lease::hasPendingRenewalDraft()` false again (its
+`renewalDrafts()` relation only counts `status = 'draft'`), so the property drops out of "Renewals in
+progress" on the next read; it was already counted in "Expiring in window" the whole time if its end
+date was in the window, and stays there, cancellation or not.
+
+**`rentals:prepare-renewal-drafts` never silently re-creates a draft the agent cancelled.** New
+`Lease::hasCancelledRenewalDraft()` (mirrors `hasPendingRenewalDraft()` exactly, but checks
+`status = 'cancelled'` instead of `'draft'`) is a second skip condition in the command, alongside the
+existing "already has an open draft" check. This is permanent, not time-boxed — once an agent has
+explicitly cancelled a draft for a term, the automated command never drafts another one for that same
+term on any future run. The one way to get a new draft after a cancellation is the agent's own manual
+"Renew lease" action (`LeaseRenewalService::createRenewalTerm()`), which does not check this and is
+unaffected — multiple draft leases on the same property (one cancelled, one new) were already allowed
+to coexist per leases.md §3.5.
+
+**Files touched**: `app/Models/Lease.php` (`cancelledRenewalDrafts()`/`hasCancelledRenewalDraft()`),
+`app/Models/LeaseEvent.php` (`TYPE_RENEWAL_DRAFT_CANCELLED`), `app/Services/Rentals/
+LeaseRenewalService.php` (`cancelRenewalDraft()`), `app/Http/Controllers/CoreX/
+LeaseRenewalController.php` (`cancelDraft()`), `routes/web.php` (new route inside the existing
+`{lease}/renewal` + `leases.renew` group), `app/Console/Commands/PrepareLeaseRenewalDrafts.php` (new
+skip condition + counter), `app/Services/Rentals/RentalCommandCentreService.php`
+(`pending_renewal_draft_lease_id` column), `resources/views/corex/leases/show.blade.php` (menu/modal
+branch + renew-dialog link), `resources/views/corex/rentals/command-centre/index.blade.php` (row
+action). Tests: `tests/Feature/Leases/LeaseRenewalDraftCancellationTest.php` (new — soft-cancel,
+dual-lease logging, rejects a non-renewal-draft lease, HTTP reason-required/success, cross-agency
+404, command skip, manual-renew-still-works — the latter two exercising
+`rentals:prepare-renewal-drafts` and `createRenewalTerm()` directly rather than duplicating
+`LeaseRenewalDraftAutomationTest.php`'s own fixtures) plus one addition to the existing
+`RentalCommandCentreServiceTest.php` proving the tile movement.

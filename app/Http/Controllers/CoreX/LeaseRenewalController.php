@@ -158,6 +158,31 @@ class LeaseRenewalController extends Controller
         return redirect()->route('corex.leases.show', $result)->with('success', 'Renewal recorded and activated.');
     }
 
+    /**
+     * rental-command-centre.md §3.1 / leases.md — the agent explicitly
+     * cancels a renewal draft instead of sending/activating it. $lease
+     * here IS the draft itself — reached from its own Lease Hub page,
+     * from the current lease's renew dialog (a link straight to the
+     * draft's page), or from the Command Centre row action, all of which
+     * point at this same confirmation dialog rather than duplicating it.
+     */
+    public function cancelDraft(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $validated = $request->validate([
+            'cancel_reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        try {
+            app(LeaseRenewalService::class)->cancelRenewalDraft($lease, $validated['cancel_reason'], $request->user());
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors());
+        }
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', 'Renewal draft cancelled.');
+    }
+
     public function monthToMonth(Request $request, Lease $lease): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
