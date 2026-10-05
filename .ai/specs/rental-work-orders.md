@@ -2709,3 +2709,110 @@ use now renders on `corex/rental-fault-reports/index.blade.php` and
 - `resources/views/corex/rental-fault-reports/index.blade.php` — "Showing:" control
 - `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — scope control + 12 guarded routes
 - `resources/views/corex/rental-work-orders/index.blade.php` — "Showing:" control
+
+---
+
+## 16. Rental Crews (built 2026-10-05) — agents/staff are never maintenance crew
+
+**Johan's ruling, verbatim:** *"Agents and staff are never maintenance crew. The crew dropdown on
+job cards must NOT list CoreX users. Crew are people with NO CoreX access, set up by the agency
+admin, and pickable on job cards. A crew can be several people or just a named team ('Team 1') —
+the admin decides. Reporting on which crew did what comes later; build so that is possible, but do
+not build reports now."*
+
+**Investigation finding, before this build:** §14's "Crew & schedule" block (`RentalJobCard
+::assignCrew()`, `rental_job_cards.assigned_user_id`) listed every `User` in the agency —
+agents and admin staff included — in the job card's Assign dropdown. Read at: the show screen's
+Assign form, the list screen's filter/search/column, `print.blade.php`/`print-list.blade.php`,
+the embedded job-card summary on `rental-work-orders/show.blade.php`, the mobile API payload, and
+`RentalReportService`'s existing crew-productivity report fields. Worker sign-off
+(`RentalJobCard::workerSignOff()`) already only ever recorded the AUTHENTICATED (CoreX) user who
+clicked the button — never literally "the crew member logs in and signs off" — so no change was
+needed there beyond capturing which crew member the agent is confirming did the work.
+
+### 16.1 Data model
+
+```
+rental_crews            -- agency-scoped, soft-delete only
+  id, agency_id, name, notes, is_active, created_by_user_id, timestamps, deleted_at
+  -- "unique per agency among ACTIVE" (Johan) is application-layer only
+  -- (RentalCrewController::validated(), Rule::unique()->whereNull('deleted_at'))
+  -- — a DB-level composite unique(agency_id,name) would also block
+  -- reusing an ARCHIVED crew's name, which Johan's wording allows.
+
+rental_crew_members      -- agency-scoped, soft-delete only
+  id, agency_id, rental_crew_id, name, phone, role, created_by_user_id, timestamps, deleted_at
+  -- role is free text (e.g. "Plumber") — not a catalogue vocabulary.
+  -- A crew with zero members is valid (a plain named team).
+
+rental_job_cards
+  + rental_crew_id        -- nullable FK rental_crews, nullOnDelete. The ONLY thing
+                           --   RentalJobCard::assignCrew() writes from 2026-10-05 on.
+  + worker_sign_off_name   -- nullable string(191) — "record the signing-off name/crew
+                           --   member as text/selection" (Johan). Free text; the show
+                           --   screen offers the assigned crew's own member names via a
+                           --   native <datalist> as a convenience, not a constraint.
+  assigned_user_id         -- UNCHANGED, FROZEN. Never dropped, never written to again
+                           --   by any new code — same decoupling precedent as
+                           --   rental_work_order_id in §14's own 2026-10-05 rebuild.
+                           --   Read-only, for "Previously assigned: <name>" on any card
+                           --   that predates crews. No migration invents crews from it.
+```
+
+### 16.2 Where it's read, and how the legacy column displays
+
+Every screen that showed `assignedUser?->name` now shows, in order: the assigned `RentalCrew`'s
+name (with its members listed alongside, where the layout allows) if `rental_crew_id` is set;
+else, if the legacy `assigned_user_id` is set, "Previously assigned: &lt;name&gt;" — read-only,
+never re-selectable, never touched by `assignCrew()` again; else "—". Updated: job card show/
+index/print/print-list, the work-order's own embedded job-card summary, the mobile API payload
+(`MobileRentalJobCardController::payload()` — `crew` key added alongside the now-legacy-only
+`assigned_user`).
+
+An **archived** crew still displays wherever it's already assigned (`RentalJobCard::crew()` is
+`withTrashed()`) but cannot be newly picked — the Assign dropdown and its own server-side
+validation both query `is_active=true AND deleted_at IS NULL` (a real bug caught and fixed during
+this build: `Rule::exists()` queries the table directly, not through Eloquent, so SoftDeletes
+scoping is never automatic — an archived crew has `is_active` still `true`, only `deleted_at` set,
+so `whereNull('deleted_at')` had to be explicit).
+
+**Reported, not fixed (explicitly out of scope — "reporting comes later"):**
+`RentalReportService`'s existing crew-productivity report (`'crew' => fn ($c) =>
+$c->assignedUser?->name`, filters on `assigned_user_id`) still reads the legacy column only — it
+was not rewired to `rental_crew_id` in this build. It will keep reporting correctly against
+pre-crew historical data but will show nothing for any job card assigned a crew from 2026-10-05
+onward, until that report is rebuilt against the new model.
+
+### 16.3 Screens
+
+- **`corex.rental-crews.*`** — full CRUD (index/create/edit, archive/restore), search (name), sort
+  (name default, created_at), filter (active/archived), pagination, real empty state, agency
+  scoping at the query layer. Members managed inline on the crew's own edit screen (add/archive/
+  restore), same "parent owns its children" pattern job card tasks/lines already use.
+- **Sidebar**: "Rental Crews", directly under "Parts & Labour Catalogue" (Rentals menu).
+- **Company Settings**: a "Rental Crews" panel next to Catalogue Item Types/Catalogue Units, linking
+  out to the full screen above (not an inline editor — crews can grow to many rows, unlike the
+  small catalogue vocabulary lists Company Settings manages inline).
+- **Permission**: `rental_catalogue.view` / `rental_catalogue.manage` — same keys as managing the
+  catalogue (Johan's own instruction) — no new permission key introduced.
+
+### 16.4 Worker sign-off
+
+`RentalJobCard::workerSignOff(User $by, ?string $workerName = null)` — `$by` is still always the
+AGENT recording the sign-off (a crew member has no CoreX login to click anything themselves,
+unchanged from before this build); `$workerName` is who on the crew actually did the work,
+optional free text, offered via the assigned crew's own member names as `<datalist>` suggestions.
+Both the CoreX user who recorded it (`worker_signed_off_by_user_id`) and the named crew member
+(`worker_sign_off_name`) are kept — different facts, both evidence.
+
+### 16.5 Tests
+
+`tests/Feature/RentalCrews/RentalCrewTest.php` — full CRUD, members CRUD, agency isolation,
+unique-among-active (not among archived), no hard deletes.
+`tests/Feature/RentalCrews/RentalJobCardCrewAssignmentTest.php` — assigning sets `rental_crew_id`
+never `assigned_user_id`; the Assign dropdown lists crews only, never users (scoped assertion —
+the shared layout's own unrelated "Switch User" admin widget legitimately lists every agency user
+elsewhere on the page, so a whole-page text search would false-fail); an archived crew cannot be
+newly picked but still displays where already assigned; cross-agency crew rejected; a legacy
+`assigned_user_id` card shows "Previously assigned" and is never touched again once a crew is
+later assigned; worker sign-off records an optional crew member name.

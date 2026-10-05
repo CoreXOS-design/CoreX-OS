@@ -58,7 +58,10 @@
             <tr><td class="label">Property</td><td>{{ $jobCard->property?->buildDisplayAddress() ?? '—' }}</td></tr>
             <tr><td class="label">Tenant contact</td><td>{{ $jobCard->lease?->tenantNames() ?? '—' }}</td></tr>
             <tr><td class="label">Access notes</td><td class="note">{{ $jobCard->access_notes ?? '—' }}</td></tr>
-            <tr><td class="label">Assigned to</td><td>{{ $jobCard->assignedUser?->name ?? '—' }}</td></tr>
+            <tr><td class="label">Crew</td><td>{{ $jobCard->crew?->name ?? ($jobCard->assigned_user_id ? 'Previously assigned: ' . ($jobCard->assignedUser?->name ?? '—') : '—') }}</td></tr>
+            @if($jobCard->crew && $jobCard->crew->members->isNotEmpty())
+            <tr><td class="label">Crew members</td><td>{{ $jobCard->crew->members->pluck('name')->implode(', ') }}</td></tr>
+            @endif
             <tr><td class="label">Scheduled</td><td>{{ $jobCard->scheduled_at?->format('Y-m-d H:i') ?? '—' }}</td></tr>
             <tr><td class="label">Due</td><td>{{ $jobCard->due_at?->format('Y-m-d H:i') ?? '—' }}</td></tr>
         </table>

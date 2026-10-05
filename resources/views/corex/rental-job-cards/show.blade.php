@@ -510,22 +510,35 @@
             {{-- 3. WHO & WHEN, one line --}}
             <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-sm flex flex-wrap gap-3">
-                    <span><span style="color: var(--text-muted);">Crew:</span> {{ $jobCard->assignedUser?->name ?? '—' }}</span>
+                    @if($jobCard->crew)
+                        <span><span style="color: var(--text-muted);">Crew:</span> {{ $jobCard->crew->name }}@if($jobCard->crew->trashed()) <span style="color: var(--text-muted);">(archived)</span>@endif</span>
+                    @elseif($jobCard->assigned_user_id)
+                        {{-- 2026-10-05 — legacy only: a card assigned before crews existed. Read-only — never re-selectable, never written to again. --}}
+                        <span style="color: var(--text-muted);">Previously assigned: {{ $jobCard->assignedUser?->name ?? '—' }}</span>
+                    @else
+                        <span><span style="color: var(--text-muted);">Crew:</span> —</span>
+                    @endif
                     <span><span style="color: var(--text-muted);">Scheduled:</span> {{ $jobCard->scheduled_at?->format('Y-m-d H:i') ?? '—' }}</span>
                     <span><span style="color: var(--text-muted);">Due:</span> {{ $jobCard->due_at?->format('Y-m-d H:i') ?? '—' }}</span>
                 </div>
+                @if($jobCard->crew && $jobCard->crew->members->isNotEmpty())
+                    <div class="text-xs" style="color: var(--text-muted);">{{ $jobCard->crew->members->pluck('name')->implode(', ') }}</div>
+                @endif
                 @permission('rental_job_cards.create')
                 @if($isOpen)
                 <form method="POST" action="{{ route('corex.rental-job-cards.assign-crew', $jobCard) }}" class="flex gap-2">
                     @csrf
-                    <select name="assigned_user_id" required class="flex-1 rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">Select crew member…</option>
-                        @foreach($crew as $c)
-                            <option value="{{ $c->id }}" @selected($jobCard->assigned_user_id === $c->id)>{{ $c->name }}</option>
+                    <select name="rental_crew_id" required class="flex-1 rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                        <option value="">Select crew…</option>
+                        @foreach($crews as $c)
+                            <option value="{{ $c->id }}" @selected($jobCard->rental_crew_id === $c->id)>{{ $c->name }}</option>
                         @endforeach
                     </select>
                     <button type="submit" class="corex-btn-outline text-xs">Assign</button>
                 </form>
+                @permission('rental_catalogue.manage')
+                <a href="{{ route('corex.rental-crews.index') }}" class="text-xs underline" style="color: var(--text-muted);">Manage crews</a>
+                @endpermission
                 <form method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
                     @csrf
                     <input type="datetime-local" name="scheduled_at" aria-label="Scheduled" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
@@ -576,9 +589,22 @@
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @permission('rental_job_cards.sign_off')
                 @unless($jobCard->worker_signed_off_at)
-                <form method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}">@csrf<button type="submit" class="corex-btn-outline text-xs w-full">Worker sign-off</button></form>
+                {{-- 2026-10-05 — crew have no CoreX login to sign off themselves; the agent
+                     records it, naming who on the (already-assigned) crew actually did the
+                     work — free text, with that crew's own member names offered via the
+                     native datalist below as a convenience, not a constraint. --}}
+                <form method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-2">
+                    @csrf
+                    <input type="text" name="worker_sign_off_name" list="worker-sign-off-names" maxlength="191" placeholder="Who did the work (optional)" aria-label="Who did the work" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <datalist id="worker-sign-off-names">
+                        @foreach($jobCard->crew?->members ?? [] as $member)
+                            <option value="{{ $member->name }}">
+                        @endforeach
+                    </datalist>
+                    <button type="submit" class="corex-btn-outline text-xs w-full">Worker sign-off</button>
+                </form>
                 @else
-                <div class="text-xs" style="color: var(--text-muted);">Worker — done: {{ $jobCard->workerSignedOffByUser?->name }} ({{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }})</div>
+                <div class="text-xs" style="color: var(--text-muted);">Worker — done: {{ $jobCard->workerSignedOffByUser?->name }} ({{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }})@if($jobCard->worker_sign_off_name) — {{ $jobCard->worker_sign_off_name }}@endif</div>
                 @endunless
 
                 @unless($jobCard->agent_signed_off_at)

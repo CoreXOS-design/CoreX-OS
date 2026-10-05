@@ -1254,6 +1254,8 @@
                      directly under Job Cards in the agent's own workflow. --}}
                 @permission('rental_catalogue.view')
                 <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-catalogue-items.*') ? 'active' : '' }}">Parts &amp; Labour Catalogue</a>
+                {{-- 2026-10-05 — crews are picked on job cards the same way the catalogue is, so it sits right next to it. --}}
+                <a href="{{ route('corex.rental-crews.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}">Rental Crews</a>
                 @endpermission
 
                 @if($user->isRentalApplicationAuthoriser())

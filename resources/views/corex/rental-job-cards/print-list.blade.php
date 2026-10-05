@@ -23,7 +23,7 @@
                     <td>{{ $jc->property?->buildDisplayAddress() ?? '—' }}</td>
                     <td>{{ $jc->title }}</td>
                     <td>{{ $jc->lease?->tenantNames() ?? '—' }}</td>
-                    <td>{{ $jc->assignedUser?->name ?? '—' }}</td>
+                    <td>{{ $jc->crew?->name ?? ($jc->assigned_user_id ? 'Previously assigned: ' . ($jc->assignedUser?->name ?? '—') : '—') }}</td>
                     <td>{{ ucfirst(str_replace('_', ' ', $jc->status)) }}</td>
                     <td>{{ $jc->due_at?->format('Y-m-d H:i') ?? '—' }}</td>
                 </tr>
