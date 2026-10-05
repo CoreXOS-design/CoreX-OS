@@ -9,10 +9,14 @@ use App\Mail\Compliance\PpraEmploymentLetterSignedMail;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Compliance\PpraEmploymentLetter;
+use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\AgentSignatureService;
 use App\Services\Compliance\PpraEmploymentLetterService;
+use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -340,5 +344,142 @@ final class PpraEmploymentLetterTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.ppra-employment-letters.show', $letterB->id))
             ->assertOk();
+    }
+
+    /**
+     * cc1's HR->Documents nav finding (2026-10-05, flagged for cc2 to close):
+     * the admin register's own route middleware had no SCOPE check, only a
+     * bare permission-exists check — an 'own'-scoped agent (every agent is
+     * seeded 'own' on ppra_employment_letters.view for their My Portal
+     * self-service flow) could still reach the ADMIN register by direct
+     * URL, even though the sidebar never links there for them. Closed by
+     * PpraEmploymentLetterController::assertAdminScope() — this register is
+     * branch/all only, not even by direct URL.
+     */
+    public function test_own_scoped_agent_cannot_reach_admin_register_by_direct_url(): void
+    {
+        $agent = $this->user();
+        $this->principal();
+
+        $this->actingAs($agent)->post(route('ppra-employment-letters.store'));
+        $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
+
+        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.index'))->assertStatus(403);
+        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.show', $letter->id))->assertStatus(403);
+        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.download', $letter->id))->assertStatus(403);
+        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.create'))->assertStatus(403);
+    }
+
+    // ── office_admin backfill (AT bug #2, 2026-10-05) ────────────────────────
+
+    /**
+     * Simulates the exact pre-fix state: a role whose role_permissions rows
+     * exist (so the table is no longer "unseeded") but were never given the
+     * ppra_employment_letters keys at all — the real gap found in
+     * config/corex-permissions.php's office_admin role_defaults. Running the
+     * SAME idempotent backfill this fix relies on
+     * (`corex:sync-permissions --merge-defaults`) must grant them without
+     * touching any other existing grant for that role.
+     */
+    public function test_office_admin_role_gains_ppra_access_after_merge_defaults_backfill(): void
+    {
+        $role = Role::create(['name' => 'office_admin', 'label' => 'Office Admin', 'agency_id' => $this->agency->id]);
+
+        // Pre-fix fixture: office_admin has SOME grants (so the table isn't
+        // "unseeded"), deliberately none of them PPRA — this is the bug.
+        RolePermission::create(['role' => 'office_admin', 'permission_key' => 'communications.view', 'scope' => 'own', 'agency_id' => $this->agency->id]);
+
+        $officeAdmin = $this->user(['role' => 'office_admin', 'designation' => 'Candidate Property Practitioner']);
+
+        $this->assertFalse($officeAdmin->hasPermission('ppra_employment_letters.view'));
+        $this->assertFalse($officeAdmin->hasPermission('ppra_employment_letters.create'));
+
+        Artisan::call('corex:sync-permissions', ['--merge-defaults' => true]);
+        PermissionService::clearCache();
+
+        $this->assertTrue($officeAdmin->hasPermission('ppra_employment_letters.view'));
+        $this->assertTrue($officeAdmin->hasPermission('ppra_employment_letters.create'));
+        $this->assertTrue($officeAdmin->hasPermission('ppra_employment_letters.sign_as_principal'));
+
+        // The pre-existing grant for this role is untouched — merge is additive-only.
+        $this->assertTrue($officeAdmin->hasPermission('communications.view'));
+
+        $role->delete();
+    }
+
+    // ── Admin create-on-behalf (bug #3, 2026-10-05) ──────────────────────────
+
+    public function test_admin_creates_letter_on_behalf_and_agent_signs_with_own_pin(): void
+    {
+        $agent = $this->user();
+        $this->withSavedSignature($agent, '4444');
+        $principal = $this->principal();
+        $this->withSavedSignature($principal, '5555');
+
+        $admin = $this->user(['role' => 'admin']);
+
+        $store = $this->actingAs($admin)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $agent->id]);
+        $store->assertRedirect();
+
+        $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
+        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_AGENT_SIGNATURE, $letter->status);
+        $this->assertSame($admin->id, $letter->created_by_user_id);
+        $this->assertSame($principal->id, $letter->principal_user_id);
+
+        // The agent signs with THEIR OWN PIN — the admin never touches a signature.
+        $this->actingAs($agent)
+            ->post(route('ppra-employment-letters.sign-as-agent', $letter), ['pin' => '4444'])
+            ->assertRedirect();
+
+        $letter->refresh();
+        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE, $letter->status);
+    }
+
+    public function test_admin_create_on_behalf_blocks_missing_merge_data(): void
+    {
+        $agent = $this->user(['id_number' => null]);
+        $this->principal();
+        $admin = $this->user(['role' => 'admin']);
+
+        $this->actingAs($admin)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $agent->id])
+            ->assertRedirect();
+
+        $this->assertDatabaseCount('ppra_employment_letters', 0);
+    }
+
+    public function test_admin_create_on_behalf_respects_branch_scope(): void
+    {
+        $branchB = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Stanford']);
+        $agentOtherBranch = $this->user(['branch_id' => $branchB->id]);
+        $this->principal();
+
+        // branch_manager scope (unseeded fallback = 'branch') — the admin's own branch is $this->branch.
+        $bm = $this->user(['role' => 'branch_manager']);
+
+        $this->actingAs($bm)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $agentOtherBranch->id])
+            ->assertStatus(403);
+
+        $this->assertDatabaseCount('ppra_employment_letters', 0);
+    }
+
+    public function test_admin_create_on_behalf_cannot_target_another_agency(): void
+    {
+        $otherAgency = Agency::create(['name' => 'Cape Peninsula Properties', 'slug' => 'cape-peninsula-2']);
+        $otherAgent = User::factory()->create([
+            'agency_id' => $otherAgency->id, 'role' => 'agent', 'is_active' => true,
+            'designation' => 'Property Practitioner', 'id_number' => '9001015800088', 'ffc_number' => '7654321',
+        ]);
+
+        $this->principal();
+        $admin = $this->user(['role' => 'admin']);
+
+        $this->actingAs($admin)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $otherAgent->id])
+            ->assertStatus(403);
+
+        $this->assertDatabaseCount('ppra_employment_letters', 0);
     }
 }

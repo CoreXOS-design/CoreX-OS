@@ -1256,14 +1256,17 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
 // ===== PPRA FFC EMPLOYMENT LETTER — Admin register =====
 // .ai/specs/ppra-ffc-employment-letter.md — a genuinely separate feature
 // from PPRA Inspection Pack above (distinct permission namespace,
-// deliberately NOT nested under admin/ppra-inspection-pack). Creation is
-// never exposed here — a letter is always self-service from My Portal.
+// deliberately NOT nested under admin/ppra-inspection-pack). Create-on-behalf
+// (2026-10-05, Johan) — an admin/principal may start a letter FOR an agent in
+// their own scope; the agent still signs with their own PIN afterward.
 Route::prefix('admin/ppra-employment-letters')->middleware(['auth', 'agency.required', 'permission:ppra_employment_letters.view'])->name('admin.ppra-employment-letters.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'index'])->name('index');
     Route::get('/{letter}', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'show'])->whereNumber('letter')->name('show');
     Route::get('/{letter}/download', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'download'])->whereNumber('letter')->middleware('deny_assistant_download')->name('download');
 
     Route::middleware('permission:ppra_employment_letters.manage')->group(function () {
+        Route::get('/create', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'store'])->name('store');
         Route::post('/{letter}/archive', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'archive'])->whereNumber('letter')->name('archive');
         Route::post('/{letter}/restore', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'restore'])->whereNumber('letter')->name('restore');
     });

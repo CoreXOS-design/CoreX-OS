@@ -1610,6 +1610,70 @@
                 </div>
             </div>
             @endforeach
+
+            {{-- PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md.
+                 Deliberately placed HERE, inside the DOCUMENTS tab wrapper (tab === 'documents'),
+                 not the Compliance tab — its own nav button (above) and the x-show key
+                 (sub.documents === 'ppra_employment_letter') both live in this tab. A previous
+                 version nested this pane inside the Compliance tab wrapper, which made it
+                 permanently invisible: clicking the sub-tab set sub.documents correctly, but the
+                 enclosing tab === 'compliance' check stayed false while viewing Documents, so the
+                 pane never rendered — a blank area with no error, for every user, every time. --}}
+            @unless($isAssistant ?? false)
+            <div x-show="sub.documents === 'ppra_employment_letter'" x-cloak class="pg-pane pg-pane-col">
+                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-primary); margin-bottom:4px;">PPRA FFC Employment Letter</div>
+                <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Confirmation of Employment letter for your FFC renewal — signed by you and the agency's principal.</p>
+
+                @if(($ppraLetterMissing ?? []) !== [])
+                <div class="rounded-md" style="font-size:0.75rem; color:var(--ds-amber); background:color-mix(in srgb, var(--ds-amber) 10%, transparent); padding:8px 10px; margin-bottom:10px;">
+                    <div style="font-weight:600; margin-bottom:4px;">Before you can start a letter:</div>
+                    <ul style="margin:0; padding-left:16px;">
+                        @foreach($ppraLetterMissing as $m)
+                        <li><a href="{{ $m['fix_url'] }}" style="color:var(--ds-amber); text-decoration:underline;">{{ $m['label'] }}</a></li>
+                        @endforeach
+                    </ul>
+                </div>
+                @elseif($ppraLetterCanCreate ?? false)
+                <form method="POST" action="{{ route('ppra-employment-letters.store') }}" style="margin-bottom:12px;">
+                    @csrf
+                    <button type="submit" class="corex-btn-primary" style="font-size:0.75rem; padding:5px 12px;">Start new letter</button>
+                </form>
+                @endif
+
+                @if(($ppraLetters ?? collect())->isNotEmpty())
+                <div class="space-y-2" style="margin-bottom:14px;">
+                    @foreach($ppraLetters as $letter)
+                    <div class="flex items-center justify-between py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
+                        <div>
+                            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}</div>
+                            <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
+                        </div>
+                        <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); text-decoration:none; font-weight:600;">Open</a>
+                    </div>
+                    @endforeach
+                </div>
+                @endif
+
+                @if(($ppraAwaitingMySignature ?? collect())->isNotEmpty())
+                <div style="font-size:0.75rem; font-weight:700; color:var(--text-primary); margin-bottom:6px;">Awaiting your signature as principal</div>
+                <div class="space-y-2">
+                    @foreach($ppraAwaitingMySignature as $letter)
+                    <div class="flex items-center justify-between py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
+                        <div>
+                            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ $letter->user->name ?? 'Agent' }}</div>
+                            <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
+                        </div>
+                        <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); text-decoration:none; font-weight:600;">Review &amp; sign</a>
+                    </div>
+                    @endforeach
+                </div>
+                @endif
+
+                @if(($ppraLetters ?? collect())->isEmpty() && ($ppraAwaitingMySignature ?? collect())->isEmpty() && ($ppraLetterMissing ?? []) === [])
+                <p style="font-size:0.75rem; color:var(--text-muted);">No letters yet.</p>
+                @endif
+            </div>
+            @endunless
         </div>
     </div>
 
@@ -1719,63 +1783,6 @@
                 </div>
                 @endforeach
             </div>
-
-            {{-- PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md --}}
-            @unless($isAssistant ?? false)
-            <div x-show="sub.documents === 'ppra_employment_letter'" x-cloak class="pg-pane pg-pane-col">
-                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-primary); margin-bottom:4px;">PPRA FFC Employment Letter</div>
-                <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Confirmation of Employment letter for your FFC renewal — signed by you and the agency's principal.</p>
-
-                @if(($ppraLetterMissing ?? []) !== [])
-                <div class="rounded-md" style="font-size:0.75rem; color:var(--ds-amber); background:color-mix(in srgb, var(--ds-amber) 10%, transparent); padding:8px 10px; margin-bottom:10px;">
-                    <div style="font-weight:600; margin-bottom:4px;">Before you can start a letter:</div>
-                    <ul style="margin:0; padding-left:16px;">
-                        @foreach($ppraLetterMissing as $m)
-                        <li><a href="{{ $m['fix_url'] }}" style="color:var(--ds-amber); text-decoration:underline;">{{ $m['label'] }}</a></li>
-                        @endforeach
-                    </ul>
-                </div>
-                @elseif($ppraLetterCanCreate ?? false)
-                <form method="POST" action="{{ route('ppra-employment-letters.store') }}" style="margin-bottom:12px;">
-                    @csrf
-                    <button type="submit" class="corex-btn-primary" style="font-size:0.75rem; padding:5px 12px;">Start new letter</button>
-                </form>
-                @endif
-
-                @if(($ppraLetters ?? collect())->isNotEmpty())
-                <div class="space-y-2" style="margin-bottom:14px;">
-                    @foreach($ppraLetters as $letter)
-                    <div class="flex items-center justify-between py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
-                        <div>
-                            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}</div>
-                            <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
-                        </div>
-                        <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); text-decoration:none; font-weight:600;">Open</a>
-                    </div>
-                    @endforeach
-                </div>
-                @endif
-
-                @if(($ppraAwaitingMySignature ?? collect())->isNotEmpty())
-                <div style="font-size:0.75rem; font-weight:700; color:var(--text-primary); margin-bottom:6px;">Awaiting your signature as principal</div>
-                <div class="space-y-2">
-                    @foreach($ppraAwaitingMySignature as $letter)
-                    <div class="flex items-center justify-between py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
-                        <div>
-                            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ $letter->user->name ?? 'Agent' }}</div>
-                            <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
-                        </div>
-                        <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); text-decoration:none; font-weight:600;">Review &amp; sign</a>
-                    </div>
-                    @endforeach
-                </div>
-                @endif
-
-                @if(($ppraLetters ?? collect())->isEmpty() && ($ppraAwaitingMySignature ?? collect())->isEmpty() && ($ppraLetterMissing ?? []) === [])
-                <p style="font-size:0.75rem; color:var(--text-muted);">No letters yet.</p>
-                @endif
-            </div>
-            @endunless
         </div>
     </div>
 
