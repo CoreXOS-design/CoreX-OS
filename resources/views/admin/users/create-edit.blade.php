@@ -506,6 +506,17 @@
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                     <div>
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Full first names (as on ID)</label>
+                        <input type="text" name="full_first_names" maxlength="150" value="{{ old('full_first_names', $isEdit ? $user->full_first_names : '') }}" placeholder="e.g. Elizabeth Petronella"
+                               autocomplete="off"
+                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">Printed on PPRA letters. Leave blank to use the first name above.</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                    <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">ID Number</label>
                         <input type="text" name="id_number" value="{{ old('id_number', $isEdit ? $user->id_number : '') }}" placeholder="SA ID number"
                                autocomplete="off"
@@ -566,6 +577,18 @@
                             <option value="{{ $d->name }}" {{ $des === $d->name ? 'selected' : '' }}>{{ $d->name }}</option>
                             @endforeach
                         </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">PPRA category</label>
+                        <select name="ppra_category" class="w-full rounded-md px-3 py-2.5 text-sm outline-none"
+                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            @php $ppraCat = old('ppra_category', $isEdit ? ($user->ppra_category ?? '') : ''); @endphp
+                            <option value="" {{ $ppraCat === '' ? 'selected' : '' }}>(not set)</option>
+                            @foreach(\App\Models\User::PPRA_CATEGORIES as $c)
+                            <option value="{{ $c }}" {{ $ppraCat === $c ? 'selected' : '' }}>{{ $c }}</option>
+                            @endforeach
+                        </select>
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">The category the practitioner is registered under with the PPRA — printed on their employment confirmation letter. Not the job title.</p>
                     </div>
                 </div>
 

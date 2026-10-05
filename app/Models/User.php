@@ -114,6 +114,10 @@ class User extends Authenticatable
         // only: `role` stays pinned to 'assistant'. Null falls back to "Assistant".
         'assistant_title',
         'designation',
+        // PPRA letters (.ai/specs/ppra-ffc-employment-letter.md §18): legal full first names as on the ID,
+        // and the practitioner's PPRA category (never the job title in `designation`).
+        'full_first_names',
+        'ppra_category',
         'supervised_by',
         'branch_id',
         'agency_id',
@@ -1265,6 +1269,49 @@ class User extends Authenticatable
     public function isCandidate(): bool
     {
         return stripos($this->designation ?? '', 'Candidate') !== false;
+    }
+
+    /** PPRA practitioner categories a staff member can be registered under (statutory — not per-agency). */
+    public const PPRA_CATEGORIES = [
+        'Principal Property Practitioner',
+        'Candidate Principal Property Practitioner',
+        'Property Practitioner',
+        'Candidate Property Practitioner',
+    ];
+
+    /**
+     * Legal full first names for PPRA letters: the captured "Full first names (as on ID)", else the
+     * first word of `name` (the same split the staff form uses).
+     */
+    public function letterFirstNames(): string
+    {
+        $captured = trim((string) $this->full_first_names);
+        if ($captured !== '') {
+            return $captured;
+        }
+
+        return explode(' ', trim((string) $this->name), 2)[0];
+    }
+
+    /** Surname for PPRA letters: everything after the first word of `name`. */
+    public function letterSurname(): string
+    {
+        return trim(explode(' ', trim((string) $this->name), 2)[1] ?? '');
+    }
+
+    /**
+     * The practitioner's PPRA category for letters. Falls back to `designation` only while no category
+     * has been captured (never to a job title once one is).
+     */
+    public function ppraCategoryLabel(): string
+    {
+        foreach ([$this->ppra_category, $this->designation] as $candidate) {
+            if (trim((string) $candidate) !== '') {
+                return trim((string) $candidate);
+            }
+        }
+
+        return 'Property Practitioner';
     }
 
     /**

@@ -59,7 +59,7 @@ class PpraEmploymentLetter extends Model
      * address, not HFC's, so it is correct for every agency out of the box
      * (CLAUDE.md Non-negotiable #9) while remaining agency-editable.
      */
-    public const DEFAULT_PPRA_ADDRESS_BLOCK = "The Property Practitioners Regulatory Authority\n63 Wierda Road East\nSandton\n2196";
+    public const DEFAULT_PPRA_ADDRESS_BLOCK = "The Property Practitioners Regulatory Board\n63 Wierda Road East\nSandton\n2196";
 
     protected $fillable = [
         'agency_id',

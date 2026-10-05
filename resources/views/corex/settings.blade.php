@@ -4341,7 +4341,7 @@
 
                 <div class="max-w-xl">
                     <label class="text-sm font-semibold" style="color:var(--text-primary);">Addressee block ("RE:" line)</label>
-                    <p class="text-xs mb-2" style="color:var(--text-muted);">Who the letter is addressed to. Defaults to the Property Practitioners Regulatory Authority's own published address — change this only if your agency corresponds with a different PPRA office.</p>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">Who the letter is addressed to. Defaults to the Property Practitioners Regulatory Board's own published address — change this only if your agency corresponds with a different PPRA office.</p>
                     <textarea name="ppra_employment_letter_address_block" rows="4" class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="{{ \App\Models\Compliance\PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK }}">{{ $agency->ppra_employment_letter_address_block }}</textarea>
                 </div>
 
