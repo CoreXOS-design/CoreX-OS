@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ExportsRentalList;
+use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalWorkOrder;
@@ -30,8 +31,21 @@ class RentalWorkOrderController extends Controller
 {
     use AuthorizesRentalRecordScope;
     use ExportsRentalList;
+    use SearchesQualifyingRentalProperties;
 
     private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
+    /**
+     * The LIST screen's own property-filter picker — only properties that
+     * actually have a work order visible to this user, never every rental
+     * property. Deliberately separate from searchProperties() below (the
+     * CREATE screen's own picker, AT-442 fix #2), which keeps offering
+     * every rental property, unchanged.
+     */
+    public function searchFilterProperties(Request $request): JsonResponse
+    {
+        return $this->searchQualifyingRentalProperties($request, RentalWorkOrder::class);
+    }
 
     /**
      * Search: property address, tenant name, supplier name, title/description.

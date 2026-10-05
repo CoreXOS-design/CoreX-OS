@@ -141,4 +141,65 @@ final class RentalWorkOrderListStandardTest extends TestCase
             ->assertOk()
             ->assertSee('Work orders (2)', false);
     }
+
+    // ── Item 3 — the list screen's own property-filter picker ──────────
+
+    /**
+     * Only properties that actually have a work order visible to this
+     * user, never every rental property — the unscoped picker
+     * (searchProperties(), AT-442 fix #2) stays on the create screen,
+     * unaffected by this separately-named endpoint.
+     */
+    public function test_search_filter_properties_only_returns_properties_with_a_visible_work_order(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $withOrder = $this->property($admin, 'Has a work order');
+        $this->workOrder($withOrder, $admin);
+        $withoutOrder = $this->property($admin, 'No work order at all');
+
+        $response = $this->actingAs($admin)->getJson(route('corex.rental-work-orders.search-filter-properties', ['q' => 'order']));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id')->all();
+        $this->assertContains($withOrder->id, $ids);
+        $this->assertNotContains($withoutOrder->id, $ids);
+    }
+
+    public function test_search_filter_properties_never_returns_another_agencys_property(): void
+    {
+        $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
+        $otherBranch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $otherAgency->id]);
+        $otherAdmin = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'admin']);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $otherAgency->id, 'agent_id' => $otherAdmin->id, 'branch_id' => $otherBranch->id,
+            'title' => 'Other agency ordered property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        RentalWorkOrder::create([
+            'agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'property_id' => $otherProperty->id,
+            'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $otherAdmin->id,
+            'title' => 'Geyser', 'description' => 'desc', 'status' => RentalWorkOrder::STATUS_REPORTED,
+            'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED, 'reported_at' => now(),
+            'created_by_user_id' => $otherAdmin->id,
+        ]);
+
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($admin)->getJson(route('corex.rental-work-orders.search-filter-properties', ['q' => 'ordered']));
+
+        $response->assertOk();
+        $this->assertSame([], $response->json());
+    }
+
+    /** The CREATE form's own picker must keep offering every rental property, completely unaffected by item 3. */
+    public function test_create_forms_own_property_picker_still_offers_properties_with_no_work_order(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $neverOrdered = $this->property($admin, 'Never had a work order yet');
+
+        $response = $this->actingAs($admin)->getJson(route('corex.rental-work-orders.search-properties', ['q' => 'Never had']));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id')->all();
+        $this->assertContains($neverOrdered->id, $ids);
+    }
 }

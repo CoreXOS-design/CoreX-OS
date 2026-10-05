@@ -528,7 +528,7 @@ assert exact DOM position, only presence/absence of text and values.
 New screen, new nav entry, same day as the build. Route group `corex.leases.*`, sidebar entry under
 Rentals, alongside the (future) Rental Inspections list.
 
-- **Search** (named fields): property address, tenant name(s).
+- **Search** (named fields): property address, tenant name(s), **landlord name(s)** (added below).
 - **Sort**: end date, start date, status, property address. **Default: end date ascending (soonest to
   expire first)** — stated explicitly per §1b, chosen because tracking what's coming up for renewal is
   the most common reason to look at this list day to day.
@@ -545,6 +545,25 @@ The property's **Rental tab** additionally surfaces the property's currently-act
 dates, rent) read-only, sourced from `leases` — this is what fills the gap the tab's own governing spec
 already names ("Tenant link... Not built") and is what makes Johan's original description of the tab
 ("the lease / parties / and whatever else") actually true once this ships.
+
+### 7.1 Landlord shown under tenant in the same cell (2026-10-05)
+
+Johan was testing the list and found the row showed only the tenant — no landlord. Added, same cell,
+tenant on top, landlord underneath, same muted/compact text style:
+
+- Sourced from **`Lease::landlordContacts()`** only — never `Property::sellerOwnerContact()`'s
+  sole-contact fallback (the AT-444 bug class: a property linked only to its tenant must never show
+  that tenant as the landlord). `landlordContacts()` already has this guarantee built in (§ above).
+- No landlord linked → muted `"No landlord linked"` text, linking to the property's Contacts tab
+  (`corex.properties.show` with `?tab=contacts`) — the existing "Link landlord" destination already
+  used by the Lease Hub and the rental context bar.
+- **Eager-loaded** (`LeaseController::filteredLeasesQuery()` now loads `property.contacts` alongside
+  the existing `tenants.contact`) — `Lease::landlordContacts()` reuses the already-loaded collection
+  instead of calling `Property::contactsForRole()` (which always issues a fresh query regardless of
+  what's eager-loaded) when the relation is loaded; `Property.php` itself is untouched.
+- Landlord name is searchable (same `q` field, OR'd alongside property/tenant) and included in the
+  CSV/XLSX export (`Landlord` column, via the new `Lease::landlordNames()` helper — same shape as the
+  existing `tenantNames()`).
 
 ---
 

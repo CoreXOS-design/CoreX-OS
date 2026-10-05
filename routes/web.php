@@ -3346,6 +3346,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Must sit before /{lease} so 'print-list'/'export' never bind as a lease id.
         Route::get('/print-list', [\App\Http\Controllers\CoreX\LeaseController::class, 'printList'])->name('corex.leases.print-list');
         Route::get('/export', [\App\Http\Controllers\CoreX\LeaseController::class, 'export'])->name('corex.leases.export');
+        // The list screen's own property-filter picker — qualifying properties
+        // only (only properties with a lease visible to this user), never
+        // every rental property. Must sit before /{lease} for the same reason.
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchProperties'])->name('corex.leases.search-properties');
         Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3700,6 +3704,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // same greedy-binding reason /create is.
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'printList'])->name('corex.rental-fault-reports.print-list');
         Route::get('/export', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'export'])->name('corex.rental-fault-reports.export');
+        // The list screen's own property-filter picker — qualifying properties
+        // only (only properties with a fault report visible to this user).
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'searchProperties'])->name('corex.rental-fault-reports.search-properties');
         Route::get('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'show'])->name('corex.rental-fault-reports.show');
         // §"Printing" — landlord-facing PDF. Same .view gate as show() itself.
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
@@ -3740,6 +3747,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-442 fix #2 — the create screen's searchable property picker.
         Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchProperties'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.search-properties');
+        // The LIST screen's own property-filter picker — qualifying
+        // properties only (only properties with a work order visible to
+        // this user). Distinct from search-properties above (the create
+        // form's picker, unaffected).
+        Route::get('/search-filter-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchFilterProperties'])->name('corex.rental-work-orders.search-filter-properties');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
         // AT-439 Part 3 — shared rental list standard: print-list/export, same
@@ -3814,6 +3826,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('rental-job-cards')->middleware('permission:rental_job_cards.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'index'])->name('corex.rental-job-cards.index');
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'printList'])->name('corex.rental-job-cards.print-list');
+        // The list screen's own property-filter picker — qualifying properties
+        // only (only properties with a job card visible to this user).
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'searchProperties'])->name('corex.rental-job-cards.search-properties');
         Route::get('/create', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'create'])
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'store'])

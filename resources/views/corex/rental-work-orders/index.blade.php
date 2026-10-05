@@ -25,7 +25,10 @@
 @endphp
 
 @section('content')
-<div class="p-6 space-y-4">
+<div class="p-6 space-y-4" x-data="rentalWorkOrdersPropertyFilter({{ Js::from([
+    'propertyId' => $filteredProperty?->id ?? ($filters['property_id'] ?? ''),
+    'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
+]) }})">
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Work Orders</h1>
         @permission('rental_work_orders.create')
@@ -100,6 +103,23 @@
                 @endforeach
             </select>
         </div>
+        <div class="relative">
+            <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
+            {{-- Only properties with a work order visible to this user —
+                 never every rental property (that's the create form's own
+                 job, unaffected). --}}
+            <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
+                   placeholder="Search properties by address…"
+                   class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <input type="hidden" name="property_id" x-model="selectedPropertyId">
+            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto bg-white" style="border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
+                <template x-for="p in propertyResults" :key="p.id">
+                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">
+                        <span x-text="p.label"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Trade type</label><br>
             <select name="trade_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -140,10 +160,30 @@
             Overdue only
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'paid_by', 'date_from', 'date_to', 'overdue']))
+        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue']))
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
+
+    <script>
+    function rentalWorkOrdersPropertyFilter(old) {
+        old = old || {};
+        return {
+            propertyQuery: old.propertyLabel || '', propertyResults: [],
+            selectedPropertyId: old.propertyId || '',
+            async searchProperties() {
+                if (this.propertyQuery.length < 2) { this.propertyResults = []; return; }
+                const res = await fetch('{{ route('corex.rental-work-orders.search-filter-properties', ['archived' => $showArchived ? 1 : 0]) }}&q=' + encodeURIComponent(this.propertyQuery));
+                this.propertyResults = await res.json();
+            },
+            selectProperty(p) {
+                this.selectedPropertyId = p.id;
+                this.propertyResults = [];
+                this.propertyQuery = p.label;
+            },
+        };
+    }
+    </script>
 
     {{-- §"List screen gaps" — property_id/lease_id are reached via a link
          (the property tab, a lease's own page), never a dropdown of every
