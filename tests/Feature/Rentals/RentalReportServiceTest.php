@@ -46,6 +46,20 @@ final class RentalReportServiceTest extends TestCase
         $this->cc = app(RentalCommandCentreService::class);
     }
 
+    /**
+     * AT-443 tidy (2026-10-05): 'property-history' used to sit in REPORTS,
+     * which is also what the picker's generic @foreach loop renders — giving
+     * the screen a second "Property history" entry that, when clicked,
+     * silently fell back to the Fault Reports grid (RentalReportController::
+     * runReport()'s match has no 'property-history' case). The one real
+     * entry is the dedicated link to corex.rentals.reports.property-history,
+     * rendered separately in the view — it must stay the only one.
+     */
+    public function test_reports_constant_does_not_list_property_history_as_a_flat_grid_report(): void
+    {
+        self::assertArrayNotHasKey('property-history', RentalReportService::REPORTS);
+    }
+
     // ───────────────────────── Fault reports ─────────────────────────
 
     public function test_fault_reports_default_buckets_include_every_non_terminal_and_terminal_status_individually_available(): void
@@ -413,6 +427,76 @@ final class RentalReportServiceTest extends TestCase
 
         self::assertSame($ccTiles['all'], $report['count']);
         self::assertSame($ccTiles['occupied'], $report['rows']->where('status_bucket', 'Occupied')->count());
+    }
+
+    /**
+     * AT-443 tidy (2026-10-05): active_start_date/active_end_date are raw
+     * SELECT-aliased strings, not Carbon instances — optional($string)->format()
+     * silently returns null for ANY non-null value (Optional::__call only
+     * forwards to is_object($value)), so a fixed-term lease with a REAL end
+     * date was printing Term "– open" / Lease end "—" exactly like a genuine
+     * month-to-month lease, even though Days left (parsed directly with
+     * Carbon::parse(), never touched optional()) already showed the correct
+     * number. The column was broken, not the number.
+     */
+    public function test_lease_status_lease_end_and_term_print_a_real_end_date_not_open(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeActiveLease($agency, $branch, $property, [
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDays(238)->toDateString(),
+            'is_month_to_month' => false,
+        ]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $row = $this->service->leaseStatus($agent, ['scope' => 'all'], $this->cc)['rows']->first();
+
+        self::assertSame(now()->addDays(238)->toDateString(), $row['lease_end']);
+        self::assertStringNotContainsString('open', $row['term']);
+        self::assertStringContainsString(now()->addDays(238)->toDateString(), $row['term']);
+        self::assertEqualsWithDelta(238, $row['days_left'], 0.0);
+    }
+
+    /** A genuinely open-ended lease (no end_date at all) still prints "—"/"open", not a date. */
+    public function test_lease_status_genuinely_open_ended_lease_still_prints_open(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeActiveLease($agency, $branch, $property, ['end_date' => null, 'is_month_to_month' => false]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $row = $this->service->leaseStatus($agent, ['scope' => 'all'], $this->cc)['rows']->first();
+
+        self::assertSame('—', $row['lease_end']);
+        self::assertStringContainsString('open', $row['term']);
+        self::assertNull($row['days_left']);
+    }
+
+    /**
+     * AT-443 tidy (2026-10-05): with no ?buckets[]= in the request, no tile
+     * filter is applied (applyTile()'s default/no-op case) — every property
+     * is shown, same as the explicit "Rental properties" tile. The Include
+     * ticks must reflect that instead of rendering every tile unticked while
+     * the full list is on screen.
+     */
+    public function test_lease_status_default_tick_reflects_the_unfiltered_view_actually_shown(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $this->makeRentalProperty($agency, $branch, $agent);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $noBuckets = $this->service->leaseStatus($agent, ['scope' => 'all'], $this->cc);
+        self::assertSame(['all'], $noBuckets['selectedBuckets']);
+
+        $withTile = $this->service->leaseStatus($agent, ['scope' => 'all', 'buckets' => ['occupied']], $this->cc);
+        self::assertSame(['occupied'], $withTile['selectedBuckets']);
     }
 
     // ───────────────────────── Lease expiries ─────────────────────────
