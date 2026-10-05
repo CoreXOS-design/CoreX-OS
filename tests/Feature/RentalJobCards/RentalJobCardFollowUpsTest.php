@@ -546,8 +546,8 @@ final class RentalJobCardFollowUpsTest extends TestCase
 
             $this->assertStringNotContainsString('VAT type', $html, "{$view}: the VAT TYPE column is gone");
             $this->assertStringNotContainsString('Standard VAT', $html, "{$view}: no VAT type names in the lines");
-            $this->assertStringContainsString('<th>Excl VAT</th>', $html);
-            $this->assertStringContainsString('<th>VAT</th>', $html);
+            $this->assertMatchesRegularExpression('/<th[^>]*>Excl VAT<\/th>/', $html);
+            $this->assertMatchesRegularExpression('/<th[^>]*>VAT<\/th>/', $html);
             // Per line: Washer 100 → 15.00, Gasket 200 → 30.00 (these used to render "—").
             $this->assertStringContainsString('R15.00', $html);
             $this->assertStringContainsString('R30.00', $html);
@@ -599,7 +599,7 @@ final class RentalJobCardFollowUpsTest extends TestCase
         foreach (['print', 'quote-pdf'] as $view) {
             $html = $this->renderPdfView($card->fresh(), $view);
 
-            $this->assertStringContainsString('<th>Line total</th>', $html);
+            $this->assertMatchesRegularExpression('/<th[^>]*>Line total<\/th>/', $html);
             $this->assertStringNotContainsString('VAT', $html, "{$view}: nothing VAT-related for a non-VAT agency");
             $this->assertStringContainsString('R200.00', $html);
             $this->assertStringContainsString('Subtotal', $html);

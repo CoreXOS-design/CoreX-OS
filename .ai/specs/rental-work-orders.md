@@ -2852,6 +2852,58 @@ real dompdf output still renders.
 `resources/views/emails/rentals/work-order-owner.blade.php`, `routes/web.php`
 (`corex.rental-job-cards.quotes.download`).
 
+### 14.22 Job card — schedule "Set" 500, and the printed card / owner quote running to the paper edge (2026-10-05 night, Johan's QA1 findings)
+
+**Root cause 1 — Set returned a 500 whenever a date was filled in.** `RentalJobCardController::schedule()`
+validated the two datetime-local boxes as `date` but handed the raw STRINGS to
+`RentalJobCard::schedule(?\DateTimeInterface, ?\DateTimeInterface, User)` → TypeError. Blank worked (null
+is allowed). **Fix (the class, not the instance):** the controller now parses both inputs itself
+(`parseDateInput()`), and no raw date string reaches a model method any more.
+- Accepted: exactly what the date pickers post — `Y-m-d\TH:i`, with seconds, `Y-m-d H:i[:s]`, or a bare
+  `Y-m-d` (midnight). Refused with a plain message on the field: words/relative ("tomorrow"), overflow dates
+  ("2026-02-31"), month 13 / hour 25, `0000-00-00`, years outside 2000–2100, anything else.
+- Read in the **agency timezone** (`Agency::outreachTimezone()`, the one place a per-agency column will
+  land) and stored in the application timezone — the wall-clock the agent typed is what the card shows back.
+- **Due earlier than Scheduled is refused** ("Due can't be earlier than Scheduled"; equal is fine). Both bad
+  fields are reported together. A refused Set changes nothing (saved dates stay) and the typed values come
+  back into the two boxes (`old()`).
+- **Blank still clears** (either or both). Stay-in-place (`data-keep-scroll`) unchanged.
+- **Same pattern elsewhere on this controller:** only the schedule action handed strings to a typed model
+  method. The list's `date_from` / `date_to` filter inputs went straight into the query unvalidated and
+  `date_to` compared a bare date to a datetime column (= midnight), silently dropping every card due later
+  on the "to" day. They now go through the same parser (junk = message on the list screen), `to` = end of
+  that day in the agency timezone.
+
+**Root cause 2 — PDFs ran to the paper edge.** Both `print.blade.php` and `quote-pdf.blade.php` declared
+`@page { margin: 24px 32px }` **and** `html, body { margin: 0; padding: 0 }`. In dompdf the html/body box
+wins over `@page`, so the page had NO margin at all: measured on the deployed PDFs, "Job Card"/"Quote" ended
+at x = 595.28pt (the paper edge) and the left text started at x = 0. On top of that the parts table used the
+default auto layout, so one long unbroken word (a part number) widened it past the edge and cut the price
+columns off ("Excl V…", "R1,43…"). **Fix:** removed the margin/padding reset (the 24px/32px page margins now
+apply — verified min x 24.0pt, max x 571.3pt = A4 − 24pt); `_pdf-lines-table` uses `table-layout: fixed` with
+column widths (Type 11%, Qty 10%, Unit price 15%, Excl/Line total 14%, VAT 12%; Description takes the rest),
+and `p, td, th { word-wrap: break-word }` so a long title/description/part number wraps inside its box.
+Long title, long task and line descriptions, long access notes and a 90-character unbroken part reference all
+checked.
+
+**Reported, NOT changed (outside this scope):** the same `html, body { margin:0 }` reset sits in
+`rental-work-orders/pdf`, `rental-fault-reports/pdf`, `rental-notices/pdf`, `leases/pdf/tenancy-report` (and
+the brochure / buyer-pack heads, which set their own `@page` margin 0 on purpose) — those PDFs very likely
+also lose their page margins. The schedule boxes are not pre-filled with the saved dates, so setting only one
+date blanks the other.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardScheduleDatesTest.php` (23 cases): both dates saved
+and shown, agency-timezone round-trip, seconds / bare date, either date alone, blank clears, 8 bad-input
+shapes refused with no change, both errors together, due < scheduled refused (equal fine), typed values
+restored, closed card still refuses, list `to` date inclusive of the whole day, junk filter date; the two
+PDFs rendered through real dompdf with a long title / long descriptions / long unbroken part reference and
+every word's position checked against the A4 margins via `pdftotext -bbox` (fails 0.0 ≥ 23.5 against the old
+templates). `RentalJobCardFollowUpsTest`'s three `<th>` assertions relaxed to allow the width attribute.
+
+**Files:** `app/Http/Controllers/CoreX/RentalJobCardController.php` (`schedule`, `index` filter,
+`parseDateInput`, `agencyTimezone`), `resources/views/corex/rental-job-cards/{print,quote-pdf,_pdf-lines-table,show}.blade.php`,
+the two test files above.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge

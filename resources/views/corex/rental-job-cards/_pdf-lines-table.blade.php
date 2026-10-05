@@ -20,21 +20,23 @@
     $groupExcl = $registered ? collect($lines)->sum(fn ($l) => $figures[$l->id]['excl'] ?? 0) : 0;
     $groupVat = $registered ? collect($lines)->sum(fn ($l) => $figures[$l->id]['vat'] ?? 0) : 0;
 @endphp
+{{-- §14.22 — fixed layout + column widths: with the default auto layout one long unbroken word
+     (a part number) widened the table past the page's right margin and cut the price columns off. --}}
 @if($lines->isEmpty())
     <p class="muted">No lines.</p>
 @else
-<table class="lines">
+<table class="lines" style="table-layout: fixed;">
     <tr>
         <th>Description</th>
-        <th>Type</th>
+        <th style="width: {{ $pricesOn ? '11%' : '16%' }};">Type</th>
         @if($pricesOn)
-            <th>Qty</th>
-            <th>{{ $unitPriceLabel }}</th>
+            <th style="width: 10%;">Qty</th>
+            <th style="width: 15%;">{{ $unitPriceLabel }}</th>
             @if($registered)
-                <th>Excl VAT</th>
-                <th>VAT</th>
+                <th style="width: 14%;">Excl VAT</th>
+                <th style="width: 12%;">VAT</th>
             @else
-                <th>Line total</th>
+                <th style="width: 14%;">Line total</th>
             @endif
         @endif
     </tr>

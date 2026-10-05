@@ -12,12 +12,16 @@
         @font-face { font-family:'Inter'; font-weight:600; font-style:normal; src:url('{{ $fontDir }}/Inter-600.ttf') format('truetype'); }
         @font-face { font-family:'Inter'; font-weight:700; font-style:normal; src:url('{{ $fontDir }}/Inter-700.ttf') format('truetype'); }
         @page { margin: 24px 32px; }
-        html, body { margin: 0; padding: 0; background: #ffffff; color: #0b2a4a; }
+        /* §14.22 — NO margin/padding reset here: dompdf lets the html/body box win over
+           @page, so "margin:0" silently removed the 24px/32px page margins and the header
+           and wide tables ran to / past the paper edge. */
+        html, body { background: #ffffff; color: #0b2a4a; }
         * { box-sizing: border-box; }
         body { font-family: 'Inter', 'DejaVu Sans', sans-serif; font-size: 11px; }
         h1 { font-size: 18px; margin: 0 0 4px; }
         h2 { font-size: 12px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: #4b5563; }
         p { margin: 0 0 4px; }
+        p, td, th { word-wrap: break-word; }
         table { width: 100%; border-collapse: collapse; }
         td { padding: 3px 0; vertical-align: top; }
         td.label { width: 160px; color: #4b5563; }

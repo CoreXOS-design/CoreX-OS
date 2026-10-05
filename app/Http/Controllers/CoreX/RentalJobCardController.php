@@ -21,10 +21,12 @@ use App\Models\User;
 use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalJobCardService;
 use App\Services\Rentals\RentalJobCardVatService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 /**
@@ -109,11 +111,21 @@ class RentalJobCardController extends Controller
         if ($crewId = $request->get('rental_crew_id')) {
             $query->where('rental_job_cards.rental_crew_id', $crewId);
         }
-        if ($dateFrom = $request->get('date_from')) {
+        // §14.22 — the filter's dates are parsed/validated like the schedule's, and
+        // "to" is the END of that day (a bare date compared against a datetime
+        // column meant midnight, so cards due later on the "to" day were dropped).
+        $filterErrors = [];
+        $filterTz = $this->agencyTimezone($user->effectiveAgencyId() ? \App\Models\Agency::find($user->effectiveAgencyId()) : null);
+        $dateFrom = $this->parseDateInput($request->get('date_from'), 'From date', $filterTz, $filterErrors, 'date_from');
+        $dateTo = $this->parseDateInput($request->get('date_to'), 'To date', $filterTz, $filterErrors, 'date_to');
+        if ($filterErrors) {
+            throw ValidationException::withMessages($filterErrors);
+        }
+        if ($dateFrom) {
             $query->where('rental_job_cards.due_at', '>=', $dateFrom);
         }
-        if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_job_cards.due_at', '<=', $dateTo);
+        if ($dateTo) {
+            $query->where('rental_job_cards.due_at', '<=', $dateTo->copy()->setTimezone($filterTz)->endOfDay()->setTimezone(config('app.timezone') ?: $filterTz));
         }
         if ($request->boolean('overdue')) {
             $query->overdue();
@@ -409,22 +421,78 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $validated = $request->validate([
-            'scheduled_at' => ['nullable', 'date'],
-            'due_at' => ['nullable', 'date'],
+        // §14.22 — RentalJobCard::schedule() takes DATE OBJECTS; the form posts
+        // strings. Parse + validate both here, in the agency timezone, so a bad
+        // value is a clear validation message and never a TypeError/500.
+        $request->validate([
+            'scheduled_at' => ['nullable', 'string', 'max:40'],
+            'due_at' => ['nullable', 'string', 'max:40'],
         ]);
+        $tz = $this->agencyTimezone($rentalJobCard->agency);
+        $errors = [];
+        $scheduledAt = $this->parseDateInput($request->input('scheduled_at'), 'Scheduled', $tz, $errors, 'scheduled_at');
+        $dueAt = $this->parseDateInput($request->input('due_at'), 'Due', $tz, $errors, 'due_at');
+        if (! $errors && $scheduledAt && $dueAt && $dueAt->lt($scheduledAt)) {
+            $errors['due_at'] = 'Due can’t be earlier than Scheduled.';
+        }
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
 
         try {
-            $rentalJobCard->schedule(
-                $validated['scheduled_at'] ?? null,
-                $validated['due_at'] ?? null,
-                $request->user(),
-            );
+            $rentalJobCard->schedule($scheduledAt, $dueAt, $request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card scheduled.');
+    }
+
+    /** The timezone this card's agency works in (same source as the outreach window; one place to change when a per-agency column lands). */
+    private function agencyTimezone(?\App\Models\Agency $agency): string
+    {
+        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    }
+
+    /**
+     * §14.22 — one posted string → one Carbon, or null when left blank (blank
+     * clears the date). Only real calendar values in a known format are
+     * accepted (what <input type=datetime-local>/<input type=date> post, with
+     * or without seconds); relative words, overflow dates ("2026-02-31") and
+     * junk are refused. Read in the agency timezone, returned in the
+     * application timezone — what every datetime column here stores. A refusal
+     * is added to $errors[$errorKey] and null is returned.
+     *
+     * @param array<string,string> $errors
+     */
+    private function parseDateInput(mixed $raw, string $label, string $tz, array &$errors, string $errorKey): ?Carbon
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return null;
+        }
+
+        foreach (['Y-m-d\TH:i', 'Y-m-d\TH:i:s', 'Y-m-d H:i', 'Y-m-d H:i:s', 'Y-m-d'] as $format) {
+            try {
+                $parsed = Carbon::createFromFormat($format, $raw, $tz);
+            } catch (\Throwable) {
+                continue;
+            }
+            $problems = Carbon::getLastErrors();
+            if ($parsed !== false && (! $problems || (($problems['warning_count'] ?? 0) + ($problems['error_count'] ?? 0)) === 0)) {
+                if (! str_contains($format, 'H')) {
+                    $parsed = $parsed->startOfDay();
+                }
+                if ($parsed->year >= 2000 && $parsed->year <= 2100) {
+                    return $parsed->setTimezone(config('app.timezone') ?: $tz);
+                }
+                break;
+            }
+        }
+
+        $errors[$errorKey] = "{$label} isn’t a valid date and time (use the date picker).";
+
+        return null;
     }
 
     public function start(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
