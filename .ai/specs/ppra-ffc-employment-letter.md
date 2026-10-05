@@ -76,16 +76,13 @@ pipeline-gate files in CLAUDE.md's "E-sign integration moat" list.
 
 ## 6. Letterhead / PDF
 
-Reuses the PPRA Inspection Pack letterhead header/footer Blade pattern
-(`resources/views/admin/ppra-inspection-pack/letterhead-sample.blade.php`)
-and the same `GeneratesPdfViaPuppeteer` trait every other PPRA Inspection Pack
-PDF uses — a sibling generator in the same module
+**Superseded by §18** (2026-10-05): the PDF reproduces the agency's Word "letter of employment" and renders the
+agency's Company-Settings letterhead component, not the Inspection Pack teal header/footer originally borrowed.
+Still: same `GeneratesPdfViaPuppeteer` trait, a sibling generator in the same module
 (`app/Services/Compliance/PpraEmploymentLetterPdfService.php` +
-`resources/views/compliance/ppra-employment-letters/pdf.blade.php`), not a
-new letterhead renderer. Unsigned stages render empty signature lines, never
-blank merge-field placeholders. The signed PDF is baked once (both
-signatures) and stored immutably at `signed_pdf_path`; every later
-download/print streams that exact file.
+`resources/views/compliance/ppra-employment-letters/pdf.blade.php`). Unsigned stages render empty signature
+lines, never blank merge-field placeholders. The signed PDF is baked once (both signatures) and stored
+immutably at `signed_pdf_path`; every later download/print streams that exact file.
 
 ## 7. UI placement and navigation entry
 
@@ -434,3 +431,64 @@ agencies inherit it.
 
 **Not in the Setup Wizard (rule 10a):** the defaults already work for any new agency; whether it should be
 walked through there is Johan's call (raised in the lane report, same as the roster key).
+
+## 18. PDF reproduces HFC's Word "letter of employment" (2026-10-05, Johan)
+
+**Reference document:** HFC's Word "letter of employment" — the layout below is that letter, line for line.
+Branch `cc1-ppra-letter-pdf-2026-10-05`.
+
+**A. Letterhead — not built here.** The top of the letter is the shared
+`docuperfect.web-templates.components.company-header` component — the letterhead the agency builds in Company
+Settings and the e-sign documents / evaluation certificate already render — with the letter's branch overrides
+when the letter is branch-bound (`branch` passed) else the agency (`previewAgency`). The logo is handed over as a
+`data:` URI (a `file://` Chromium page cannot fetch the component's `asset()` URL). The inline teal header and
+footer are gone. No agency-specific code.
+
+**B. Body, top to bottom (Arial 11pt, black, A4):**
+1. `Date 5 October 2026` — the word Date, day without a leading zero (agent's signing date once signed, else today).
+2. Addressee, one line each. **Default changed to "The Property Practitioners Regulatory Board / 63 Wierda Road
+   East / Sandton / 2196"** (was "Authority"); `agencies.ppra_employment_letter_address_block` still overrides.
+3. Bold `RE: CONFIRMATION OF EMPLOYMENT FOR A {PPRA CATEGORY IN CAPS}` — `User::ppraCategoryLabel()`: the new
+   `users.ppra_category`; falls back to `designation` ONLY while no category is captured (never to a job title
+   once one is), else "Property Practitioner".
+4. `This serves to confirm that ({FULL FIRST NAMES SURNAME IN CAPS}), ID number ({id}) seven digit reference
+   number ({FFC ref}) is in the employ of (**{legal name} t/a {trading name}**) (**{firm PPRA number}**).` Legal
+   name = `agencies.name`, trading name = `agencies.trading_name` (Company Settings → Trading Name); when there is
+   no distinct trading name only the legal name prints. Firm number = branch PPRA number, else the agency's.
+5. Bold `Mentor's details:` + bordered 2-column table: Name | full first names; Surname | surname; Seven digit
+   reference number: | mentor FFC ref. Mentor = the resolved principal (§8, unchanged).
+6. Bold, one line: `Yours faithfully` (left) / `Employment accepted by` (right).
+7. Signature space with the saved signature image sitting on a dashed line in each column; under the lines the
+   principal's and the practitioner's full first names + surname; under those, bold `Principal Estate Agent`
+   (left) and the practitioner's PPRA category (right).
+8. `Page 1 of 1` bottom right (CSS `@page` margin box — true page counters).
+The old per-signature "Signed <date>" meta lines were dropped: the Word letter has none (timestamps/IP remain on
+the letter record and audit trail).
+
+**C. Staff profile — two new fields** (admin Users → edit/create, Personal / Role tabs), validated, saved on both
+create and update, audited via the `Agent\AgentPpraLetterDetailsChanged` domain event (`field`, `from`, `to`):
+- **Full first names (as on ID)** (`users.full_first_names`, varchar 150, nullable) — legal first names, e.g.
+  "Elizabeth Petronella" where `name` says "Elize". Used on the letter; falls back to the first word of `name`
+  (the staff form's existing split) only while blank. **Populated for nobody** — Johan/admins capture it.
+- **PPRA category** (`users.ppra_category`, varchar 100, nullable) — dropdown of `User::PPRA_CATEGORIES`
+  (Principal Property Practitioner, Candidate Principal Property Practitioner, Property Practitioner, Candidate
+  Property Practitioner); statutory, so a constant, not a per-agency setting. Added because `designation` is a
+  job-title picklist (Johan's reads "CEO") and no PPRA category existed anywhere. Johan chose "add the field"
+  over using `designation`. Populated for nobody.
+Archive/restore of staff is the existing soft-delete; nothing new needed. Not agency settings, so no Setup Wizard
+surface (non-negotiable #10a).
+
+**D. Signed letters never change.** `signAsPrincipal()` bakes the PDF once to `signed_pdf_path` (storage
+`ppra-employment-letters/{agency}/{letter}-signed.pdf`); both download endpoints stream that stored file whenever
+the letter is signed and the file exists. Nothing re-renders a signed letter, so only letters rendered from now
+(unsigned previews and the final bake of letters still in progress) use this layout. Test:
+`test_signed_letters_on_file_are_served_from_storage_and_never_re_rendered`.
+
+**Data note (not changed).** On QA1, HFC (agency 1) has `name` = "Home Finders Coastal" and `trading_name` =
+"Johan and Elize Properties T/A" — i.e. the legal name sits in the Trading Name field with a stray "T/A", and the
+trading name in the legal-name field. The letter would read "Home Finders Coastal t/a Johan and Elize Properties
+T/A". Needs the data corrected in Company Settings (legal name "Johan and Elize Properties Pty(Ltd)", trading name
+"Home Finders Coastal"); that also changes HFC's letterhead line 1, so it is Johan's call, not edited here.
+
+Tests: `tests/Feature/Compliance/PpraEmploymentLetterPdfLayoutTest.php` (renders the real PDF, reads it back with
+`pdftotext`).
