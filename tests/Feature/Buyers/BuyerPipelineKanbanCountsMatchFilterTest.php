@@ -67,6 +67,29 @@ final class BuyerPipelineKanbanCountsMatchFilterTest extends TestCase
         $this->assertSame('rental', $rental['leadType']);
     }
 
+    /**
+     * 2026-10-05 (live 500) — searching on the Kanban view crashed: the search
+     * scope's name-relevance ORDER BY leaked into the GROUP BY buyer_state
+     * per-column totals query, which only_full_group_by rejects.
+     */
+    public function test_kanban_search_does_not_500_and_totals_reflect_the_search(): void
+    {
+        [$admin] = $this->scenarioWithSaleAndRentalBuyers();
+        $this->actingAs($admin);
+
+        $request = \Illuminate\Http\Request::create('/corex/command-center/buyers/pipeline', 'GET', [
+            'view' => 'kanban', 'scope' => 'agency', 'search' => 'Sale',
+        ]);
+        $request->setUserResolver(fn () => $admin);
+
+        $data = app(\App\Http\Controllers\CommandCenter\BuyerPipelineController::class)->index($request)->getData();
+
+        $this->assertSame(1, $data['columns']['new']->count());
+        $this->assertSame('Sale', $data['columns']['new']->first()->first_name);
+        $this->assertSame(1, $data['columnTotals']['new']);
+        $this->assertSame(0, $data['columnTotals']['lost'], 'the non-matching rental buyer must not be counted');
+    }
+
     private function assertColumnsMatchCounts(array $data): void
     {
         foreach (['new', 'warm', 'cold', 'lost'] as $state) {
