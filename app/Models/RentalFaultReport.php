@@ -289,6 +289,10 @@ class RentalFaultReport extends Model
         if ($this->status === self::STATUS_CANCELLED) {
             throw new \LogicException('This fault report is already cancelled.');
         }
+        if ($this->status === self::STATUS_RESOLVED) {
+            // A resolved report is the closed evidence record (audit M2).
+            throw new \LogicException('A resolved fault report is a permanent record and cannot be cancelled.');
+        }
 
         $fromStatus = $this->status;
         $this->forceFill([
@@ -367,6 +371,12 @@ class RentalFaultReport extends Model
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
+        }
+        // Once a work order has been raised the decision is spent: a second
+        // approval would reset status to approved and let a second work order
+        // be raised, orphaning the first (audit M3).
+        if ($this->rental_work_order_id !== null || $this->status === self::STATUS_WORK_ORDER_RAISED) {
+            throw new \LogicException('A work order has already been raised for this fault report — its approval decision can no longer be changed.');
         }
 
         $decision = $attributes['decision'];

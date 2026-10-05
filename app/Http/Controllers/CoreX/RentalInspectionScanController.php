@@ -104,6 +104,15 @@ class RentalInspectionScanController extends Controller
         abort_if($scan->rental_inspection_id !== $rentalInspection->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
+        // Audit H1 — a scan cannot write observations into a completed / cancelled inspection.
+        try {
+            $rentalInspection->assertRecordable();
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return redirect()
+                ->route('corex.rental-inspections.scans.review', [$rentalInspection, $scan])
+                ->withErrors(['scan' => $e->getMessage()]);
+        }
+
         $validated = $request->validate([
             'condition_keys' => ['required', 'array'],
             'condition_keys.*' => ['nullable', 'string', 'max:60'],

@@ -151,8 +151,15 @@ class PerMailboxMailTransportBuilder
         $mailer = new Mailer('per_mailbox', app('view'), $transport, app('events'));
 
         $rawMime = null;
-        $listener = function (MessageSent $event) use (&$rawMime) {
-            $rawMime = $event->sent->toString();
+        // Event::forget(MessageSent::class) would strip EVERY MessageSent listener for the
+        // rest of the process (a queue worker would lose any other listener after the first
+        // send). The dispatcher cannot remove a single closure, so this one deactivates
+        // itself when the send finishes instead.
+        $captureActive = true;
+        $listener = function (MessageSent $event) use (&$rawMime, &$captureActive) {
+            if ($captureActive) {
+                $rawMime = $event->sent->toString();
+            }
         };
         Event::listen(MessageSent::class, $listener);
 
@@ -167,7 +174,7 @@ class PerMailboxMailTransportBuilder
                 $real,
             );
         } finally {
-            Event::forget(MessageSent::class);
+            $captureActive = false;
         }
 
         if ($rawMime === null) {

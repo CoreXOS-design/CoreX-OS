@@ -14,14 +14,18 @@
 
 @section('content')
 <div class="p-6 max-w-7xl mx-auto space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
+    {{-- AT-442 fix #7 — session('success') is already surfaced by the app's
+         standard toast (components.toast-notifications reads the same flash
+         key on DOMContentLoaded); an inline banner here showed the same
+         message twice. Same fix as leases/show.blade.php (AT-444 follow-up 2). --}}
     @if($errors->any())
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
             @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
         </div>
     @endif
+
+    {{-- AT-442 fix #4 — same context bar as the work order show page. --}}
+    <x-rental-context-bar :property="$jobCard->property" :lease="$jobCard->lease" current="work_orders" />
 
     <div class="flex items-center justify-between">
         <div>
@@ -166,7 +170,17 @@
                     @if($pricesOn)
                     <tfoot>
                         <tr style="border-top: 1px solid var(--border); font-weight: 600;">
-                            <td colspan="4" class="py-1 text-right">Total</td>
+                            <td colspan="4" class="py-1 text-right">
+                                Total
+                                {{-- AT-442 fix #6 — the landlord's no-approval limit and whether this total is within or over it, next to the total itself. --}}
+                                <div class="text-xs font-normal" style="color: {{ ($jobCard->total_amount ?? 0) <= $noApprovalThreshold ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
+                                    @if(($jobCard->total_amount ?? 0) <= $noApprovalThreshold)
+                                        Within the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit
+                                    @else
+                                        Over the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit — owner approval required
+                                    @endif
+                                </div>
+                            </td>
                             <td class="py-1">R{{ number_format((float) ($jobCard->total_amount ?? 0), 2) }}</td>
                             <td></td>
                         </tr>
@@ -174,11 +188,11 @@
                     @endif
                 </table>
                 @permission('rental_job_cards.create')
-                <form method="POST" action="{{ route('corex.rental-job-cards.lines.store', $jobCard) }}" class="grid grid-cols-5 gap-2 pt-2 items-end">
+                <form method="POST" action="{{ route('corex.rental-job-cards.lines.store', $jobCard) }}" class="grid grid-cols-6 gap-2 pt-2 items-end">
                     @csrf
                     <div>
                         <label class="text-xs">Catalogue item</label>
-                        <select name="rental_catalogue_item_id" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);" onchange="this.form.description.value=''">
+                        <select name="rental_catalogue_item_id" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);" onchange="this.form.description.value=''; this.form.type.disabled = !!this.value;">
                             <option value="">— Free text —</option>
                             @foreach($catalogueItems as $ci)
                                 <option value="{{ $ci->id }}">{{ $ci->name }} ({{ ucfirst($ci->type) }})</option>
@@ -188,6 +202,17 @@
                     <div>
                         <label class="text-xs">Description</label>
                         <input type="text" name="description" maxlength="255" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
+                    </div>
+                    <div>
+                        {{-- AT-442 fix #5 — a free-text line was always saved as
+                             Labour with no way to choose. Disabled (so it never
+                             posts) once a catalogue item is picked — that item
+                             keeps its own type, see RentalJobCardService::addLine(). --}}
+                        <label class="text-xs">Type</label>
+                        <select name="type" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
+                            <option value="labour">Labour</option>
+                            <option value="part">Part</option>
+                        </select>
                     </div>
                     @if($pricesOn)
                         <div>
@@ -300,7 +325,6 @@
             @if($isOpen && in_array($jobCard->status, [\App\Models\RentalJobCard::STATUS_DRAFT, \App\Models\RentalJobCard::STATUS_QUOTED], true))
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Quote to owner</h2>
-                <p class="text-xs" style="color: var(--text-muted);">Generates a quote PDF from the lines above and routes it through the property's owner-approval threshold — at or under it, auto-approved; over it, owner approval is required on the linked work order.</p>
                 @if($jobCard->quotes->isNotEmpty())
                     <ul class="space-y-1 text-xs">
                         @foreach($jobCard->quotes as $q)
@@ -309,10 +333,19 @@
                     </ul>
                 @endif
                 @permission('rental_job_cards.send_quote')
+                {{-- AT-442 follow-up (item 8) — no landlord linked blocks the
+                     send server-side (RentalJobCardService::sendToOwnerAsQuote());
+                     offer the fix right here instead of just an error banner. --}}
+                @if(!$jobCard->property?->landlordContact())
+                    <p class="text-xs" style="color: var(--ds-crimson);">No landlord linked — link a landlord before sending the quote.
+                        <a href="{{ route('corex.properties.show', ['property' => $jobCard->property_id, 'tab' => 'contacts']) }}" class="underline">Link landlord</a>
+                    </p>
+                @else
                 <form method="POST" action="{{ route('corex.rental-job-cards.send-quote', $jobCard) }}" onsubmit="return confirm('Send this job card to the owner as a quote?');">
                     @csrf
                     <button type="submit" class="corex-btn-primary text-xs">Send to owner as quote</button>
                 </form>
+                @endif
                 @endpermission
             </div>
             @endif

@@ -1385,6 +1385,23 @@ class RentalApplicationReviewController extends Controller
     }
 
     /**
+     * The checklist is the evidence behind the "require checklist complete
+     * before approval" gate, so it is frozen once the application has been
+     * approved or declined — otherwise the gate could be satisfied and the
+     * items then edited underneath the decision (audit L7).
+     */
+    private function checklistLockedResponse(RentalApplication $rentalApplication): ?\Illuminate\Http\JsonResponse
+    {
+        if (in_array($rentalApplication->status, ['approved', 'declined'], true)) {
+            return response()->json([
+                'error' => 'This application has been ' . $rentalApplication->status . ' — its checklist is locked.',
+            ], 423);
+        }
+
+        return null;
+    }
+
+    /**
      * AT-430 §3.2 — a single checklist item's state/note. Refuses a derived
      * item outright (Part D, Johan's ruling: "do NOT let an agent set them
      * by hand" — those three tick themselves off the lease via
@@ -1395,6 +1412,9 @@ class RentalApplicationReviewController extends Controller
     public function updateChecklistItem(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->checklistLockedResponse($rentalApplication)) {
+            return $locked;
+        }
         abort_unless(
             (int) $checklistItem->section?->rental_application_id === (int) $rentalApplication->id,
             404,
@@ -1494,6 +1514,9 @@ class RentalApplicationReviewController extends Controller
     public function uploadChecklistItemDocument(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->checklistLockedResponse($rentalApplication)) {
+            return $locked;
+        }
         $this->guardChecklistItemBelongsToApplication($rentalApplication, $checklistItem);
 
         if ($rentalApplication->isPendingAuthorisation()) {
@@ -1539,7 +1562,9 @@ class RentalApplicationReviewController extends Controller
         }
 
         $newState = $checklistItem->state;
-        if ($checklistItem->state !== \App\Models\RentalApplicationChecklistItem::STATE_DONE) {
+        // Only an untouched item is auto-ticked by an attachment; an item an
+        // agent deliberately set to not-applicable stays exactly as set.
+        if ($checklistItem->state === \App\Models\RentalApplicationChecklistItem::STATE_NOT_STARTED) {
             $documentCount = $checklistItem->documents()->count();
             if ($this->checklistDoneGate($checklistItem, $checklistItem->note, $documentCount) === null) {
                 $checklistItem->update([
@@ -1573,6 +1598,9 @@ class RentalApplicationReviewController extends Controller
     public function removeChecklistItemDocument(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem, Document $document)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->checklistLockedResponse($rentalApplication)) {
+            return $locked;
+        }
         $this->guardChecklistItemBelongsToApplication($rentalApplication, $checklistItem);
         $this->guardDocumentBelongsToApplication($rentalApplication, $document);
         abort_unless((int) $document->checklist_item_id === (int) $checklistItem->id, 404);
@@ -1592,6 +1620,9 @@ class RentalApplicationReviewController extends Controller
     public function restoreChecklistItemDocument(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem, int $document)
     {
         $this->guardRentalApplication($rentalApplication);
+        if ($locked = $this->checklistLockedResponse($rentalApplication)) {
+            return $locked;
+        }
         $this->guardChecklistItemBelongsToApplication($rentalApplication, $checklistItem);
 
         $row = Document::withTrashed()->findOrFail($document);

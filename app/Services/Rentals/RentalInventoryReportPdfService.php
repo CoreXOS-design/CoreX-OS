@@ -90,9 +90,12 @@ class RentalInventoryReportPdfService
         // matches RentalInspectionReportPdfService's own signatureRows
         // shape exactly, including embedding wet-ink as text + a link
         // rather than an image (never presentable as an e-signature).
+        // Signature image resolved via signature_image_src (audit M5) —
+        // party_signature_path lives on the private disk now, never the
+        // public-URL form StorageDataUri::fromPublicStoragePath() expects.
         $signatureRows = collect($inventory->signatureSummaryRows())->map(function (array $row) {
             $row['signature_image_data_uri'] = $row['signature']?->disposition === RentalInventorySignature::DISPOSITION_SIGNED
-                ? StorageDataUri::fromPublicStoragePath($row['signature']->party_signature_path)
+                ? $row['signature']->signature_image_src
                 : null;
 
             return $row;

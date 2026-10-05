@@ -144,7 +144,9 @@
                                 </span>
                             </div>
                             @if($signature->disposition === 'signed' && $signature->party_signature_path)
-                                <img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                {{-- signature_image_src (audit M5) — party_signature_path lives on
+                                     the private disk, never directly servable. --}}
+                                <img src="{{ $signature->signature_image_src }}" alt="{{ $partyLabel }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @elseif($signature->disposition === 'wet_ink' && $signature->wet_ink_upload_path)
                                 @if($isImageScan)
                                     <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener">

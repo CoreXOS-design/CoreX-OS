@@ -174,7 +174,9 @@ class RentalJobCardService
         $line = $jobCard->lines()->create([
             'agency_id' => $jobCard->agency_id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
-            'type' => $attributes['type'] ?? $catalogueItem?->type ?? RentalCatalogueItem::TYPE_LABOUR,
+            // AT-442 fix #5 — a catalogue item keeps its OWN type; the posted
+            // 'type' only applies to a free-text line (no catalogue item).
+            'type' => $catalogueItem?->type ?? $attributes['type'] ?? RentalCatalogueItem::TYPE_LABOUR,
             'description' => $attributes['description'] ?? $catalogueItem?->name ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->unit,
             'quantity' => $quantity,
@@ -238,6 +240,14 @@ class RentalJobCardService
     {
         if ($jobCard->lines()->doesntExist()) {
             throw new \LogicException('Add at least one line before sending this job card to the owner as a quote.');
+        }
+
+        // AT-442 follow-up (item 8) — an owner quote must NEVER be addressed
+        // to a tenant. landlordContact() (unlike sellerOwnerContact()) has no
+        // sole-contact fallback, so a property with only a tenant linked
+        // resolves null here — block the whole send, not just the mail.
+        if (!$jobCard->property?->landlordContact()) {
+            throw new \LogicException('No landlord linked — link a landlord before sending the quote.');
         }
 
         $jobCard->recalcTotal();

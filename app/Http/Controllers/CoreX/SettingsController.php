@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\Property\GrandfatherSyndicatedStockJob;
+use App\Services\Syndication\SyndicationApprovalService;
 use App\Models\Agency;
 use App\Models\AgentSocialAccount;
 use App\Models\ContactSource;
@@ -146,6 +148,17 @@ class SettingsController extends Controller
         // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
         // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
         $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
+        // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §5.1.
+        // OFF by default: an agency that never turns it on sees no change anywhere.
+        $approvalAgencyId                  = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+        $data['syndicationApprovalRequired'] = SyndicationApprovalService::isRequiredForAgency($approvalAgencyId);
+        $data['syndicationApproverIds']      = SyndicationApprovalService::approverIdsFor($approvalAgencyId);
+        $data['syndicationApproverChoices']  = $approvalAgencyId > 0
+            ? User::where('agency_id', $approvalAgencyId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'email'])
+            : collect();
 
         // Feature Settings tab: Matches
         $data['matchesEnabled']            = (bool) PerformanceSetting::get('matches_enabled', 1);
@@ -542,6 +555,15 @@ class SettingsController extends Controller
             ]);
         }
 
+        // The approval-gate permission is checked BEFORE any write in this request
+        // so a 403 can never leave the portal toggles below half-saved.
+        if ($request->has('syndication_approval_required')) {
+            abort_unless(
+                auth()->user()?->hasPermission('properties.syndication.manage_approvers'),
+                403
+            );
+        }
+
         // Saver-precondition guard (spec §3.4 / parent §6.1) — see updateMarketingEnabled.
         foreach (['syndication_pp_enabled', 'syndication_p24_enabled', 'pp_exclusivity_enabled'] as $key) {
             if ($request->has($key)) {
@@ -552,6 +574,95 @@ class SettingsController extends Controller
 
         if ($request->has('pp_exclusive_days_max')) {
             PerformanceSetting::set('pp_exclusive_days_max', (int) $request->input('pp_exclusive_days_max'));
+        }
+
+        // ── Syndication Approval Gate (layer 3) ──────────────────────────
+        // .ai/specs/syndication-approval-gate.md §4.3 / §4.4.
+        // Saver-precondition guard: both keys are written ONLY when the posted
+        // form actually carried them, so a step that renders a subset of this
+        // form can never wipe the other agency's settings (parent spec §6.1).
+        if ($request->has('syndication_approval_required')) {
+            $wantsOn   = $request->boolean('syndication_approval_required');
+            $approvers = array_values(array_unique(array_map(
+                'intval',
+                (array) $request->input('syndication_approver_user_ids', [])
+            )));
+            $approvers = array_values(array_filter($approvers));
+
+            // Only active people of THIS agency may be on the roster — a posted id
+            // from another agency would otherwise be emailed every approval
+            // request (address, agent details) and shown by name.
+            $rosterAgencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+            $approvers = $rosterAgencyId > 0 && ! empty($approvers)
+                ? \App\Models\User::withoutGlobalScopes()
+                    ->whereIn('id', $approvers)
+                    ->where('agency_id', $rosterAgencyId)
+                    ->where('is_active', true)
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all()
+                : [];
+
+            // HARD rule: the switch cannot be ON with nobody behind it —
+            // that is the one way this feature could stop an agency marketing
+            // anything at all.
+            //
+            // A thrown ValidationException, NOT a redirect-with-error. The
+            // Agency Setup Wizard reuses this saver and IGNORES a saver's
+            // return value (AgencySetupWizardController::save() only reacts to
+            // ValidationException and a 403) — a redirect would be swallowed,
+            // the step marked complete, and the setting silently not saved.
+            // That is precisely the failure agency-onboarding-setup.md §6.1
+            // exists to prevent. Thrown, it re-renders the step with the error
+            // against the field on BOTH callers.
+            if ($wantsOn && empty($approvers)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'syndication_approver_user_ids' => 'Choose at least one person who approves listings before you turn this on.',
+                ]);
+            }
+
+            $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+
+            // Configuring the gate is its own permission, checked HERE rather than
+            // on the route: this endpoint also saves the unrelated portal settings,
+            // which a wider set of people may change. Declaring the key and
+            // enforcing it nowhere would put a switch in Role Manager that does
+            // nothing (non-negotiable #5).
+            abort_unless(
+                auth()->user()?->hasPermission('properties.syndication.manage_approvers'),
+                403
+            );
+
+            // NEVER write these two keys globally. PerformanceSetting::set() with no
+            // agency writes an agency_id=NULL row, and because neither key starts
+            // with `company_`, ::get() treats that row as the fallback for EVERY
+            // agency — switching the gate on tenancy-wide with a foreign approver
+            // roster. effectiveAgencyId() returning null is a known live failure
+            // path, so this refuses rather than writing the landmine.
+            abort_if($agencyId <= 0, 403, 'No agency context — syndication approval cannot be configured.');
+
+            $wasOn = SyndicationApprovalService::isRequiredForAgency($agencyId);
+
+            PerformanceSetting::set(
+                SyndicationApprovalService::SETTING_APPROVERS,
+                json_encode($approvers),
+                $agencyId
+            );
+            PerformanceSetting::set(
+                SyndicationApprovalService::SETTING_REQUIRED,
+                $wantsOn ? 1 : 0,
+                $agencyId
+            );
+
+            // "Only new stock" (Johan, D8): the instant the switch goes off →
+            // on, everything the agency already has out on a portal is stamped
+            // approved, so the approver never faces the back catalogue.
+            if ($wantsOn && ! $wasOn && $agencyId > 0) {
+                // afterCommit: the wizard wraps its savers in a DB::transaction — a
+                // later saver throwing must not leave this queued (stamping stock
+                // approved while the switch was rolled back to off).
+                GrandfatherSyndicatedStockJob::dispatch($agencyId, (int) auth()->id())->afterCommit();
+            }
         }
 
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
@@ -1386,7 +1497,7 @@ class SettingsController extends Controller
 
         $data = $request->validate($rules);
 
-        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->agency_id);
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->effectiveAgencyId());
         if (!$agency) {
             return redirect()->back()->with('error', 'Agency not found.');
         }

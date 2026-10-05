@@ -265,7 +265,7 @@
                     <div class="mt-1.5">
                         <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Signed</span>
                         @if($signature->party_signature_path)
-                            <div class="mt-1"><img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }}'s signature" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></div>
+                            <div class="mt-1"><img src="{{ $signature->signature_image_src }}" alt="{{ $partyLabel }}'s signature" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></div>
                         @endif
                     </div>
                 @elseif($signature->disposition === \App\Models\RentalInventorySignature::DISPOSITION_WET_INK)

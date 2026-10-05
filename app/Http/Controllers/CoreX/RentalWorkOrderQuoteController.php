@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderQuote;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 /**
  * .ai/specs/rental-work-orders.md §3.4c — full CRUD + archive/restore on
@@ -16,6 +18,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class RentalWorkOrderQuoteController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     /**
      * Johan: "an upload or attach of the quote, or punching in the
      * details is whats needed" — neither path mandatory over the other,
@@ -24,8 +28,9 @@ class RentalWorkOrderQuoteController extends Controller
      */
     public function store(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', 'exists:agency_service_providers,id'],
+            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'amount' => ['required', 'numeric', 'min:0'],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],
@@ -57,11 +62,12 @@ class RentalWorkOrderQuoteController extends Controller
     /** Editable while the work order is still open — the reportable facts, not the lifecycle. */
     public function update(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
         abort_if(in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true), 409, 'This work order has closed and its quotes can no longer be edited.');
 
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', 'exists:agency_service_providers,id'],
+            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'amount' => ['required', 'numeric', 'min:0'],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],
@@ -78,13 +84,20 @@ class RentalWorkOrderQuoteController extends Controller
         }
         unset($validated['document']);
 
+        $before = [(float) $quote->amount, (int) $quote->agency_service_provider_id];
         $quote->update($validated);
+        $priceOrSupplierChanged = $before !== [(float) $quote->amount, (int) $quote->agency_service_provider_id];
 
         // The threshold gate is only as fresh as the amount it last saw —
         // an edit to the SELECTED quote's amount must re-evaluate the gate,
         // not leave owner_approval_status stale against a number nobody
         // approved (BUILD_STANDARD §2, input-space rule).
-        if ($quote->is_selected) {
+        // Re-derive ONLY when the price or the supplier actually changed:
+        // that is the one deliberate case where a recorded owner approval is
+        // dropped and re-approval is required (the owner approved a
+        // different price/supplier). A note/date/document-only edit must not
+        // silently wipe an approval the owner already gave (audit M1).
+        if ($quote->is_selected && $priceOrSupplierChanged) {
             $rentalWorkOrder->selectQuote($quote->fresh(), $request->user());
         }
 
@@ -93,6 +106,7 @@ class RentalWorkOrderQuoteController extends Controller
 
     public function select(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
 
         try {
@@ -106,19 +120,29 @@ class RentalWorkOrderQuoteController extends Controller
 
     public function destroy(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
 
-        $rentalWorkOrder->archiveQuote($quote, $request->user());
+        try {
+            $rentalWorkOrder->archiveQuote($quote, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['quote' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote archived.');
     }
 
     public function restore(Request $request, RentalWorkOrder $rentalWorkOrder, int $quote): RedirectResponse
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         $quoteModel = RentalWorkOrderQuote::withTrashed()->findOrFail($quote);
         abort_unless($quoteModel->rental_work_order_id === $rentalWorkOrder->id, 404);
 
-        $rentalWorkOrder->restoreQuote($quoteModel, $request->user());
+        try {
+            $rentalWorkOrder->restoreQuote($quoteModel, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['quote' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote restored.');
     }
@@ -130,8 +154,9 @@ class RentalWorkOrderQuoteController extends Controller
      * how the URL was reached, same discipline as
      * PropertyFileController::download().
      */
-    public function download(RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote)
+    public function download(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote)
     {
+        $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
         abort_unless($quote->document_storage_path, 404);
         abort_unless(Storage::disk('local')->exists($quote->document_storage_path), 404);

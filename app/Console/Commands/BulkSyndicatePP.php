@@ -55,6 +55,16 @@ class BulkSyndicatePP extends Command
 
         // Field-readiness filter — never push a listing PP will reject.
         $ready = $active->filter(fn (Property $p) => empty($mapper->checkReadiness($p)))->values();
+
+        // Layer 3 — a bulk run must never launder a listing past the agency's
+        // chosen approver. .ai/specs/syndication-approval-gate.md §6.3.
+        // Inert for any agency that has not switched the gate on.
+        $approvalSvc = app(\App\Services\Syndication\SyndicationApprovalService::class);
+        $unapproved  = $ready->reject(fn (Property $p) => $approvalSvc->isApproved($p))->values();
+        $ready       = $ready->filter(fn (Property $p) => $approvalSvc->isApproved($p))->values();
+        if ($unapproved->isNotEmpty()) {
+            $this->warn("SKIPPED (awaiting syndication approval): {$unapproved->count()} — ids " . $unapproved->pluck('id')->implode(','));
+        }
         if ($limit > 0) {
             $ready = $ready->take($limit)->values();
         }

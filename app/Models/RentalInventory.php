@@ -254,6 +254,19 @@ class RentalInventory extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * Read-only twin of resolveOrStartFor(): the property's current
+     * (non-cancelled) inventory for its active lease, else its lease-less
+     * one, else null. Writes nothing — the capture screen's GET uses this so
+     * that merely viewing a property never creates a record (audit M4).
+     */
+    public static function findCurrentFor(Property $property): ?self
+    {
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+
+        return $lease ? self::currentFor($lease) : self::currentForProperty($property);
+    }
+
+    /**
      * §0b, Johan 2026-09-22 — "selecting inventory from the property we
      * already know which property its for. done simple." One click from the
      * property, straight into the capture surface: resume the current
@@ -552,6 +565,14 @@ class RentalInventory extends Model implements SignedDocumentDistributable
 
     public function cancel(User $by, string $reason): void
     {
+        // A completed inventory is a signed legal record and a cancelled one
+        // is already closed — neither can be flipped to cancelled (audit M2).
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException($this->status === self::STATUS_COMPLETED
+                ? 'A completed inventory is a signed record and cannot be cancelled.'
+                : 'This inventory is already cancelled.');
+        }
+
         $this->forceFill([
             'status' => self::STATUS_CANCELLED,
             'cancelled_at' => now(),

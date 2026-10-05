@@ -846,6 +846,8 @@ class Property extends Model
         'pp_exclusive_days',
         'pp_delay_until',
         'pp_last_error',
+        'pp_portal_agent_ids',
+        'pp_agent_conflict',
         'pp_images_last_synced_at',
         'pp_listing_last_synced_at',
         'floor_number',
@@ -882,6 +884,8 @@ class Property extends Model
         'p24_images_last_synced_at',
         'p24_listing_last_synced_at',
         'p24_image_signature',
+        'p24_portal_agent_ids',
+        'p24_agent_conflict',
         'gallery_expected_count',
         'gallery_stored_count',
         'gallery_import_status',
@@ -988,8 +992,19 @@ class Property extends Model
         'p24_activated_at'            => 'datetime',
         'p24_images_last_synced_at'   => 'datetime',
         'p24_listing_last_synced_at'  => 'datetime',
+        // Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §3.
+        'p24_portal_agent_ids'        => 'array',
+        'p24_agent_conflict'          => 'array',
+        'pp_portal_agent_ids'         => 'array',
+        'pp_agent_conflict'           => 'array',
         'compliance_snapshot_at'      => 'datetime',
         'compliance_snapshot_data'    => 'array',
+        // Layer 3 approval stamp — .ai/specs/syndication-approval-gate.md §4.1.
+        // Cast but DELIBERATELY NOT $fillable: the only writer is
+        // SyndicationApprovalService (forceFill), so no mass-assignment path —
+        // a form post, an import, an API payload — can ever stamp a listing as
+        // approved for syndication.
+        'syndication_approved_at'     => 'datetime',
         'compliance_evidence_flags'   => 'array',
         'first_marketed_at'           => 'datetime',
         'municipal_valuation'         => 'decimal:2',
@@ -1037,6 +1052,21 @@ class Property extends Model
         });
     }
 
+    /**
+     * Portal Agent Mismatch Guard — a send to P24 or Private Property was stopped
+     * on an agent problem and is waiting for someone to act.
+     * .ai/specs/portal-agent-mismatch-guard.md §6
+     */
+    public function needsPortalAgentAttention(): bool
+    {
+        return !empty($this->p24_agent_conflict) || !empty($this->pp_agent_conflict);
+    }
+
+    public function scopeNeedsPortalAgentAttention($query)
+    {
+        return $query->where(fn ($q) => $q->whereNotNull('p24_agent_conflict')->orWhereNotNull('pp_agent_conflict'));
+    }
+
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'agent_id');
@@ -1056,6 +1086,21 @@ class Property extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class)->withTrashed();
+    }
+
+    /**
+     * Layer 3 — who cleared this listing for syndication.
+     * .ai/specs/syndication-approval-gate.md §4.1
+     */
+    public function syndicationApprovedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'syndication_approved_by_user_id');
+    }
+
+    /** Layer 3 — the full request/decision trail, newest first. §4.2 */
+    public function syndicationApprovals(): HasMany
+    {
+        return $this->hasMany(PropertySyndicationApproval::class)->orderByDesc('id');
     }
 
     /** Build 3 — the property's recorded condition level (drives CMA
@@ -1185,6 +1230,30 @@ class Property extends Model
         }
 
         return $contacts->count() === 1 ? $contacts->first() : null;
+    }
+
+    /**
+     * AT-442 follow-up (item 8) — a STRICT landlord-side lookup for anything
+     * that SENDS MAIL to "the owner": no sole-contact fallback. The sole-
+     * contact fallback in sellerOwnerContact() above is correct for its own
+     * callers (PDF Splitter filing, FICA pre-fill — a low-risk guess for
+     * where to FILE a document) but is exactly how a rental property with
+     * ONLY a tenant linked (the tenant's role doesn't match the seller-side
+     * list, so it falls through to "the one contact on file") got a real
+     * tenant addressed as "the owner" on a quote email — confirmed on QA1,
+     * property 5792. Only a contact whose pivot role is explicitly
+     * seller/owner/landlord/lessor is ever returned; null otherwise, never
+     * a guess. Narrowly scoped to mail — do NOT use this for filing/display
+     * callers that already rely on sellerOwnerContact()'s own fallback.
+     */
+    public function landlordContact(): ?Contact
+    {
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+
+        return $this->contacts()->get()->first(function ($c) use ($sellerSide) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $sellerSide, true);
+        });
     }
 
     /**

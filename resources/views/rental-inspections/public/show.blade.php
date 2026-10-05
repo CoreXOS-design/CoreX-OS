@@ -16,7 +16,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Inspection report — {{ $inspection->property->buildDisplayAddress() }}</title>
+    <title>Inspection report — {{ $inspection->property?->buildDisplayAddress() }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     {{-- §40, 2026-09-28 — Johan: "how do we print / share it now" —
          this page already has everything a printed record needs (photos,
@@ -47,7 +47,7 @@
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ ucfirst($inspection->type) }}-inspection report</p>
-                    <h1 class="text-xl font-bold text-slate-800 mt-1">{{ $inspection->property->buildDisplayAddress() }}</h1>
+                    <h1 class="text-xl font-bold text-slate-800 mt-1">{{ $inspection->property?->buildDisplayAddress() }}</h1>
                     <p class="text-sm text-slate-500 mt-1">
                         {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
                         @if($inspection->completed_at) &middot; Completed {{ $inspection->completed_at->format('d M Y') }} @endif
@@ -75,7 +75,7 @@
                 @if($inspection->property?->sellerOwnerContact())
                     <div class="flex justify-between gap-3">
                         <dt class="text-slate-500">Landlord</dt>
-                        <dd class="text-slate-700 text-right">{{ $inspection->property->sellerOwnerContact()->full_name }}</dd>
+                        <dd class="text-slate-700 text-right">{{ $inspection->property?->sellerOwnerContact()?->full_name }}</dd>
                     </div>
                 @endif
                 @if($inspection->createdBy)
@@ -232,7 +232,7 @@
                                     @if($row['signature']->refusal_reason_note) — {{ $row['signature']->refusal_reason_note }} @endif
                                 </p>
                             @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED && $row['signature']->party_signature_path)
-                                <img src="{{ $row['signature']->party_signature_path }}" alt="{{ $row['role'] }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                <img src="{{ $row['signature']->fileUrl('signature', $inspection->public_token) }}" alt="{{ $row['role'] }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK && $row['signature']->wet_ink_upload_path)
                                 {{-- Conductor brief 2026-09-29 — the bug this
                                      build fixes: a wet-ink upload is not
@@ -240,14 +240,20 @@
                                      an <img> here shows nothing (a PDF is not
                                      a browser-decodable image format) — the
                                      extension decides <a> (PDF) vs the
-                                     existing linked-<img> (a real image). --}}
-                                @php $isImageScan = in_array(strtolower(pathinfo($row['signature']->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'heic', 'heif']); @endphp
+                                     existing linked-<img> (a real image).
+                                     Served via fileUrl() (audit M4) — the
+                                     scan lives on the private disk, never a
+                                     directly-servable storage path. --}}
+                                @php
+                                    $isImageScan = in_array(strtolower(pathinfo($row['signature']->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'heic', 'heif']);
+                                    $wetInkUrl = $row['signature']->fileUrl('wet-ink', $inspection->public_token);
+                                @endphp
                                 @if($isImageScan)
-                                    <a href="{{ $row['signature']->wet_ink_upload_path }}" target="_blank" rel="noopener">
-                                        <img src="{{ $row['signature']->wet_ink_upload_path }}" alt="{{ $row['role'] }} wet-ink upload" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                    <a href="{{ $wetInkUrl }}" target="_blank" rel="noopener">
+                                        <img src="{{ $wetInkUrl }}" alt="{{ $row['role'] }} wet-ink upload" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                                     </a>
                                 @else
-                                    <a href="{{ $row['signature']->wet_ink_upload_path }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
+                                    <a href="{{ $wetInkUrl }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
                                 @endif
                             @endif
                         @endif

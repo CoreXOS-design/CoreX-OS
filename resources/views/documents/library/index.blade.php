@@ -277,11 +277,26 @@
                                         @endif
                                     </td>
                                     <td class="px-4 py-3 text-right">
-                                        <a href="{{ route('documents.library.download', $item) }}"
-                                           class="text-xs font-semibold transition-colors hover:underline"
-                                           style="color: var(--brand-icon);">
-                                            Download
-                                        </a>
+                                        <div class="flex items-center justify-end gap-3">
+                                            {{-- View — read it in place instead of downloading. Not gated on
+                                                 canDownloadDocuments(): AT-267 permits VIEW, not pull-down.
+                                                 Spec: .ai/specs/document-inline-view.md --}}
+                                            @if(\App\Http\Controllers\Documents\DocumentLibraryController::inlineMimeFor($item))
+                                                <x-document-view-link
+                                                    :url="route('documents.library.view', $item)"
+                                                    :name="$item->original_name"
+                                                    :is-image="str_starts_with((string) $item->mime_type, 'image/')"
+                                                    :download-url="auth()->user()?->canDownloadDocuments() ? route('documents.library.download', $item) : null"
+                                                    class="text-xs font-semibold transition-colors hover:underline" />
+                                            @endif
+                                            @if(auth()->user()?->canDownloadDocuments())
+                                                <a href="{{ route('documents.library.download', $item) }}"
+                                                   class="text-xs font-semibold transition-colors hover:underline"
+                                                   style="color: var(--brand-icon);">
+                                                    Download
+                                                </a>
+                                            @endif
+                                        </div>
                                     </td>
                                 </tr>
                             @endforeach

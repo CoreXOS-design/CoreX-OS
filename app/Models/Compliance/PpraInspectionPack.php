@@ -94,6 +94,40 @@ class PpraInspectionPack extends Model
      * page (findOrCreateDraftFor()'s create side-effect is reserved for
      * actually opening the picker or generating a pack).
      */
+    /**
+     * A dispatched pack that has not touched its own row for this long is dead
+     * (job lost, worker killed, deploy mid-run). generate() flips the pack to
+     * 'generating' at dispatch and the job touches it again when it starts, so
+     * a healthy job stuck behind a long queue is never failed here, and a run
+     * (15 min job timeout) always finishes well inside the window.
+     */
+    public const STALE_AFTER_MINUTES = 60;
+
+    /** True for a dispatched pack whose job has evidently died. Pure read. */
+    public function isStale(): bool
+    {
+        return $this->status === 'generating'
+            && $this->updated_at !== null
+            && $this->updated_at->lt(now()->subMinutes(self::STALE_AFTER_MINUTES));
+    }
+
+    /**
+     * Idempotent rescue: mark every stale dispatched pack failed so it can be
+     * regenerated. Called by the scheduler and by generate() — never by a GET
+     * (the checklist page derives the same state read-only via isStale()).
+     * Returns how many packs were rescued.
+     */
+    public static function rescueStale(): int
+    {
+        return static::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+            ->where('status', 'generating')
+            ->where('updated_at', '<', now()->subMinutes(self::STALE_AFTER_MINUTES))
+            ->update([
+                'status'        => 'failed',
+                'error_message' => 'Generation did not finish (timed out or was interrupted). Please regenerate.',
+            ]);
+    }
+
     public static function currentDraftFor(Agency $agency): ?self
     {
         return static::where('agency_id', $agency->id)

@@ -2216,6 +2216,91 @@ this build modified. Failure: `Session is missing expected key [errors]. Failed 
 is true.` at line 242. Confirmed unrelated by direct inspection of the diff, not a stash-compare (see
 the build's own report for why) — flagged for whoever owns that file, not resolved here.
 
+### 14.16 QA1-walk follow-up fixes (AT-442, 2026-10-05)
+
+Johan's first browser walk of the §14 build on QA1 surfaced a real cross-property data-integrity bug
+plus five smaller gaps. Fixed here, tests in `RentalJobCardAt442FollowUpTest.php`:
+
+- **Lease/property cross-contamination (the class of bug).** `RentalWorkOrderController::create()`/
+  `RentalJobCardController::create()` used to resolve `property_id` and `lease_id` from the query
+  string INDEPENDENTLY — a `lease_id` left over from one link (or typed directly, e.g.
+  `?lease_id=22`) combined with a DIFFERENT property picked from the create form's own dropdown
+  produced a job card/work order whose `lease_id` belonged to another property entirely. This is
+  exactly how QA1 job card #1 (work order #13) ended up with `property_id=5792` but `lease_id=22`
+  (lease 22 belongs to property 21068) instead of property 5792's real active lease (#10, Andre
+  Roets). Fixed per Johan's ruling ("faults, work orders and job cards belong to the LEASE first,
+  then the property; with no tenant they attach to the property alone"):
+  - `create()` on both controllers now resolves `lease_id` FIRST (scoped via
+    `Lease::visibleTo($user, null)->find()`, graceful fallback to no pre-selection outside scope —
+    same shape as `RentalInspectionController::create()`) and DERIVES the property from the lease;
+    `property_id` is only consulted when no lease_id resolved.
+  - `store()` on both controllers now re-derives the property from a posted `lease_id` server-side
+    whenever it disagrees with the posted `property_id` — belt-and-braces against a direct/stale POST,
+    not just a UI-level fix.
+  - QA1 job card #1 / work order #13's `lease_id` is a data-only correction (real lease 10, not code)
+    — left for Johan to action once the QA1 freeze lifts, per Standard −1q (QA fixture row, not a
+    migration-worthy backfill).
+- **Property picker (#2).** The work-order create screen's property `<select>` capped at 500 rows,
+  unfiltered-by-search — on QA1's 570 rental properties it could never offer every property. Replaced
+  with a searchable, debounced picker backed by a new scoped `RentalWorkOrderController::
+  searchProperties()` endpoint (`GET .../rental-work-orders/search-properties`), same pattern as
+  `RentalApplicationController::searchProperties()` — `Property::visibleTo()` + `searchAddress()`,
+  10-result limit, no cap on what CAN be found.
+- **Pre-select wiring (#3).** The Lease Hub had no "Work order" action at all (only "Report a fault")
+  — added, paired `property_id`/`lease_id` same as the existing fault-report button. The work orders
+  list's own "New Work Order" button was completely bare (dropped any active `lease_id`/`property_id`
+  filter, including one arrived at via the rental context bar's "Work orders" chip) — now forwards
+  `request()->only(['property_id', 'lease_id'])`.
+- **Context bar (#4).** `rental-job-cards/show.blade.php` had no `<x-rental-context-bar>` at all —
+  added, same props as `rental-work-orders/show.blade.php` (`current="work_orders"`).
+- **Free-text line type (#5).** A free-text line always saved as Labour — the add-line form had no
+  Type control. Added a Labour/Part `<select>`, disabled (so it never posts) once a catalogue item is
+  picked. `RentalJobCardService::addLine()`'s precedence flipped so the CATALOGUE ITEM's own type
+  always wins over a posted `type` — only a true free-text line (no catalogue item) uses the posted
+  value.
+- **No-approval limit next to the total (#6).** `RentalJobCardController::show()` now passes
+  `noApprovalThreshold` (`RentalWorkOrderSetting::thresholdFor()`, same figure the work order's own
+  show screen already surfaces) and the totals row states whether the current total is within or over
+  it. The static explainer paragraph under "Quote to owner" (duplicated what the figure now shows
+  concretely) was removed.
+- **Duplicate success message (#7).** `rental-job-cards/show.blade.php` rendered its own inline
+  `session('success')` banner ON TOP OF the app's standard toast
+  (`components.toast-notifications`, which reads the same flash key) — same bug, same fix, as
+  `leases/show.blade.php` (AT-444 follow-up 2): banner removed, toast is the only success surface.
+- **"Send to owner as quote" mail (#8) — FIXED 2026-10-05, Johan's follow-up ruling.** Confirmed the
+  defect: `RentalWorkOrderService::notifyOwner()` (`app/Services/Rentals/RentalWorkOrderService.php:166`,
+  prior to this fix) resolved its recipient via `Property::sellerOwnerContact()`
+  (`app/Models/Property.php:1169`) — a method whose own documented fallback (AT-105, for PDF Splitter
+  filing) returns "the sole linked contact" when none is tagged seller/owner/landlord/lessor. On a
+  property with ONLY a tenant linked (QA1 property 5792 — Andre Roets, a real personal email, no
+  landlord contact at all), that fallback resolves the TENANT as "the owner." Never actually
+  triggered on QA1 (job card #1 has no quote row), but a real defect, not a hypothetical.
+  **Fix — narrowest point covering both callers, sales-side untouched:**
+  - New `Property::landlordContact()` (`app/Models/Property.php`, right after `sellerOwnerContact()`)
+    — the SAME seller-side role match, but NO sole-contact fallback; null when nothing is explicitly
+    tagged landlord/owner/seller/lessor. `sellerOwnerContact()` itself is untouched — every other
+    caller (PDF Splitter, FICA pre-fill, compliance aggregation, reports, the rental-context-bar's own
+    landlord display) keeps its existing, deliberate fallback.
+  - `RentalWorkOrderService::notifyOwner()` now calls `landlordContact()` instead — the ONE choke
+    point both the job card's "Send to owner as quote" (`RentalJobCardService::sendToOwnerAsQuote()`)
+    and every outside-supplier owner notification (creation + completion, §4) route through. No
+    landlord → mail is skipped, exactly as it already was for a property with zero contacts; it now
+    also correctly skips for a property with a tenant-only contact instead of mis-firing.
+  - `RentalJobCardService::sendToOwnerAsQuote()` additionally hard-blocks the WHOLE action (not just
+    the mail) when `landlordContact()` is null — throws `LogicException('No landlord linked — link a
+    landlord before sending the quote.')` before generating the PDF or recording anything, per
+    Johan's ruling that an owner quote must never silently proceed without a real owner to send it to.
+    The job card show screen's "Quote to owner" block shows this message plus a "Link landlord" link
+    (→ the property's Contacts tab) instead of the send button whenever no landlord is linked.
+  - The outside-supplier path (work order creation/completion) is NOT hard-blocked the same way —
+    those notifications are automatic side effects of actions a user already took for other reasons
+    (reporting/completing a work order), not a standalone "send" the user clicked expecting a mail;
+    they keep their existing silent-skip-if-no-recipient behaviour, just now correctly never
+    resolving a tenant as that recipient.
+  - `RentalJobCardLifecycleTest`'s fixture property had no contacts at all, so its three quote-sending
+    tests (relying on the OLD skip-mail-but-still-send behaviour) needed a landlord contact added to
+    `setUp()` to keep passing — this is the intended behavioural tightening, not a regression.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge

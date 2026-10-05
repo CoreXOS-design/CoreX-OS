@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\Rentals;
 
+use App\Models\Scopes\AgencyScope;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Services\Rentals\RentalWorkOrderService;
@@ -33,7 +34,7 @@ class ScanRentalWorkOrderNotifications extends Command
         foreach ($agencyIds as $agencyId) {
             $days = RentalWorkOrderSetting::overdueReminderDaysFor($agencyId);
 
-            $overdue = RentalWorkOrder::withoutGlobalScopes()
+            $overdue = RentalWorkOrder::withoutGlobalScope(AgencyScope::class)
                 ->where('agency_id', $agencyId)
                 ->overdue($days)
                 ->get();

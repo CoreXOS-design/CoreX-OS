@@ -50,8 +50,28 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /** Bundling real files + a puppeteer render can far exceed the worker's 60s default. */
+    public int $timeout = 900;
+
+    public int $tries = 1;
+
+    public bool $failOnTimeout = true;
+
     public function __construct(private int $packId)
     {
+    }
+
+    /**
+     * Called by the queue on timeout / kill / max-attempts — the catch block
+     * in handle() only covers PHP exceptions, so without this a killed job
+     * would leave the pack 'generating' forever and block regeneration.
+     */
+    public function failed(\Throwable $e): void
+    {
+        $pack = PpraInspectionPack::withoutGlobalScopes()->find($this->packId);
+        if ($pack && $pack->status !== 'ready') {
+            $pack->update(['status' => 'failed', 'error_message' => mb_substr($e->getMessage(), 0, 1000)]);
+        }
     }
 
     public function handle(
@@ -70,6 +90,7 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
         }
 
         $pack->update(['status' => 'generating']);
+        $pack->touch(); // restart the stale-pack clock now that the job is really running
 
         try {
             $agency = Agency::withoutGlobalScopes()->find($pack->agency_id);
@@ -83,7 +104,9 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
             $zipPath = $zipDir . '/pack-' . $pack->id . '-' . now()->format('Ymd-His') . '.zip';
 
             $zip = new ZipArchive();
-            $zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+            if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                throw new \RuntimeException('Could not create the pack ZIP file.');
+            }
 
             // 1. The Inspection Report (§6.2's own renderer — same document
             // as the standalone preview, frozen here).
@@ -99,7 +122,7 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
                 if ($row && $row->document) {
                     $provision = AgencyComplianceProvision::find($row->document->provision_id);
                     if ($provision) {
-                        $this->addStoredFile($zip, 'local', $provision->document_path, 'vault/' . $row->document->name);
+                        $this->addStoredFile($zip, 'local', $provision->document_path, 'vault/' . $this->safeSegment((string) $row->document->name));
                     }
                 }
             }
@@ -110,7 +133,7 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
                 $doc = $agent['ffc']['document'] ?? null;
                 if ($doc) {
                     $ext = pathinfo($doc->file_path, PATHINFO_EXTENSION) ?: 'pdf';
-                    $this->addStoredFile($zip, 'local', $doc->file_path, 'practitioners/' . $agent['name'] . ' - FFC.' . $ext);
+                    $this->addStoredFile($zip, 'local', $doc->file_path, 'practitioners/' . $this->safeSegment((string) $agent['name']) . ' - FFC.' . $ext);
                 }
             }
 
@@ -130,17 +153,19 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
             // 6-8. Sampled deal/rental/listing file sets (k/l/m), reusing
             // the SAME aggregation manifests the Report's per-file index
             // already computed from.
-            foreach (Deal::whereIn('id', $pack->sample_deal_ids ?? [])->get() as $deal) {
+            foreach (Deal::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_deal_ids ?? [])->get() as $deal) {
                 $this->bundleManifest($zip, $salesAgg->aggregate($deal));
             }
-            foreach (Lease::whereIn('id', $pack->sample_rental_ids ?? [])->get() as $lease) {
+            foreach (Lease::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_rental_ids ?? [])->get() as $lease) {
                 $this->bundleManifest($zip, $rentalAgg->aggregate($lease));
             }
-            foreach (Property::whereIn('id', $pack->sample_listing_ids ?? [])->get() as $property) {
+            foreach (Property::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $pack->agency_id)->whereIn('id', $pack->sample_listing_ids ?? [])->get() as $property) {
                 $this->bundleManifest($zip, $mandateAgg->aggregate($property));
             }
 
-            $zip->close();
+            if (! $zip->close() || ! is_file($zipPath)) {
+                throw new \RuntimeException('Could not finalise the pack ZIP file.');
+            }
 
             $pack->update([
                 'status'          => 'ready',
@@ -161,6 +186,8 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
             $notifier->send($user, 'ppra_pack.generation_complete', $pack, new PpraPackReadyNotification($pack), [
                 'threshold_hit_at' => now(),
             ]);
+
+            $this->pruneOldPacks($pack);
         } catch (\Throwable $e) {
             $pack->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
             Log::error('PPRA inspection pack generation failed', [
@@ -181,7 +208,7 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
         }
 
         if (! empty($sample->missing)) {
-            $zip->addFromString($sample->folder . '/00-missing.txt', implode("\n", $sample->missing));
+            $zip->addFromString($this->safeEntry($sample->folder . '/00-missing.txt'), implode("\n", $sample->missing));
         }
     }
 
@@ -198,14 +225,14 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
                 return;
             }
         } elseif ($source instanceof \Illuminate\Support\Collection && $source->first() instanceof CommunicationLink) {
-            $zip->addFromString($file->dest_path, $this->communicationsLogText($source));
+            $zip->addFromString($this->safeEntry($file->dest_path), $this->communicationsLogText($source));
             return;
         }
 
         // Synthetic entries (pipeline/lease summaries, inspection/inventory
         // references, or a real file missing from disk) — never a silent
         // gap in the folder, per §9: write what we know as plain text.
-        $zip->addFromString($file->dest_path, $file->note ?: ($file->label . ' — no file on disk.'));
+        $zip->addFromString($this->safeEntry($file->dest_path), $file->note ?: ($file->label . ' — no file on disk.'));
     }
 
     private function addStoredFile(ZipArchive $zip, string $disk, ?string $storagePath, string $destPath): bool
@@ -219,9 +246,55 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
             return false;
         }
 
-        $zip->addFile($realPath, $destPath);
+        $zip->addFile($realPath, $this->safeEntry($destPath));
 
         return true;
+    }
+
+    /** One path segment safe to use inside the archive (no separators, no traversal). */
+    private function safeSegment(string $name): string
+    {
+        $name = str_replace(['/', '\\', "\0"], '-', $name);
+        $name = trim(preg_replace('/[\x00-\x1F]/', '', $name) ?? '');
+
+        return ($name === '' || $name === '.' || $name === '..') ? 'file' : $name;
+    }
+
+    /** A full archive entry name: every segment sanitised, '.'/'..'/empty segments dropped. */
+    private function safeEntry(string $path): string
+    {
+        $parts = [];
+        foreach (preg_split('#[/\\\\]+#', $path) ?: [] as $segment) {
+            $segment = trim(preg_replace('/[\x00-\x1F]/', '', $segment) ?? '');
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                continue;
+            }
+            $parts[] = $segment;
+        }
+
+        return $parts ? implode('/', $parts) : 'file';
+    }
+
+    /**
+     * Retention: generated ZIPs/reports are multi-MB and were never cleaned up.
+     * After a successful run, delete this agency's pack files older than
+     * 30 days (never the pack just built). Rows stay; the download route
+     * already 404s when the file is gone.
+     */
+    private function pruneOldPacks(PpraInspectionPack $current): void
+    {
+        try {
+            $dir = storage_path('app/ppra-inspection-pack/' . $current->agency_id);
+            $keep = [$current->zip_path, $current->report_pdf_path];
+            $cutoff = now()->subDays(30)->getTimestamp();
+            foreach (glob($dir . '/*') ?: [] as $file) {
+                if (is_file($file) && ! in_array($file, $keep, true) && filemtime($file) < $cutoff) {
+                    @unlink($file);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('PPRA pack pruning failed', ['error' => $e->getMessage()]);
+        }
     }
 
     private function communicationsLogText(\Illuminate\Support\Collection $links): string
