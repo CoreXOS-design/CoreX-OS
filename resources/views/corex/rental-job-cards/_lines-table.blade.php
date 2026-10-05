@@ -26,6 +26,9 @@
     what asks that script to remember the panels' scroll position across
     the redirect.
 
+    §14.21 — a closed (completed/cancelled) card is read-only: $canEditLines
+    false hides the pencil AND the archive ×.
+
     Expects: $lines (Collection<RentalJobCardLine>), $pricesOn (bool),
     $vat (array, RentalJobCardVatService::breakdown() shape), $jobCard,
     $canEditLines (bool — card still open), $catalogueItemTypes,
@@ -64,12 +67,12 @@
                             @permission('rental_job_cards.create')
                             @if($canEditLines)
                                 <button type="button" @click="editing = true" title="Edit line" aria-label="Edit line" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">&#9998;</button>
-                            @endif
                             <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" onsubmit="return confirm('Archive this line?');" class="inline" data-keep-scroll>
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" title="Archive" aria-label="Archive" class="text-xs" style="color: var(--ds-red, #dc2626);">&times;</button>
                             </form>
+                            @endif
                             @endpermission
                         </span>
                     </div>

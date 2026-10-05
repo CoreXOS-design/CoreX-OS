@@ -100,7 +100,7 @@ class RentalDocumentPdfService
     }
 
     /** AT-442 req #5 — the quote PDF generated from a job card and sent to the owner. */
-    public function jobCardQuotePdf(RentalJobCard $jobCard)
+    public function jobCardQuotePdf(RentalJobCard $jobCard, ?int $revision = null)
     {
         // 2026-10-05 overnight re-verification — crew.members and
         // rentalFaultReport were missing from this eager load, so the quote
@@ -111,6 +111,8 @@ class RentalDocumentPdfService
 
         $pdf = Pdf::loadView('corex.rental-job-cards.quote-pdf', [
             'jobCard' => $jobCard,
+            // §14.21 — which revision this document is (null = not sent yet / unknown).
+            'revision' => $revision,
             'pricesOn' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
             // Agency VAT set-up — called AFTER sendToOwnerAsQuote() has
             // already frozen the snapshot, so this reads the frozen figures,

@@ -395,6 +395,12 @@ class RentalWorkOrder extends Model
         if ($quote->rental_work_order_id !== $this->id) {
             throw new \LogicException('This quote does not belong to this work order.');
         }
+        // §14.21 — a job card quote revision that a later re-send replaced is
+        // history only; selecting it again would resurrect an acceptance that
+        // belonged to figures the owner is no longer being asked to approve.
+        if ($quote->isSuperseded()) {
+            throw new \LogicException('This quote revision has been superseded by a newer one and cannot be selected.');
+        }
 
         // 2026-09-22, Johan — a real recorded decision (approved/declined) is
         // about to be overwritten below, unconditionally, same as it always

@@ -51,7 +51,12 @@ class MobileRentalJobCardController extends Controller
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
         abort_unless($task->rental_job_card_id === $rentalJobCard->id, 404);
 
-        $service->toggleTask($rentalJobCard, $task, $request->user());
+        // §14.21 — a closed card's tasks never change; a clear 422, not a 500.
+        try {
+            $service->toggleTask($rentalJobCard, $task, $request->user());
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json($task->fresh());
     }

@@ -2742,6 +2742,82 @@ issued figure; the screen renders the pencil only while open; archive/restore/ad
 `app/Http/Controllers/CoreX/RentalJobCardController.php`,
 `resources/views/corex/rental-job-cards/{show,_lines-table,_add-line-row}.blade.php`.
 
+### 14.21 Job card follow-ups — stay in place everywhere, locked when closed, editable sent quotes with revisions, VAT amount on the printouts (2026-10-05 evening, Johan's rulings)
+
+Four rulings, QA1 only. Root cause / approach first, then what was built.
+
+**1. The rest of the screen still jumped to the top.** Root cause: identical to §14.2 — every other
+form on the card is a plain POST + redirect, so the two inner scrollers (`#jc-left-col`/`#jc-right-col`)
+restart at 0. §14.20 only marked the line forms. Fix: the same `data-keep-scroll` attribute (and the
+same sessionStorage save/restore script) on EVERY form of the saved card — task add / rename /
+archive / restore / tick, assign crew, schedule Set, start, worker / agent sign-off, tenant
+confirmation, complete, cancel, send quote, photo upload, header Edit. The task forms additionally
+flash `jc_focus_task`, so a new / renamed / restored task is brought into view (minimum scroll) and
+briefly highlighted, exactly like a changed line. The create (draft) screen is unchanged.
+
+**2. A completed or cancelled card still allowed lines and tasks to be added / edited / archived.**
+Root cause: only `updateLine()` had a controller-level guard (§14.20); add / archive / restore line
+and every task action had none, and the screen still rendered the controls. Fix, enforced where it
+cannot be bypassed: `RentalJobCard::assertContentEditable()` (throws `LogicException` "This job card is
+closed — its lines and tasks can no longer be changed.") is called at the top of every service method
+that changes a card's lines or tasks (`addTask`, `renameTask`, `toggleTask`, `reorderTasks`,
+`archiveTask`, `restoreTask`, `addLine`, `updateLine`, `archiveLine`, `restoreLine`) — so the web
+controller, a direct POST, and the mobile tick endpoint all hit the same refusal; controllers turn it
+into a clear error and NO change. The screen hides Add task / Rename / Archive / Restore, the task
+tick, the add-line row, the line pencil and × and the archived-lines Restore on a closed card (the
+card is read-only). Ticking a task counts as editing it. History, photos, printing and viewing are
+untouched.
+
+**3. A sent quote could not be changed safely.** Johan's ruling — the same as an accounting invoice:
+a card whose quote has been sent stays editable; editing updates the card; the quote can then be
+RE-SENT and the re-send REPLACES the old one.
+Root cause of the "frozen totals skip the new line" fault: "Send to owner as quote" freezes VAT per
+line (`snapshot()`); `breakdown()` then reads ONLY the frozen figures and silently `continue`s past any
+line with no snapshot — and `addLine()` / `restoreLine()` never froze the new line. Fix: a line added
+or restored after the freeze gets its snapshot straight away (same `refreshLineSnapshot()` an edit
+uses, in the card's FROZEN capture mode), and `breakdown()` no longer skips an unfrozen line — it
+computes it live in the card's frozen mode, so a total can never silently drop a line.
+Revisions (new columns on `rental_work_order_quotes`: `revision`, `superseded_at`,
+`content_signature`; existing multi-send cards are back-filled 1..n, all but the last marked
+superseded):
+- First send = Rev 1. Every later send is the NEXT revision (Rev 2, 3…): the VAT freeze is redone for
+  every line, a new quote PDF is stored and recorded, and that revision becomes the work order's
+  selected quote (`selectQuote()`), so the owner's portal / amount / the no-approval spend threshold all
+  follow the new figure and there is exactly ONE current quote.
+- The previous revision is NEVER deleted: `superseded_at` is stamped, it is shown "Superseded" and its
+  stored PDF stays viewable from the card (`rental-job-cards/{card}/quotes/{quote}/download`). A
+  superseded revision cannot be re-selected (`selectQuote()` refuses it).
+- Acceptance does not carry over: `selectQuote()` already drops a recorded owner approval/decline when
+  a different quote is selected and re-derives the state against the NEW amount (auto-approved at or
+  under the landlord's limit, otherwise pending the owner again), logging "approval superseded". The
+  card's own status goes back to Quoted from Approved on re-send (then re-syncs); Scheduled / In
+  progress stay where they are — the work is already planned, only the owner approval resets.
+- "Changed since sent": each quote stores a `content_signature` — a hash of the card's title, live
+  tasks and live lines (everything the PDF shows). The screen compares it with the card's signature
+  now, so ANY edit path (line add/edit/archive/restore, task rename/archive…) flips the card to
+  "Changed since Rev N was sent — re-send to update the owner", and re-sending clears it. The header
+  shows "Quote Rev N" (+ "changed since sent") and the Send box lists every revision (current first,
+  "Superseded" greyed, View links).
+- The send box is offered on any OPEN card that has a sent quote (the old rule only showed it for
+  draft/quoted, but an under-limit quote moves the card to Approved at once, which hid it).
+  Completed / cancelled cards cannot be (re)sent.
+- Owner email: a re-send emails the landlord a "Revised quote (Rev N)" notice. On QA1 every mail goes
+  to the local Mailpit catcher (127.0.0.1:1025) — nothing leaves the box; tests use `Mail::fake()`.
+
+**4. The VAT TYPE column on the printouts showed "—".** Root cause: `breakdown()` writes the
+`vat_display_*` attributes onto `$jobCard->lines`, but the PDF partials iterate `$task->lines`, which
+are DIFFERENT model instances — the attributes were never there, so the column fell through to "—".
+Fix: `breakdown()` now also returns `lineFigures` keyed by line id (excl / VAT / incl / rate / label);
+the PDF partial reads that, never instance attributes. On the printed job card AND the owner quote PDF
+the VAT TYPE column is removed; for a VAT-registered agency the lines table is Description · Type ·
+Qty · Unit price · Excl VAT · VAT (the VAT amount in rand, per line); each task's / General's subtotal
+row shows the group's excl and VAT; the totals block shows Subtotal (excl VAT), the VAT, and Total (incl
+VAT) (a "Total VAT" line is added when more than one rate is in play). A non-VAT agency shows no VAT
+column or VAT line anywhere (unchanged). When the agency captures prices INCLUDING VAT the unit price
+header reads "Unit price (incl VAT)" so the row still adds up.
+
+No new permission or setting (actions on an existing record) — nothing for the Setup Wizard.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge

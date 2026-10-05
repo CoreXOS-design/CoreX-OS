@@ -195,6 +195,58 @@ class RentalJobCard extends Model
     }
 
     /**
+     * §14.21 — every revision of the quote sent from this card, newest first
+     * (current revision first, superseded ones after it). Distinct from
+     * quotes(), which is ordered by date only and kept for older callers.
+     */
+    public function quoteRevisions(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('revision')->orderByDesc('id');
+    }
+
+    /** The one live quote the owner is being asked to act on — the newest revision not superseded. Null until a quote has been sent. */
+    public function currentQuote(): ?RentalWorkOrderQuote
+    {
+        return $this->quoteRevisions()->whereNull('superseded_at')->first();
+    }
+
+    /**
+     * §14.21 — a hash of everything the quote PDF shows: the title, the live
+     * (non-archived) tasks with their live lines, and the General lines.
+     * Stored on each quote at send time; compared with the card's signature
+     * NOW to tell "changed since sent" regardless of which edit path made the
+     * change. Quantities/prices are normalised to 2dp so a cosmetic
+     * "2" vs "2.00" never counts as a change.
+     */
+    public function quoteContentSignature(): string
+    {
+        $fmt = fn ($n) => $n === null ? null : number_format((float) $n, 2, '.', '');
+        $lineData = fn ($l) => [
+            $l->code, $l->description, $l->type, $l->unit, $fmt($l->quantity), $fmt($l->unit_price),
+            $l->rental_vat_type_id, $fmt($l->custom_vat_rate),
+        ];
+
+        $payload = [
+            'title' => $this->title,
+            'tasks' => $this->tasks()->with('lines')->get()
+                ->map(fn ($t) => [$t->description, $t->lines->map($lineData)->all()])->all(),
+            'general' => $this->generalLines()->get()->map($lineData)->all(),
+        ];
+
+        return hash('sha256', json_encode($payload));
+    }
+
+    /** §14.21 — true when a quote has been sent AND the card's content differs from what that (current) quote showed. */
+    public function quoteChangedSinceSent(?RentalWorkOrderQuote $current = null): bool
+    {
+        $current ??= $this->currentQuote();
+
+        return $current !== null
+            && $current->content_signature !== null
+            && $current->content_signature !== $this->quoteContentSignature();
+    }
+
+    /**
      * This card's own photos (RentalJobCardService::storePhoto()) — set
      * directly here regardless of whether a work order is linked. A linked
      * work order's OWN photos (uploaded via the work order screen directly)
@@ -259,6 +311,7 @@ class RentalJobCard extends Model
                     'line_archived' => 'Line archived',
                     'photo_added' => 'Photo added',
                     'quote_sent' => 'Quote sent to owner',
+                    'quote_resent' => 'Quote re-sent to owner',
                     'sign_off' => 'Signed off',
                     'archived' => 'Archived',
                     'restored' => 'Restored',
@@ -289,6 +342,25 @@ class RentalJobCard extends Model
     {
         $this->restore();
         $this->logUpdate('restored', $by);
+    }
+
+    /** Completed or cancelled — a closed card is a read-only record. */
+    public function isClosed(): bool
+    {
+        return in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true);
+    }
+
+    /**
+     * §14.21 — lines and tasks of a closed card never change (add, edit,
+     * archive, restore, tick, rename, reorder). Called at the top of every
+     * RentalJobCardService method that touches them, so the web controller,
+     * a direct POST and the mobile endpoint all hit the same refusal.
+     */
+    public function assertContentEditable(): void
+    {
+        if ($this->isClosed()) {
+            throw new \LogicException('This job card is closed — its lines and tasks can no longer be changed.');
+        }
     }
 
     private function assertOpen(): void

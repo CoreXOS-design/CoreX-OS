@@ -220,6 +220,7 @@ class RentalJobCardService
 
     public function addTask(RentalJobCard $jobCard, string $description, User $by): RentalJobCardTask
     {
+        $jobCard->assertContentEditable();
         $task = $jobCard->tasks()->create([
             'agency_id' => $jobCard->agency_id,
             'description' => $description,
@@ -233,6 +234,7 @@ class RentalJobCardService
 
     public function renameTask(RentalJobCard $jobCard, RentalJobCardTask $task, string $description, User $by): void
     {
+        $jobCard->assertContentEditable();
         abort_unless($task->rental_job_card_id === $jobCard->id, 404);
         $old = $task->description;
         $task->forceFill(['description' => $description])->save();
@@ -241,6 +243,7 @@ class RentalJobCardService
 
     public function toggleTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by): void
     {
+        $jobCard->assertContentEditable();
         abort_unless($task->rental_job_card_id === $jobCard->id, 404);
 
         $isDone = ! $task->is_done;
@@ -256,6 +259,7 @@ class RentalJobCardService
     /** @param array<int> $orderedIds */
     public function reorderTasks(RentalJobCard $jobCard, array $orderedIds, User $by): void
     {
+        $jobCard->assertContentEditable();
         foreach ($orderedIds as $i => $id) {
             RentalJobCardTask::where('rental_job_card_id', $jobCard->id)->where('id', $id)->update(['sort_order' => $i + 1]);
         }
@@ -264,16 +268,20 @@ class RentalJobCardService
 
     public function archiveTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by): void
     {
+        $jobCard->assertContentEditable();
         abort_unless($task->rental_job_card_id === $jobCard->id, 404);
         $task->delete();
         $jobCard->logUpdate('task_archived', $by, $task->description);
     }
 
-    public function restoreTask(RentalJobCard $jobCard, int $taskId, User $by): void
+    public function restoreTask(RentalJobCard $jobCard, int $taskId, User $by): RentalJobCardTask
     {
+        $jobCard->assertContentEditable();
         $task = RentalJobCardTask::onlyTrashed()->where('rental_job_card_id', $jobCard->id)->findOrFail($taskId);
         $task->restore();
         $jobCard->logUpdate('task_added', $by, 'Restored: ' . $task->description);
+
+        return $task;
     }
 
     /**
@@ -290,6 +298,7 @@ class RentalJobCardService
      */
     public function addLine(RentalJobCard $jobCard, array $attributes, User $by, ?RentalJobCardTask $task = null, bool $log = true): RentalJobCardLine
     {
+        $jobCard->assertContentEditable();
         $catalogueItem = isset($attributes['rental_catalogue_item_id'])
             ? RentalCatalogueItem::find($attributes['rental_catalogue_item_id'])
             : null;
@@ -338,6 +347,7 @@ class RentalJobCardService
         ]);
 
         $jobCard->recalcTotal();
+        $this->freezeLineIfCardFrozen($jobCard, $line);
         if ($log) {
             $jobCard->logUpdate('line_added', $by, $line->description);
         }
@@ -375,6 +385,7 @@ class RentalJobCardService
     public function updateLine(RentalJobCard $jobCard, RentalJobCardLine $line, array $attributes, User $by): void
     {
         abort_unless($line->rental_job_card_id === $jobCard->id, 404);
+        $jobCard->assertContentEditable();
 
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
         $has = fn (string $key): bool => array_key_exists($key, $attributes);
@@ -409,15 +420,30 @@ class RentalJobCardService
         $line->forceFill($changes)->save();
 
         $jobCard->recalcTotal();
-        if ($jobCard->vat_snapshotted_at !== null && $jobCard->status !== RentalJobCard::STATUS_COMPLETED) {
-            $this->vat->refreshLineSnapshot($jobCard, $line->refresh());
-        }
+        $this->freezeLineIfCardFrozen($jobCard, $line->refresh());
         $jobCard->logUpdate('line_changed', $by, $line->description);
+    }
+
+    /**
+     * §14.21 — a card whose VAT is already frozen (quote sent) stays
+     * editable; a line added, edited or restored on it gets its own VAT
+     * snapshot straight away, so breakdown() (which reads the frozen
+     * figures) never leaves it out of the totals. Every OTHER line keeps the
+     * figures it was issued with until the next (re-)send re-freezes them
+     * all. A card with no freeze yet needs nothing (breakdown() computes
+     * live).
+     */
+    private function freezeLineIfCardFrozen(RentalJobCard $jobCard, RentalJobCardLine $line): void
+    {
+        if ($jobCard->vat_snapshotted_at !== null && ! $jobCard->isClosed()) {
+            $this->vat->refreshLineSnapshot($jobCard, $line);
+        }
     }
 
     public function archiveLine(RentalJobCard $jobCard, RentalJobCardLine $line, User $by): void
     {
         abort_unless($line->rental_job_card_id === $jobCard->id, 404);
+        $jobCard->assertContentEditable();
         $line->delete();
         $jobCard->recalcTotal();
         $jobCard->logUpdate('line_archived', $by, $line->description);
@@ -425,9 +451,11 @@ class RentalJobCardService
 
     public function restoreLine(RentalJobCard $jobCard, int $lineId, User $by): void
     {
+        $jobCard->assertContentEditable();
         $line = RentalJobCardLine::onlyTrashed()->where('rental_job_card_id', $jobCard->id)->findOrFail($lineId);
         $line->restore();
         $jobCard->recalcTotal();
+        $this->freezeLineIfCardFrozen($jobCard, $line->refresh());
         $jobCard->logUpdate('line_added', $by, 'Restored: ' . $line->description);
     }
 
@@ -476,9 +504,23 @@ class RentalJobCardService
      * spend threshold applies exactly as it does to a supplier quote: at or
      * under it, auto-approved; over it, owner approval required. No second
      * approval mechanism is built here.
+     *
+     * §14.21 (2026-10-05, Johan) — the same call is also the RE-SEND. A card
+     * whose quote has been sent stays editable (same as an accounting
+     * invoice); sending again creates the NEXT revision (Rev 2, 3…): VAT is
+     * re-frozen for every line, a new PDF is stored, the new revision
+     * becomes the work order's one selected quote — so any acceptance or
+     * approval of the old revision stops applying and the threshold gate is
+     * re-evaluated against the new amount (RentalWorkOrder::selectQuote()) —
+     * and every earlier revision is stamped superseded (kept, never deleted,
+     * still viewable).
      */
     public function sendToOwnerAsQuote(RentalJobCard $jobCard, User $by, RentalDocumentPdfService $pdfService): \App\Models\RentalWorkOrderQuote
     {
+        if ($jobCard->isClosed()) {
+            throw new \LogicException('This job card is closed — a quote can no longer be sent.');
+        }
+
         if ($jobCard->lines()->doesntExist()) {
             throw new \LogicException('Add at least one line before sending this job card to the owner as a quote.');
         }
@@ -491,40 +533,83 @@ class RentalJobCardService
             throw new \LogicException('No landlord linked — link a landlord before sending the quote.');
         }
 
+        // Trashed rows count: a revision archived from the work order screen
+        // still used its number.
+        $previousRevision = (int) $jobCard->quoteRevisions()->withTrashed()->max('revision');
+        $revision = $previousRevision + 1;
+
         $jobCard->recalcTotal();
         $jobCard->refresh();
 
         // Freeze VAT (registration/rate/capture-mode/type, per line) at the
         // moment the quote goes out — a later change to any of the agency's
-        // VAT settings must never alter an issued quote.
+        // VAT settings must never alter an issued quote. On a re-send this
+        // re-freezes EVERY line, including ones added or edited since.
         $this->vat->snapshot($jobCard);
         $jobCard->refresh();
 
-        $pdf = $pdfService->jobCardQuotePdf($jobCard);
-        $path = 'rental-job-card-quotes/' . $jobCard->id . '/' . now()->timestamp . '.pdf';
+        $pdf = $pdfService->jobCardQuotePdf($jobCard, $revision);
+        $path = 'rental-job-card-quotes/' . $jobCard->id . '/' . now()->timestamp . '-rev' . $revision . '.pdf';
         Storage::disk('local')->put($path, $pdf->output());
 
-        // The landlord pays the VAT-inclusive figure, so that is both the
-        // quote amount AND the figure the no-approval spend threshold
-        // compares against (RentalWorkOrder::selectQuote()) — identical to
-        // total_amount when the agency isn't VAT registered.
-        $workOrder = $this->ensureWorkOrderForQuote($jobCard, $by);
-        $quote = $workOrder->recordQuote([
-            'rental_job_card_id' => $jobCard->id,
-            'agency_service_provider_id' => null,
-            'amount' => $this->vat->inclusiveTotal($jobCard),
-            'quote_date' => now()->toDateString(),
-            'document_storage_path' => $path,
-            'detail_text' => 'Quote generated from job card #' . $jobCard->id,
-        ], $by);
+        try {
+            $quote = DB::transaction(function () use ($jobCard, $by, $path, $revision, $previousRevision) {
+                // The landlord pays the VAT-inclusive figure, so that is both
+                // the quote amount AND the figure the no-approval spend
+                // threshold compares against (RentalWorkOrder::selectQuote())
+                // — identical to total_amount when the agency isn't VAT
+                // registered.
+                $workOrder = $this->ensureWorkOrderForQuote($jobCard, $by);
+                $quote = $workOrder->recordQuote([
+                    'rental_job_card_id' => $jobCard->id,
+                    'revision' => $revision,
+                    'content_signature' => $jobCard->quoteContentSignature(),
+                    'agency_service_provider_id' => null,
+                    'amount' => $this->vat->inclusiveTotal($jobCard),
+                    'quote_date' => now()->toDateString(),
+                    'document_storage_path' => $path,
+                    'detail_text' => 'Quote generated from job card #' . $jobCard->id . ($revision > 1 ? " — Rev {$revision} (replaces Rev {$previousRevision})" : ''),
+                ], $by);
 
-        $workOrder->selectQuote($quote, $by);
+                // Every earlier revision is history now. Stamped BEFORE the
+                // select so selectQuote()'s "approval no longer applies" log
+                // reads against a clean one-current-quote picture.
+                $jobCard->quoteRevisions()->where('id', '!=', $quote->id)->whereNull('superseded_at')
+                    ->update(['superseded_at' => now()]);
 
-        $fromStatus = $jobCard->status;
-        $jobCard->forceFill(['status' => RentalJobCard::STATUS_QUOTED])->save();
-        $jobCard->logUpdate('quote_sent', $by, 'R' . number_format((float) $quote->amount, 2), $fromStatus, RentalJobCard::STATUS_QUOTED);
+                $workOrder->selectQuote($quote, $by);
 
-        app(RentalWorkOrderService::class)->notifyOwner($workOrder->fresh(), \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_CREATED);
+                // Quoted again from Draft/Quoted/Approved (an Approved card's
+                // approval belonged to the OLD revision). Scheduled / In
+                // progress keep their status — the work is already planned —
+                // only the owner approval on the work order resets.
+                $fromStatus = $jobCard->status;
+                $toStatus = in_array($fromStatus, [RentalJobCard::STATUS_DRAFT, RentalJobCard::STATUS_QUOTED, RentalJobCard::STATUS_APPROVED], true)
+                    ? RentalJobCard::STATUS_QUOTED
+                    : $fromStatus;
+                $jobCard->forceFill(['status' => $toStatus])->save();
+
+                $amount = 'R' . number_format((float) $quote->amount, 2);
+                $jobCard->logUpdate(
+                    $revision > 1 ? 'quote_resent' : 'quote_sent',
+                    $by,
+                    $revision > 1 ? "Rev {$revision} — {$amount} (replaces Rev {$previousRevision})" : $amount,
+                    $fromStatus,
+                    $toStatus,
+                );
+
+                return $quote;
+            });
+        } catch (\Throwable $e) {
+            Storage::disk('local')->delete($path); // nothing recorded points at it
+            throw $e;
+        }
+
+        $workOrder = $jobCard->workOrder()->first();
+        app(RentalWorkOrderService::class)->notifyOwner(
+            $workOrder,
+            $revision > 1 ? \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED : \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_CREATED,
+        );
 
         $jobCard->syncStatusFromWorkOrder();
 

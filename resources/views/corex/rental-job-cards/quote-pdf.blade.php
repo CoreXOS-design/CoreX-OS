@@ -42,7 +42,7 @@
         </div>
         <div class="title-cell">
             <h1>Quote</h1>
-            <p class="muted">Job card #{{ $jobCard->id }} &middot; {{ now()->format('Y-m-d') }}</p>
+            <p class="muted">Job card #{{ $jobCard->id }} &middot; {{ now()->format('Y-m-d') }}@if(($revision ?? null) > 1) &middot; Rev {{ $revision }} (replaces Rev {{ $revision - 1 }})@endif</p>
         </div>
     </div>
 
@@ -95,6 +95,10 @@
                 @foreach($vat['groups'] as $group)
                     <tr><td colspan="2">{{ $group['label'] }}</td><td>R{{ number_format((float) $group['amount'], 2) }}</td></tr>
                 @endforeach
+                {{-- §14.21 — the VAT total in one figure whenever the per-rate lines above are not already exactly that (several rates, or none). --}}
+                @if(count($vat['groups']) !== 1)
+                    <tr><td colspan="2">Total VAT</td><td>R{{ number_format((float) $vat['totalVat'], 2) }}</td></tr>
+                @endif
             @endif
             <tr class="total-row">
                 <td colspan="2">{{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}</td>

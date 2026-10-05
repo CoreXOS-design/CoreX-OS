@@ -3993,6 +3993,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{rentalJobCard}/lines/{line}/restore', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'restoreLine'])
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.lines.restore');
 
+        Route::get('/{rentalJobCard}/quotes/{quote}/download', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'downloadQuote'])
+            ->name('corex.rental-job-cards.quotes.download');
         Route::post('/{rentalJobCard}/send-quote', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'sendQuote'])
             ->middleware('permission:rental_job_cards.send_quote')->name('corex.rental-job-cards.send-quote');
         Route::post('/{rentalJobCard}/worker-sign-off', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'workerSignOff'])

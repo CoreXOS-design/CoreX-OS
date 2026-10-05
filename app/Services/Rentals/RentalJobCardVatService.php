@@ -46,10 +46,13 @@ class RentalJobCardVatService
      * One line's live (unsnapshotted) excl/VAT/incl, given the agency's
      * current registration/capture-mode/rate state. Returns nulls when the
      * agency isn't VAT registered or has no amount captured at all.
+     * $captureMode overrides the agency's live capture mode — a card that is
+     * already frozen computes any line added after the freeze in ITS frozen
+     * mode, so one card never mixes two capture modes.
      *
      * @return array{rate: ?float, label: ?string, excl: ?float, vat: ?float, incl: ?float}
      */
-    public function lineVat(RentalJobCardLine $line, Agency $agency): array
+    public function lineVat(RentalJobCardLine $line, Agency $agency, ?string $captureMode = null): array
     {
         $amount = $line->line_total !== null ? (float) $line->line_total : null;
 
@@ -61,7 +64,7 @@ class RentalJobCardVatService
         $rate = $this->rateFor($type, $line->custom_vat_rate);
         $label = $type?->name ?? 'No VAT';
 
-        return $this->splitAmount($amount, $rate, $agency->vat_capture_mode) + ['rate' => $rate, 'label' => $label];
+        return $this->splitAmount($amount, $rate, $captureMode ?? $agency->vat_capture_mode) + ['rate' => $rate, 'label' => $label];
     }
 
     /** A VAT type's live rate — custom_per_line reads the caller's own typed rate, everything else reads the type itself. Null type (free-text line with no VAT type) is 0%. */
@@ -164,7 +167,15 @@ class RentalJobCardVatService
      *   registered: bool, pricesOn: bool, captureMode: ?string,
      *   subtotalExcl: ?float, totalVat: ?float, totalIncl: ?float,
      *   groups: array<int, array{label: string, rate: float, amount: float}>,
+     *   lineFigures: array<int, array{excl: float, vat: float, incl: float, rate: float, label: ?string}>,
      * }
+
+     * lineFigures (2026-10-05 evening, §14.21) — the same per-line figures
+     * keyed by line id. The PDF partials iterate `$task->lines`, which are
+     * DIFFERENT model instances from the `$jobCard->lines` the vat_display_*
+     * attributes are written onto, so reading those attributes there always
+     * came back empty (the "—" Johan saw in the VAT type column). Anything
+     * rendering a line outside the show screen reads lineFigures instead.
      */
     public function breakdown(RentalJobCard $jobCard): array
     {
@@ -174,7 +185,7 @@ class RentalJobCardVatService
         if (! $agency?->vat_registered || ! $pricesOn) {
             return [
                 'registered' => false, 'pricesOn' => $pricesOn, 'captureMode' => null,
-                'subtotalExcl' => null, 'totalVat' => null, 'totalIncl' => null, 'groups' => [],
+                'subtotalExcl' => null, 'totalVat' => null, 'totalIncl' => null, 'groups' => [], 'lineFigures' => [],
             ];
         }
 
@@ -184,24 +195,28 @@ class RentalJobCardVatService
         $subtotalExcl = 0.0;
         $totalVat = 0.0;
         $groups = []; // rate (string key, 2dp) => ['label' => ..., 'rate' => float, 'amount' => float]
+        $lineFigures = [];
 
         foreach ($jobCard->lines as $line) {
-            if ($useSnapshot) {
-                if (! $line->isVatSnapshotted()) {
-                    continue; // a line added after the freeze (shouldn't happen on a closed card) — no figures to show
-                }
+            if ($useSnapshot && $line->isVatSnapshotted()) {
                 $excl = (float) $line->vat_excl_snapshot;
                 $vat = (float) $line->vat_amount_snapshot;
                 $incl = (float) $line->vat_incl_snapshot;
                 $rate = (float) $line->vat_rate_snapshot;
                 $label = $line->vat_type_name_snapshot;
             } else {
-                $calc = $this->lineVat($line, $agency);
+                // Live card — or a frozen card's line that has no snapshot
+                // (added after the freeze by a path that did not freeze it).
+                // §14.21: never skip such a line, or the totals silently drop
+                // it. Computed live, in the card's frozen capture mode.
+                $calc = $this->lineVat($line, $agency, $useSnapshot ? $captureMode : null);
                 if ($calc['excl'] === null) {
                     continue;
                 }
                 ['excl' => $excl, 'vat' => $vat, 'incl' => $incl, 'rate' => $rate, 'label' => $label] = $calc;
             }
+
+            $lineFigures[$line->id] = ['excl' => $excl, 'vat' => $vat, 'incl' => $incl, 'rate' => $rate, 'label' => $label];
 
             $line->setAttribute('vat_display_excl', $excl);
             $line->setAttribute('vat_display_vat', $vat);
@@ -229,6 +244,7 @@ class RentalJobCardVatService
             'totalVat' => round($totalVat, 2),
             'totalIncl' => round($subtotalExcl + $totalVat, 2),
             'groups' => array_values(array_map(fn ($g) => $g + ['amount' => round($g['amount'], 2)], $groups)),
+            'lineFigures' => $lineFigures,
         ];
     }
 
@@ -278,9 +294,9 @@ class RentalJobCardVatService
 
     /**
      * Re-freezes ONE line's VAT figures on a card that is already frozen
-     * (quote sent, not completed) — called after that line is edited, so
-     * breakdown() (which reads the snapshots once a card is frozen) shows
-     * the edit. Every other line keeps the figures it was issued with.
+     * (quote sent, not completed) — called after that line is edited, ADDED
+     * or RESTORED (§14.21), so breakdown() (which reads the snapshots once a
+     * card is frozen) shows the change, in the card's frozen capture mode. Every other line keeps the figures it was issued with.
      * A line left with no amount (price cleared) loses its snapshot rather
      * than keeping the previous excl/VAT/incl behind.
      */
@@ -293,7 +309,7 @@ class RentalJobCardVatService
             return;
         }
 
-        $calc = $this->lineVat($line, $agency);
+        $calc = $this->lineVat($line, $agency, $jobCard->vat_snapshotted_at !== null ? $jobCard->vat_capture_mode_snapshot : null);
 
         $line->forceFill($calc['excl'] === null ? [
             'vat_type_name_snapshot' => null, 'vat_rate_snapshot' => null, 'vat_excl_snapshot' => null,

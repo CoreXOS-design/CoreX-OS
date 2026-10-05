@@ -67,6 +67,13 @@
             <h1 class="text-lg font-semibold">{{ $jobCard?->title ?? 'New job card' }}</h1>
             @if($jobCard)
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}</span>
+                @if($currentQuote)
+                    {{-- §14.21 — which revision the owner currently holds, and whether the card has moved on since. --}}
+                    <span class="ds-badge ds-badge-muted" title="Last quote sent {{ $currentQuote->created_at?->format('Y-m-d H:i') }}">Quote Rev {{ $currentQuote->revision }}</span>
+                    @if($quoteChanged)
+                        <span class="ds-badge" style="background: color-mix(in srgb, #f59e0b 18%, transparent); color: #b45309;">Changed since sent</span>
+                    @endif
+                @endif
                 <span class="text-xs" style="color: var(--text-muted);">{{ $jobCard->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $jobCard->property?->trashed() ? ' (archived)' : '' }}</span>
             @endif
         </div>
@@ -181,7 +188,7 @@
                         <div x-show="!editing" class="col-span-2">
                             <button type="button" @click="editing = true" class="corex-btn-outline text-xs">Edit</button>
                         </div>
-                        <form x-show="editing" x-cloak method="POST" action="{{ route('corex.rental-job-cards.update', $jobCard) }}" class="col-span-2 space-y-3">
+                        <form data-keep-scroll x-show="editing" x-cloak method="POST" action="{{ route('corex.rental-job-cards.update', $jobCard) }}" class="col-span-2 space-y-3">
                             @csrf
                             @method('PUT')
                             <div>
@@ -340,34 +347,46 @@
                     @php $compareTotal = $vat['registered'] ? (float) $vat['totalIncl'] : (float) ($jobCard->total_amount ?? 0); @endphp
 
                     @forelse($jobCard->tasks as $task)
-                        <div class="rounded-md p-3 space-y-2" style="border: 1px solid var(--border);" x-data="{ renaming: false }">
+                        <div class="rounded-md p-3 space-y-2" style="border: 1px solid var(--border);" x-data="{ renaming: false }" data-task-id="{{ $task->id }}">
                             <div class="flex items-center justify-between gap-2">
-                                <form method="POST" action="{{ route('corex.rental-job-cards.tasks.toggle', [$jobCard, $task]) }}" class="flex items-center gap-2 flex-1">
+                                @if($isOpen)
+                                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tasks.toggle', [$jobCard, $task]) }}" class="flex items-center gap-2 flex-1">
                                     @csrf
                                     <button type="submit" class="flex items-center gap-2 text-left">
                                         <input type="checkbox" @checked($task->is_done) onclick="return false;" class="rounded">
                                     </button>
                                     <span class="text-sm font-medium" x-show="!renaming">{{ $loop->iteration }} - <span style="{{ $task->is_done ? 'text-decoration: line-through; color: var(--text-muted);' : '' }}">{{ $task->description }}</span></span>
                                 </form>
+                                @else
+                                {{-- §14.21 — a closed card is a read-only record: no tick, no rename, no archive. --}}
+                                <div class="flex items-center gap-2 flex-1">
+                                    <input type="checkbox" @checked($task->is_done) disabled class="rounded">
+                                    <span class="text-sm font-medium">{{ $loop->iteration }} - <span style="{{ $task->is_done ? 'text-decoration: line-through; color: var(--text-muted);' : '' }}">{{ $task->description }}</span></span>
+                                </div>
+                                @endif
                                 @permission('rental_job_cards.create')
+                                @if($isOpen)
                                 <div class="flex items-center gap-2">
                                     <button type="button" x-show="!renaming" @click="renaming = true" class="text-xs">Rename</button>
-                                    <form method="POST" action="{{ route('corex.rental-job-cards.tasks.destroy', [$jobCard, $task]) }}" onsubmit="return confirm('Archive this task and its lines?');">
+                                    <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tasks.destroy', [$jobCard, $task]) }}" onsubmit="return confirm('Archive this task and its lines?');">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
                                     </form>
                                 </div>
+                                @endif
                                 @endpermission
                             </div>
                             @permission('rental_job_cards.create')
-                            <form x-show="renaming" x-cloak method="POST" action="{{ route('corex.rental-job-cards.tasks.update', [$jobCard, $task]) }}" class="flex items-center gap-2">
+                            @if($isOpen)
+                            <form data-keep-scroll x-show="renaming" x-cloak method="POST" action="{{ route('corex.rental-job-cards.tasks.update', [$jobCard, $task]) }}" class="flex items-center gap-2">
                                 @csrf
                                 @method('PUT')
                                 <input type="text" name="description" value="{{ $task->description }}" maxlength="500" required class="flex-1 rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
                                 <button type="submit" class="corex-btn-outline text-xs">Save</button>
                                 <button type="button" @click="renaming = false" class="corex-btn-outline text-xs">Cancel</button>
                             </form>
+                            @endif
                             @endpermission
 
                             @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
@@ -378,7 +397,9 @@
                             @endif
 
                             @permission('rental_job_cards.create')
+                            @if($isOpen)
                             @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                            @endif
                             @endpermission
                         </div>
                     @empty
@@ -386,21 +407,25 @@
                     @endforelse
 
                     @permission('rental_job_cards.create')
-                    <form method="POST" action="{{ route('corex.rental-job-cards.tasks.store', $jobCard) }}" class="flex items-end gap-2">
+                    @if($isOpen)
+                    <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tasks.store', $jobCard) }}" class="flex items-end gap-2">
                         @csrf
                         <input type="text" name="description" required maxlength="500" placeholder="Add a task" class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                         <button type="submit" class="corex-btn-outline text-xs">Add task</button>
                     </form>
+                    @endif
                     @if($archivedTasks->isNotEmpty())
                         <button type="button" onclick="document.getElementById('archived-tasks').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedTasks->count() }} archived task(s)</button>
                         <ul id="archived-tasks" class="hidden space-y-1 text-sm pt-1">
                             @foreach($archivedTasks as $at)
                                 <li class="flex items-center justify-between gap-2">
                                     <span style="color: var(--text-muted);">{{ $at->description }}</span>
-                                    <form method="POST" action="{{ route('corex.rental-job-cards.tasks.restore', [$jobCard, $at->id]) }}">
+                                    @if($isOpen)
+                                    <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tasks.restore', [$jobCard, $at->id]) }}">
                                         @csrf
                                         <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
                                     </form>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -413,7 +438,9 @@
                         @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
                         @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes])
                         @permission('rental_job_cards.create')
+                        @if($isOpen)
                         @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                        @endif
                         @endpermission
                         @if($archivedLines->isNotEmpty())
                             <button type="button" onclick="document.getElementById('archived-lines').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedLines->count() }} archived line(s)</button>
@@ -422,10 +449,12 @@
                                     <li class="flex items-center justify-between gap-2">
                                         <span style="color: var(--text-muted);">{{ $al->description }}</span>
                                         @permission('rental_job_cards.create')
+                                        @if($isOpen)
                                         <form method="POST" action="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $al->id]) }}" data-keep-scroll>
                                             @csrf
                                             <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
                                         </form>
+                                        @endif
                                         @endpermission
                                     </li>
                                 @endforeach
@@ -477,7 +506,7 @@
                         </div>
                     @endif
                     @permission('rental_job_cards.create')
-                    <form method="POST" action="{{ route('corex.rental-job-cards.photos.store', $jobCard) }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
+                    <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.photos.store', $jobCard) }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
                         @csrf
                         <select name="photo_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                             <option value="reported">Before</option>
@@ -530,7 +559,7 @@
                 @endif
                 @permission('rental_job_cards.create')
                 @if($isOpen)
-                <form method="POST" action="{{ route('corex.rental-job-cards.assign-crew', $jobCard) }}" class="flex gap-2">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.assign-crew', $jobCard) }}" class="flex gap-2">
                     @csrf
                     <select name="rental_crew_id" required class="flex-1 rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                         <option value="">Select crew…</option>
@@ -543,14 +572,14 @@
                 @permission('rental_catalogue.manage')
                 <a href="{{ route('corex.rental-crews.index') }}" class="text-xs underline" style="color: var(--text-muted);">Manage crews</a>
                 @endpermission
-                <form method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
                     @csrf
                     <input type="datetime-local" name="scheduled_at" aria-label="Scheduled" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                     <input type="datetime-local" name="due_at" aria-label="Due" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                     <button type="submit" class="corex-btn-outline text-xs w-full">Set</button>
                 </form>
                 @if($jobCard->status === \App\Models\RentalJobCard::STATUS_SCHEDULED)
-                <form method="POST" action="{{ route('corex.rental-job-cards.start', $jobCard) }}">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.start', $jobCard) }}">
                     @csrf
                     <button type="submit" class="corex-btn-outline text-xs">Mark in progress</button>
                 </form>
@@ -560,13 +589,36 @@
             </div>
 
             {{-- 4. Next steps — only when they apply, in order --}}
-            @if($isOpen && in_array($jobCard->status, [\App\Models\RentalJobCard::STATUS_DRAFT, \App\Models\RentalJobCard::STATUS_QUOTED], true))
-            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-                <h2 class="text-sm font-semibold">Send quote to owner</h2>
-                @if($jobCard->quotes->isNotEmpty())
+            {{-- 4. Quote to the owner. §14.21 — a card whose quote was sent stays editable and can be RE-SENT (the next revision replaces the old one), so the box is offered on ANY open card that has a sent quote — an under-limit quote moves the card to Approved at once, which used to hide it. --}}
+            @if($isOpen && ($currentQuote || in_array($jobCard->status, [\App\Models\RentalJobCard::STATUS_DRAFT, \App\Models\RentalJobCard::STATUS_QUOTED], true)))
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="jc-quote-box">
+                <h2 class="text-sm font-semibold">{{ $currentQuote ? 'Quote to owner' : 'Send quote to owner' }}</h2>
+                @if($currentQuote)
+                    <p class="text-xs">
+                        Last sent: <strong>Rev {{ $currentQuote->revision }}</strong>, R{{ number_format((float) $currentQuote->amount, 2) }}, {{ $currentQuote->created_at?->format('Y-m-d H:i') }}.
+                    </p>
+                    @if($quoteChanged)
+                        <p class="text-xs p-2 rounded" style="background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309;">
+                            This job card has changed since Rev {{ $currentQuote->revision }} was sent. Re-send to update the owner.
+                        </p>
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);">The owner has the latest version — nothing has changed since it was sent.</p>
+                    @endif
+                @endif
+                @if($quoteRevisions->isNotEmpty())
                     <ul class="space-y-1 text-xs">
-                        @foreach($jobCard->quotes as $q)
-                            <li>R{{ number_format((float) $q->amount, 2) }} — {{ $q->quote_date?->format('Y-m-d') }} @if($q->is_selected)<span class="ds-badge ds-badge-success">Selected</span>@endif</li>
+                        @foreach($quoteRevisions as $q)
+                            <li class="flex flex-wrap items-center gap-x-2" @if($q->superseded_at) style="color: var(--text-muted);" @endif>
+                                <span>Rev {{ $q->revision }} — R{{ number_format((float) $q->amount, 2) }} — {{ $q->quote_date?->format('Y-m-d') }}</span>
+                                @if($q->superseded_at)
+                                    <span class="ds-badge ds-badge-muted">Superseded</span>
+                                @else
+                                    <span class="ds-badge ds-badge-success">Current</span>
+                                @endif
+                                @if($q->document_storage_path)
+                                    <a href="{{ route('corex.rental-job-cards.quotes.download', [$jobCard, $q->id]) }}" target="_blank" class="underline">View</a>
+                                @endif
+                            </li>
                         @endforeach
                     </ul>
                 @endif
@@ -580,9 +632,10 @@
                         @endif
                     </p>
                 @else
-                <form method="POST" action="{{ route('corex.rental-job-cards.send-quote', $jobCard) }}" onsubmit="return confirm('Send this job card to the owner as a quote?');">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.send-quote', $jobCard) }}"
+                      onsubmit="return confirm({{ \Illuminate\Support\Js::from($currentQuote ? 'Re-send this job card to the owner as Rev ' . ($currentQuote->revision + 1) . '? It replaces Rev ' . $currentQuote->revision . ', and any approval of Rev ' . $currentQuote->revision . ' no longer applies.' : 'Send this job card to the owner as a quote?') }});">
                     @csrf
-                    <button type="submit" class="corex-btn-primary text-xs">Send to owner as quote</button>
+                    <button type="submit" class="corex-btn-primary text-xs">{{ $currentQuote ? 'Re-send revised quote (Rev ' . ($currentQuote->revision + 1) . ')' : 'Send to owner as quote' }}</button>
                 </form>
                 @endif
                 @endpermission
@@ -597,7 +650,7 @@
                      records it, naming who on the (already-assigned) crew actually did the
                      work — free text, with that crew's own member names offered via the
                      native datalist below as a convenience, not a constraint. --}}
-                <form method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-2">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-2">
                     @csrf
                     <input type="text" name="worker_sign_off_name" list="worker-sign-off-names" maxlength="191" placeholder="Who did the work (optional)" aria-label="Who did the work" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                     <datalist id="worker-sign-off-names">
@@ -612,13 +665,13 @@
                 @endunless
 
                 @unless($jobCard->agent_signed_off_at)
-                <form method="POST" action="{{ route('corex.rental-job-cards.agent-sign-off', $jobCard) }}">@csrf<button type="submit" class="corex-btn-outline text-xs w-full">Agent sign-off</button></form>
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.agent-sign-off', $jobCard) }}">@csrf<button type="submit" class="corex-btn-outline text-xs w-full">Agent sign-off</button></form>
                 @else
                 <div class="text-xs" style="color: var(--text-muted);">Agent — checked: {{ $jobCard->agentSignedOffByUser?->name }} ({{ $jobCard->agent_signed_off_at->format('Y-m-d H:i') }})</div>
                 @endunless
 
                 @unless($jobCard->tenant_confirmed_at)
-                <form method="POST" action="{{ route('corex.rental-job-cards.tenant-confirm', $jobCard) }}" class="space-y-2">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tenant-confirm', $jobCard) }}" class="space-y-2">
                     @csrf
                     <textarea name="tenant_confirmation_note" rows="2" placeholder="Tenant confirmation note (optional)" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);"></textarea>
                     <button type="submit" class="corex-btn-outline text-xs w-full">Record tenant confirmation</button>
@@ -628,7 +681,7 @@
                 @endunless
 
                 @if($jobCard->worker_signed_off_at && $jobCard->agent_signed_off_at)
-                <form method="POST" action="{{ route('corex.rental-job-cards.complete', $jobCard) }}" onsubmit="return confirm('Mark this job card complete?');">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.complete', $jobCard) }}" onsubmit="return confirm('Mark this job card complete?');">
                     @csrf
                     <button type="submit" class="corex-btn-primary text-xs w-full">Complete job card</button>
                 </form>
@@ -637,7 +690,7 @@
 
                 @permission('rental_job_cards.cancel')
                 <button type="button" onclick="document.getElementById('cancel-job-card-form').classList.toggle('hidden')" class="text-xs w-full text-left" style="color: var(--text-muted);">Cancel job card</button>
-                <form id="cancel-job-card-form" method="POST" action="{{ route('corex.rental-job-cards.cancel', $jobCard) }}" class="hidden space-y-2 pt-2">
+                <form data-keep-scroll id="cancel-job-card-form" method="POST" action="{{ route('corex.rental-job-cards.cancel', $jobCard) }}" class="hidden space-y-2 pt-2">
                     @csrf
                     <textarea name="cancel_reason" required placeholder="Reason for cancellation" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);"></textarea>
                     <button type="submit" class="corex-btn-outline text-xs w-full" style="color: var(--ds-crimson);">Confirm cancel</button>
@@ -933,6 +986,7 @@ function catalogueLinePicker(items, opts) {
 (function () {
     var KEY = 'jcScroll:' + location.pathname;
     var focusLineId = {!! \Illuminate\Support\Js::from(session('jc_focus_line')) !!};
+    var focusTaskId = {!! \Illuminate\Support\Js::from(session('jc_focus_task')) !!}; // §14.21 — task add / rename / restore / tick
 
     document.addEventListener('submit', function (e) {
         var form = e.target;
@@ -969,7 +1023,9 @@ function catalogueLinePicker(items, opts) {
         if (!left) { return; }
         // A failed validation reopens that line's editor — bring it into view.
         var open = document.querySelector('[id^="jc-edit-line-"]');
-        var target = open || (focusLineId ? document.querySelector('[data-line-id="' + focusLineId + '"]') : null);
+        var target = open
+            || (focusLineId ? document.querySelector('[data-line-id="' + focusLineId + '"]') : null)
+            || (focusTaskId ? document.querySelector('[data-task-id="' + focusTaskId + '"]') : null);
         if (target) {
             ensureVisible(left, target);
             if (highlight && !open) {

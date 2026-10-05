@@ -334,8 +334,17 @@ class RentalJobCardController extends Controller
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
 
+        // §14.21 — every revision of the quote sent from this card (current
+        // first), which one is current, and whether the card has changed
+        // since it was sent.
+        $quoteRevisions = $rentalJobCard->quoteRevisions()->get();
+        $currentQuote = $quoteRevisions->first(fn ($q) => $q->superseded_at === null);
+
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
+            'quoteRevisions' => $quoteRevisions,
+            'currentQuote' => $currentQuote,
+            'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote),
             'generalLines' => $rentalJobCard->generalLines()->with(['catalogueItem', 'vatType'])->get(),
             'pricesOn' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
@@ -435,10 +444,19 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $validated = $request->validate(['description' => ['required', 'string', 'max:500']]);
-        $service->addTask($rentalJobCard, $validated['description'], $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task added.');
+        $validated = $request->validate(['description' => ['required', 'string', 'max:500']]);
+        try {
+            $task = $service->addTask($rentalJobCard, $validated['description'], $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
+
+        // jc_focus_task — the show screen brings the changed task into view (same idea as jc_focus_line).
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task added.')->with('jc_focus_task', $task->id);
     }
 
     /** "add / rename / reorder / archive tasks" — rename, new in the 2026-10-05 rebuild. */
@@ -446,19 +464,35 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $validated = $request->validate(['description' => ['required', 'string', 'max:500']]);
-        $service->renameTask($rentalJobCard, $task, $validated['description'], $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task renamed.');
+        $validated = $request->validate(['description' => ['required', 'string', 'max:500']]);
+        try {
+            $service->renameTask($rentalJobCard, $task, $validated['description'], $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task renamed.')->with('jc_focus_task', $task->id);
     }
 
     public function toggleTask(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardTask $task): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $service->toggleTask($rentalJobCard, $task, $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task updated.');
+        try {
+            $service->toggleTask($rentalJobCard, $task, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task updated.')->with('jc_focus_task', $task->id);
     }
 
     public function reorderTasks(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): JsonResponse
@@ -466,7 +500,11 @@ class RentalJobCardController extends Controller
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
         $validated = $request->validate(['ordered_ids' => ['required', 'array'], 'ordered_ids.*' => ['integer']]);
-        $service->reorderTasks($rentalJobCard, $validated['ordered_ids'], $request->user());
+        try {
+            $service->reorderTasks($rentalJobCard, $validated['ordered_ids'], $request->user());
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json(['message' => 'Reordered.']);
     }
@@ -475,7 +513,15 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $service->archiveTask($rentalJobCard, $task, $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
+
+        try {
+            $service->archiveTask($rentalJobCard, $task, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task archived.');
     }
@@ -484,14 +530,26 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $service->restoreTask($rentalJobCard, $task, $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task restored.');
+        try {
+            $service->restoreTask($rentalJobCard, $task, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task restored.')->with('jc_focus_task', $task);
     }
 
     public function storeLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
+
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
 
         $validated = $request->validate([
             'rental_job_card_task_id' => ['nullable', Rule::exists('rental_job_card_tasks', 'id')->where('rental_job_card_id', $rentalJobCard->id)],
@@ -510,7 +568,11 @@ class RentalJobCardController extends Controller
         }
 
         $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
-        $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
+        try {
+            $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
 
         // jc_focus_line — the show screen scrolls the changed line into view
         // after restoring the panel's scroll position (see show.blade.php).
@@ -523,9 +585,10 @@ class RentalJobCardController extends Controller
 
         // A closed card's lines never change (completed figures are frozen,
         // cancelled is a dead record). The edit control isn't rendered there
-        // either; this is the server-side guard behind the hidden link.
-        if (in_array($rentalJobCard->status, [RentalJobCard::STATUS_COMPLETED, RentalJobCard::STATUS_CANCELLED], true)) {
-            return back()->withErrors(['rental_job_card' => 'This job card is closed — its lines can no longer be changed.']);
+        // either; this is the server-side guard behind the hidden link
+        // (RentalJobCardService enforces the same rule a second time).
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
         }
 
         // quantity is `sometimes` — an agency with prices off renders no
@@ -541,7 +604,11 @@ class RentalJobCardController extends Controller
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
-        $service->updateLine($rentalJobCard, $line, $validated, $request->user());
+        try {
+            $service->updateLine($rentalJobCard, $line, $validated, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line updated.')->with('jc_focus_line', $line->id);
     }
@@ -550,7 +617,15 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $service->archiveLine($rentalJobCard, $line, $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
+
+        try {
+            $service->archiveLine($rentalJobCard, $line, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line archived.');
     }
@@ -559,7 +634,15 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $service->restoreLine($rentalJobCard, $line, $request->user());
+        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
+            return $refusal;
+        }
+
+        try {
+            $service->restoreLine($rentalJobCard, $line, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line restored.')->with('jc_focus_line', $line);
     }
@@ -575,7 +658,31 @@ class RentalJobCardController extends Controller
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Quote sent to the owner.');
+        $revision = $rentalJobCard->quoteRevisions()->max('revision');
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)
+            ->with('success', $revision > 1 ? "Revised quote (Rev {$revision}) sent to the owner — it replaces the earlier one." : 'Quote sent to the owner.');
+    }
+
+    /**
+     * §14.21 — view any revision's stored PDF (current or superseded). Same
+     * private-disk, re-check-ownership discipline as
+     * RentalWorkOrderQuoteController::download(); the quote must belong to
+     * THIS card, and the card passes the usual scope guard.
+     */
+    public function downloadQuote(Request $request, RentalJobCard $rentalJobCard, int $quote)
+    {
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
+
+        $quoteModel = $rentalJobCard->quoteRevisions()->withTrashed()->findOrFail($quote);
+        abort_unless($quoteModel->document_storage_path, 404);
+        abort_unless(\Illuminate\Support\Facades\Storage::disk('local')->exists($quoteModel->document_storage_path), 404);
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->response(
+            $quoteModel->document_storage_path,
+            'Quote Rev ' . $quoteModel->revision . ' - Job card ' . $rentalJobCard->id . '.pdf',
+            ['Content-Type' => 'application/pdf'],
+        );
     }
 
     public function workerSignOff(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
@@ -707,6 +814,21 @@ class RentalJobCardController extends Controller
         $photo = $service->storePhoto($rentalJobCard, $request->file('photo'), $validated['photo_type'], $request->user(), $validated['client_idempotency_key'] ?? null);
 
         return response()->json($photo, 201);
+    }
+
+    /**
+     * §14.21 — a closed (completed/cancelled) card's lines and tasks never
+     * change. Checked FIRST in every line/task action so the refusal is a
+     * clear message with no validation noise and no change at all; the
+     * service enforces the same rule again (assertContentEditable()).
+     */
+    private function refuseIfClosed(RentalJobCard $rentalJobCard): ?RedirectResponse
+    {
+        if (! $rentalJobCard->isClosed()) {
+            return null;
+        }
+
+        return back()->withErrors(['rental_job_card' => 'This job card is closed — its lines and tasks can no longer be changed.']);
     }
 
     /**

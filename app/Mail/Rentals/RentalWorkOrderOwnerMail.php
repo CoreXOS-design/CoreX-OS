@@ -23,6 +23,8 @@ class RentalWorkOrderOwnerMail extends Mailable implements ShouldQueue
 
     public const STAGE_CREATED = 'created';
     public const STAGE_COMPLETED = 'completed';
+    /** §14.21 — a job card's quote was edited and RE-SENT; this one replaces the earlier revision. */
+    public const STAGE_QUOTE_REVISED = 'quote_revised';
 
     public string $ownerName;
     public string $agencyName;
@@ -38,9 +40,11 @@ class RentalWorkOrderOwnerMail extends Mailable implements ShouldQueue
 
     public function envelope(): Envelope
     {
-        $subject = $this->stage === self::STAGE_COMPLETED
-            ? "Work completed — {$this->propertyAddress}"
-            : "A work order was logged — {$this->propertyAddress}";
+        $subject = match ($this->stage) {
+            self::STAGE_COMPLETED => "Work completed — {$this->propertyAddress}",
+            self::STAGE_QUOTE_REVISED => "Revised quote — {$this->propertyAddress}",
+            default => "A work order was logged — {$this->propertyAddress}",
+        };
 
         return new Envelope(subject: $subject);
     }

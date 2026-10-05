@@ -24,6 +24,9 @@ class RentalWorkOrderQuote extends Model
         'agency_id',
         'rental_work_order_id',
         'rental_job_card_id',
+        'revision',
+        'superseded_at',
+        'content_signature',
         'agency_service_provider_id',
         'amount',
         'quote_date',
@@ -37,6 +40,8 @@ class RentalWorkOrderQuote extends Model
         'amount' => 'decimal:2',
         'quote_date' => 'date',
         'is_selected' => 'boolean',
+        'revision' => 'integer',
+        'superseded_at' => 'datetime',
     ];
 
     public function workOrder(): BelongsTo
@@ -54,6 +59,15 @@ class RentalWorkOrderQuote extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
+    }
+
+    /**
+     * §14.21 — a job card quote that a later re-send has replaced. Kept (never
+     * deleted) and still viewable, but never the current/selected quote again.
+     */
+    public function isSuperseded(): bool
+    {
+        return $this->superseded_at !== null;
     }
 
     public function capturedByUser(): BelongsTo
