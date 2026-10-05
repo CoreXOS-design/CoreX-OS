@@ -5389,6 +5389,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/social/oauth/choose-page', [\App\Http\Controllers\PropertyMarketingController::class, 'oauthChoosePage'])->middleware('permission:access_properties')->name('corex.social.oauth.choose-page.save');
 });
 
+// Bare-path safety redirect (2026-10-05) — every in-app link to Company Settings
+// uses route('admin.company-settings'), which correctly resolves to the real,
+// long-standing /corex-prefixed URL. But an admin who types or bookmarks the
+// intuitive unprefixed path gets a dead-end 404 with no way forward. This is
+// GET-only and simply forwards to the real route; it changes no permission,
+// no controller, no behaviour — just stops the bare path from being a trap.
+Route::middleware(['auth', 'verified'])->get('/admin/company-settings', function () {
+    return redirect()->route('admin.company-settings');
+})->name('admin.company-settings.bare-path-redirect');
+
 
 // ===== COMMERCIAL EVALUATIONS =====
 Route::middleware(['auth', 'permission:access_commercial_evaluations', 'feature:commercial-evaluations'])->prefix('commercial-evaluations')->name('commercial-evaluations.')->group(function () {
