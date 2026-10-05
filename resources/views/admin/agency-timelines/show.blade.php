@@ -94,10 +94,10 @@
     @if($tab === 'history')
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border:1px solid var(--border);">
             <table class="w-full text-sm ds-table">
-                <thead><tr style="background: var(--surface-2); color:var(--text-muted);" class="text-left text-xs uppercase tracking-wider"><th class="px-4 py-3">When</th><th class="px-4 py-3">What happened</th><th class="px-4 py-3">By</th></tr></thead>
+                <thead><tr style="background: var(--surface-2);"><th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th><th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">What happened</th><th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">By</th></tr></thead>
                 <tbody>
                 @forelse($events as $ev)
-                    <tr style="border-top:1px solid var(--border);">
+                    <tr>
                         <td class="px-4 py-2.5 whitespace-nowrap tabular-nums" style="color:var(--text-muted);">{{ $ev->created_at->format('j M Y H:i') }}</td>
                         <td class="px-4 py-2.5" style="color:var(--text-primary);">{{ $ev->summary }}</td>
                         <td class="px-4 py-2.5" style="color:var(--text-secondary);">{{ $ev->actor_user_id ? ($actors[$ev->actor_user_id] ?? 'User #' . $ev->actor_user_id) : ($ev->source === 'manual' ? '—' : 'Automatic') }}</td>

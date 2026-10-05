@@ -71,6 +71,13 @@ class AgencyTimelineController extends Controller
             ];
         });
 
+        $kpis = [
+            'total'   => $rows->count(),
+            'running' => $rows->where('status', 'running')->count(),
+            'live'    => $rows->where('status', 'live')->count(),
+            'overdue' => $rows->where('overdue', '>', 0)->count(),
+        ];
+
         $status = (string) $request->get('status', '');
         if (in_array($status, ['not_started', 'running', 'live', 'paused'], true)) {
             $rows = $rows->where('status', $status);
@@ -90,7 +97,7 @@ class AgencyTimelineController extends Controller
             'path' => $request->url(), 'query' => $request->query(),
         ]);
 
-        return view('admin.agency-timelines.index', ['rows' => $paged, 'sort' => $sort, 'dir' => $dir, 'status' => $status]);
+        return view('admin.agency-timelines.index', ['rows' => $paged, 'sort' => $sort, 'dir' => $dir, 'status' => $status, 'kpis' => $kpis]);
     }
 
     // ── Start ──────────────────────────────────────────────────────────────
@@ -101,7 +108,13 @@ class AgencyTimelineController extends Controller
         if ($existing = AgencyTimeline::where('agency_id', $agency->id)->first()) {
             return redirect()->route('admin.agency-timelines.show', $existing)->with('warning', 'This agency already has a timeline.');
         }
-        $start = Carbon::parse($request->get('start_date', $agency->created_at ?? now()))->startOfDay();
+        // A timeline can't start in the past: a past (or missing) date, including the
+        // agency's older creation date, falls back to today.
+        $today = now()->startOfDay();
+        $start = Carbon::parse($request->get('start_date', $agency->created_at ?? $today))->startOfDay();
+        if ($start->lt($today)) {
+            $start = $today;
+        }
 
         return view('admin.agency-timelines.start', [
             'agency' => $agency, 'start' => $start, 'preview' => $this->svc->previewDates($start),
@@ -111,10 +124,20 @@ class AgencyTimelineController extends Controller
     public function start(Request $request, Agency $agency)
     {
         $user = $this->owner($request);
-        $data = $request->validate(['start_date' => 'required|date']);
+        $data = $request->validate([
+            'start_date' => 'required|date|after_or_equal:today',
+            'dates'      => 'nullable|array',
+            'dates.*'    => 'nullable|date|after_or_equal:start_date',
+        ], [
+            'start_date.after_or_equal' => 'The start date cannot be in the past.',
+            'dates.*.after_or_equal'    => 'A step date cannot be before the start date.',
+        ]);
+        $validIds = \App\Models\Platform\AgencyTimelineDefaultItem::where('kind', 'milestone')->pluck('id')->all();
+        $overrides = collect($data['dates'] ?? [])->filter()->only($validIds)
+            ->map(fn ($d) => Carbon::parse($d)->toDateString())->all();
 
         try {
-            $timeline = $this->svc->start($agency, Carbon::parse($data['start_date']), $user->id);
+            $timeline = $this->svc->start($agency, Carbon::parse($data['start_date']), $user->id, $overrides);
         } catch (\DomainException $e) {
             $existing = AgencyTimeline::where('agency_id', $agency->id)->first();
 

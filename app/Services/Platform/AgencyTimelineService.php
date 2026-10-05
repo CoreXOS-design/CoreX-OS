@@ -28,14 +28,17 @@ class AgencyTimelineService
     /**
      * Snapshot the current defaults onto a new timeline for $agency.
      * One timeline per agency: a second start throws.
+     *
+     * @param  array<int,string>  $dateOverrides  default-item id => Y-m-d, set on the Start screen
+     *                                            (replaces the offset-computed date for that step)
      */
-    public function start(Agency $agency, CarbonInterface $startDate, ?int $userId = null): AgencyTimeline
+    public function start(Agency $agency, CarbonInterface $startDate, ?int $userId = null, array $dateOverrides = []): AgencyTimeline
     {
         if (AgencyTimeline::where('agency_id', $agency->id)->exists()) {
             throw new \DomainException('This agency already has a timeline.');
         }
 
-        $timeline = DB::transaction(function () use ($agency, $startDate, $userId) {
+        $timeline = DB::transaction(function () use ($agency, $startDate, $userId, $dateOverrides) {
             $timeline = AgencyTimeline::create([
                 'agency_id'  => $agency->id,
                 'token'      => Str::random(48),
@@ -53,8 +56,9 @@ class AgencyTimelineService
                     'body'                  => $d->body,
                     'sort_order'            => $d->sort_order,
                     'offset_days'           => $d->offset_days,
-                    'due_date'              => $d->kind === 'milestone' && $d->offset_days !== null
-                        ? Carbon::parse($startDate)->addDays($d->offset_days)->toDateString() : null,
+                    'due_date'              => $d->kind !== 'milestone' ? null
+                        : ($dateOverrides[$d->id] ?? ($d->offset_days !== null
+                            ? Carbon::parse($startDate)->addDays($d->offset_days)->toDateString() : null)),
                     'is_public'             => $d->is_public,
                     'is_go_live'            => $d->is_go_live,
                     'auto_complete_trigger' => $d->auto_complete_trigger,
@@ -77,6 +81,8 @@ class AgencyTimelineService
     {
         return AgencyTimelineDefaultItem::where('kind', 'milestone')->orderBy('sort_order')->orderBy('id')->get()
             ->map(fn ($d) => [
+                'id'     => $d->id,
+                'offset' => (int) $d->offset_days,
                 'title' => $d->title,
                 'date'  => Carbon::parse($startDate)->addDays((int) $d->offset_days),
                 'live'  => (bool) $d->is_go_live,
