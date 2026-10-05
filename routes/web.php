@@ -3444,6 +3444,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.template');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'upload'])
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.upload');
+        // Landing 2 (.ai/specs/rental-takeon-import.md §11) — saved column
+        // mappings. Must sit before /{run} so 'mappings' never binds as a
+        // run id, same reasoning as P24's own search-properties route.
+        Route::get('/mappings', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingsIndex'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.index');
+        Route::post('/mappings/{mapping}/archive', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingArchive'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.archive');
+        Route::post('/mappings/{mappingId}/restore', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingRestore'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.restore');
+        Route::post('/mappings/{mapping}/rename', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingRename'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.rename');
+        Route::get('/{run}/map-columns', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mapColumns'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.map-columns');
+        Route::post('/{run}/map-columns', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'confirmMapping'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.confirm-mapping');
         Route::get('/{run}/preview', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'preview'])->name('corex.rentals.take-on-import.preview');
         Route::get('/{run}', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'show'])->name('corex.rentals.take-on-import.show');
         Route::get('/{run}/issues.csv', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'errorsCsv'])->name('corex.rentals.take-on-import.issues');
