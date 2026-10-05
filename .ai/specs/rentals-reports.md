@@ -48,6 +48,65 @@ happened here, confirming that design held.
 
 ---
 
+## 0a. Tidy pass (2026-10-05) — three defects found and fixed on QA1
+
+1. **Duplicate "Property history" picker entry, one of them dead.** `RentalReportService::REPORTS`
+   listed `'property-history' => 'Property history'`, and the picker's generic `@foreach($reports as
+   $key => $label)` loop rendered it as an in-page entry (`?report=property-history`) alongside the
+   real, separately-rendered link to `corex.rentals.reports.property-history` (§4.7). The in-page one
+   was dead: `RentalReportController::runReport()`'s `match` has no `'property-history'` case, so it
+   silently fell through to `default => $service->faultReports(...)` — rendering the Fault Reports
+   grid (13 rows / 9 columns) under a mislabelled "Property history" heading. Fixed by removing
+   `'property-history'` from `REPORTS` — it was never meant to be a flat-grid report key (it's a
+   single-property timeline with its own controller actions/routes, not dispatched by `runReport()`),
+   so it has no business being in the constant the generic picker and the API's key-validation both
+   read from. The one remaining entry is the dedicated link; no dead route is linked anywhere.
+2. **Lease status "Lease end"/"Term" columns silently never printed a real date.** Root cause:
+   `active_start_date`/`active_end_date` are raw `SELECT`-aliased strings from
+   `RentalCommandCentreService::derivedPropertyQuery()`, not Carbon instances (`Property::$casts` has
+   no entry for either alias) — `optional($string)->format('Y-m-d')` returns `null` for **any**
+   non-null value, not just a null one, because `Illuminate\Support\Optional::__call()` only forwards
+   the method call when `is_object($this->value)` is true; for a plain string it falls through and
+   returns nothing. So every fixed-term lease printed Term "– open" / Lease end "—" exactly like a
+   genuine month-to-month lease with no end date at all — confirmed against real QA1 data (e.g. "1
+   Kenmuir Road" has `active_end_date = "2027-05-31"`, a real date, yet rendered "—"). **Days left was
+   never broken** — it's computed with `Carbon::parse($p->active_end_date)` directly, bypassing
+   `optional()` entirely, so it already showed the correct number (238, 228, etc.) for those same
+   rows. The column was the bug, not the number. Fixed by parsing before formatting
+   (`$p->active_end_date ? Carbon::parse($p->active_end_date)->format('Y-m-d') : null`) for both Term
+   and Lease end. A genuinely open-ended lease (`end_date` really `NULL`) still correctly prints "—"/
+   "open" and `days_left` stays `null` — unchanged, covered by its own test. Since print/PDF/XLSX/CSV
+   all render the same `RentalReportService::leaseStatus()` row array, fixing the one source fixes
+   every output format at once — no per-format change needed.
+3. **Lease status "Include" ticks rendered all-unticked on first load despite rows being shown.**
+   `leaseStatus()` set `'selectedBuckets' => $tileFilter ? [$tileFilter] : []` — every other report
+   method defaults an empty selection to "every bucket" via `defaultBucketKeys()`; this one didn't,
+   leaving every tick visually unchecked while, underneath, no `?buckets[]=` means no `tile` filter is
+   applied (`RentalCommandCentreService::applyTile()`'s `default` case is a no-op) — i.e. every
+   property is shown, the same result as the explicit "Rental properties" tile. Fixed by defaulting
+   `selectedBuckets` to `['all']` when no tile is selected, so the tick now matches what is actually on
+   screen. Zero query-behaviour change (`tile => 'all'` and `tile => null` both hit `applyTile()`'s
+   `default: break;`).
+4. **Job cards labour/parts/total-cost totals and the Work Orders done-by filter: confirmed working,
+   no defect found.** QA1 currently has **zero** `rental_job_cards` rows (table empty at the time of
+   this check, 2026-10-05) — there was no live row to check against despite the task's premise, so
+   this was verified two ways instead: (a) the existing factory-backed tests
+   (`test_job_cards_aggregates_labour_hours_and_parts_from_its_own_lines`,
+   `test_job_cards_total_cost_is_null_not_zero_when_unpriced`) already cover the aggregation logic and
+   pass; (b) the Work Orders done-by filter was exercised directly against QA1's real data (4 live
+   work orders: 2 with `agency_service_provider_id` set, 0 linked to a job card) — `done_by=supplier`
+   correctly returned the 2 supplier-done orders, `done_by=own_team` correctly returned 0 (no job
+   cards exist to link), and orders with neither signal were correctly excluded from both. No code
+   changed for this item.
+
+Tests: `tests/Feature/Rentals/RentalReportServiceTest.php` —
+`test_reports_constant_does_not_list_property_history_as_a_flat_grid_report`,
+`test_lease_status_lease_end_and_term_print_a_real_end_date_not_open`,
+`test_lease_status_genuinely_open_ended_lease_still_prints_open`,
+`test_lease_status_default_tick_reflects_the_unfiltered_view_actually_shown`.
+
+---
+
 ## 1. What this screen does and why
 
 One Reports screen under Rentals: `/corex/rentals/reports`, route `corex.rentals.reports.index`. A

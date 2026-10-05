@@ -36,6 +36,13 @@ use Illuminate\Support\Facades\DB;
  */
 class RentalReportService
 {
+    // Property History is NOT listed here — it is a single-property timeline
+    // (own screen/route, picks a property first), not a flat-grid report
+    // dispatched by RentalReportController::runReport(). Listing it here
+    // previously rendered a second, dead "Property history" entry in the
+    // picker that silently fell back to the Fault Reports grid when clicked
+    // (AT-443 tidy, 2026-10-05) — the real entry is the dedicated link to
+    // corex.rentals.reports.property-history, rendered separately in the view.
     public const REPORTS = [
         'fault-reports' => 'Fault reports',
         'work-orders' => 'Work orders',
@@ -46,7 +53,6 @@ class RentalReportService
         'lease-status' => 'Lease status',
         'lease-expiries' => 'Lease expiries',
         'inspections' => 'Inspections',
-        'property-history' => 'Property history',
     ];
 
     public const FAULT_BUCKETS = [
@@ -613,10 +619,19 @@ class RentalReportService
                 'tenant' => $p->active_lease_id ? ($tenantNames[$p->active_lease_id] ?? '—') : '—',
                 'status_bucket' => $bucket,
                 'rent' => $p->active_rental_amount !== null ? (float) $p->active_rental_amount : null,
+                // active_start_date/active_end_date are raw SELECT-aliased
+                // strings, not Carbon instances (Property::$casts has no
+                // entry for these alias names) — optional($string)->format()
+                // silently returns null for ANY non-null value, since
+                // Optional::__call only forwards to is_object($value). That
+                // made Term/Lease end print "open"/"—" even when a real end
+                // date existed, while Days left (below, parsed directly with
+                // Carbon::parse()) was already correct. Fixed here by parsing
+                // before formatting (AT-443 tidy, 2026-10-05).
                 'term' => $p->active_lease_id
-                    ? ($p->active_month_to_month ? 'Month-to-month' : (optional($p->active_start_date)->format('Y-m-d') . ' – ' . (optional($p->active_end_date)->format('Y-m-d') ?: 'open')))
+                    ? ($p->active_month_to_month ? 'Month-to-month' : (($p->active_start_date ? Carbon::parse($p->active_start_date)->format('Y-m-d') : '—') . ' – ' . ($p->active_end_date ? Carbon::parse($p->active_end_date)->format('Y-m-d') : 'open')))
                     : '—',
-                'lease_end' => optional($p->active_end_date)->format('Y-m-d') ?: '—',
+                'lease_end' => $p->active_end_date ? Carbon::parse($p->active_end_date)->format('Y-m-d') : '—',
                 'days_left' => $daysLeft,
             ];
         });
@@ -639,7 +654,14 @@ class RentalReportService
             'sort' => $sort,
             'direction' => $direction,
             'buckets' => RentalCommandCentreService::TILES,
-            'selectedBuckets' => $tileFilter ? [$tileFilter] : [],
+            // No ?buckets[]= in the request leaves $tileFilter null, which
+            // applyTile() already treats as "no filter" (its switch's default
+            // case, same as an explicit 'all') — i.e. every property is shown,
+            // same as the "Rental properties" tile. The tick must say so: it
+            // previously rendered every tile unticked on first load while the
+            // full, unfiltered list was what was actually on screen (AT-443
+            // tidy, 2026-10-05).
+            'selectedBuckets' => [$tileFilter ?? 'all'],
         ];
     }
 
