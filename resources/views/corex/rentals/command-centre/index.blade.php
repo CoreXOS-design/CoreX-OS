@@ -511,8 +511,8 @@ document.addEventListener('DOMContentLoaded', corexRccUpdateToggleAllQueueGroups
 // `window.innerHeight - top` estimate still left an outer scrollbar — it
 // has no way to know about every padding layer between #rcc-layout and
 // the viewport's bottom edge that it doesn't own (<main id="appScroll">'s
-// own padding, the shared .hfc-card wrapper <main> renders @section
-// ('content') inside, this page's own container padding). Rather than
+// own padding, the shared .hfc-card wrapper the layout renders this
+// page's content section inside, this page's own container padding). Rather than
 // hardcode that stack (fragile — it lives in the shared layout, not here,
 // and any of it changing silently breaks this number again), measure the
 // ACTUAL resulting overflow on #appScroll — the real scrolling element;
