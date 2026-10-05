@@ -19125,6 +19125,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1546,'2026_10_05_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1547,'2026_10_05_240300_backfill_rental_catalogue_item_types_and_units',260);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1548,'2026_10_05_240400_drop_type_and_unit_strings_from_rental_catalogue_items_table',260);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1549,'2026_10_05_200100_add_active_rental_statuses_to_lease_settings_table',261);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1550,'2026_10_05_250000_create_rental_take_on_import_runs_table',262);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1551,'2026_10_05_250100_create_rental_take_on_import_rows_table',262);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1552,'2026_10_05_250200_add_archived_at_to_rental_take_on_import_rows_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1550,'2026_10_05_260000_create_rental_take_on_import_runs_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1551,'2026_10_05_260100_create_rental_take_on_import_rows_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1552,'2026_10_05_260200_add_archived_at_to_rental_take_on_import_rows_table',262);
