@@ -18,6 +18,7 @@ class LeaseEvent extends Model
     public const TYPE_MONTH_TO_MONTH_REVERSED = 'month_to_month_reversed';
     public const TYPE_NOTICE_RECORDED = 'notice_recorded';
     public const TYPE_NOTICE_REVERSED = 'notice_reversed';
+    public const TYPE_NOTICE_OUTCOME_CHANGED = 'notice_outcome_changed';
     public const TYPE_RENEWAL_DRAFT_CREATED = 'renewal_draft_created';
     public const TYPE_RENEWAL_ACTIVATED = 'renewal_activated';
 

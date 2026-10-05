@@ -207,6 +207,60 @@ class RentalPortalWorkflowTest extends TestCase
         ])->assertStatus(404);
     }
 
+    /**
+     * §15 (AT-447 follow-up) — "Request work / report a problem." Lands as
+     * a normal rental_fault_reports row, reported_by_type='landlord',
+     * attached to the active lease — exactly like any other fault report,
+     * so it is reachable from the agency's Fault Reports list/Command
+     * Centre needs-action with no extra wiring.
+     */
+    public function test_landlord_can_request_work_and_it_lands_as_reported_by_landlord(): void
+    {
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+
+        $res = $this->postJson('/api/v1/client/rentals/landlord/properties/' . $this->property->id . '/fault-reports', [
+            'title' => 'Driveway gate motor dead',
+            'description' => 'Gate will not open with the remote any more.',
+        ]);
+
+        $res->assertStatus(201);
+        $fault = RentalFaultReport::withoutGlobalScopes()->findOrFail($res->json('fault_report.id'));
+        $this->assertSame(RentalFaultReport::REPORTED_BY_LANDLORD, $fault->reported_by_type);
+        $this->assertSame($this->landlord->id, $fault->reported_by_contact_id);
+        $this->assertSame(RentalFaultReport::CHANNEL_APP, $fault->reported_channel);
+        $this->assertSame($this->lease->id, $fault->lease_id);
+        $this->assertSame(RentalFaultReport::STATUS_REPORTED, $fault->status);
+        $this->assertNull($fault->rental_work_order_id, 'The landlord never creates a work order directly.');
+    }
+
+    /** The lazy-but-valid shortcut — title only, no description, no photos. */
+    public function test_landlord_can_request_work_with_title_only(): void
+    {
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+
+        $res = $this->postJson('/api/v1/client/rentals/landlord/properties/' . $this->property->id . '/fault-reports', [
+            'title' => 'Something is wrong with the pool pump',
+        ]);
+
+        $res->assertStatus(201);
+    }
+
+    /** No active lease — a vacancy-period request still works, attached to the property alone. */
+    public function test_landlord_can_request_work_during_a_vacancy_with_no_active_lease(): void
+    {
+        $this->lease->update(['status' => \App\Models\Lease::STATUS_EXPIRED]);
+
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+
+        $res = $this->postJson('/api/v1/client/rentals/landlord/properties/' . $this->property->id . '/fault-reports', [
+            'title' => 'Pool needs cleaning before the next tenant',
+        ]);
+
+        $res->assertStatus(201);
+        $fault = RentalFaultReport::withoutGlobalScopes()->findOrFail($res->json('fault_report.id'));
+        $this->assertNull($fault->lease_id);
+    }
+
     public function test_sending_a_notice_logs_a_document_and_appears_in_the_tenancy_timeline(): void
     {
         $template = RentalNoticeTemplate::create([

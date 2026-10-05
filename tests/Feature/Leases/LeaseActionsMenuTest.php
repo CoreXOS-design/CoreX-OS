@@ -77,14 +77,27 @@ final class LeaseActionsMenuTest extends TestCase
     public function test_an_active_notice_swaps_the_two_notice_actions_for_reverse_notice(): void
     {
         $lease = $this->activeLease();
-        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $this->agent, false);
+        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $this->agent, Lease::NOTICE_OUTCOME_LEAVE);
 
         $response = $this->actingAs($this->agent)->get(route('corex.leases.show', $lease->fresh()));
 
         $response->assertOk();
         $response->assertSee('Reverse notice');
-        $response->assertDontSee('Tenant gave notice');
-        $response->assertDontSee('Landlord not renewing');
+        $response->assertSee('Change notice outcome');
+        // Stale-test fix, 2026-10-05 (Johan's ruling): a bare assertDontSee()
+        // here false-failed against the SAME lease's own tenancy-log entry
+        // ("Tenant gave notice — move-out …"), which legitimately renders on
+        // this page once a notice is recorded — that text is correct and
+        // intentional, not a menu leak. The menu's own button carries a
+        // trailing "&hellip;" (see show.blade.php's "Lease actions" items)
+        // that the tenancy-log description never does — asserting against
+        // that exact raw-HTML string is what actually proves the MENU
+        // button is gone, without being defeated by the unrelated, correct
+        // log text. This was wrong the day it shipped (120658d99,
+        // 2026-10-05) — reproduced on a clean checkout before this ticket
+        // touched anything.
+        $response->assertDontSee('Tenant gave notice&hellip;', false);
+        $response->assertDontSee('Landlord not renewing&hellip;', false);
     }
 
     public function test_month_to_month_swaps_goes_month_to_month_for_reverse(): void

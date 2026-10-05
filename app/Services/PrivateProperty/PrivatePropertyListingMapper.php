@@ -79,7 +79,7 @@ class PrivatePropertyListingMapper
             // CoreX capture time (a 2-week compliance hold would otherwise reach PP stale).
             'ListingDate'             => self::resolveListingDate($property),
             'ExpiryDate'              => $expiryDate,
-            'AvailableFrom'           => now()->format('Y-m-d\TH:i:s'),
+            'AvailableFrom'           => self::resolveAvailableFrom($property),
             'AgentId'                 => $this->buildAgentIdString($property),
             'PhotoUrls'               => new \stdClass(), // empty ArrayOfString — overridden below if photos exist
             'OwnerID'                 => '',
@@ -767,6 +767,27 @@ class PrivatePropertyListingMapper
     {
         return ($property->pp_activated_at ?? $property->listed_date ?? now())
             ->format('Y-m-d\TH:i:s');
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (3). PP's
+     * `AvailableFrom` is a REQUIRED struct field (always sent, never
+     * omitted) — before this it was unconditionally `now()`, so a rental
+     * re-advertised with a real future move-out date (§15 GATE 2 row 2)
+     * never showed its real availability on PP. Now reads
+     * `lease_start_date` (the SAME column reused for an ordinary rental's
+     * own move-in date and for the notice-readvertise path) when the
+     * agency/property setting allows it; falls back to `now()` exactly as
+     * before — for a sale listing (no lease_start_date), the setting off,
+     * or no date ever captured.
+     */
+    public static function resolveAvailableFrom(Property $property): string
+    {
+        if ($property->lease_start_date !== null && (bool) ($property->show_available_from_on_portals ?? true)) {
+            return $property->lease_start_date->format('Y-m-d\TH:i:s');
+        }
+
+        return now()->format('Y-m-d\TH:i:s');
     }
 
     /**
