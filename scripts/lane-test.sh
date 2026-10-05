@@ -153,13 +153,20 @@ mysql_q() {
 }
 
 # `artisan migrate` boots the full app and reads DB_HOST/PORT/USERNAME/
-# PASSWORD from the worktree's own .env + process env -- it never goes
-# through tests/bootstrap.php (PHPUnit-only). Must override ALL FOUR here,
-# not just DB_DATABASE, or this would silently migrate against whatever
-# the worktree's real .env points at instead of the resolved $DB_HOST/
-# $DB_PORT/$DB_USER/$DB_PASS this script is actually using.
+# PASSWORD/SOCKET from the worktree's own .env + process env -- it never
+# goes through tests/bootstrap.php (PHPUnit-only). Must override ALL FIVE
+# here, not just DB_DATABASE, or this would silently migrate against
+# whatever the worktree's real .env points at instead of the resolved
+# $DB_HOST/$DB_PORT/$DB_USER/$DB_PASS this script is actually using.
+#
+# DB_SOCKET="" is NOT optional (2026-10-05, cc2 bug report): Laravel's
+# mysql connection config is 'unix_socket' => env('DB_SOCKET', ''), and a
+# non-empty unix_socket wins over host/port entirely in the PDO connector.
+# A worktree whose .env sets DB_SOCKET (pointing at the SHARED instance's
+# socket) silently migrated there as the 'lanetest' user, who doesn't
+# exist on that instance -- "Access denied", not a hostname problem.
 run_migrate() {
-    DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USERNAME="$DB_USER" DB_PASSWORD="$DB_PASS" DB_DATABASE="$DB" \
+    DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USERNAME="$DB_USER" DB_PASSWORD="$DB_PASS" DB_DATABASE="$DB" DB_SOCKET="" \
         "$PHP_BIN" artisan migrate --force 2>&1 | sed 's/^/  /' >&2
 }
 

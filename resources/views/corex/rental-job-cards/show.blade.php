@@ -527,11 +527,11 @@
                     </select>
                     <button type="submit" class="corex-btn-outline text-xs">Assign</button>
                 </form>
-                <form method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="flex gap-2">
+                <form method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
                     @csrf
-                    <input type="datetime-local" name="scheduled_at" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
-                    <input type="datetime-local" name="due_at" placeholder="Due" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
-                    <button type="submit" class="corex-btn-outline text-xs">Set</button>
+                    <input type="datetime-local" name="scheduled_at" aria-label="Scheduled" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <input type="datetime-local" name="due_at" aria-label="Due" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <button type="submit" class="corex-btn-outline text-xs w-full">Set</button>
                 </form>
                 @if($jobCard->status === \App\Models\RentalJobCard::STATUS_SCHEDULED)
                 <form method="POST" action="{{ route('corex.rental-job-cards.start', $jobCard) }}">
