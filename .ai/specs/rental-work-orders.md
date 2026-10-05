@@ -2490,6 +2490,181 @@ archive/restore, agency isolation).
 **Finance stage dependency:** this is the single source of truth `.ai/specs/rental-money.md` §6 will
 read from when a completed job card's lines become charges — see that spec's own note.
 
+### 14.18 Catalogue code/description split + job-card line picker fix (AT-442 QA1 findings, 2026-10-05 round 3)
+
+Johan's three QA1 findings, each with a root cause and fix:
+
+**A — "picking a catalogue item still required typing the description."** The catalogue item had
+only one `name` field (code and description combined into one string), so there was nothing to
+pick that was both short enough to scan in a list AND descriptive enough to use as the line's
+description. Fixed by splitting `rental_catalogue_items.name` into two required columns: `code`
+(string 50, unique per agency among non-archived rows) and `description` (string 500).
+`2026_10_05_270000`/`270100`/`270200` add the columns, backfill every existing row (`code` derived
+from the old `name` — uppercased, non-alphanumeric collapsed to `-`, truncated to 20 chars, deduped
+per agency with a numeric suffix; `description` copied verbatim from the old `name`), then drop
+`name`. `RentalCatalogueItem::label()` returns `"{code} — {description}"` — the one display string
+used everywhere an item is picked from (catalogue list, job-card picker, print/quote).
+
+**B — "an item marked Parts showed as Labour on the line, and Type couldn't be changed."** Two
+separate bugs, both in `RentalJobCardService::addLine()`: (1) the picked catalogue item's `kind()`
+always won over an explicitly posted `type`, even when the agent had deliberately changed the
+dropdown — reversed so an explicit posted `type` now wins, falling back to the catalogue item's
+kind only when none was posted; (2) the OLD add-line row's Type/Unit `<select>` elements were
+`disabled` once a catalogue item was picked — a disabled field is never submitted at all, so the
+server never even saw a `type` to disagree with, and the Alpine `onchange` handler that was
+supposed to apply the picked item's kind never actually wrote a value into the select. The
+rebuilt add-line row (`_add-line-row.blade.php`) never disables anything; every field stays
+editable after a pick.
+
+**C — "no column headers above the add-line row."** `App\Support\RentalJobCardLineGrid` is the one
+source of truth for the row's `grid-template-columns` track list, shared by a new
+`_line-columns-header.blade.php` partial, the existing-lines table, and the add-line row, so all
+three can never drift apart. Header labels: Item, Description, Type, [Unit, Qty, Unit price, [VAT]
+— only when prices/VAT apply], blank (archive/+ action). Rendered once per task block and once for
+the General block (`show.blade.php`), immediately above that block's lines table.
+
+**The picker itself — searchable, pre-fills everything, still fully editable.** The add-line row's
+Item field is a type-to-search box (`catalogueLinePicker()` Alpine component, one instance per
+row) matching on code or description, showing `"CODE — Description"` in the dropdown. Picking an
+item sets description, type, unit, unit price, and VAT type on the SAME row — every one of those
+fields stays a normal editable control afterward (nothing disabled, per the bug-B fix above); the
+hidden hard-fail-safe is "no match → Free text" is always offered as an explicit dropdown option.
+
+**Root-cause bug found only by a real browser click, not the PHPUnit suite:** the picker's `pick()`
+method originally read `this.$el.querySelector(...)` to find its row's sibling fields. `pick(it)`
+is invoked via `@click="pick(it)"` from inside an `x-for`-rendered dropdown item — Alpine binds
+`$el` to the element whose directive triggered the CURRENT evaluation chain, not to the
+component's root, so inside that call chain `$el` resolved to the tiny clicked `<div>` (the
+dropdown option itself), not the row. `querySelector` on that element found nothing, so
+description/type/unit/price silently stayed blank while the plain reactive write
+(`this.selectedId = item.id`) still succeeded — which is exactly why the PHPUnit `addLine()` tests
+all passed (they call the service directly, never touching Alpine) while the live control did
+nothing visible. Fixed by capturing the row's root element once, in `init()`
+(`this.rootEl = this.$el`), and reading `this.rootEl.querySelector(...)` from `field()` instead.
+Confirmed via a real Puppeteer click (not a synthetic `element.click()` call) reading back the
+resulting field values — this is the "a passing server-contract test does not prove a UI control
+works for a real click" case `BUILD_STANDARD.md` warns about, caught only by browser verification.
+
+**A second, independent bug found the same way:** `RentalJobCardLineGrid::columns()`'s Description
+track was `minmax(0,1fr)` — no floor — while Type/Unit/Qty/Unit price/VAT held a combined ~460px of
+fixed-width tracks. At 1366px the row only has ~604px available next to the crew/sign-off right
+panel, so the grid's own auto-sizing starved Description down to ~18px (Item also went below its
+cap) — present in the DOM, invisible and unusable on screen, which a pure "does it wrap to a
+second line" check would not catch. Fixed by giving Description a 70px floor
+(`minmax(70px,1fr)`) and trimming the other tracks (Item 130→100px, Type 110→90px, Unit 70→64px,
+Qty 56→50px, Unit price 92→84px, VAT 96→84px) to fit the real 1366px budget — confirmed via
+`getBoundingClientRect()` computed widths at both 1366 and 1536, not a screenshot alone.
+
+**Saved lines snapshot, unchanged by this round:** `rental_job_card_lines.code` (added
+`2026_10_05_270300`) joins the existing `type`/`description`/`unit` snapshot columns (§14.2) — a
+line copies the picked item's code at add-time and never re-reads the catalogue item again, so a
+later rename/archive/price-change on the catalogue item never retroactively changes an existing
+job card. Print/quote (`_pdf-lines-table.blade.php`, shared by `print.blade.php` and
+`quote-pdf.blade.php`) shows `"code — description"` when a code is present, description alone for
+a free-text line.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalCatalogueItemTest.php` (code required/unique per
+agency among non-archived rows, archived codes may be reused, codes are agency-isolated, search
+matches code or description) and `tests/Feature/RentalJobCards/RentalJobCardAt442FollowUpTest.php`
+(picking a catalogue item pre-fills description/unit/price; an explicit posted description/type
+still overrides the catalogue item's own; a free-text line has no code; a line's code survives a
+later rename/archive of the catalogue item it came from).
+
+**Files:** `database/migrations/2026_10_05_270000..270300_*`, `app/Models/RentalCatalogueItem.php`,
+`app/Models/RentalJobCardLine.php`, `app/Services/Rentals/RentalJobCardService.php`,
+`app/Http/Controllers/CoreX/RentalCatalogueItemController.php`,
+`app/Http/Controllers/CoreX/RentalJobCardController.php`, `app/Support/RentalJobCardLineGrid.php`
+(new), `resources/views/corex/rental-job-cards/_line-columns-header.blade.php` (new),
+`resources/views/corex/rental-job-cards/_lines-table.blade.php`,
+`resources/views/corex/rental-job-cards/_add-line-row.blade.php`,
+`resources/views/corex/rental-job-cards/show.blade.php`,
+`resources/views/corex/rental-job-cards/_pdf-lines-table.blade.php`,
+`resources/views/corex/rental-catalogue-items/{index,create,edit}.blade.php`.
+
+### 14.19 Catalogue bulk import (2026-10-05) — load a price list in one go
+
+Johan's own instruction: an agency loading a parts/labour price list should not have to add every
+item one at a time. Template download -> upload CSV/XLSX -> dry-run preview with per-row errors ->
+confirm, duplicate-by-code update-or-skip by the agency's own choice.
+
+**Deliberately NOT the take-on importer's shape.** §9's `RentalTakeOnImportRun`/`Row` pair
+persists every batch as a listable, archivable entity because a take-on book is a one-time,
+high-stakes migration worth a permanent audit trail. Nobody asked for that here — this is a
+repeatable "top up my price list" action on a single, already-fully-CRUD entity
+(`RentalCatalogueItem`). The dry-run result is held in `Cache` (database store, 30-minute TTL,
+keyed by a UUID token carrying the resolving agency's id) between the upload and confirm requests
+instead of new database tables — nothing is written until Confirm, and nothing about the batch
+itself needs to outlive that round trip. Building the heavier Run/Row/archive machinery here would
+have been exactly the kind of silent extra non-negotiable #6 forbids.
+
+**Template** (`RentalCatalogueImportTemplateService`, PhpSpreadsheet with real dropdown data
+validation — same technique as `RentalTakeOnTemplateService`, chosen there because OpenSpout's
+writer supports neither a second sheet nor dropdowns). Columns, fixed by position: Code,
+Description, Type, Unit, VAT type, Price (excl VAT), Price (incl VAT). The Type/Unit/VAT type
+columns' dropdowns are built from the downloading agency's OWN configured lists — never a
+hardcoded Labour/Part/Each list (multi-agency always, non-negotiable #9). A second "Instructions"
+sheet explains every column and the duplicate-handling choice.
+
+**Parsing** (`RentalCatalogueImportRowParser`) reads CSV/XLSX by column position via OpenSpout,
+same streaming-generator pattern as `RentalTakeOnRowParser`/`ContactImportController`. Price cells
+pass through as raw values — parsing and "is this even a number" validation live in the resolver
+so an unparseable price becomes a named per-row error rather than a silently-dropped null.
+
+**Dry-run resolution** (`RentalCatalogueImportDryRunResolver`), per row, agency-scoped throughout:
+- Code and Description required; Type and Unit required and must match one of the agency's own
+  active `RentalCatalogueItemType`/`RentalCatalogueUnit` names (case-insensitive) — an unmatched
+  name is an error naming the exact bad value and pointing at Settings, never a silent fallback.
+- VAT type is optional. Blank means no VAT type on the item (same as leaving the single-item
+  form's own VAT type picker unset) — **not** "use the agency's default type"; a provided name
+  must match an active `RentalVatType` and must not be `rate_mode=custom_per_line` (the template
+  has no column for a per-item custom rate — that combination is a named error directing the
+  agent to set it afterwards on the item's own edit screen, rather than silently importing a wrong
+  rate).
+- Price: excl wins when both excl and incl are filled; incl-only is converted down to excl via
+  `RentalJobCardVatService::splitAmount()` — the exact same conversion the single-item create/edit
+  form uses, so an agency gets numerically identical results whether it types one item or imports
+  a thousand. Not VAT-registered: incl is read as the same plain amount as excl (no conversion
+  attempted, matching the single-item form's "a single Price field" behaviour).
+- Duplicate-by-code: an existing agency item with the same code resolves to `update` or `skip`
+  per the ONE choice made on the upload form (applies to the whole file — not a per-row override,
+  since nothing in the brief asked for mixing both within one upload and a blanket choice is what
+  "by choice" plainly reads as). A code reused a second time WITHIN the same uploaded file is
+  always an error on the second occurrence, regardless of duplicate mode — almost certainly a
+  mistake in the source spreadsheet, never silently resolved either way.
+- Every row that errors is left exactly alone — confirm only ever creates/updates rows whose dry
+  run actually resolved to `create`/`update`.
+
+**Confirm** (`RentalCatalogueImportController::confirm()`) re-reads the cached dry-run rows (never
+re-parses the file) and is the only method in this feature that writes — mirrors the per-row
+`create()`/`update()` field set the single-item controller already uses, so an imported item is
+indistinguishable from a hand-entered one. Flashes a plain-language summary (created/updated/
+skipped-as-duplicate/skipped-as-error counts).
+
+**Permission:** reuses `rental_catalogue.manage` (no new permission key) — importing is exactly as
+mutating as editing one item by hand. Reached from an "Import" button on the existing Parts &
+Labour Catalogue list (`rental-catalogue-items.index`), itself already on the Rentals nav panel —
+non-negotiable #2's "nav entry same day" is satisfied via that existing entry point, not a new
+standalone sidebar item (a repeatable secondary action off an already-CRUD screen, not a
+first-class destination — the "would this get lost without a sidebar link" test the take-on
+importer's own standing sidebar entry exists for does not apply the same way here).
+
+**Not in the wizard, deliberately:** this is a workflow/action, not a setting — nothing to add to
+`config/agency-onboarding-copy.php`.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalCatalogueImportTest.php` — template downloads;
+upload previews without writing anything; confirm creates the previewed rows; duplicate code
+updates when "update" chosen and is left untouched when "skip" chosen; an unknown type is a
+per-row error and is never created; a code reused twice in one file errors on the second row; an
+incl-VAT price converts down to excl identically to the single-item form; a blank VAT type column
+means no VAT type, not the agency default; a preview token belonging to another agency cannot be
+viewed or confirmed; blank price columns leave `default_price` null.
+
+**Files:** `app/Services/Rentals/CatalogueImport/{RentalCatalogueImportRowParser,
+RentalCatalogueImportTemplateService,RentalCatalogueImportDryRunResolver}.php` (new),
+`app/Http/Controllers/CoreX/RentalCatalogueImportController.php` (new),
+`resources/views/corex/rental-catalogue-items/import/{index,preview}.blade.php` (new),
+`resources/views/corex/rental-catalogue-items/index.blade.php` (Import button), `routes/web.php`.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
