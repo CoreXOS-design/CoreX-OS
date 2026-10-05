@@ -2320,13 +2320,46 @@ not a new data model.
 
 `resources/views/corex/rental-inspections/show.blade.php`, rendered on every inspection regardless of
 status (a draft being finished can raise follow-up just as well as a completed one) — one row per
-observation whose `condition` is not the agency's own configured baseline
-(`RentalInspectionSetting::baselineConditionKeyFor()`, never a hardcoded `'good'` check — the
-observation's existing photo-anchor exclusion, `RentalInspectionObservation::isPending()`, applies
-too, so a bare photo with no condition recorded yet never appears here). Each row shows room/item/
-condition/note/photo-count, a checkbox, and either a create action or — idempotent, per Johan's own
-requirement — the existing linked record(s) with status, if one has already been raised from that
-observation.
+observation whose condition is flagged `needs_follow_up` by the agency's OWN existing condition
+configuration. **Corrected 2026-10-05** (Johan, QA1 property walk): the first build of this block used
+"not the agency's configured baseline" (`baselineConditionKeyFor()`), which wrongly listed N/A and a
+stray unmapped condition value ("OK CC1", a value that reached the column through a path bypassing
+the agency's own vocabulary, e.g. an OMR scan import) as if they were faults — N/A is explicitly not a
+fault, and an unmapped value is not a configured anything. The filter now reuses the EXISTING
+condition-severity configuration this codebase already has, deliberately **not** a new flag/column and
+**not** a new table (per Johan's own instruction, and per this class's own documented Architectural
+Law against a second, independently-configurable "does this need doing" flag —
+`RentalInspectionSetting::SEVERITY_COLORS`' own docblock: `needs_attention` was already merged into
+`severity` once for exactly this reason). `RentalInspectionSetting::conditionNeedsFollowUpFor($agencyId,
+$key)` — new, thin wrapper — asks the identical question the recording screen's own "Needs attention"
+filter already asks (`conditionNeedsAttentionFor()`: red/amber = yes), with ONE deliberate difference:
+an unmapped/legacy condition key defaults to **false** here, never `conditionSeverityFor()`'s `red`
+"flag it, don't hide it" fallback — that fallback is right for a live recording screen alerting an
+agent to something unclassified; it is wrong for a list of actions nobody asked the system to propose.
+No new settings-page control was added either — an agency that wants a condition to show up in
+Follow-up sets its existing Colour to Issue (red) or Caution (amber) on the already-shipped Condition
+states settings screen; no second UI to keep in sync.
+
+The observation's existing photo-anchor exclusion, `RentalInspectionObservation::isPending()`, still
+applies, so a bare photo with no condition recorded yet never appears here. The header reads
+`"Follow-up (N)"`; the block renders **not at all** when nothing on the inspection needs follow-up
+(not an empty-state message — Johan's own instruction). Each row shows room/item/condition/note/
+photo-count, a checkbox, and either a create action or — idempotent, per Johan's own requirement — the
+existing linked record(s) with status, if one has already been raised from that observation. A
+"Select all" checkbox above the list checks every row's checkbox (plain `onclick`, no Alpine) — the
+three shared-bar actions already operated correctly on however many items were ticked; this just makes
+ticking all of them a one-click action.
+
+**Flagged, not silently resolved:** Johan's 2026-10-05 message proposed illustrative defaults
+("damaged / poor / fair / missing / broken = yes; good / ok / new / n-a / not applicable = no") that
+would flip `fair`'s shipped severity from `blue` to `amber`/`red`. This spec does **not** make that
+change — `fair`'s `blue` severity is an earlier, explicit, already-relied-upon ruling (property 5792:
+"the conditions that assert something adverse — Damaged, Not working, Missing, Other — require a
+note; Good, Fair and N/A do not"), and flipping it would change the recording screen's own "Needs
+attention" filter and per-room issue count for every agency on the shipped default, not just this
+block. If Johan wants `fair` to read as needing follow-up, that is a one-field change on the existing
+Condition states settings screen (flip its Colour to Amber) he can make himself, or a one-line default
+change this spec will make on his explicit confirmation — not assumed here.
 
 ### 15.2 Three actions, one shared resolution service
 

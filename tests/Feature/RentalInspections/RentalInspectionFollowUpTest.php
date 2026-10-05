@@ -85,18 +85,70 @@ final class RentalInspectionFollowUpTest extends TestCase
         ], $extra));
     }
 
-    public function test_follow_up_block_lists_only_non_baseline_observations(): void
+    /**
+     * QA1 regression, Johan 2026-10-05: the Follow-up block must list only
+     * conditions the agency's OWN severity config flags red/amber
+     * (RentalInspectionSetting::conditionNeedsFollowUpFor()) — never "not
+     * the baseline" (N/A is non-baseline but is not a fault) and never an
+     * unmapped/legacy condition value by the "flag unknown, don't hide"
+     * default the recording screen itself uses (a stray "ok_cc1" value
+     * that predates/bypassed validation must not read as a problem here).
+     */
+    public function test_follow_up_lists_only_conditions_flagged_needs_follow_up(): void
     {
         $inspection = $this->makeInspection();
         $good = $this->makeObservation($inspection, $this->makeItem('Bedroom'), RentalInspectionObservation::CONDITION_GOOD);
+        $na = $this->makeObservation($inspection, $this->makeItem('Garage'), RentalInspectionObservation::CONDITION_NA);
+        $unmapped = $this->makeObservation($inspection, $this->makeItem('Pool'), 'ok_cc1');
         $damaged = $this->makeObservation($inspection, $this->makeItem('Geyser'), RentalInspectionObservation::CONDITION_DAMAGED);
+        $missing = $this->makeObservation($inspection, $this->makeItem('Remote'), RentalInspectionObservation::CONDITION_MISSING);
+        $notWorking = $this->makeObservation($inspection, $this->makeItem('Gate motor'), RentalInspectionObservation::CONDITION_NOT_WORKING);
+        $other = $this->makeObservation($inspection, $this->makeItem('Fence'), RentalInspectionObservation::CONDITION_OTHER);
+
+        $service = app(\App\Services\Rentals\RentalInspectionFollowUpService::class);
+        $ids = $service->followUpObservations($inspection->fresh(['observations']))->pluck('id')->all();
+
+        $this->assertNotContains($good->id, $ids);
+        $this->assertNotContains($na->id, $ids);
+        $this->assertNotContains($unmapped->id, $ids, 'An unmapped/legacy condition value must never be treated as a fault.');
+        $this->assertContains($damaged->id, $ids);
+        $this->assertContains($missing->id, $ids);
+        $this->assertContains($notWorking->id, $ids);
+        $this->assertContains($other->id, $ids);
+
+        $response = $this->actingAs($this->agent)->get(route('corex.rental-inspections.show', $inspection));
+        $response->assertOk();
+        $response->assertSee('Follow-up (4)');
+        $response->assertSee('Geyser');
+        $response->assertDontSee('observation_ids[]" value="' . $good->id . '"', false);
+        $response->assertDontSee('observation_ids[]" value="' . $na->id . '"', false);
+        $response->assertDontSee('observation_ids[]" value="' . $unmapped->id . '"', false);
+    }
+
+    public function test_follow_up_block_does_not_render_when_nothing_needs_follow_up(): void
+    {
+        $inspection = $this->makeInspection();
+        $this->makeObservation($inspection, $this->makeItem('Bedroom'), RentalInspectionObservation::CONDITION_GOOD);
+        $this->makeObservation($inspection, $this->makeItem('Garage'), RentalInspectionObservation::CONDITION_NA);
 
         $response = $this->actingAs($this->agent)->get(route('corex.rental-inspections.show', $inspection));
 
         $response->assertOk();
-        $response->assertSee('Follow-up');
-        $response->assertSee('Geyser');
-        $response->assertDontSee('observation_ids[]" value="' . $good->id . '"', false);
+        // Not a bare assertDontSee('Follow-up') — this fixture's own agency/
+        // property names ("Follow-up Agency"/"Follow-up Property") contain
+        // that substring. The block's own header is always "Follow-up (N)".
+        $response->assertDontSee('Follow-up (', false);
+    }
+
+    public function test_follow_up_select_all_checkbox_present_when_items_exist(): void
+    {
+        $inspection = $this->makeInspection();
+        $this->makeObservation($inspection, $this->makeItem('Geyser'), RentalInspectionObservation::CONDITION_DAMAGED);
+
+        $response = $this->actingAs($this->agent)->get(route('corex.rental-inspections.show', $inspection));
+
+        $response->assertOk();
+        $response->assertSee('Select all');
     }
 
     public function test_create_fault_report_sets_fks_and_resolves_lease_and_property(): void
