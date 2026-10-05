@@ -76,6 +76,19 @@ final class SoftDeletedRelatedRecordRenderTest extends TestCase
         ], $attrs));
     }
 
+    /**
+     * PropertyObserver::deleting() (landed on origin/QA1 2026-10-05, merged
+     * into this branch) now blocks Property::delete() outright while any
+     * lease on it is still status=active — a separate, correct guard this
+     * fix doesn't touch. End the lease first, exactly as a real agent would
+     * before archiving the property, so these fixtures can legitimately
+     * reach the soft-deleted-property state under test.
+     */
+    private function endLease(Lease $lease): void
+    {
+        $lease->update(['status' => Lease::STATUS_EXPIRED, 'end_date' => now()->subDay()->toDateString()]);
+    }
+
     private function contact(string $first = 'Thandiwe', string $last = 'Tenant'): Contact
     {
         return Contact::create([
@@ -91,6 +104,7 @@ final class SoftDeletedRelatedRecordRenderTest extends TestCase
     {
         $property = $this->property();
         $lease = $this->lease($property);
+        $this->endLease($lease);
         $property->delete();
 
         $response = $this->actingAs($this->admin)->get(route('corex.leases.show', $lease->fresh()));
@@ -103,7 +117,7 @@ final class SoftDeletedRelatedRecordRenderTest extends TestCase
     public function test_leases_index_renders_when_a_rows_property_is_soft_deleted(): void
     {
         $property = $this->property();
-        $this->lease($property);
+        $this->endLease($this->lease($property));
         $property->delete();
 
         $this->actingAs($this->admin)->get(route('corex.leases.index'))->assertOk();
@@ -208,6 +222,7 @@ final class SoftDeletedRelatedRecordRenderTest extends TestCase
             'agency_id' => $this->agency->id, 'lease_id' => $lease->id,
             'type' => RentalInspection::TYPE_IN, 'created_by_user_id' => $this->admin->id,
         ]);
+        $this->endLease($lease);
         $property->delete();
 
         $this->actingAs($this->admin)->get(route('corex.rental-inspections.index'))->assertOk();
@@ -229,6 +244,7 @@ final class SoftDeletedRelatedRecordRenderTest extends TestCase
             'notice_type' => 'rent_increase', 'sent_to_tenant' => true, 'sent_to_landlord' => false,
             'sent_at' => now(), 'sent_by_user_id' => $this->admin->id,
         ]);
+        $this->endLease($lease);
         $property->delete();
 
         $this->actingAs($this->admin)->get(route('corex.rental-notices.index'))->assertOk();
@@ -279,6 +295,7 @@ final class SoftDeletedRelatedRecordRenderTest extends TestCase
     {
         $property = $this->property();
         $lease = $this->lease($property, ['notice_date' => now()->toDateString(), 'notice_given_by' => Lease::NOTICE_BY_TENANT, 'move_out_date' => now()->addDays(10)->toDateString()]);
+        $this->endLease($lease);
         $property->delete();
 
         $this->actingAs($this->admin)->get(route('corex.rentals.command-centre.index'))->assertOk();
