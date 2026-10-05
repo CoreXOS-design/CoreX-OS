@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\PropertyPullController;
 use App\Http\Controllers\Api\V1\ClientAuthController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientSellerInsightsController;
+use App\Http\Controllers\Api\V1\ClientTenantRentalsController;
+use App\Http\Controllers\Api\V1\ClientLandlordRentalsController;
 use App\Http\Controllers\FaultReportController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
@@ -143,7 +145,15 @@ Route::prefix('v1/demo')->group(function () {
 Route::get('v1/mobile/app-config', [\App\Http\Controllers\Api\V1\MobileAppConfigController::class, 'show'])
     ->name('v1.mobile.app-config');
 
-Route::prefix('v1/client-auth')->group(function () {
+// AT-445 — EnsureFrontendRequestsAreStateful is prepended here, scoped ONLY
+// to the client-auth/client groups (NOT re-added to the global 'api'
+// middleware group, which bootstrap/app.php deliberately strips it from
+// to keep the mobile app's bearer-token flow immune to Origin/Referer
+// tricks). Scoping it to exactly these two groups lets the tenant/landlord
+// WEB portal authenticate via a same-origin session cookie against the
+// SAME endpoints, while every other /api route — including the rest of
+// this mobile client API — is completely unaffected.
+Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class])->group(function () {
     Route::post('/lookup',          [ClientAuthController::class, 'lookup'])->name('client-auth.lookup');
     Route::post('/otp/send',        [ClientAuthController::class, 'sendOtp'])->name('client-auth.otp.send');
     Route::post('/otp/verify',      [ClientAuthController::class, 'verifyOtp'])->name('client-auth.otp.verify');
@@ -170,7 +180,7 @@ Route::prefix('v1/client-auth')->group(function () {
     });
 });
 
-Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->group(function () {
+Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'auth:sanctum', 'client.ability'])->group(function () {
     Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
     Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
 
@@ -199,6 +209,36 @@ Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->grou
     // Spec: .ai/specs/client-seller-insights.md
     Route::get('/seller-properties',                       [ClientSellerInsightsController::class, 'index'])->name('client.seller-properties.index');
     Route::get('/seller-properties/{property}/insights',   [ClientSellerInsightsController::class, 'show'])->name('client.seller-properties.insights');
+
+    // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
+    Route::prefix('rentals')->name('client.rentals.')->group(function () {
+        Route::middleware('rental-portal.enabled:tenant')->group(function () {
+            Route::get('/leases', [ClientTenantRentalsController::class, 'leases'])->name('leases.index');
+            Route::get('/leases/{lease}', [ClientTenantRentalsController::class, 'leaseShow'])->name('leases.show');
+            Route::get('/documents', [ClientTenantRentalsController::class, 'documents'])->name('documents.index');
+            Route::get('/inspections', [ClientTenantRentalsController::class, 'inspections'])->name('inspections.index');
+            Route::get('/inventories', [ClientTenantRentalsController::class, 'inventories'])->name('inventories.index');
+            Route::get('/properties/{property}/fault-types', [ClientTenantRentalsController::class, 'faultTypes'])->name('fault-types.index');
+            Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->name('fault-reports.store');
+            Route::get('/fault-reports', [ClientTenantRentalsController::class, 'faultReports'])->name('fault-reports.index');
+            Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
+            Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
+            Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->name('work-orders.confirm');
+        });
+
+        // Landlord rentals.
+        Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
+            Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
+            Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
+            Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
+            Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
+            Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
+            Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');
+            Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
+            Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');
+            Route::get('/decisions', [ClientLandlordRentalsController::class, 'decisions'])->name('decisions.index');
+        });
+    });
 });
 
 // ════════════════════════════════════════════════════════════════

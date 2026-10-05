@@ -48,6 +48,11 @@ class RentalJobCard extends Model
         'tenant_confirmed_at',
         'tenant_confirmed_by_user_id',
         'tenant_confirmation_note',
+        // AT-445 — .ai/specs/rental-portal-access.md §2. Contact-attributed
+        // counterpart, written when the real tenant confirms via the portal
+        // (RentalWorkOrder::confirmByTenant() mirrors onto this card).
+        'tenant_confirmed_fixed',
+        'tenant_confirmed_by_contact_id',
         'completed_at',
         'cancelled_at',
         'cancelled_by_user_id',
@@ -62,6 +67,7 @@ class RentalJobCard extends Model
         'worker_signed_off_at' => 'datetime',
         'agent_signed_off_at' => 'datetime',
         'tenant_confirmed_at' => 'datetime',
+        'tenant_confirmed_fixed' => 'boolean',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];

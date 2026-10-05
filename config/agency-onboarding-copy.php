@@ -413,6 +413,16 @@ return [
             // toggle above.
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateApprovalMode'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireChecklistComplete'],
+            // AT-445 — .ai/specs/rental-portal-access.md §7. One narrow saver
+            // per toggle, same has()-guarded discipline as every other
+            // checkbox on this step; the numeric expiry gets its own saver
+            // too, same shape as RentalWorkOrderSettingsController::update().
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'update'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateTenantPortalEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateLandlordPortalEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateContractorLinksEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnDecisionNeeded'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyTenantOnStatusChange'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -476,6 +486,33 @@ return [
              'label' => 'Show prices on the printed job card',
              'explain' => 'The job card your maintenance worker takes on site can print with or without prices showing next to the parts and labour lines.',
              'affects' => 'Whether the printed copy a worker carries shows prices, or just tasks, parts and quantities. Off by default — the quote you send the owner always shows prices either way, this only affects the worker\'s own printed copy.'],
+            // AT-445 — .ai/specs/rental-portal-access.md §7. Defaults ON —
+            // the whole point of this stage is that the portal works out of
+            // the box; an agency that genuinely doesn't want it switches it off.
+            ['key' => 'tenant_portal_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tenant portal access',
+             'explain' => 'Lets a tenant log in (same passwordless email code the buyer/seller portal already uses) and see their own lease, documents, and faults.',
+             'affects' => 'Whether a tenant can reach the rentals portal at all. On by default.'],
+            ['key' => 'landlord_portal_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Landlord portal access',
+             'explain' => 'Lets a landlord log in and see their properties, approve/decline repair decisions, and view inspection reports.',
+             'affects' => 'Whether a landlord can reach the rentals portal at all. On by default.'],
+            ['key' => 'contractor_links_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Contractor secure links',
+             'explain' => 'Lets an agent send a contractor a per-job link (no login) to upload a quote, upload after photos, and mark a job done.',
+             'affects' => 'Whether contractor links can be issued at all. On by default.'],
+            ['key' => 'contractor_secure_link_expiry_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'Contractor link expiry (days)',
+             'explain' => 'A contractor\'s secure link stops working after this many days, when revoked, or once the job is marked done — whichever comes first.',
+             'affects' => 'How long an unused contractor link stays valid. 14 days suits most agencies — an agent can always regenerate a fresh link from the work order.'],
+            ['key' => 'notify_landlord_on_decision_needed', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the landlord when a decision is needed',
+             'explain' => 'When a repair needs the owner\'s approval, or a quote comes in over the spend limit, CoreX emails the landlord that a decision is waiting in their portal.',
+             'affects' => 'Whether the landlord gets an email prompt, or only finds out by checking the portal themselves. On by default.'],
+            ['key' => 'notify_tenant_on_status_change', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the tenant when a fault\'s status changes',
+             'explain' => 'When a fault report the tenant raised is approved, declined, or resolved, CoreX emails them the update.',
+             'affects' => 'Whether the tenant gets an email on each status change, or only finds out by checking the portal themselves. On by default.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()

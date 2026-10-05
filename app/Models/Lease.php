@@ -159,6 +159,12 @@ class Lease extends Model
         return $this->hasMany(RentalInventory::class);
     }
 
+    /** AT-445 — .ai/specs/rental-portal-access.md §8/§10. */
+    public function notices(): HasMany
+    {
+        return $this->hasMany(RentalNotice::class);
+    }
+
     /**
      * rental-renewals.md §8 — append-only renewal/outcome event log, newest
      * last. Secondary `id` sort breaks ties when two events land in the
@@ -236,6 +242,16 @@ class Lease extends Model
         $names = $this->tenants->map(fn (LeaseTenant $t) => $t->contact?->full_name)->filter();
 
         return $names->isEmpty() ? 'No tenant linked' : $names->implode(', ');
+    }
+
+    /**
+     * AT-445 — the tenant-side equivalent of landlordContacts() above, used
+     * by the portal to resolve which leases a given Contact may see as a
+     * tenant. N-party: every contact on this lease's `lease_tenants` pivot.
+     */
+    public function tenantContacts(): \Illuminate\Support\Collection
+    {
+        return $this->tenants->map(fn (LeaseTenant $t) => $t->contact)->filter()->unique('id')->values();
     }
 
     /**

@@ -893,7 +893,13 @@ class AppServiceProvider extends ServiceProvider
             // Login audit trail (.ai/specs/login-audit-trail.md) — permanent,
             // never-pruned record of every successful login, unlike the
             // `sessions` table which Laravel GCs after SESSION_LIFETIME.
-            if ($event->user) {
+            // Staff-only: `login_histories.user_id` FKs to `users`. AT-445
+            // added a 'client-web' session guard (tenant/landlord portal)
+            // that also fires this same generic Login event — ClientUser
+            // logins already have their own audit trail (ClientAccessLog
+            // via ClientAuthService::log()), so this must not try to write
+            // a ClientUser id into a users-FK column.
+            if ($event->user instanceof \App\Models\User) {
                 LoginHistory::create([
                     'user_id'    => $event->user->id,
                     'event'      => 'login',
@@ -931,7 +937,8 @@ class AppServiceProvider extends ServiceProvider
             }
         });
         Event::listen(Logout::class, function (Logout $event) {
-            if ($event->user) {
+            // AT-445 — same staff-only guard as the Login listener above.
+            if ($event->user instanceof \App\Models\User) {
                 LoginHistory::create([
                     'user_id'    => $event->user->id,
                     'event'      => 'logout',

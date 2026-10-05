@@ -1173,6 +1173,12 @@
                 <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
                 @endpermission
 
+                {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
+                     nav entry per non-negotiable #2. --}}
+                @permission('rental_notices.create')
+                <a href="{{ route('corex.rental-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-notices.*') ? 'active' : '' }}">Rental Notices</a>
+                @endpermission
+
                 {{-- .ai/specs/rental-work-orders.md §14 (AT-442) — the internal
                      counterpart to an outside-supplier work order. Same-day nav
                      entry per non-negotiable #2. --}}

@@ -123,6 +123,13 @@
                     $can('rental_work_orders.manage_settings')
                         ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
                         : null,
+                    // AT-445 — .ai/specs/rental-portal-access.md §7.
+                    $can('rental_portal.manage_settings')
+                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification']
+                        : null,
+                    $can('rental_notice_templates.manage_settings')
+                        ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template']
+                        : null,
                     // AT-442 — the agency's own parts & labour catalogue consumed
                     // by internal job cards.
                     $can('rental_catalogue.manage')

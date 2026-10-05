@@ -7,6 +7,7 @@ use App\Models\ClientUser;
 use App\Services\ClientAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rules\Password;
@@ -192,9 +193,18 @@ class ClientAuthController extends Controller
             $token->delete();
         }
 
-        // Auto-issue a long-lived sanctum token so client lands signed-in.
-        $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
-        $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
+        // AT-445 — a stateful (same-origin browser) request establishes a
+        // session instead of receiving a bearer token: the web portal never
+        // sees a token value at all, so there is nothing for an XSS to
+        // steal. Mobile (never stateful) is completely unchanged.
+        $sessionToken = null;
+        if ($this->isStatefulRequest($request)) {
+            Auth::guard('client-web')->login($tokenable);
+            $request->session()->regenerate();
+        } else {
+            $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
+            $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
+        }
 
         if (!$tokenable->first_login_at) {
             $tokenable->forceFill(['first_login_at' => now()])->save();
@@ -220,11 +230,12 @@ class ClientAuthController extends Controller
             $tokenable->forceFill(['current_agency_id' => $agencyId])->save();
         }
 
-        return response()->json([
-            'token'    => $sessionToken,
-            'agencies' => $agencies,
-            'client'   => $this->summarise($tokenable),
-        ]);
+        $payload = ['agencies' => $agencies, 'client' => $this->summarise($tokenable)];
+        if ($sessionToken !== null) {
+            $payload['token'] = $sessionToken;
+        }
+
+        return response()->json($payload);
     }
 
     /**
@@ -260,8 +271,17 @@ class ClientAuthController extends Controller
         // Lazy-link any new contacts that have appeared since.
         $this->service->findOrCreateClientUser($email);
 
-        $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
-        $token = $this->service->issueSanctumToken($clientUser, $deviceName);
+        // AT-445 — same stateful/session branch as setPassword() above.
+        $stateful = $this->isStatefulRequest($request);
+        $token = null;
+        $deviceName = 'Web portal (session)';
+        if ($stateful) {
+            Auth::guard('client-web')->login($clientUser);
+            $request->session()->regenerate();
+        } else {
+            $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
+            $token = $this->service->issueSanctumToken($clientUser, $deviceName);
+        }
 
         $agencies = $this->service->agenciesFor($clientUser);
 
@@ -288,12 +308,16 @@ class ClientAuthController extends Controller
 
         $this->service->log($clientUser, $agencyId, null, 'password_login_success', $request, [], $deviceName);
 
-        return response()->json([
-            'token'    => $token,
+        $payload = [
             'agencies' => $agencies,
             'client'   => $this->summarise($clientUser),
             'must_change_password' => $clientUser->password_must_change,
-        ]);
+        ];
+        if ($token !== null) {
+            $payload['token'] = $token;
+        }
+
+        return response()->json($payload);
     }
 
     /**
@@ -487,6 +511,17 @@ class ClientAuthController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * AT-445 — true only for a same-origin browser request that
+     * EnsureFrontendRequestsAreStateful has already promoted (set by its
+     * own inline pipeline closure). Mobile bearer-token requests never set
+     * this, on any route — they don't carry a matching Origin/Referer.
+     */
+    private function isStatefulRequest(Request $request): bool
+    {
+        return (bool) $request->attributes->get('sanctum', false);
     }
 
     private function summarise(ClientUser $clientUser): array

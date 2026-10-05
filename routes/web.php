@@ -54,6 +54,19 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
     ->middleware('throttle:30,1')
     ->name('buyer-portal.respond');
 
+// ── Contractor Secure Link (public, no auth) — AT-445, .ai/specs/rental-portal-access.md §4/§9 ──
+Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(function () {
+    Route::get('/', [\App\Http\Controllers\ContractorSecureLinkController::class, 'show'])->name('rentals.secure-link.show');
+    Route::post('/quote', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storeQuote'])->name('rentals.secure-link.quote');
+    Route::post('/photo', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storePhoto'])->name('rentals.secure-link.photo');
+    Route::post('/mark-done', [\App\Http\Controllers\ContractorSecureLinkController::class, 'markDone'])->name('rentals.secure-link.mark-done');
+});
+
+// ── Tenant/Landlord Portal web shell (public page, session auth via Alpine+fetch) — AT-445 ──
+Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController::class, 'show'])
+    ->where('any', '.*')
+    ->name('rentals.portal.shell');
+
 // ── Seller-Outreach Public Landing (no auth) ──
 // Spec: .ai/specs/seller-outreach-spec.md S8, 6.4, 6.5.
 Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'show'])
@@ -2994,6 +3007,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
     Route::post('/settings/rental-work-orders/show-prices-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowPricesOnPrintedJobCard'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-prices-on-printed-job-card');
+    // AT-445 — .ai/specs/rental-portal-access.md §7. Tenant/landlord/contractor portal on/off switches.
+    Route::prefix('settings/rental-portal')->middleware('permission:rental_portal.manage_settings')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'edit'])->name('corex.settings.rental-portal.edit');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'update'])->name('corex.settings.rental-portal.update');
+        Route::post('/tenant-portal-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateTenantPortalEnabled'])->name('corex.settings.rental-portal.tenant-portal-enabled');
+        Route::post('/landlord-portal-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateLandlordPortalEnabled'])->name('corex.settings.rental-portal.landlord-portal-enabled');
+        Route::post('/contractor-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateContractorLinksEnabled'])->name('corex.settings.rental-portal.contractor-links-enabled');
+        Route::post('/notify-landlord-on-decision-needed', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnDecisionNeeded'])->name('corex.settings.rental-portal.notify-landlord-on-decision-needed');
+        Route::post('/notify-tenant-on-status-change', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyTenantOnStatusChange'])->name('corex.settings.rental-portal.notify-tenant-on-status-change');
+    });
     // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
     // the property Rental Details tab. Price type (Part 3) and lease type
     // (Part 4) lists join this same page as they're built.
@@ -3340,6 +3363,31 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.create')->name('corex.leases.destroy');
         Route::post('/{lease}/restore', [\App\Http\Controllers\CoreX\LeaseController::class, 'restore'])
             ->middleware('permission:leases.create')->name('corex.leases.restore');
+
+        // AT-445 — .ai/specs/rental-portal-access.md §8/§10. Draft/send a
+        // notice from this specific lease.
+        Route::middleware('permission:rental_notices.create')->group(function () {
+            Route::get('/{lease}/notices/create', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'create'])->name('corex.leases.notices.create');
+            Route::post('/{lease}/notices', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'store'])->name('corex.leases.notices.store');
+        });
+    });
+
+    // AT-445 — .ai/specs/rental-portal-access.md §10. Notices sent — list/show only.
+    Route::prefix('rental-notices')->middleware('permission:rental_notices.create')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'index'])->name('corex.rental-notices.index');
+        Route::get('/{rentalNotice}', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'show'])->name('corex.rental-notices.show');
+        Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->name('corex.rental-notices.download-document');
+    });
+
+    // AT-445 — Rental Notice Templates (Settings).
+    Route::prefix('rental-notice-templates')->middleware('permission:rental_notice_templates.manage_settings')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'index'])->name('corex.rental-notice-templates.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'create'])->name('corex.rental-notice-templates.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'store'])->name('corex.rental-notice-templates.store');
+        Route::get('/{rentalNoticeTemplate}/edit', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'edit'])->name('corex.rental-notice-templates.edit');
+        Route::put('/{rentalNoticeTemplate}', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'update'])->name('corex.rental-notice-templates.update');
+        Route::post('/{rentalNoticeTemplate}/archive', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'archive'])->name('corex.rental-notice-templates.archive');
+        Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'restore'])->name('corex.rental-notice-templates.restore');
     });
 
     // .ai/specs/rental-inspections.md §5 — the tracked/searchable list of

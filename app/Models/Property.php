@@ -1130,6 +1130,12 @@ class Property extends Model
      * fix". Writes go through App\Services\Property\ContactPropertyLinker,
      * never a bare attach()/sync().
      */
+    /** AT-445 — every lease ever raised on this property, newest first. */
+    public function leases(): HasMany
+    {
+        return $this->hasMany(Lease::class)->orderByDesc('id');
+    }
+
     public function contacts(): BelongsToMany
     {
         return $this->belongsToMany(Contact::class, 'contact_property')

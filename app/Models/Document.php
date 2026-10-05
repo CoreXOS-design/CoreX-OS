@@ -24,9 +24,15 @@ class Document extends Model
         'deal_id', // AT-158 WS3 (D4) — DR2 deal anchor
         'custom_field_key', // .ai/specs/rental-application-field-config.md §7, piece (c)(4)
         'checklist_item_id', // AT-430 Part E — rental-application checklist-item attachment tag
+        'tenant_portal_visible', // AT-445 — .ai/specs/rental-portal-access.md §2/§5
+        'landlord_portal_visible', // AT-445 — .ai/specs/rental-portal-access.md §3/§5
     ];
 
-    protected $casts = ['size' => 'integer'];
+    protected $casts = [
+        'size' => 'integer',
+        'tenant_portal_visible' => 'boolean',
+        'landlord_portal_visible' => 'boolean',
+    ];
 
     // ── Relationships ──
 

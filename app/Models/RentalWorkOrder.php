@@ -94,6 +94,12 @@ class RentalWorkOrder extends Model
         'paid_by',
         'cost_amount',
         'created_by_user_id',
+        // AT-445 — .ai/specs/rental-portal-access.md §2. Tenant's own
+        // 'fixed'/'not fixed' sign-off, contact-attributed.
+        'tenant_confirmed_at',
+        'tenant_confirmed_fixed',
+        'tenant_confirmed_by_contact_id',
+        'tenant_confirmation_note',
     ];
 
     protected $casts = [
@@ -102,6 +108,8 @@ class RentalWorkOrder extends Model
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'cost_amount' => 'decimal:2',
+        'tenant_confirmed_at' => 'datetime',
+        'tenant_confirmed_fixed' => 'boolean',
     ];
 
     public function property(): BelongsTo
@@ -295,7 +303,13 @@ class RentalWorkOrder extends Model
      * recorded before any quote exists) leaves all three columns null —
      * correctly, there is nothing to snapshot.
      */
-    public function recordApproval(User $recordedBy, array $attributes): RentalApproval
+    /**
+     * AT-445 — $recordedBy widened to `User|Contact`, same reasoning as
+     * RentalFaultReport::recordApproval(): a landlord approving/declining a
+     * quote directly through the portal is evidence_type 'portal', no
+     * agent transcription. Existing `User` callers are unchanged.
+     */
+    public function recordApproval(User|\App\Models\Contact $recordedBy, array $attributes): RentalApproval
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
@@ -312,7 +326,8 @@ class RentalWorkOrder extends Model
             'evidence_text' => $attributes['evidence_text'] ?? null,
             'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
             'decided_at' => $attributes['decided_at'] ?? now(),
-            'recorded_by_user_id' => $recordedBy->id,
+            'recorded_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
+            'recorded_by_contact_id' => $recordedBy instanceof \App\Models\Contact ? $recordedBy->id : null,
             'quote_id_at_decision' => $selectedQuote?->id,
             'quote_amount_at_decision' => $selectedQuote?->amount,
             'quote_supplier_name_at_decision' => $selectedQuote?->supplier?->name,
@@ -332,7 +347,13 @@ class RentalWorkOrder extends Model
      * owner_approval_status; that only happens when a quote is SELECTED
      * (selectQuote(), below).
      */
-    public function recordQuote(array $attributes, User $by): RentalWorkOrderQuote
+    /**
+     * AT-445 — $by widened to nullable: a contractor submitting a quote
+     * through their no-login secure link has neither a User nor a Contact
+     * actor at all. $viaNote lets that caller say "via contractor link" in
+     * the history entry instead of silently looking agent-captured.
+     */
+    public function recordQuote(array $attributes, ?User $by = null, ?string $viaNote = null): RentalWorkOrderQuote
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
@@ -340,12 +361,13 @@ class RentalWorkOrder extends Model
 
         $quote = $this->quotes()->create(array_merge($attributes, [
             'agency_id' => $this->agency_id,
-            'captured_by_user_id' => $by->id,
+            'captured_by_user_id' => $by?->id,
         ]));
 
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'quote_captured',
-            'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
+            'note' => $this->describeQuote($quote) . ($viaNote ? " ({$viaNote})" : ''),
+            'created_by_user_id' => $by?->id,
         ]);
 
         return $quote;
@@ -405,6 +427,12 @@ class RentalWorkOrder extends Model
                 'note' => ucfirst($oldStatus) . " decision (for {$priorFor}) no longer applies — {$this->owner_approval_status} against " . $this->describeQuote($quote),
                 'created_by_user_id' => $by->id,
             ]);
+        }
+
+        // AT-445 — .ai/specs/rental-portal-access.md §6. Over the spend
+        // limit — a decision is now waiting in the landlord's portal.
+        if ($this->owner_approval_status === self::APPROVAL_PENDING) {
+            app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyLandlordDecisionNeeded($this);
         }
     }
 
@@ -560,7 +588,12 @@ class RentalWorkOrder extends Model
      * meaningful photo, e.g. a gate motor). An agency may still turn this
      * on. paid_by is always required, no setting behind it.
      */
-    public function complete(User $by, array $attributes): void
+    /**
+     * AT-445 — $by widened to nullable, same reasoning as recordQuote():
+     * a contractor marking a job done through their secure link has no
+     * User actor. $viaNote lets that caller tag the history entry.
+     */
+    public function complete(?User $by, array $attributes, ?string $viaNote = null): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
@@ -587,8 +620,49 @@ class RentalWorkOrder extends Model
 
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
-            'from_status' => $fromStatus, 'to_status' => self::STATUS_COMPLETED, 'created_by_user_id' => $by->id,
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_COMPLETED,
+            'created_by_user_id' => $by?->id,
+            'note' => $viaNote,
         ]);
+    }
+
+    /**
+     * AT-445 — .ai/specs/rental-portal-access.md §2. The tenant's own
+     * "fixed"/"not fixed" sign-off on a completed job, contact-attributed
+     * (never a User — the existing job-card tenant_confirmed_by_user_id
+     * stays as the agent-recorded stand-in it already is). Mirrors onto
+     * the 1:1 job card when one exists (AT-442, assignment_type=internal)
+     * so both surfaces agree; an outside_supplier work order has no job
+     * card, so only the work order itself is updated.
+     */
+    public function confirmByTenant(\App\Models\Contact $contact, bool $fixed, ?string $note = null): void
+    {
+        if ($this->status !== self::STATUS_COMPLETED) {
+            throw new \LogicException('Only a completed work order can be confirmed by the tenant.');
+        }
+
+        $this->forceFill([
+            'tenant_confirmed_at' => now(),
+            'tenant_confirmed_fixed' => $fixed,
+            'tenant_confirmed_by_contact_id' => $contact->id,
+            'tenant_confirmation_note' => $note,
+        ])->save();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id,
+            'update_type' => 'note',
+            'note' => 'Tenant confirmed via portal: ' . ($fixed ? 'fixed' : 'not fixed') . ($note ? (' — ' . $note) : ''),
+        ]);
+
+        $jobCard = $this->jobCard;
+        if ($jobCard) {
+            $jobCard->forceFill([
+                'tenant_confirmed_at' => now(),
+                'tenant_confirmed_fixed' => $fixed,
+                'tenant_confirmed_by_contact_id' => $contact->id,
+                'tenant_confirmation_note' => $note,
+            ])->save();
+        }
     }
 
     /** §3.4 — never deleted once anything has been logged against it. */

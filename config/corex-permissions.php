@@ -215,6 +215,11 @@ return [
         // (logging/editing the work order itself).
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
 
+        // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
+        ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
+        ['key' => 'rental_notices.create', 'label' => 'Draft & Send Rental Notices', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 1],
+        ['key' => 'rental_notice_templates.manage_settings', 'label' => 'Manage Rental Notice Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 2],
+
         // ── Rental Reports (AT-443) — .ai/specs/rentals-reports.md. Access-only —
         // reports are read-only, no separate create/edit/archive action exists on
         // this screen (same pattern as rental_command_centre.view).

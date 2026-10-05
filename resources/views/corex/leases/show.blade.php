@@ -514,6 +514,35 @@
                 @include('corex.rental-inventories.partials._related-inventories', ['property' => $lease->property])
             @endif
         </div>
+
+        {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access for
+             this lease's own tenants and landlords, invited from here, same
+             mechanism the Contact page already uses. --}}
+        <div class="col-span-3 lg:col-span-1 space-y-4">
+            @permission('rental_notices.create')
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <a href="{{ route('corex.leases.notices.create', $lease) }}" class="corex-btn-outline text-xs">Send notice</a>
+            </div>
+            @endpermission
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Tenant portal access</h2>
+                @forelse($lease->tenantContacts() as $tenantContact)
+                    <p class="text-xs font-medium">{{ $tenantContact->full_name }}</p>
+                    @include('corex.contacts.partials.client-app-access', ['contact' => $tenantContact])
+                @empty
+                    <p class="text-xs" style="color: var(--text-muted);">No tenant linked to this lease yet.</p>
+                @endforelse
+            </div>
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h2 class="text-sm font-semibold">Landlord portal access</h2>
+                @forelse($lease->landlordContacts() as $landlordContact)
+                    <p class="text-xs font-medium">{{ $landlordContact->full_name }}</p>
+                    @include('corex.contacts.partials.client-app-access', ['contact' => $landlordContact])
+                @empty
+                    <p class="text-xs" style="color: var(--text-muted);">No landlord linked to this property yet.</p>
+                @endforelse
+            </div>
+        </div>
     </div>
 </div>
 @endsection

@@ -26,7 +26,7 @@ use Illuminate\Support\Collection;
  */
 class LeaseTimelineService
 {
-    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice'];
+    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice', 'rental_notice'];
 
     /**
      * @return array{entries: Collection, total: int}
@@ -76,6 +76,7 @@ class LeaseTimelineService
             ->merge($this->inspectionEntries($lease))
             ->merge($this->faultEntries($lease))
             ->merge($this->workOrderEntries($lease))
+            ->merge($this->noticeEntries($lease))
             ->merge($this->renewalEventEntries($lease));
 
         return $entries->sortByDesc('occurred_at')->values();
@@ -211,6 +212,35 @@ class LeaseTimelineService
                 $workOrder->status,
                 'corex.rental-work-orders.show',
                 $workOrder->id,
+            );
+        })->all();
+    }
+
+    /**
+     * AT-445 — .ai/specs/rental-portal-access.md §8/§10. Entry type is
+     * 'rental_notice', NOT 'notice' — origin/QA1's own renewalEventEntries()
+     * below already uses 'notice' for a lease-renewal INTENT event (tenant/
+     * landlord notice to vacate, recorded with no document at all). Those
+     * are a different kind of tenancy-log entry from this one (an actual
+     * breach/vacate DOCUMENT sent by email) and must not collide on the
+     * same filter/type key.
+     */
+    private function noticeEntries(Lease $lease): array
+    {
+        return $lease->notices()->get()->map(function ($notice) {
+            $recipients = array_filter([
+                $notice->sent_to_tenant ? 'tenant' : null,
+                $notice->sent_to_landlord ? 'landlord' : null,
+            ]);
+
+            return $this->entry(
+                'rental_notice',
+                (string) ($notice->sent_at ?? $notice->created_at),
+                ucfirst(str_replace('_', ' ', $notice->notice_type)) . ' notice sent to ' . (implode(' and ', $recipients) ?: 'nobody'),
+                $notice->sentByUser?->name,
+                'sent',
+                'corex.rental-notices.show',
+                $notice->id,
             );
         })->all();
     }
