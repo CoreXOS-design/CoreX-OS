@@ -2267,20 +2267,39 @@ plus five smaller gaps. Fixed here, tests in `RentalJobCardAt442FollowUpTest.php
   `session('success')` banner ON TOP OF the app's standard toast
   (`components.toast-notifications`, which reads the same flash key) — same bug, same fix, as
   `leases/show.blade.php` (AT-444 follow-up 2): banner removed, toast is the only success surface.
-- **"Send to owner as quote" mail (#8, report only, not changed).** Resolves its recipient via
-  `Property::sellerOwnerContact()` → the SAME `Mail::to()`/`RentalWorkOrderOwnerMail` path every
-  other owner notification in this spec already uses (§4, `RentalWorkOrderService::notifyOwner()`).
-  QA1's `MAIL_HOST`/`MAIL_PORT` point at `127.0.0.1:1025` — confirmed a real, running Mailpit instance
-  (`mailpit.service`, listening on loopback only) — so nothing this mailable sends can reach an
-  external inbox; QA1 also runs real queue workers (`corex-qa1-queue*.service`, including the `mail`
-  queue), so a send is not silently stuck pending either. Separately, and NOT something this fix
-  touches: property 5792 currently has no landlord/owner contact linked at all, only a tenant (Andre
-  Roets, a real personal address) — `sellerOwnerContact()`'s own documented fallback
-  ("`$contacts->count() === 1 ? $contacts->first() : null`") would address a quote mail to that
-  tenant's real email if "Send to owner as quote" were clicked today. Never actually triggered during
-  this walk (job card #1 has no quote row). Flagged for Johan — this is a landlord-linking data gap on
-  this one property, and arguably a `sellerOwnerContact()` fallback that's too permissive for
-  anything that sends mail, not a code defect in this build.
+- **"Send to owner as quote" mail (#8) — FIXED 2026-10-05, Johan's follow-up ruling.** Confirmed the
+  defect: `RentalWorkOrderService::notifyOwner()` (`app/Services/Rentals/RentalWorkOrderService.php:166`,
+  prior to this fix) resolved its recipient via `Property::sellerOwnerContact()`
+  (`app/Models/Property.php:1169`) — a method whose own documented fallback (AT-105, for PDF Splitter
+  filing) returns "the sole linked contact" when none is tagged seller/owner/landlord/lessor. On a
+  property with ONLY a tenant linked (QA1 property 5792 — Andre Roets, a real personal email, no
+  landlord contact at all), that fallback resolves the TENANT as "the owner." Never actually
+  triggered on QA1 (job card #1 has no quote row), but a real defect, not a hypothetical.
+  **Fix — narrowest point covering both callers, sales-side untouched:**
+  - New `Property::landlordContact()` (`app/Models/Property.php`, right after `sellerOwnerContact()`)
+    — the SAME seller-side role match, but NO sole-contact fallback; null when nothing is explicitly
+    tagged landlord/owner/seller/lessor. `sellerOwnerContact()` itself is untouched — every other
+    caller (PDF Splitter, FICA pre-fill, compliance aggregation, reports, the rental-context-bar's own
+    landlord display) keeps its existing, deliberate fallback.
+  - `RentalWorkOrderService::notifyOwner()` now calls `landlordContact()` instead — the ONE choke
+    point both the job card's "Send to owner as quote" (`RentalJobCardService::sendToOwnerAsQuote()`)
+    and every outside-supplier owner notification (creation + completion, §4) route through. No
+    landlord → mail is skipped, exactly as it already was for a property with zero contacts; it now
+    also correctly skips for a property with a tenant-only contact instead of mis-firing.
+  - `RentalJobCardService::sendToOwnerAsQuote()` additionally hard-blocks the WHOLE action (not just
+    the mail) when `landlordContact()` is null — throws `LogicException('No landlord linked — link a
+    landlord before sending the quote.')` before generating the PDF or recording anything, per
+    Johan's ruling that an owner quote must never silently proceed without a real owner to send it to.
+    The job card show screen's "Quote to owner" block shows this message plus a "Link landlord" link
+    (→ the property's Contacts tab) instead of the send button whenever no landlord is linked.
+  - The outside-supplier path (work order creation/completion) is NOT hard-blocked the same way —
+    those notifications are automatic side effects of actions a user already took for other reasons
+    (reporting/completing a work order), not a standalone "send" the user clicked expecting a mail;
+    they keep their existing silent-skip-if-no-recipient behaviour, just now correctly never
+    resolving a tenant as that recipient.
+  - `RentalJobCardLifecycleTest`'s fixture property had no contacts at all, so its three quote-sending
+    tests (relying on the OLD skip-mail-but-still-send behaviour) needed a landlord contact added to
+    `setUp()` to keep passing — this is the intended behavioural tightening, not a regression.
 
 ---
 

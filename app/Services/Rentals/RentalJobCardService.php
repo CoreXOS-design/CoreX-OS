@@ -236,6 +236,14 @@ class RentalJobCardService
             throw new \LogicException('Add at least one line before sending this job card to the owner as a quote.');
         }
 
+        // AT-442 follow-up (item 8) — an owner quote must NEVER be addressed
+        // to a tenant. landlordContact() (unlike sellerOwnerContact()) has no
+        // sole-contact fallback, so a property with only a tenant linked
+        // resolves null here — block the whole send, not just the mail.
+        if (!$jobCard->property?->landlordContact()) {
+            throw new \LogicException('No landlord linked — link a landlord before sending the quote.');
+        }
+
         $jobCard->recalcTotal();
         $jobCard->refresh();
 

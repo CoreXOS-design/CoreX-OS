@@ -329,10 +329,19 @@
                     </ul>
                 @endif
                 @permission('rental_job_cards.send_quote')
+                {{-- AT-442 follow-up (item 8) — no landlord linked blocks the
+                     send server-side (RentalJobCardService::sendToOwnerAsQuote());
+                     offer the fix right here instead of just an error banner. --}}
+                @if(!$jobCard->property?->landlordContact())
+                    <p class="text-xs" style="color: var(--ds-crimson);">No landlord linked — link a landlord before sending the quote.
+                        <a href="{{ route('corex.properties.show', ['property' => $jobCard->property_id, 'tab' => 'contacts']) }}" class="underline">Link landlord</a>
+                    </p>
+                @else
                 <form method="POST" action="{{ route('corex.rental-job-cards.send-quote', $jobCard) }}" onsubmit="return confirm('Send this job card to the owner as a quote?');">
                     @csrf
                     <button type="submit" class="corex-btn-primary text-xs">Send to owner as quote</button>
                 </form>
+                @endif
                 @endpermission
             </div>
             @endif

@@ -14,6 +14,7 @@ use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
+use App\Services\Property\ContactPropertyLinker;
 use App\Services\Rentals\RentalJobCardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -49,6 +50,17 @@ final class RentalJobCardLifecycleTest extends TestCase
             'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
             'title' => '1 Test Street', 'status' => 'active', 'listing_type' => 'rental',
         ]);
+        // AT-442 follow-up (item 8) — "Send to owner as quote" now hard-blocks
+        // without a real landlord/owner/seller/lessor contact linked
+        // (RentalJobCardService::sendToOwnerAsQuote() via Property::
+        // landlordContact(), no sole-contact fallback) — every quote-sending
+        // test in this file needs one. The no-landlord-blocks-the-send
+        // behaviour itself is proven in RentalJobCardAt442FollowUpTest.
+        $landlord = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Jane', 'last_name' => 'Landlord', 'email' => 'jane.landlord-' . uniqid() . '@example.test',
+        ]);
+        ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
     }
 
     private function catalogueItem(array $attrs = []): RentalCatalogueItem

@@ -12,8 +12,10 @@ use App\Models\RentalCatalogueItem;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
+use App\Services\Property\ContactPropertyLinker;
 use App\Services\Rentals\RentalJobCardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
@@ -241,5 +243,90 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Over', false);
+    }
+
+    // ── #8 — an owner quote must never be addressed to a tenant ──────────
+
+    private function contact(string $first, string $last): \App\Models\Contact
+    {
+        return \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => $first, 'last_name' => $last,
+            'email' => strtolower($first . '.' . $last) . '-' . uniqid() . '@example.test',
+        ]);
+    }
+
+    public function test_property_with_only_a_tenant_contact_resolves_no_landlord(): void
+    {
+        $tenant = $this->contact('Andre', 'Roets');
+        ContactPropertyLinker::link($tenant->id, $this->property->id, 'tenant');
+
+        $this->assertNull($this->property->landlordContact());
+        $this->assertNotNull($this->property->sellerOwnerContact()); // the broader, display-only lookup is untouched
+    }
+
+    public function test_sending_a_quote_with_only_a_tenant_linked_is_blocked_and_sends_no_mail(): void
+    {
+        Mail::fake();
+        $tenant = $this->contact('Andre', 'Roets');
+        ContactPropertyLinker::link($tenant->id, $this->property->id, 'tenant');
+
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 100], $this->admin);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))
+            ->assertSessionHasErrors('rental_job_card');
+
+        $jobCard->refresh();
+        $this->assertSame(\App\Models\RentalJobCard::STATUS_DRAFT, $jobCard->status); // never sent
+        $this->assertTrue($jobCard->quotes()->doesntExist());
+        Mail::assertNothingQueued();
+        Mail::assertNothingSent();
+    }
+
+    public function test_show_screen_offers_link_landlord_when_none_is_linked(): void
+    {
+        $tenant = $this->contact('Andre', 'Roets');
+        ContactPropertyLinker::link($tenant->id, $this->property->id, 'tenant');
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+
+        $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $jobCard));
+
+        $response->assertOk();
+        $response->assertSee('No landlord linked', false);
+        $response->assertSee('Link landlord', false);
+    }
+
+    public function test_sending_a_quote_with_a_real_landlord_linked_still_works(): void
+    {
+        Mail::fake();
+        $landlord = $this->contact('Jane', 'Owner');
+        ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
+
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 100], $this->admin);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))->assertRedirect();
+
+        $jobCard->refresh();
+        $this->assertNotSame(\App\Models\RentalJobCard::STATUS_DRAFT, $jobCard->status);
+        Mail::assertQueued(\App\Mail\Rentals\RentalWorkOrderOwnerMail::class);
+    }
+
+    public function test_an_outside_supplier_work_order_owner_notification_never_mails_a_tenant(): void
+    {
+        Mail::fake();
+        $tenant = $this->contact('Andre', 'Roets');
+        ContactPropertyLinker::link($tenant->id, $this->property->id, 'tenant');
+
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), [
+            'property_id' => $this->property->id,
+            'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
+            'title' => 'Outside supplier job', 'description' => 'Needs a plumber.',
+        ])->assertRedirect();
+
+        // notifyOwner() is skipped entirely — no landlord to mail, and it
+        // must never fall back to the tenant.
+        Mail::assertNothingQueued();
     }
 }
