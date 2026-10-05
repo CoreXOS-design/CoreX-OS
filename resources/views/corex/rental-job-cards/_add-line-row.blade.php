@@ -4,7 +4,29 @@
     screen (edit mode, a real form posting to storeLine()) and the create
     screen's draft task builder (Alpine, nothing posted until the whole
     card's Save) — one partial, so the two can never drift apart again.
-    No helper text (labels dropped in favour of placeholder/aria-label).
+    No helper text (labels dropped in favour of placeholder/aria-label);
+    _line-columns-header.blade.php provides the column names instead.
+
+    2026-10-05 round 3 (Johan QA1 findings A/B/C) — rebuilt the catalogue
+    picker and the field pre-fill:
+    - A: the picker now searches by CODE or DESCRIPTION and shows
+      "CODE — Description" (client-side filter over the agency's own
+      active items — small lists, no new search endpoint needed).
+    - B: picking an item now actually FILLS description/type/unit/unit
+      price/VAT — none of it was being set before (only description was
+      cleared and type/unit were DISABLED, which is also why Type always
+      showed "Labour": nothing ever set the <select>'s value, so the
+      browser default (first option) won regardless of the item's own
+      type). Every field stays fully editable afterward (nothing disabled
+      anywhere in this partial any more) — Johan's own instruction this
+      round.
+    - Type's own <select> now lists the agency's actual configured types
+      (not a hardcoded Labour/Part) — each option's value is still that
+      type's underlying KIND (labour|part), which is all
+      RentalJobCardService::addLine()/RentalReportService ever read from
+      a line; an agency naming its own types (e.g. "Subcontractor") just
+      shows its own name here, exactly like the catalogue item form's own
+      Type select already does.
 
     $mode: 'form' (edit screen — real POST) | 'draft' (create screen —
       Alpine-only, nothing submitted here; the pushed line object is what
@@ -14,102 +36,102 @@
     Draft mode expects: $refPrefix (e.g. 'free'/'gen' — x-ref namespacing so
       a task's own refs never collide with another task's or General's),
       $addLineCall (the exact Alpine method call string for the "+" button,
-      e.g. "addFreeTextLine(task, $refs, '')" or "addFreeTextLine(null, $refs, 'gen')").
-    Common: $catalogueItems, $catalogueUnits, $pricesOn, $vatTypes, $vatRegistered.
+      e.g. "addLineFromRow(task, $refs, '')" or "addLineFromRow(null, $refs, 'gen')").
+    Common: $catalogueItemsForJs (array, id/code/description/label/kind/
+      unit/priceForLine/vatTypeId/customVatRate), $catalogueItemTypes,
+      $catalogueUnits, $pricesOn, $vatTypes, $vatRegistered.
 
-    Column widths (fixed, not equal-share — this is what stops the wrap).
-    2026-10-05 round 2 (Johan, real-browser check at 1366/1536): the first
-    pass still overflowed its task card — a bare grid-template-columns
-    track size does NOT stop a <select>'s own intrinsic min-content width
-    (driven by its longest option text) from forcing the track wider than
-    assigned; every grid item defaults to min-width:auto. Every control
-    below now also carries min-width:0 explicitly (the actual fix) on top
-    of the narrower tracks:
-    catalogue item minmax(0,130px) | description minmax(0,1fr) |
-    type 72px | unit 56px | qty 56px | unit price 92px | VAT type 96px |
-    + button 36px.
+    Column widths: App\Support\RentalJobCardLineGrid — the ONE source of
+    truth, shared with the header row and the lines table, so this file
+    can never silently drift out of alignment with either again.
 --}}
 @php
-    $cols = ['minmax(0,130px)', 'minmax(0,1fr)', '72px'];
-    if ($pricesOn) {
-        $cols[] = '56px';
-        $cols[] = '56px';
-        $cols[] = '92px';
-        if ($vatRegistered) {
-            $cols[] = '96px';
-        }
-    }
-    $cols[] = '36px';
-    $gridStyle = 'display:grid; grid-template-columns: ' . implode(' ', $cols) . '; gap: 6px; align-items:center; min-width:0;';
-    $fieldStyle = 'border: 1px solid var(--border); min-width:0;';
+    $gridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vatRegistered);
+    $fieldStyle = \App\Support\RentalJobCardLineGrid::fieldStyle();
+    $rowId = $refPrefix ?? ('t' . ($taskId ?? 'gen'));
 @endphp
 @if($mode === 'form')
-<form method="POST" action="{{ $action }}" class="pt-2" style="{{ $gridStyle }}">
+<form method="POST" action="{{ $action }}" class="pt-2"
+      x-data="catalogueLinePicker({{ \Illuminate\Support\Js::from($catalogueItemsForJs) }})">
     @csrf
     @if($taskId)<input type="hidden" name="rental_job_card_task_id" value="{{ $taskId }}">@endif
 @else
-<div class="pt-2" style="{{ $gridStyle }}">
+<div class="pt-2" x-data="catalogueLinePicker({{ \Illuminate\Support\Js::from($catalogueItemsForJs) }})">
 @endif
-    <select {{ $mode === 'form' ? 'name=rental_catalogue_item_id' : 'x-ref=' . $refPrefix . 'CatalogueItem' }}
-            aria-label="Catalogue item" title="Catalogue item"
-            class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}"
-            @if($mode === 'form')
-                onchange="this.form.description.value=''; this.form.type.disabled = !!this.value; this.form.unit.disabled = !!this.value;"
-            @else
-                @change="addDraftLine({{ $taskExpr ?? 'null' }}, $event.target, '{{ $refPrefix }}')"
-            @endif
-    >
-        <option value="">— Free text —</option>
-        @foreach($catalogueItems as $ci)
-            <option value="{{ $ci->id }}">{{ $ci->name }} ({{ $ci->catalogueItemType->name ?? '—' }}@if($ci->catalogueUnit) &middot; {{ $ci->catalogueUnit->name }}@endif)</option>
-        @endforeach
-    </select>
-    <input type="text" {{ $mode === 'form' ? 'name=description' : 'x-ref=' . $refPrefix . 'Desc' }}
-           maxlength="255" placeholder="Description" aria-label="Description"
-           class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-    <select {{ $mode === 'form' ? 'name=type' : 'x-ref=' . $refPrefix . 'Type' }}
-            aria-label="Type" title="Type"
-            class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-        <option value="labour">Labour</option>
-        <option value="part">Part</option>
-    </select>
-    @if($pricesOn)
-        <select {{ $mode === 'form' ? 'name=unit' : 'x-ref=' . $refPrefix . 'Unit' }}
-                aria-label="Unit" title="Unit"
+    <div style="{{ $gridStyle }}" class="relative">
+        <div class="relative" style="min-width:0;">
+            <input type="text" x-model="query" @focus="open = true" @click="open = true"
+                   @keydown.escape="open = false" @keydown.down.prevent="moveSelection(1)" @keydown.up.prevent="moveSelection(-1)"
+                   @keydown.enter.prevent="pickHighlighted()"
+                   aria-label="Item" title="Item — search by code or description" placeholder="Search item…" autocomplete="off"
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+            <input type="hidden" {{ $mode === 'form' ? 'name=rental_catalogue_item_id' : 'x-ref=' . $refPrefix . 'CatalogueItem' }} x-model="selectedId">
+            <div x-show="open" @click.outside="open = false" x-cloak
+                 class="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-md text-xs"
+                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.12);">
+                <template x-for="(it, idx) in filtered()" :key="it.id">
+                    <div @click="pick(it)"
+                         :class="idx === highlighted ? 'font-semibold' : ''"
+                         style="padding: 6px 8px; cursor: pointer;"
+                         :style="idx === highlighted ? 'background: var(--surface-2);' : ''"
+                         x-text="it.label"></div>
+                </template>
+                <div x-show="filtered().length === 0" style="padding: 6px 8px; color: var(--text-muted);">No match — free text below</div>
+                <div @click="clear()"
+                     style="padding: 6px 8px; cursor: pointer; border-top: 1px solid var(--border); color: var(--text-muted);">— Free text —</div>
+            </div>
+        </div>
+        <input type="text" {{ $mode === 'form' ? 'name=description' : 'x-ref=' . $refPrefix . 'Desc' }}
+               maxlength="255" placeholder="Description" aria-label="Description"
+               class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+        <select {{ $mode === 'form' ? 'name=type' : 'x-ref=' . $refPrefix . 'Type' }}
+                aria-label="Type" title="Type"
                 class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-            <option value="">—</option>
-            @foreach($catalogueUnits as $unit)
-                <option value="{{ $unit->name }}">{{ $unit->name }}</option>
-            @endforeach
+            @forelse($catalogueItemTypes as $catType)
+                <option value="{{ $catType->kind }}">{{ $catType->name }}</option>
+            @empty
+                <option value="labour">Labour</option>
+                <option value="part">Part</option>
+            @endforelse
         </select>
-        <input type="number" {{ $mode === 'form' ? 'name=quantity' : 'x-ref=' . $refPrefix . 'Qty' }}
-               step="0.01" min="0.01" value="1" aria-label="Qty" title="Qty"
-               class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-        <input type="number" {{ $mode === 'form' ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
-               step="0.01" min="0" aria-label="Unit price" title="Unit price (R)"
-               class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-        @if($vatRegistered)
-        <select {{ $mode === 'form' ? 'name=rental_vat_type_id' : 'x-ref=' . $refPrefix . 'VatType' }}
-                aria-label="VAT type" title="VAT type"
-                class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}"
-                @if($mode === 'form')
-                    onchange="this.form.custom_vat_rate.classList.toggle('hidden', this.options[this.selectedIndex].dataset.custom !== '1')"
-                @endif
-        >
-            @foreach($vatTypes as $vt)
-                <option value="{{ $vt->id }}" data-custom="{{ $vt->rate_mode === 'custom_per_line' ? '1' : '0' }}" {{ $vt->is_default ? 'selected' : '' }}>{{ $vt->shortLabel() }}</option>
-            @endforeach
-        </select>
-        @if($mode === 'form')
-        <input type="number" name="custom_vat_rate" step="0.01" min="0" max="100" placeholder="Rate %"
-               class="w-full rounded-md px-2 py-1.5 text-xs mt-1 hidden" style="border: 1px solid var(--border); grid-column: 1 / -1;">
+        @if($pricesOn)
+            <select {{ $mode === 'form' ? 'name=unit' : 'x-ref=' . $refPrefix . 'Unit' }}
+                    aria-label="Unit" title="Unit"
+                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+                <option value="">—</option>
+                @foreach($catalogueUnits as $unit)
+                    <option value="{{ $unit->name }}">{{ $unit->name }}</option>
+                @endforeach
+            </select>
+            <input type="number" {{ $mode === 'form' ? 'name=quantity' : 'x-ref=' . $refPrefix . 'Qty' }}
+                   step="0.01" min="0.01" value="1" aria-label="Qty" title="Qty"
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+            <input type="number" {{ $mode === 'form' ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
+                   step="0.01" min="0" aria-label="Unit price" title="Unit price (R)"
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+            @if($vatRegistered)
+            <select {{ $mode === 'form' ? 'name=rental_vat_type_id' : 'x-ref=' . $refPrefix . 'VatType' }}
+                    aria-label="VAT type" title="VAT type"
+                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}"
+                    @if($mode === 'form')
+                        onchange="this.form.custom_vat_rate.classList.toggle('hidden', this.options[this.selectedIndex].dataset.custom !== '1')"
+                    @endif
+            >
+                @foreach($vatTypes as $vt)
+                    <option value="{{ $vt->id }}" data-custom="{{ $vt->rate_mode === 'custom_per_line' ? '1' : '0' }}" {{ $vt->is_default ? 'selected' : '' }}>{{ $vt->shortLabel() }}</option>
+                @endforeach
+            </select>
+            @if($mode === 'form')
+            <input type="number" name="custom_vat_rate" step="0.01" min="0" max="100" placeholder="Rate %"
+                   class="w-full rounded-md px-2 py-1.5 text-xs mt-1 hidden" style="border: 1px solid var(--border); grid-column: 1 / -1;">
+            @endif
+            @endif
         @endif
-        @endif
-    @endif
-    <button type="{{ $mode === 'form' ? 'submit' : 'button' }}"
-            @if($mode === 'draft') @click="{{ $addLineCall }}" @endif
-            aria-label="Add line" title="Add line"
-            class="corex-btn-outline text-xs" style="padding: 6px 0; text-align: center; min-width:0;">+</button>
+        <button type="{{ $mode === 'form' ? 'submit' : 'button' }}"
+                @if($mode === 'draft') @click="{{ $addLineCall }}" @endif
+                aria-label="Add line" title="Add line"
+                class="corex-btn-outline text-xs" style="padding: 6px 0; text-align: center; min-width:0;">+</button>
+    </div>
 @if($mode === 'form')
 </form>
 @else

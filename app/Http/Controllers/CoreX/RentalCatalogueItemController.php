@@ -41,7 +41,7 @@ class RentalCatalogueItemController extends Controller
         $query = RentalCatalogueItem::query()->with(['catalogueItemType', 'catalogueUnit', 'defaultVatType']);
 
         if ($search = trim((string) $request->get('q', ''))) {
-            $query->where('name', 'like', "%{$search}%");
+            $query->where(fn ($q) => $q->where('code', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%"));
         }
 
         if ($typeId = $request->get('type')) {
@@ -56,7 +56,7 @@ class RentalCatalogueItemController extends Controller
         }
 
         $sort = $request->get('sort', 'sort_order');
-        $allowedSorts = ['sort_order', 'name', 'default_price'];
+        $allowedSorts = ['sort_order', 'code', 'description', 'default_price'];
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'sort_order';
         }
@@ -88,7 +88,7 @@ class RentalCatalogueItemController extends Controller
             'created_by_user_id' => $request->user()->id,
         ]);
 
-        return redirect()->route('corex.rental-catalogue-items.index')->with('success', "'{$item->name}' added to the catalogue.");
+        return redirect()->route('corex.rental-catalogue-items.index')->with('success', "'{$item->code} — {$item->description}' added to the catalogue.");
     }
 
     public function edit(Request $request, RentalCatalogueItem $rentalCatalogueItem): View
@@ -103,14 +103,14 @@ class RentalCatalogueItemController extends Controller
         $agency = Agency::withoutGlobalScopes()->find($request->user()->effectiveAgencyId());
         $rentalCatalogueItem->update($this->validated($request, $agency));
 
-        return redirect()->route('corex.rental-catalogue-items.index')->with('success', "'{$rentalCatalogueItem->name}' updated.");
+        return redirect()->route('corex.rental-catalogue-items.index')->with('success', "'{$rentalCatalogueItem->code}' updated.");
     }
 
     public function archive(RentalCatalogueItem $rentalCatalogueItem): RedirectResponse
     {
         $rentalCatalogueItem->archive();
 
-        return back()->with('success', "'{$rentalCatalogueItem->name}' archived.");
+        return back()->with('success', "'{$rentalCatalogueItem->code}' archived.");
     }
 
     public function restore(int $id): RedirectResponse
@@ -118,7 +118,7 @@ class RentalCatalogueItemController extends Controller
         $item = RentalCatalogueItem::onlyTrashed()->findOrFail($id);
         $item->restoreRecord();
 
-        return back()->with('success', "'{$item->name}' restored.");
+        return back()->with('success', "'{$item->code}' restored.");
     }
 
     /** Shared create/edit view data — the agency's own type/unit/VAT-type lists, plus a JSON-ready VAT-type map for the live excl/incl calc in Alpine. */
@@ -146,10 +146,18 @@ class RentalCatalogueItemController extends Controller
     private function validated(Request $request, ?Agency $agency): array
     {
         $agencyId = $agency?->id;
+        $currentId = $request->route('rentalCatalogueItem')?->id;
 
         $data = $request->validate([
             'rental_catalogue_item_type_id' => ['required', Rule::exists('rental_catalogue_item_types', 'id')->where('agency_id', $agencyId)],
-            'name' => ['required', 'string', 'max:191'],
+            'code' => [
+                'required', 'string', 'max:50',
+                Rule::unique('rental_catalogue_items', 'code')
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->ignore($currentId),
+            ],
+            'description' => ['required', 'string', 'max:500'],
             'rental_catalogue_unit_id' => ['required', Rule::exists('rental_catalogue_units', 'id')->where('agency_id', $agencyId)],
             'default_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'default_rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $agencyId)],

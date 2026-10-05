@@ -61,9 +61,15 @@
                 <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">No catalogue types configured yet — <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="underline">add one in Company Settings</a>.</p>
             @endif
         </div>
-        <div>
-            <label class="prop-label">Name</label>
-            <input type="text" name="name" value="{{ old('name', $item->name) }}" required maxlength="191" class="prop-input w-full">
+        <div class="grid grid-cols-3 gap-3">
+            <div>
+                <label class="prop-label">Code</label>
+                <input type="text" name="code" value="{{ old('code', $item->code) }}" required maxlength="50" style="font-family: monospace;" class="prop-input w-full">
+            </div>
+            <div class="col-span-2">
+                <label class="prop-label">Description</label>
+                <input type="text" name="description" value="{{ old('description', $item->description) }}" required maxlength="500" class="prop-input w-full">
+            </div>
         </div>
         <div>
             <label class="prop-label">Unit</label>

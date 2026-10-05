@@ -75,7 +75,7 @@ final class RentalJobCardLifecycleTest extends TestCase
         return RentalCatalogueItem::create(array_merge([
             'agency_id' => $this->agency->id,
             'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
-            'name' => 'Geyser element',
+            'code' => 'GEYSER-EL', 'description' => 'Geyser element',
             'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
             'default_price' => 450, 'sort_order' => 1,
             'created_by_user_id' => $this->admin->id,

@@ -21,6 +21,11 @@ use Tests\TestCase;
  * Pastel-style enhancement, 2026-10-05 — type/unit now pick from agency
  * lists; default_price is always stored excl-VAT and the create/edit form
  * converts a posted incl-VAT amount down before saving. §3 below.
+ *
+ * 2026-10-05 round 2 (Johan QA1 finding A) — `name` split into a short
+ * `code` (agency-unique among active items) + full `description`, so
+ * picking an item on a job card no longer leaves the description to be
+ * typed by hand. §4 below.
  */
 final class RentalCatalogueItemTest extends TestCase
 {
@@ -70,11 +75,13 @@ final class RentalCatalogueItemTest extends TestCase
     {
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Geyser element', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 450,
+            'code' => 'GEYSER-EL', 'description' => 'Geyser element',
+            'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 450,
         ])->assertRedirect(route('corex.rental-catalogue-items.index'));
 
-        $item = RentalCatalogueItem::firstWhere('name', 'Geyser element');
+        $item = RentalCatalogueItem::firstWhere('code', 'GEYSER-EL');
         $this->assertNotNull($item);
+        $this->assertSame('Geyser element', $item->description);
         $this->assertSame($this->agencyA->id, $item->agency_id);
         $this->assertSame('450.00', (string) $item->default_price);
         $this->assertSame('part', $item->kind());
@@ -84,41 +91,43 @@ final class RentalCatalogueItemTest extends TestCase
     {
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->labourTypeId($this->agencyA),
-            'name' => 'Plumber call-out', 'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agencyA->id)->where('name', 'Hour')->firstOrFail()->id,
+            'code' => 'PLUMB-CO', 'description' => 'Plumber call-out',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agencyA->id)->where('name', 'Hour')->firstOrFail()->id,
         ])->assertRedirect();
 
-        $item = RentalCatalogueItem::firstWhere('name', 'Plumber call-out');
+        $item = RentalCatalogueItem::firstWhere('code', 'PLUMB-CO');
         $this->assertNull($item->default_price);
     }
 
     public function test_required_fields_reject_cleanly_when_empty(): void
     {
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
-            'rental_catalogue_item_type_id' => '', 'name' => '', 'rental_catalogue_unit_id' => '',
-        ])->assertSessionHasErrors(['rental_catalogue_item_type_id', 'name', 'rental_catalogue_unit_id']);
+            'rental_catalogue_item_type_id' => '', 'code' => '', 'description' => '', 'rental_catalogue_unit_id' => '',
+        ])->assertSessionHasErrors(['rental_catalogue_item_type_id', 'code', 'description', 'rental_catalogue_unit_id']);
     }
 
     public function test_edit_and_update(): void
     {
         $item = RentalCatalogueItem::create([
             'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Tap washer', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'TAP-WASH', 'description' => 'Tap washer', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
         ]);
 
         $this->actingAs($this->adminA)->put(route('corex.rental-catalogue-items.update', $item), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Tap washer (brass)', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 15,
+            'code' => 'TAP-WASH', 'description' => 'Tap washer (brass)',
+            'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 15,
         ])->assertRedirect();
 
-        $this->assertSame('Tap washer (brass)', $item->fresh()->name);
+        $this->assertSame('Tap washer (brass)', $item->fresh()->description);
     }
 
     public function test_archive_and_restore(): void
     {
         $item = RentalCatalogueItem::create([
             'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'BALLCOCK', 'description' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
         ]);
 
@@ -133,12 +142,12 @@ final class RentalCatalogueItemTest extends TestCase
     {
         RentalCatalogueItem::create([
             'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Agency A item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'A-ITEM', 'description' => 'Agency A item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
         ]);
         $itemB = RentalCatalogueItem::create([
             'agency_id' => $this->agencyB->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyB),
-            'name' => 'Agency B item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyB),
+            'code' => 'B-ITEM', 'description' => 'Agency B item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyB),
             'sort_order' => 1, 'created_by_user_id' => $this->adminB->id,
         ]);
 
@@ -162,12 +171,12 @@ final class RentalCatalogueItemTest extends TestCase
 
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $agencyBTypeId,
-            'name' => 'Cross-agency item', 'rental_catalogue_unit_id' => $agencyAUnitId, 'default_price' => 10,
+            'code' => 'XAG-1', 'description' => 'Cross-agency item', 'rental_catalogue_unit_id' => $agencyAUnitId, 'default_price' => 10,
         ])->assertSessionHasErrors(['rental_catalogue_item_type_id']);
 
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $agencyATypeId,
-            'name' => 'Cross-agency item', 'rental_catalogue_unit_id' => $agencyBUnitId, 'default_price' => 10,
+            'code' => 'XAG-2', 'description' => 'Cross-agency item', 'rental_catalogue_unit_id' => $agencyBUnitId, 'default_price' => 10,
         ])->assertSessionHasErrors(['rental_catalogue_unit_id']);
     }
 
@@ -179,10 +188,10 @@ final class RentalCatalogueItemTest extends TestCase
 
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'No-VAT item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 100,
+            'code' => 'NO-VAT', 'description' => 'No-VAT item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 100,
         ])->assertRedirect();
 
-        $item = RentalCatalogueItem::firstWhere('name', 'No-VAT item');
+        $item = RentalCatalogueItem::firstWhere('code', 'NO-VAT');
         $this->assertSame('100.00', (string) $item->default_price);
     }
 
@@ -194,11 +203,11 @@ final class RentalCatalogueItemTest extends TestCase
 
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Excl-mode item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'EXCL-1', 'description' => 'Excl-mode item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'default_price' => 100, 'default_rental_vat_type_id' => $standard->id,
         ])->assertRedirect();
 
-        $item = RentalCatalogueItem::firstWhere('name', 'Excl-mode item');
+        $item = RentalCatalogueItem::firstWhere('code', 'EXCL-1');
         $this->assertSame('100.00', (string) $item->default_price);
     }
 
@@ -211,11 +220,11 @@ final class RentalCatalogueItemTest extends TestCase
         // 115 incl @ 15% = 100 excl.
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Incl-mode item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'INCL-1', 'description' => 'Incl-mode item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'default_price' => 115, 'default_rental_vat_type_id' => $standard->id,
         ])->assertRedirect();
 
-        $item = RentalCatalogueItem::firstWhere('name', 'Incl-mode item');
+        $item = RentalCatalogueItem::firstWhere('code', 'INCL-1');
         $this->assertSame('100.00', (string) $item->default_price);
     }
 
@@ -226,11 +235,11 @@ final class RentalCatalogueItemTest extends TestCase
 
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'No-VAT-type item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'NO-VAT-T', 'description' => 'No-VAT-type item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'default_price' => 100, 'default_rental_vat_type_id' => $noVat->id,
         ])->assertRedirect();
 
-        $item = RentalCatalogueItem::firstWhere('name', 'No-VAT-type item');
+        $item = RentalCatalogueItem::firstWhere('code', 'NO-VAT-T');
         $this->assertSame('100.00', (string) $item->default_price);
     }
 
@@ -242,11 +251,11 @@ final class RentalCatalogueItemTest extends TestCase
         // 110 incl @ 10% = 100 excl.
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Custom-rate item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'CUSTOM-1', 'description' => 'Custom-rate item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'default_price' => 110, 'default_rental_vat_type_id' => $custom->id, 'default_custom_vat_rate' => 10,
         ])->assertRedirect();
 
-        $item = RentalCatalogueItem::firstWhere('name', 'Custom-rate item');
+        $item = RentalCatalogueItem::firstWhere('code', 'CUSTOM-1');
         $this->assertSame('100.00', (string) $item->default_price);
         $this->assertSame('10.00', (string) $item->default_custom_vat_rate);
     }
@@ -259,7 +268,7 @@ final class RentalCatalogueItemTest extends TestCase
 
         RentalCatalogueItem::create([
             'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'name' => 'Listed item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'code' => 'LISTED-1', 'description' => 'Listed item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
             'default_price' => 100, 'default_rental_vat_type_id' => $standard->id,
             'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
         ]);
@@ -267,8 +276,93 @@ final class RentalCatalogueItemTest extends TestCase
         $response = $this->actingAs($this->adminA)->get(route('corex.rental-catalogue-items.index'));
 
         $response->assertOk();
+        $response->assertSee('LISTED-1');
+        $response->assertSee('Listed item');
         $response->assertSee('R100.00');
         $response->assertSee('R115.00');
         $response->assertSee('Standard VAT');
+    }
+
+    // ── §4 — code/description (2026-10-05, Johan QA1 finding A) ──────────
+
+    public function test_code_must_be_unique_per_agency_among_active_items(): void
+    {
+        RentalCatalogueItem::create([
+            'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'DUP-01', 'description' => 'First item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
+        ]);
+
+        $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
+            'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'DUP-01', 'description' => 'Second item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+        ])->assertSessionHasErrors(['code']);
+    }
+
+    public function test_the_same_code_is_allowed_in_a_different_agency(): void
+    {
+        RentalCatalogueItem::create([
+            'agency_id' => $this->agencyB->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyB),
+            'code' => 'SHARED-01', 'description' => 'Agency B version', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyB),
+            'sort_order' => 1, 'created_by_user_id' => $this->adminB->id,
+        ]);
+
+        $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
+            'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'SHARED-01', 'description' => 'Agency A version', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+        ])->assertRedirect(route('corex.rental-catalogue-items.index'));
+
+        $this->assertNotNull(RentalCatalogueItem::where('agency_id', $this->agencyA->id)->where('code', 'SHARED-01')->first());
+    }
+
+    public function test_an_archived_items_code_can_be_reused(): void
+    {
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'REUSE-01', 'description' => 'Original', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
+        ]);
+        $item->archive();
+
+        $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
+            'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'REUSE-01', 'description' => 'Replacement', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+        ])->assertRedirect(route('corex.rental-catalogue-items.index'));
+
+        $this->assertNotNull(RentalCatalogueItem::where('code', 'REUSE-01')->where('description', 'Replacement')->first());
+    }
+
+    public function test_editing_an_item_can_keep_its_own_code(): void
+    {
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'KEEP-01', 'description' => 'Keeps its own code', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
+        ]);
+
+        $this->actingAs($this->adminA)->put(route('corex.rental-catalogue-items.update', $item), [
+            'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'KEEP-01', 'description' => 'Keeps its own code, updated', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+        ])->assertRedirect()->assertSessionDoesntHaveErrors();
+    }
+
+    public function test_search_matches_code_or_description(): void
+    {
+        RentalCatalogueItem::create([
+            'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'SEARCH-CODE', 'description' => 'Findable by code', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'sort_order' => 1, 'created_by_user_id' => $this->adminA->id,
+        ]);
+        RentalCatalogueItem::create([
+            'agency_id' => $this->agencyA->id, 'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
+            'code' => 'OTHER-01', 'description' => 'Findable by its own description text', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
+            'sort_order' => 2, 'created_by_user_id' => $this->adminA->id,
+        ]);
+
+        $byCode = $this->actingAs($this->adminA)->get(route('corex.rental-catalogue-items.index', ['q' => 'SEARCH-CODE']));
+        $byCode->assertOk()->assertSee('Findable by code')->assertDontSee('Findable by its own description');
+
+        $byDescription = $this->actingAs($this->adminA)->get(route('corex.rental-catalogue-items.index', ['q' => 'description text']));
+        $byDescription->assertOk()->assertSee('OTHER-01')->assertDontSee('SEARCH-CODE');
     }
 }

@@ -60,9 +60,15 @@
                 <p class="text-[11px] mt-1" style="color:var(--ds-crimson);">No catalogue types configured yet — <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="underline">add one in Company Settings</a>.</p>
             @endif
         </div>
-        <div>
-            <label class="prop-label">Name</label>
-            <input type="text" name="name" value="{{ old('name') }}" required maxlength="191" placeholder="e.g. Plumber call-out, Geyser element" class="prop-input w-full">
+        <div class="grid grid-cols-3 gap-3">
+            <div>
+                <label class="prop-label">Code</label>
+                <input type="text" name="code" value="{{ old('code') }}" required maxlength="50" placeholder="e.g. PLUMB-01" style="font-family: monospace;" class="prop-input w-full">
+            </div>
+            <div class="col-span-2">
+                <label class="prop-label">Description</label>
+                <input type="text" name="description" value="{{ old('description') }}" required maxlength="500" placeholder="e.g. Plumber call-out" class="prop-input w-full">
+            </div>
         </div>
         <div>
             <label class="prop-label">Unit</label>

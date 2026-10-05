@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
 use App\Models\RentalCatalogueUnit;
 use App\Models\RentalFaultReport;
 use App\Models\RentalJobCard;
@@ -248,6 +249,7 @@ class RentalJobCardController extends Controller
             'workOrder' => $workOrder,
             'draftTasks' => $draftTasks,
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
+            'catalogueItemTypes' => $agency ? RentalCatalogueItemType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
             'vatTypes' => $agency?->vat_registered
@@ -338,6 +340,7 @@ class RentalJobCardController extends Controller
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crew' => User::query()->orderBy('name')->get(['id', 'name']),
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
+            'catalogueItemTypes' => RentalCatalogueItemType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
             'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),

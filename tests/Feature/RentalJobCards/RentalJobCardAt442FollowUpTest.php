@@ -212,13 +212,13 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $this->assertSame(RentalCatalogueItem::TYPE_LABOUR, $line->type);
     }
 
-    public function test_a_catalogue_item_keeps_its_own_type_even_if_a_different_type_is_posted_alongside_it(): void
+    public function test_picking_a_catalogue_item_pre_fills_its_own_type_when_none_is_explicitly_posted(): void
     {
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         $partItem = RentalCatalogueItem::create([
             'agency_id' => $this->agency->id,
             'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
-            'name' => 'Geyser element',
+            'code' => 'GEYSER-EL', 'description' => 'Geyser element',
             'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
             'default_price' => 450, 'sort_order' => 1,
             'created_by_user_id' => $this->admin->id,
@@ -226,11 +226,126 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
 
         $line = app(RentalJobCardService::class)->addLine($jobCard, [
             'rental_catalogue_item_id' => $partItem->id,
-            'type' => RentalCatalogueItem::TYPE_LABOUR, // the disabled <select> must never win over the catalogue item
             'quantity' => 1,
         ], $this->admin);
 
         $this->assertSame(RentalCatalogueItem::TYPE_PART, $line->type);
+    }
+
+    /**
+     * 2026-10-05, Johan QA1 finding B — DELIBERATE REVERSAL of this test's
+     * own prior name/assertion ("a catalogue item keeps its own type even
+     * if a different type is posted alongside it"). Johan's own build
+     * brief this round: "the Type select must be changeable" — picking an
+     * item now pre-fills Type from the item's own kind (the test above),
+     * but the field stays fully editable and an explicit choice is
+     * RESPECTED, not silently overridden. The old behaviour (server always
+     * forces the catalogue item's kind, ignoring whatever was posted) is
+     * exactly what let the add-line row ship with Type permanently
+     * disabled and defaulting to the first option (Labour) regardless of
+     * the item picked — which IS the bug Johan reported.
+     */
+    public function test_an_explicitly_posted_type_wins_over_the_catalogue_items_own_type(): void
+    {
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        $partItem = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id,
+            'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
+            'code' => 'GEYSER-EL', 'description' => 'Geyser element',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'default_price' => 450, 'sort_order' => 1,
+            'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $line = app(RentalJobCardService::class)->addLine($jobCard, [
+            'rental_catalogue_item_id' => $partItem->id,
+            'type' => RentalCatalogueItem::TYPE_LABOUR,
+            'quantity' => 1,
+        ], $this->admin);
+
+        $this->assertSame(RentalCatalogueItem::TYPE_LABOUR, $line->type);
+    }
+
+    // ── §4 — catalogue item picker pre-fill + snapshot (2026-10-05, Johan QA1 findings A/B/4) ──
+
+    public function test_picking_a_catalogue_item_pre_fills_description_unit_and_price(): void
+    {
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id,
+            'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
+            'code' => 'PLUMB-01', 'description' => 'Plumbing parts',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'default_price' => 120, 'sort_order' => 1,
+            'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $line = app(RentalJobCardService::class)->addLine($jobCard, [
+            'rental_catalogue_item_id' => $item->id, 'quantity' => 1,
+        ], $this->admin);
+
+        $this->assertSame('Plumbing parts', $line->description);
+        $this->assertSame('Each', $line->unit);
+        $this->assertSame('120.00', (string) $line->unit_price);
+        $this->assertSame(RentalCatalogueItem::TYPE_PART, $line->type);
+    }
+
+    public function test_an_explicit_description_override_still_wins_over_the_catalogue_items_own(): void
+    {
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id,
+            'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
+            'code' => 'PLUMB-01', 'description' => 'Plumbing parts',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'default_price' => 120, 'sort_order' => 1,
+            'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $line = app(RentalJobCardService::class)->addLine($jobCard, [
+            'rental_catalogue_item_id' => $item->id, 'description' => 'Plumbing parts, edited', 'quantity' => 1,
+        ], $this->admin);
+
+        $this->assertSame('Plumbing parts, edited', $line->description);
+    }
+
+    public function test_a_line_snapshots_the_catalogue_items_code_at_add_time(): void
+    {
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id,
+            'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
+            'code' => 'SNAP-01', 'description' => 'Snapshot test item',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'default_price' => 50, 'sort_order' => 1,
+            'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $line = app(RentalJobCardService::class)->addLine($jobCard, [
+            'rental_catalogue_item_id' => $item->id, 'quantity' => 1,
+        ], $this->admin);
+
+        $this->assertSame('SNAP-01', $line->code);
+
+        // A later rename/archive of the catalogue item never changes the
+        // already-saved line's own snapshot.
+        $item->update(['code' => 'RENAMED-01', 'description' => 'Renamed item']);
+        $item->archive();
+
+        $line->refresh();
+        $this->assertSame('SNAP-01', $line->code);
+        $this->assertSame('Snapshot test item', $line->description);
+    }
+
+    public function test_a_free_text_line_has_no_code(): void
+    {
+        $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+
+        $line = app(RentalJobCardService::class)->addLine($jobCard, [
+            'description' => 'Hand-typed line', 'quantity' => 1,
+        ], $this->admin);
+
+        $this->assertNull($line->code);
     }
 
     // ── #6 — no-approval limit shown next to the total ───────────────────
