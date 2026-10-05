@@ -353,6 +353,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\SeedDefaultRentalVatTypes::class,
         );
+        // Pastel-style enhancement, 2026-10-05 — same signal, same
+        // established mechanism: seeds the Labour/Part catalogue types and
+        // the eleven default units for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalCatalogueTypesAndUnits::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,

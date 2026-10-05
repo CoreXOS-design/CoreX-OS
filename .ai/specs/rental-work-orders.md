@@ -10,8 +10,9 @@ mailbox-polling automation question (§3a.1a) — both named where they're discu
 anything else here.
 **Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended 2026-09-25, amended again
 2026-09-26, amended again 2026-09-29, built Stages 1-5 through 2026-09-25/2026-09-20, Stage 7
-2026-09-29, Job Cards (§14) 2026-10-04 — see below)
-**Author:** cc4 (Stages 1-7); cc6 (§14, Job Cards, AT-442)
+2026-09-29, Job Cards (§14) 2026-10-04, Pastel-style catalogue type/unit/VAT-pricing enhancement
+(§14.3a) 2026-10-05 — see below)
+**Author:** cc4 (Stages 1-7); cc6 (§14, Job Cards, AT-442); Johan's build brief direct to this lane (§14.3a)
 **Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
 (owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
 (`.ai/specs/leases.md`) and Rental Inspections (`.ai/specs/rental-inspections.md`, both now landed and
@@ -2029,21 +2030,89 @@ Sign-off: worker (done) and agent (checked) are BOTH required before `complete()
 
 ```
 rental_catalogue_items
-  id, agency_id, type (labour|part), name, unit, default_price (nullable decimal 10,2),
+  id, agency_id, rental_catalogue_item_type_id, name, rental_catalogue_unit_id,
+  default_price (nullable decimal 10,2, ALWAYS excl-VAT — §14.3a), default_rental_vat_type_id,
+  default_custom_vat_rate (nullable decimal 5,2 — only meaningful when the default VAT type is
+  rate_mode=custom_per_line),
   is_active (default true), sort_order, created_by_user_id, timestamps, soft deletes
 ```
 
-Full CRUD (create/edit/archive/restore), search (name), sort (sort_order default; name, type,
-default_price), filter (type, active/archived), pagination, real empty state — same list-screen
-floor as `RentalFaultType`'s own screen, which this reuses as its direct pattern. No seeded defaults
-(unlike `RentalFaultType`/`AgencyServiceType`) — pricing and naming are agency-specific from day one
-with nothing sensible to seed. Reached from the Settings hub (`corex.rental-catalogue-items.*`),
-**not** the Rentals nav panel.
+Full CRUD (create/edit/archive/restore), search (name), sort (sort_order default; name,
+default_price), filter (type id, active/archived), pagination, real empty state — same list-screen
+floor as `RentalFaultType`'s own screen, which this reuses as its direct pattern. Reached from the
+Settings hub (`corex.rental-catalogue-items.*`), **not** the Rentals nav panel.
 
-A job card line may pick a catalogue item (its `name`/`unit`/`default_price` pre-fill the line, all
-still editable) or be free text when nothing in the catalogue fits — the catalogue guides, it does
-not constrain. Archiving a catalogue item never changes a historical line's own `type`/`description`
+A job card line may pick a catalogue item (its `name`/unit/price pre-fill the line, all still
+editable) or be free text when nothing in the catalogue fits — the catalogue guides, it does not
+constrain. Archiving a catalogue item never changes a historical line's own `type`/`description`
 (copied at add-time, §14.2).
+
+### 14.3a Pastel-style enhancement, 2026-10-05 — configurable type/unit lists + VAT-aware pricing
+
+Johan's own words: build this "Pastel-style" — type and unit become agency-configurable lists
+instead of a fixed enum/free text, and the default-price field on the catalogue item form becomes
+VAT-type-aware, matching how `rental_job_card_lines`' own VAT-per-line already works (§14.2's
+`vat_*_snapshot` columns, `RentalJobCardVatService`, built earlier the same day).
+
+**Type** — `rental_catalogue_item_types` (id, agency_id, name, `kind` (labour|part), is_active,
+sort_order, created_by_user_id, timestamps, soft deletes). Full CRUD (add/rename/reorder/archive/
+restore), seeded per agency with the original two values as defaults
+(`RentalCatalogueItemType::seedDefaultsFor()`, same `AgencyCreated`-reaction pattern as
+`RentalVatType`). `kind` is the FIXED classification every type maps onto — set once, at creation,
+never renamed — so an agency naming its own types ("Subcontractor", "Materials", ...) never breaks
+the existing labour-hours/parts-used reporting (`RentalReportService::jobCards()`, which still reads
+the job card LINE's own `type` column, itself still just `labour`/`part` — unchanged, because a line
+copies the picked type's `kind`, not its agency-chosen `name`, at add-time).
+
+**Unit** — `rental_catalogue_units` (id, agency_id, name, is_active, sort_order,
+created_by_user_id, timestamps, soft deletes). Full CRUD, seeded per agency with eleven defaults:
+Each, Dozen, Box, Pack, Metre, m², Litre, kg, Hour, Day, Call-out. A job card line's own `unit`
+column is unchanged (a string snapshot copied at add-time, same as `type`) — it now reads from the
+picked unit's `name` rather than free text, so a line reads "1 dozen screws" vs "1 screw" per
+Johan's own example.
+
+Both lists are managed on the **same Company Settings surface as VAT Types**
+(`admin.catalogue-item-types.*`/`admin.catalogue-units.*`, gated by the same
+`manage_performance_settings` permission), reorder via the same up/down-arrow + hidden-form pattern
+`RentalApplicationHighlighter`'s settings screen already uses, and are linked directly from the
+catalogue item list/create/edit screens ("Manage types & units").
+
+**Existing data migrated, not re-entered** — `2026_10_05_240300_backfill_rental_catalogue_item_types_
+and_units` seeds every existing agency's two types/eleven units, then maps every existing
+`rental_catalogue_items` row's old `type`/`unit` strings onto the new FKs (unit matched
+case-insensitively against the seeded names; no match creates a new agency-owned unit row from that
+exact free text, so nothing is lost or silently renamed). The old `type`/`unit` string columns are
+then dropped (`2026_10_05_240400`) — no dead columns left behind.
+
+**Default price — always stored excl-VAT, "store unambiguously"** (Johan's own instruction). The
+catalogue item form's price field is driven by the item's own default VAT type and the agency's VAT
+capture mode, live via Alpine:
+- **Agency not VAT registered** — no VAT picker, a single "Price" field, stored as-is.
+- **VAT registered, selected type's resolved rate is 0** (the seeded "No VAT" type, or any other
+  zero-rate type) — a single "Price (no VAT)" field, excl === incl, stored as-is.
+- **VAT registered, resolved rate > 0** (Standard or Custom) — BOTH "Excl VAT" and "Incl VAT"
+  amounts are shown; the one matching the agency's `vat_capture_mode` is the actual submitted
+  `default_price` field, the other is a read-only Alpine-computed companion for the agent's
+  reassurance, never posted. The server (`RentalCatalogueItemController::validated()`) converts an
+  incl-mode submission down to excl before it ever reaches the DB
+  (`RentalJobCardVatService::splitAmount()`, the same split used for job card lines).
+- The catalogue LIST shows three columns when the agency is VAT registered — **Excl VAT / VAT type
+  / Incl VAT** — computed live by `RentalJobCardVatService::catalogueItemPrices()`.
+
+**A job card line picking a catalogue item carries its VAT type, unit, and price across** — unit and
+type kind unchanged from before (§14.2); price now goes through
+`RentalJobCardVatService::catalogueDefaultPriceForLine()`, which converts the item's always-excl
+`default_price` to whatever the agency currently captures ON LINES (unchanged behaviour: a line's
+own `unit_price`/VAT snapshot mechanics, §14.2, are untouched by this enhancement) — excl passes
+through unchanged, incl-capture multiplies up by the resolved rate. Not VAT registered, or the
+agency captures excl: byte-identical to the item's stored `default_price`, same as before this
+enhancement existed.
+
+No new agency SETTING was added by this enhancement (the type/unit lists are agency-owned CRUD
+lists, same category as VAT Types/`RentalApplicationHighlighter`/`RentalFaultType` — none of which
+are onboarding-wizard material, "deliberately not in the wizard" by established precedent,
+`agency-onboarding-setup.md` §5.1's own "your property lists" entry) — nothing to add to
+`config/agency-onboarding-copy.php`.
 
 ### 14.4 Prices on/off — one agency setting, default ON
 

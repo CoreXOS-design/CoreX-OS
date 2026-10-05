@@ -225,7 +225,7 @@
                         <select name="rental_catalogue_item_id" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);" onchange="this.form.description.value=''; this.form.type.disabled = !!this.value;">
                             <option value="">— Free text —</option>
                             @foreach($catalogueItems as $ci)
-                                <option value="{{ $ci->id }}">{{ $ci->name }} ({{ ucfirst($ci->type) }})</option>
+                                <option value="{{ $ci->id }}">{{ $ci->name }} ({{ $ci->catalogueItemType->name ?? '—' }}@if($ci->catalogueUnit) &middot; {{ $ci->catalogueUnit->name }}@endif)</option>
                             @endforeach
                         </select>
                     </div>

@@ -9,6 +9,8 @@ use App\Models\Branch;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
@@ -56,6 +58,11 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
             'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
             'title' => 'Another property entirely', 'status' => 'active', 'listing_type' => 'rental',
         ]);
+
+        // Agency::create() does not fire AgencyCreated in tests — seed
+        // explicitly, same convention every other per-agency list's tests use.
+        RentalCatalogueItemType::seedDefaultsFor($this->agency->id);
+        RentalCatalogueUnit::seedDefaultsFor($this->agency->id);
     }
 
     private function lease(Property $property, array $attrs = []): Lease
@@ -209,8 +216,11 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
     {
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         $partItem = RentalCatalogueItem::create([
-            'agency_id' => $this->agency->id, 'type' => RentalCatalogueItem::TYPE_PART,
-            'name' => 'Geyser element', 'unit' => 'each', 'default_price' => 450, 'sort_order' => 1,
+            'agency_id' => $this->agency->id,
+            'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
+            'name' => 'Geyser element',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'default_price' => 450, 'sort_order' => 1,
             'created_by_user_id' => $this->admin->id,
         ]);
 

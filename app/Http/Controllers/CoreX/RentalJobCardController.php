@@ -240,7 +240,7 @@ class RentalJobCardController extends Controller
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crew' => User::query()->orderBy('name')->get(['id', 'name']),
-            'catalogueItems' => RentalCatalogueItem::query()->active()->orderBy('sort_order')->get(),
+            'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
             'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
             // Agency VAT set-up (2026-10-05) — the totals block and per-line

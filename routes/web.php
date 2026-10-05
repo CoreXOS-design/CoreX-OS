@@ -4530,6 +4530,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{vatType}/restore', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'restore'])->name('admin.vat-types.restore');
     });
 
+    // Pastel-style enhancement, 2026-10-05 — the catalogue TYPE and UNIT
+    // lists, same Company Settings surface/permission as VAT Types above,
+    // also linked directly from the catalogue screen itself.
+    Route::prefix('admin/company-settings/{agency}/catalogue-item-types')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'store'])->name('admin.catalogue-item-types.store');
+        Route::put('/{catalogueItemType}', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'update'])->name('admin.catalogue-item-types.update');
+        Route::delete('/{catalogueItemType}', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'archive'])->name('admin.catalogue-item-types.archive');
+        Route::post('/{catalogueItemType}/restore', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'restore'])->name('admin.catalogue-item-types.restore');
+        Route::post('/reorder', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'reorder'])->name('admin.catalogue-item-types.reorder');
+    });
+    Route::prefix('admin/company-settings/{agency}/catalogue-units')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'store'])->name('admin.catalogue-units.store');
+        Route::put('/{catalogueUnit}', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'update'])->name('admin.catalogue-units.update');
+        Route::delete('/{catalogueUnit}', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'archive'])->name('admin.catalogue-units.archive');
+        Route::post('/{catalogueUnit}/restore', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'restore'])->name('admin.catalogue-units.restore');
+        Route::post('/reorder', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'reorder'])->name('admin.catalogue-units.reorder');
+    });
+
 
     // SPINE-SETTINGS — Activity scoring (full catalogue: calendar +
     // every SPINE-1/2/3/2.5 instant slug). Replaces the M6.2 calendar-
