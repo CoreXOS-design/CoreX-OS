@@ -928,63 +928,10 @@ class WorksheetController extends Controller
 
           $companyIncome = $salesNeededPerMonth * $companyIncomePerSale;
 
-        // Rentals inclusion (CORRECT: match Rentals Register logic exactly)
-$rentals = [
-    'active_rentals_count' => 0,
-    'rental_assist_count' => 0,
-    'total_commission_excl' => 0.0,
-];
-
-try {
-    if (!empty($w->user_id)) {
-
-        $userId = (int)$w->user_id;
-
-        $rentalsQuery = \App\Models\Rental::query()
-            ->where('is_active', 1)
-            ->whereHas('agents', function ($q) use ($userId) {
-                $q->where('users.id', $userId);
-            })
-            ->with(['currentAmountVersion','agents']);
-
-        $rentalsCollection = $rentalsQuery->get();
-
-        $activeCount = 0;
-        $assistCount = 0;
-        $totalExcl = 0.0;
-
-        foreach ($rentalsCollection as $r) {
-
-            $activeCount++;
-
-            if ((bool)($r->is_rental_assist ?? false)) {
-                $assistCount++;
-            }
-
-            $version = $r->currentAmountVersion;
-
-            if (!$version) continue;
-
-            $commExcl = (float)($version->commission_excl ?? 0);
-
-            $agentCount = max(1, $r->agents->count());
-
-            $share = $commExcl / $agentCount;
-
-            $totalExcl += $share;
-        }
-
-        $rentals = [
-            'active_rentals_count' => $activeCount,
-            'rental_assist_count' => $assistCount,
-            'total_commission_excl' => round($totalExcl, 2),
-        ];
-    }
-}
-catch (\Throwable $e) {
-    // fail safe
-}
-
+        // AT-439 — the legacy `rentals` table inclusion block (display-only,
+        // never integrated into budgets) is retired per Johan's 2026-10-05
+        // ruling: HFC does not use the old rental commission worksheet. The
+        // matching worksheet/index.blade.php card is removed in the same commit.
 
         return [
             'net_need' => $netNeed,
@@ -1001,11 +948,7 @@ catch (\Throwable $e) {
             'total_listings_needed' => $totalListingsNeeded,
             'gap' => $gap,
             'company_income' => $companyIncome,
-
-            'rentals_active_count' => (int)($rentals['active_rentals_count'] ?? 0),
-            'rentals_assist_count' => (int)($rentals['rental_assist_count'] ?? 0),
-            'rentals_commission_excl_total' => (float)($rentals['total_commission_excl'] ?? 0),
-];
+        ];
     }
 
 

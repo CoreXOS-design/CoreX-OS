@@ -17,7 +17,6 @@ use App\Models\PropertySettingItem;
 use App\Models\Docuperfect\NamedField;
 use App\Models\PerformanceSetting;
 use App\Models\Rental\RentalDocumentType;
-use App\Models\Rental\RentalReminderSetting;
 use App\Models\Branch;
 use App\Models\User;
 use App\Models\CommandCenter\AgencyDashboardSetting;
@@ -81,9 +80,10 @@ class SettingsController extends Controller
         // Feature Settings tab: Docuperfect
         $data['namedFields'] = NamedField::orderBy('sort_order')->orderBy('name')->get();
 
-        // Feature Settings tab: Rentals
-        $data['rentalDocTypes']         = RentalDocumentType::orderBy('sort_order')->get();
-        $data['rentalReminderSettings'] = RentalReminderSetting::current();
+        // Feature Settings tab: Rentals — Document Types only. AT-439 — the
+        // Email Reminders screen is retired (Johan's 2026-10-05 ruling); the
+        // rental_reminder_settings table stays, untouched, just no longer read here.
+        $data['rentalDocTypes'] = RentalDocumentType::orderBy('sort_order')->get();
 
         // Feature Settings tab: Contacts — the 4 fixed parents, each with its
         // agency-scoped sub-tags eager-loaded (AT-79). Any legacy tag without a

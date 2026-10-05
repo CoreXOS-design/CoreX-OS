@@ -1804,22 +1804,9 @@
             {{-- RENTALS section --}}
             <div x-show="activeSection === 'feature-rentals'" x-cloak class="space-y-6">
 
-                {{-- Rental Properties link (has sub-pages) --}}
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Properties</h3>
-                    <a href="{{ route('rental.settings.properties.index') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
-                       style="border:1px solid var(--border);">
-                        <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent);">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-green);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                        </div>
-                        <div class="flex-1">
-                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Rental Properties</div>
-                            <div class="text-xs" style="color:var(--text-secondary);">Add and manage rental property listings</div>
-                        </div>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                    </a>
-                </div>
+                {{-- AT-439 — the "Rental Properties" link (legacy rental_properties
+                     table/screen) is retired per Johan's 2026-10-05 ruling. Use the
+                     real Property pillar (Properties screen) instead. --}}
 
                 {{-- Rental Document Types (inline) --}}
                 <div>
@@ -1907,134 +1894,10 @@
                     </div>
                 </div>
 
-                {{-- Rental Reminders (inline) --}}
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Email Reminders</h3>
-                    <form method="POST" action="{{ route('rental.settings.reminders.update') }}"
-                          x-data="{
-                              mode: '{{ old('mode', $rentalReminderSettings->mode) }}',
-                              enabled: {{ old('enabled', $rentalReminderSettings->enabled) ? 'true' : 'false' }}
-                          }"
-                          class="space-y-4">
-                        @csrf @method('PUT')
-
-                        <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Automatic Reminders</div>
-                                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Send automatic email reminders for unsigned documents</div>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="hidden" name="enabled" value="0">
-                                    <input type="checkbox" name="enabled" value="1" x-model="enabled" class="sr-only peer" {{ $rentalReminderSettings->enabled ? 'checked' : '' }}>
-                                    <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"
-                                         style="background:var(--border-hover);"
-                                         :style="enabled ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></div>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div x-show="enabled" x-cloak class="space-y-4">
-                            <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Reminder Mode</div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    <label :style="mode === 'escalating' ? 'border-color:var(--brand-button, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);' : 'border-color:var(--border); background:var(--surface);'"
-                                           class="border rounded-md p-3 cursor-pointer transition">
-                                        <input type="radio" name="mode" value="escalating" x-model="mode" class="sr-only">
-                                        <div class="font-medium text-sm" style="color:var(--text-primary);">Escalating</div>
-                                        <div class="text-xs mt-1" style="color:var(--text-secondary);">Gentle → Firm → Team Alert → Final</div>
-                                    </label>
-                                    <label :style="mode === 'simple' ? 'border-color:var(--brand-button, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);' : 'border-color:var(--border); background:var(--surface);'"
-                                           class="border rounded-md p-3 cursor-pointer transition">
-                                        <input type="radio" name="mode" value="simple" x-model="mode" class="sr-only">
-                                        <div class="font-medium text-sm" style="color:var(--text-primary);">Simple Interval</div>
-                                        <div class="text-xs mt-1" style="color:var(--text-secondary);">Same reminder every N days</div>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div x-show="mode === 'escalating'" x-cloak class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Escalation Schedule</div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    @foreach([
-                                        ['key'=>'gentle_after_days','label'=>'Gentle reminder after (days)'],
-                                        ['key'=>'firm_after_days','label'=>'Firm reminder after (days)'],
-                                        ['key'=>'team_alert_after_days','label'=>'Team alert after (days)'],
-                                        ['key'=>'final_after_days','label'=>'Final reminder after (days)'],
-                                    ] as $rf)
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">{{ $rf['label'] }}</label>
-                                        <input type="number" name="{{ $rf['key'] }}"
-                                               value="{{ old($rf['key'], $rentalReminderSettings->{$rf['key']}) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                    @endforeach
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Max reminders per signer</label>
-                                        <input type="number" name="max_escalating_reminders"
-                                               value="{{ old('max_escalating_reminders', $rentalReminderSettings->max_escalating_reminders) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div x-show="mode === 'simple'" x-cloak class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Simple Interval</div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Send every (days)</label>
-                                        <input type="number" name="interval_days"
-                                               value="{{ old('interval_days', $rentalReminderSettings->interval_days) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Max reminders per signer</label>
-                                        <input type="number" name="max_simple_reminders"
-                                               value="{{ old('max_simple_reminders', $rentalReminderSettings->max_simple_reminders) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Custom Email Template</div>
-                                <div class="flex flex-wrap gap-1 text-xs">
-                                    @foreach(['{signer_name}','{document_name}','{agent_name}','{signing_link}','{days_waiting}'] as $ph)
-                                    <code class="px-1.5 py-0.5 rounded font-mono" style="background:rgba(0,0,0,0.05); color:var(--text-secondary);">{{ $ph }}</code>
-                                    @endforeach
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Subject</label>
-                                    <input type="text" name="email_subject"
-                                           value="{{ old('email_subject', $rentalReminderSettings->email_subject) }}"
-                                           placeholder="e.g. Reminder: Please sign {document_name}"
-                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Body</label>
-                                    <textarea name="email_body" rows="5"
-                                              class="w-full rounded-md px-3 py-2 text-sm"
-                                              style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('email_body', $rentalReminderSettings->email_body) }}</textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center gap-4">
-                            <button type="submit" class="corex-btn-primary text-sm">Save Reminder Settings</button>
-                            @if($rentalReminderSettings->updatedByUser ?? null)
-                            <span class="text-xs" style="color:var(--text-muted);">
-                                Last updated by {{ $rentalReminderSettings->updatedByUser->name }}
-                                on {{ $rentalReminderSettings->updated_at->format('d M Y H:i') }}
-                            </span>
-                            @endif
-                        </div>
-                    </form>
-                </div>
+                {{-- AT-439 — the "Email Reminders" screen (rental_reminder_settings)
+                     is retired per Johan's 2026-10-05 ruling: retire the screen and
+                     menu entry, leave the table. Nothing live consumes these
+                     settings today (CheckLeaseExpiry does not read them). --}}
 
             </div>{{-- /rentals --}}
 

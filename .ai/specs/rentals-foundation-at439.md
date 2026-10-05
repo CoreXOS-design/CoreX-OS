@@ -188,21 +188,27 @@ shared-component stage. Accordingly:
 
 ## 7. Acceptance criteria
 
-- [ ] `leases` is the only table any live controller/service/command reads or writes for lease data.
-- [ ] Every caller in §2.2's tables is repointed or retired, in the stated order.
-- [ ] The legacy nav group (§3) is gone from the sidebar and from `navigation.blade.php`.
-- [ ] `RentalsController`, `RentalDivisionController`, `RentalPropertyController` and their routes
+- [x] `leases` is the only table any live controller/service/command reads or writes for lease data.
+- [x] Every caller in §2.2's tables is repointed or retired, in the stated order. (Landed as two
+      commits, 2026-10-05 — see §10.)
+- [x] The legacy nav group (§3) is gone from the sidebar and from `navigation.blade.php`.
+- [x] `RentalsController`, `RentalDivisionController`, `RentalPropertyController` and their routes
       are removed; `Rental`, `RentalProperty`, `Docuperfect\LeaseRecord` models' write paths are
       removed (models themselves may remain for read-only historical Tinker access — not required to
       delete the model class, only its write/controller paths).
-- [ ] `rentals`, `lease_records`, `rental_properties` tables and rows are untouched in the database.
-- [ ] The §3.1 sidebar active-state bug is fixed in the same commit.
+- [x] `rentals`, `lease_records`, `rental_properties` tables and rows are untouched in the database.
+- [x] The §3.1 sidebar active-state bug is fixed — confirmed already landed by a concurrent lane
+      before this round reached it (see §10).
 - [ ] Leases/Fault Reports/Work Orders/Inspections all have the Own|Branch|All UI switch and the
-      per-record scope guard on show/pdf/form/report/printForSignature.
-- [ ] The HFC-employee-name hardcode (§2.3) no longer exists anywhere in the codebase.
-- [ ] No orphaned permission keys remain in Role Manager for retired routes.
+      per-record scope guard on show/pdf/form/report/printForSignature. (Not in this round's scope —
+      §4's shared list standard; unchanged by the 2026-10-05 retirement landing.)
+- [x] The HFC-employee-name hardcode (§2.3) no longer exists anywhere in the codebase.
+- [x] No orphaned permission keys remain in Role Manager for retired routes — **with one correction
+      to this criterion's original scope, see §10.2**: `manage_rentals` is deliberately KEPT, not
+      retired alongside `view_rentals`/`access_rental_signatures`, because a dependency this spec
+      never named (`RentalPermissionsController`) still requires it.
 - [ ] The shared list-standard component and context-bar component exist and are adopted by at least
-      the four screens named in §4.
+      the four screens named in §4. (Not in this round's scope.)
 
 ---
 
@@ -275,3 +281,109 @@ already-computed `$landlords` collection is empty, the chip renders "No landlord
 `$landlords` variable — no second `Lease::landlordContacts()` implementation. Takes effect on
 every screen that includes the bar (Lease Hub, Property Rental tab, Inspection/Fault
 Report/Work Order show screens) with this one edit.
+
+---
+
+## 10. Landing report — 2026-10-05, Johan's "do it today" ruling
+
+Landed as **two commits** on `at439-esign-rentalproperty-retire-2026-10-05`, per Johan's explicit
+sequencing instruction (e-sign is live-critical, lands and is tested independently first):
+
+**Commit 1 — e-sign prefill repoint.** Closed the one write-side seam
+(`DocumentController::sendToRentals()`, was `'property_id' => 'required|exists:rental_properties,id'`)
+that could put a `rental_properties` id into `docuperfect_documents.property_id`; repointed it to
+`Property::findLinkableForRentalApplication()` (the existing hardened own/branch/agency-scoped
+lookup, reused rather than re-derived). Removed the now-unreachable `RentalProperty` fallback
+branches this enabled: `SupportingBatchPrefillResolver`'s address fallback,
+`ESignWizardController`'s property-search merge, its step-4 rent/deposit/commission/marketing-fee
+defaults, and its landlord-only recipient synthesis ("BL-3"). `Document::property()` repointed to
+the real `Property` model. Proven with 4 new tests
+(`tests/Feature/Docuperfect/SigningView/RentalPropertyRetiredPrefillTest.php`) covering landlord+
+tenant, landlord-only, sectional-title, and company-landlord properties — all pass, 24 assertions.
+**Finding, not in §2.2's original table:** the existing `'properties'`-source recipient branch
+already resolves tenants via the real `contact_property` pivot — something `RentalProperty` never
+supported at all (its own code comment admitted "manual-add covers it"). The repoint is a net
+capability improvement, not just parity.
+
+**Commit 2 — menu/route/view retirement + Command Centre calendar repoint.** Per Johan's
+2026-10-05 rulings (superseding this spec's original §2.2/§3/§6 in the specific places listed
+below):
+
+1. **Calendar — repointed, not deleted** (this spec's §2.2 originally only named the
+   `rentals`/Worksheet dependency as needing repoint before retirement; Johan's 2026-10-05 ruling
+   extended this explicitly to the calendar). `RentalCalendarSource` had **3 methods across 2
+   legacy tables**, not the 1 this spec's audit citation implied —
+   `leaseExpiryFromLeaseRecords()` (lease_records, actually the CANONICAL source, not a fallback),
+   `leaseExpiryFromRentals()` (rentals, the real fallback), and `rentDue()` (rentals again, missed
+   entirely by every prior audit pass). All repointed to `leases`/`lease_escalations`, which carry
+   `agency_id`/`branch_id` directly — simpler than the legacy joins, same Own/Branch/All downstream
+   scoping. `PropertyCalendarSource::leaseExpiryFallback()`'s own `lease_records` exists-check
+   moved to `leases` in the same commit (missed by this spec entirely — without this fix, every
+   property with both a `leases` row and a static `properties.lease_end_date` would have started
+   double-counting a `lease_expiry` event the day this landed). `ReconcileCalendarEvents` gained a
+   one-time, idempotent cleanup step soft-deleting `CalendarEvent` rows still keyed on the retired
+   `Docuperfect\LeaseRecord::class`/`Rental::class` source types — `upsertEvent()` has no
+   "delete what a source stopped producing" step by design, so without this the old rows would
+   have sat stale forever. 5 new tests, all pass.
+2. **Worksheet commission — deleted, not repointed** (Johan's 2026-10-05 ruling: "HFC does NOT use
+   the old rental commission worksheet" — a stronger instruction than this spec's original §2.2,
+   which only said *repoint* `RentalWorksheetInclusionService`/`WorksheetController.php:943` to
+   `leases`). Deleted `RentalWorksheetInclusionService` outright (its only callers were
+   `RentalsController`, now gone, and an unscheduled test-only artisan command, also removed) and
+   deleted the separate, redundant inline `Rental::query()` block inside
+   `WorksheetController::calculate()` this spec's own audit had NOT distinguished from the service
+   — they were two independent implementations of the same thing, not one calling the other. The
+   matching "Rentals (This Period)" card in `worksheet/index.blade.php` is removed.
+3. **Menu/routes** — the hidden sidebar panel, `navigation.blade.php`'s duplicate entry, and every
+   route this spec named are retired. Per Johan's explicit 2026-10-05 instruction ("old URLs must
+   redirect... never 404"), every GET route that was a real navigable page now redirects to its
+   modern equivalent instead of being deleted outright — `rentals.index`/`.create`/`.edit` →
+   `corex.leases.index`; `rental.dashboard` → `corex.rentals.command-centre.index`; `rental.signatures`
+   → `docuperfect.dashboard`; `rental.active-leases`/`.expired-leases` → `corex.leases.index` with a
+   `?status=` filter; `rental.settings.properties.*` → `corex.properties.*`; `rental.settings`/
+   `.reminders.index` → `corex.settings`. POST/PUT form-submit endpoints with no surviving form
+   (store/update/toggle/search) are removed outright, not redirected — there is no page left that
+   could submit to them. `RentalsController`, `RentalDivisionController`, `RentalPropertyController`
+   class files deleted, along with their views; `RentalWorksheetInclusionService` deleted.
+   `app/Support/Tours/defs/rentals-deals.php`'s 5 Rentals-division tour entries removed (not
+   flagged by this spec at all) — every one anchored on a route that now redirects instantly, so
+   none of their DOM selectors could ever be found again.
+4. **Settings page** — the "Rental Properties" link block and the whole "Email Reminders" form
+   block removed from `corex/settings.blade.php`'s Rentals section; "Rental Document Types" is
+   **unchanged** (Johan's explicit 2026-10-05 ruling — `RentalDocumentTypeController` stays
+   untouched, confirmed still live via the e-sign document editor's own document-type dropdown).
+   `SettingsController` stops loading `$rentalReminderSettings`.
+
+### 10.1 New finding this round, not anticipated by either prior audit or this spec
+
+**`RentalPermissionsController` / `rentals.permissions` route / `can_capture_rentals` user flag —
+completely unflagged until this pass.** A separate, small admin screen
+(`resources/views/rentals/permissions.blade.php`, `GET/POST /rentals/permissions`) toggling a
+per-user `can_capture_rentals` boolean, gated by the `manage_rentals` permission. It has **no nav
+link anywhere** — reachable only by typing the URL — and is **not** part of the hidden Rentals
+panel this stage retires. `can_capture_rentals` itself is also read by the admin user
+create-edit/index screens (a standing per-user toggle, origin and current purpose unclear beyond
+this one now-removed Worksheet display gate). **Not touched. Not decided here.** Flagging for
+Johan: is this screen still wanted (worth a real nav entry), or is it itself dead weight from the
+same era as the rest of this retirement?
+
+### 10.2 Deviation from §6/§7's original permission-key criterion
+
+§6 originally stated all three keys (`view_rentals`, `manage_rentals`, `access_rental_signatures`)
+retire together once their routes are gone. **`manage_rentals` is the one exception** — confirmed
+live and load-bearing for `RentalPermissionsController` (§10.1), which this spec never knew about.
+Removing it would have 403'd that screen for every user. `view_rentals` and
+`access_rental_signatures` have zero remaining consumers (routes, tours, or code) and are fully
+removed from `config/corex-permissions.php` (both the permission-definition list and every
+role-default array). `rentals.view`/`.create`/`.edit`/`.archive` (a different, dotted-action
+permission family, module-tagged `rentals` but designed generically — "same shared-key-across-roles
+pattern as documents.view/.create", per its own 2026-09-07 comment) are **unrelated** to this
+retirement and were not touched.
+
+### 10.3 Pre-existing test collateral found and fixed
+
+`tests/Feature/MultiTenancy/AgencyScanFixesTest.php` (AT-424) pinned 4 cross-agency-isolation tests
+directly on `RentalsController`'s now-deleted CRUD routes (`rentals.store`/`.update`/`.edit`/
+`.index`). Removed (with an explanatory comment) rather than left to fail — the attack surface
+they guarded (creating/editing a `rentals` row via that controller) no longer exists for any agency
+to attack. No other test file referenced anything retired in this round.

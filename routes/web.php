@@ -1784,29 +1784,18 @@ Route::middleware(['auth','verified','permission:access_finance_engine'])->group
 
 /*
 |--------------------------------------------------------------------------
-| Rentals
+| Rentals (legacy — RETIRED, AT-439)
 |--------------------------------------------------------------------------
+| RentalsController and the `rentals` table's own CRUD page are retired —
+| `leases` is the single lease store now (see .ai/specs/rentals-foundation-
+| at439.md). Old bookmarked/linked URLs redirect to the Leases screen rather
+| than 404ing (Johan's ruling, 2026-10-05). No table/row touched.
 */
 
-Route::middleware(['auth', 'permission:view_rentals'])->group(function () {
-
-    Route::get('/rentals', [\App\Http\Controllers\RentalsController::class, 'index'])
-        ->name('rentals.index');
-
-    Route::get('/rentals/create', [\App\Http\Controllers\RentalsController::class, 'create'])
-        ->name('rentals.create');
-
-    Route::get('/rentals/{id}/edit', [\App\Http\Controllers\RentalsController::class, 'edit'])
-        ->name('rentals.edit');
-
-    Route::post('/rentals', [\App\Http\Controllers\RentalsController::class, 'store'])
-        ->name('rentals.store');
-
-    Route::post('/rentals/{id}', [\App\Http\Controllers\RentalsController::class, 'update'])
-        ->whereNumber('id')
-        ->name('rentals.update');
-
-
+Route::middleware(['auth'])->group(function () {
+    Route::get('/rentals', fn () => redirect()->route('corex.leases.index'))->name('rentals.index');
+    Route::get('/rentals/create', fn () => redirect()->route('corex.leases.index'))->name('rentals.create');
+    Route::get('/rentals/{id}/edit', fn () => redirect()->route('corex.leases.index'))->name('rentals.edit');
 });
 
 /*
@@ -5980,36 +5969,35 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/sales/{send}/upload-on-behalf/{recipient}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'uploadOnBehalf'])->name('docuperfect.sales.uploadOnBehalf');
 });
 
-// ===== RENTAL DIVISION =====
-Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature:rentals'])->name('rental.')->group(function () {
-    Route::get('/', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'dashboard'])->name('dashboard');
-    Route::get('/signatures', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'signatures'])->name('signatures');
-    Route::post('/signatures/{document}/assign-metadata', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'assignMetadata'])->name('signatures.assign-metadata');
-    Route::post('/signatures/{document}/set-expiry', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'setExpiry'])->name('signatures.set-expiry');
-    Route::get('/active-leases', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'activeLeases'])->name('active-leases');
-    Route::get('/expired-leases', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'expiredLeases'])->name('expired-leases');
-    Route::get('/settings', [\App\Http\Controllers\Rental\RentalDivisionController::class, 'settings'])->name('settings');
+// ===== RENTAL DIVISION (legacy — RETIRED, AT-439) =====
+// RentalDivisionController/RentalPropertyController and the hidden Rentals
+// panel they served are gone — superseded by the Lease Hub, the Rental
+// Command Centre, and the real Property pillar (.ai/specs/rentals-
+// foundation-at439.md §3). Old URLs redirect, never 404 (Johan's ruling,
+// 2026-10-05). RentalDocumentTypeController is UNCHANGED — still live,
+// still reachable from Settings — not part of this retirement.
+Route::prefix('rental')->middleware(['auth'])->name('rental.')->group(function () {
+    Route::get('/', fn () => redirect()->route('corex.rentals.command-centre.index'))->name('dashboard');
+    Route::get('/signatures', fn () => redirect()->route('docuperfect.dashboard'))->name('signatures');
+    Route::get('/active-leases', fn () => redirect()->route('corex.leases.index', ['status' => 'active']))->name('active-leases');
+    Route::get('/expired-leases', fn () => redirect()->route('corex.leases.index', ['status' => 'expired']))->name('expired-leases');
+    Route::get('/settings', fn () => redirect()->route('corex.settings'))->name('settings');
 
-    // Settings sub-routes
     Route::prefix('settings')->name('settings.')->group(function () {
-        // Properties
-        Route::get('/properties', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'index'])->name('properties.index');
-        Route::get('/properties/create', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'create'])->name('properties.create');
-        Route::post('/properties', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'store'])->name('properties.store');
-        Route::get('/properties/{property}/edit', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'edit'])->name('properties.edit');
-        Route::put('/properties/{property}', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'update'])->name('properties.update');
-        Route::post('/properties/{property}/toggle', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'toggleActive'])->name('properties.toggle');
-        Route::get('/properties/search', [\App\Http\Controllers\Rental\RentalPropertyController::class, 'search'])->name('properties.search');
+        Route::get('/properties', fn () => redirect()->route('corex.properties.index'))->name('properties.index');
+        Route::get('/properties/create', fn () => redirect()->route('corex.properties.create'))->name('properties.create');
+        Route::get('/properties/{property}/edit', fn () => redirect()->route('corex.properties.index'))->name('properties.edit');
 
-        // Document Types
+        // Document Types — UNCHANGED, still live (not part of this retirement).
         Route::get('/document-types', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'index'])->name('document-types.index');
         Route::post('/document-types', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'store'])->name('document-types.store');
         Route::put('/document-types/{type}', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'update'])->name('document-types.update');
         Route::post('/document-types/{type}/toggle', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'toggleActive'])->name('document-types.toggle');
 
-        // Reminders
-        Route::get('/reminders', [\App\Http\Controllers\Rental\RentalReminderSettingsController::class, 'index'])->name('reminders.index');
-        Route::put('/reminders', [\App\Http\Controllers\Rental\RentalReminderSettingsController::class, 'update'])->name('reminders.update');
+        // Reminders — screen + menu entry retired (Johan's ruling: leave the
+        // rental_reminder_settings table, retire the screen). GET redirects;
+        // the update form is gone, so its POST is removed, not redirected.
+        Route::get('/reminders', fn () => redirect()->route('corex.settings'))->name('reminders.index');
     });
 });
 
