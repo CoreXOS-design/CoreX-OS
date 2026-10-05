@@ -2490,6 +2490,97 @@ archive/restore, agency isolation).
 **Finance stage dependency:** this is the single source of truth `.ai/specs/rental-money.md` §6 will
 read from when a completed job card's lines become charges — see that spec's own note.
 
+### 14.18 Catalogue code/description split + job-card line picker fix (AT-442 QA1 findings, 2026-10-05 round 3)
+
+Johan's three QA1 findings, each with a root cause and fix:
+
+**A — "picking a catalogue item still required typing the description."** The catalogue item had
+only one `name` field (code and description combined into one string), so there was nothing to
+pick that was both short enough to scan in a list AND descriptive enough to use as the line's
+description. Fixed by splitting `rental_catalogue_items.name` into two required columns: `code`
+(string 50, unique per agency among non-archived rows) and `description` (string 500).
+`2026_10_05_270000`/`270100`/`270200` add the columns, backfill every existing row (`code` derived
+from the old `name` — uppercased, non-alphanumeric collapsed to `-`, truncated to 20 chars, deduped
+per agency with a numeric suffix; `description` copied verbatim from the old `name`), then drop
+`name`. `RentalCatalogueItem::label()` returns `"{code} — {description}"` — the one display string
+used everywhere an item is picked from (catalogue list, job-card picker, print/quote).
+
+**B — "an item marked Parts showed as Labour on the line, and Type couldn't be changed."** Two
+separate bugs, both in `RentalJobCardService::addLine()`: (1) the picked catalogue item's `kind()`
+always won over an explicitly posted `type`, even when the agent had deliberately changed the
+dropdown — reversed so an explicit posted `type` now wins, falling back to the catalogue item's
+kind only when none was posted; (2) the OLD add-line row's Type/Unit `<select>` elements were
+`disabled` once a catalogue item was picked — a disabled field is never submitted at all, so the
+server never even saw a `type` to disagree with, and the Alpine `onchange` handler that was
+supposed to apply the picked item's kind never actually wrote a value into the select. The
+rebuilt add-line row (`_add-line-row.blade.php`) never disables anything; every field stays
+editable after a pick.
+
+**C — "no column headers above the add-line row."** `App\Support\RentalJobCardLineGrid` is the one
+source of truth for the row's `grid-template-columns` track list, shared by a new
+`_line-columns-header.blade.php` partial, the existing-lines table, and the add-line row, so all
+three can never drift apart. Header labels: Item, Description, Type, [Unit, Qty, Unit price, [VAT]
+— only when prices/VAT apply], blank (archive/+ action). Rendered once per task block and once for
+the General block (`show.blade.php`), immediately above that block's lines table.
+
+**The picker itself — searchable, pre-fills everything, still fully editable.** The add-line row's
+Item field is a type-to-search box (`catalogueLinePicker()` Alpine component, one instance per
+row) matching on code or description, showing `"CODE — Description"` in the dropdown. Picking an
+item sets description, type, unit, unit price, and VAT type on the SAME row — every one of those
+fields stays a normal editable control afterward (nothing disabled, per the bug-B fix above); the
+hidden hard-fail-safe is "no match → Free text" is always offered as an explicit dropdown option.
+
+**Root-cause bug found only by a real browser click, not the PHPUnit suite:** the picker's `pick()`
+method originally read `this.$el.querySelector(...)` to find its row's sibling fields. `pick(it)`
+is invoked via `@click="pick(it)"` from inside an `x-for`-rendered dropdown item — Alpine binds
+`$el` to the element whose directive triggered the CURRENT evaluation chain, not to the
+component's root, so inside that call chain `$el` resolved to the tiny clicked `<div>` (the
+dropdown option itself), not the row. `querySelector` on that element found nothing, so
+description/type/unit/price silently stayed blank while the plain reactive write
+(`this.selectedId = item.id`) still succeeded — which is exactly why the PHPUnit `addLine()` tests
+all passed (they call the service directly, never touching Alpine) while the live control did
+nothing visible. Fixed by capturing the row's root element once, in `init()`
+(`this.rootEl = this.$el`), and reading `this.rootEl.querySelector(...)` from `field()` instead.
+Confirmed via a real Puppeteer click (not a synthetic `element.click()` call) reading back the
+resulting field values — this is the "a passing server-contract test does not prove a UI control
+works for a real click" case `BUILD_STANDARD.md` warns about, caught only by browser verification.
+
+**A second, independent bug found the same way:** `RentalJobCardLineGrid::columns()`'s Description
+track was `minmax(0,1fr)` — no floor — while Type/Unit/Qty/Unit price/VAT held a combined ~460px of
+fixed-width tracks. At 1366px the row only has ~604px available next to the crew/sign-off right
+panel, so the grid's own auto-sizing starved Description down to ~18px (Item also went below its
+cap) — present in the DOM, invisible and unusable on screen, which a pure "does it wrap to a
+second line" check would not catch. Fixed by giving Description a 70px floor
+(`minmax(70px,1fr)`) and trimming the other tracks (Item 130→100px, Type 110→90px, Unit 70→64px,
+Qty 56→50px, Unit price 92→84px, VAT 96→84px) to fit the real 1366px budget — confirmed via
+`getBoundingClientRect()` computed widths at both 1366 and 1536, not a screenshot alone.
+
+**Saved lines snapshot, unchanged by this round:** `rental_job_card_lines.code` (added
+`2026_10_05_270300`) joins the existing `type`/`description`/`unit` snapshot columns (§14.2) — a
+line copies the picked item's code at add-time and never re-reads the catalogue item again, so a
+later rename/archive/price-change on the catalogue item never retroactively changes an existing
+job card. Print/quote (`_pdf-lines-table.blade.php`, shared by `print.blade.php` and
+`quote-pdf.blade.php`) shows `"code — description"` when a code is present, description alone for
+a free-text line.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalCatalogueItemTest.php` (code required/unique per
+agency among non-archived rows, archived codes may be reused, codes are agency-isolated, search
+matches code or description) and `tests/Feature/RentalJobCards/RentalJobCardAt442FollowUpTest.php`
+(picking a catalogue item pre-fills description/unit/price; an explicit posted description/type
+still overrides the catalogue item's own; a free-text line has no code; a line's code survives a
+later rename/archive of the catalogue item it came from).
+
+**Files:** `database/migrations/2026_10_05_270000..270300_*`, `app/Models/RentalCatalogueItem.php`,
+`app/Models/RentalJobCardLine.php`, `app/Services/Rentals/RentalJobCardService.php`,
+`app/Http/Controllers/CoreX/RentalCatalogueItemController.php`,
+`app/Http/Controllers/CoreX/RentalJobCardController.php`, `app/Support/RentalJobCardLineGrid.php`
+(new), `resources/views/corex/rental-job-cards/_line-columns-header.blade.php` (new),
+`resources/views/corex/rental-job-cards/_lines-table.blade.php`,
+`resources/views/corex/rental-job-cards/_add-line-row.blade.php`,
+`resources/views/corex/rental-job-cards/show.blade.php`,
+`resources/views/corex/rental-job-cards/_pdf-lines-table.blade.php`,
+`resources/views/corex/rental-catalogue-items/{index,create,edit}.blade.php`.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
