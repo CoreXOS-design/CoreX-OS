@@ -1020,6 +1020,78 @@ bottlenecks," not DDL/fsync latency, which is Johan's call per the settings reco
 
 ---
 
+## Standard −1y — Tests run on a dedicated, tests-only MySQL instance; schemas are persistent (2026-10-05, Johan-approved, standing policy)
+
+Standard −1x fixed lock visibility and self-healing but left the real cost (MySQL durability
+settings under multi-lane load on the ONE shared instance that also serves live/Staging/QA1/QA2/
+demo) untouched — measured there at 276.81s to bootstrap a fresh schema even with a current dump.
+Johan approved a second, completely separate MySQL instance dedicated to tests, so lane tests never
+compete with live for that instance's resources and can run with durability settings that would be
+unsafe on real data. Full detail, settings, access control, and how to operate it:
+**`/root/LANETEST-MYSQL.md`**.
+
+**What changed:**
+- A Docker container, `corex-lanetest-mysql` (same `mysql:8.0.46` version as the main instance),
+  listening on `127.0.0.1:3317` only, with its own datadir
+  (`/mnt/HC_Volume_103099143/lanetest-mysql-data`) — shares nothing with the main instance's files.
+  Hard-capped at 1.5GB memory (this box runs with very little free RAM) so it can never starve the
+  host or the main instance.
+- Durability relaxed because every schema here is `hfc_dash_test_*` and always rebuildable:
+  `skip-log-bin`, `innodb_flush_log_at_trx_commit=0`, `sync_binlog=0`, `innodb_doublewrite=OFF`,
+  `performance_schema=OFF`, `innodb_buffer_pool_size=1G`. **These settings must never be applied to
+  the main instance** — it serves live.
+- A dedicated `lanetest` MySQL user, grantable ONLY on `` `hfc_dash_test_%`.* `` — verified it cannot
+  create or touch a schema outside that pattern.
+- `scripts/lane-test.sh` and `tests/bootstrap.php` both now route every test connection to this
+  instance by reading `/root/.lanetest-mysql-credentials` (root-only, never committed, never
+  echoed) — overriding DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD regardless of what a worktree's own
+  `.env` says, so a test run on this box cannot reach the main instance even by accident. **On any
+  machine without that credentials file (any developer's own local MySQL, Windows/Laragon
+  included), both fall through to the previous behaviour unchanged** — this is additive, not a
+  universal requirement.
+- **Schemas are now PERSISTENT, never dropped at the end of a run.** `scripts/lane-test.sh` stores a
+  fingerprint (hash of `database/schema/mysql-schema.sql` + every migration file's own content) in
+  a marker row inside each lane's schema. Unchanged fingerprint → nothing rebuilt, and
+  `LANE_TEST_SCHEMA_READY=1` tells `tests/bootstrap.php` to pre-set
+  `RefreshDatabaseState::$migrated = true` so RefreshDatabase (used individually by every `*Test.php`
+  file — 978 of them, none touched) skips its own `migrate:fresh` and goes straight to wrapping each
+  test in a transaction against the already-correct schema. Changed fingerprint → a plain `artisan
+  migrate --force` for the delta, never a full rebuild. `scripts/lane-test.sh --fresh <files>` forces
+  a full rebuild — the recovery valve for a test that escapes its own wrapping transaction (raw DDL,
+  an explicit commit) and leaves residue migrate:fresh previously wiped away unconditionally. That
+  trade-off is real and stated plainly in both the script's own header comment and
+  `tests/bootstrap.php`'s.
+
+**Measured** (this instance, persistent schema): a **cold** run (schema didn't exist, full
+snapshot import) took ~197s — inflated by concurrent disk contention from other lanes still on the
+OLD instance at measurement time (host disk was at 100% util, swap fully exhausted — a real,
+diagnosed condition, not this instance's own cost). A **warm** run of the same file (fingerprint
+already matched) took **4.25s–5.48s total**, with the single test that previously cost 213–277s now
+running in under a second. That is the number that matters day to day: every run after the first on
+a given lane is this fast, not just the one measured.
+
+**Concurrency**: still behind the single shared `/tmp/corex-lane-test.lock` for now (Standard −1x) —
+not changed in this pass. With durability relaxed and each lane isolated to its own
+`hfc_dash_test_N` schema (enforced by the `lanetest` user's grant, not just convention), 2–3 lanes
+testing concurrently against this instance should no longer reproduce Standard −1h's contention (that
+was fsync/redo-log pressure from conservative durability settings, now removed on this instance) —
+recommended as a safe next step (a semaphore of ~3 instead of an exclusive lock), not yet built; this
+pass intentionally stopped at "wire the dedicated instance in and prove it's fast," per the explicit
+instruction to keep the lock as-is for this round.
+
+**MySQL-settings correction, so the wrong claim in Standard −1x's own recommendations list is not
+repeated:** `sync_binlog`, `innodb_flush_log_at_trx_commit`, and `log_bin` are GLOBAL-only on the main
+instance — there is no way to relax them "for test connections only" there, and they must never be
+changed on an instance that also serves live. The one genuinely session-scoped, safe lever
+(`SET SESSION sql_log_bin=0`) was checked directly against the main instance's test DB user
+(`corexqa1`) and confirmed NOT currently grantable without an explicit `SESSION_VARIABLES_ADMIN` (or
+legacy `SUPER`) grant — a narrow, live-safe privilege that only lets that one user skip binlogging
+its own session, never a server-wide change, but still a grant Johan would need to approve
+separately if ever wanted on the main instance. This dedicated instance makes that question moot for
+tests.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

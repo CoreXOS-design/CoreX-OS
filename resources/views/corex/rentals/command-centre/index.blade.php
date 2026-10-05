@@ -88,16 +88,32 @@
         </div>
     </div>
 
-    {{-- §3.1 — ten clickable tiles, Properties-screen pstat-v2 pattern. --}}
+    {{-- §3.1 — eleven clickable tiles, Properties-screen pstat-v2 pattern.
+         Round 7 (2026-10-05, Johan) — open_faults/open_work_orders are
+         record-based: tileCounts() returns these two as
+         ['properties' => M, 'records' => N] instead of a plain int, so the
+         big number is the actual record total (what the list's own "Open"
+         column adds up to) and the small text names how many properties
+         that's spread across — never two numbers that look like they
+         disagree because one counts records and the other counts rows. --}}
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         @foreach($tiles as $key => $label)
-        @php $active = $filters['tile'] === $key; @endphp
+        @php
+            $active = $filters['tile'] === $key;
+            $isRecordBased = is_array($tileCounts[$key]);
+            $bigNumber = $isRecordBased ? $tileCounts[$key]['records'] : (int) $tileCounts[$key];
+        @endphp
         <a href="{{ $tileHref($key) }}"
            class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"
            style="{{ $active ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
             <div class="min-w-0">
-                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $tileCounts[$key]) }}</div>
-                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $label }}</div>
+                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format($bigNumber) }}</div>
+                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">
+                    {{ $label }}
+                    @if($isRecordBased)
+                        <span class="font-normal" style="text-transform: none; color: var(--text-muted);">&middot; on {{ number_format($tileCounts[$key]['properties']) }} {{ \Illuminate\Support\Str::plural('property', $tileCounts[$key]['properties']) }}</span>
+                    @endif
+                </div>
             </div>
         </a>
         @endforeach

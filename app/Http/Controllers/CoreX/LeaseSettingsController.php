@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\LeaseSetting;
+use App\Models\Property;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
@@ -31,6 +32,15 @@ class LeaseSettingsController extends Controller
             // .ai/specs/rental-renewals.md §2 — tenant notice period.
             'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
             'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
+            // Round 7 (2026-10-05) — Command Centre "Unoccupied"/"Inactive"
+            // tiles. Options = this agency's full write-side status
+            // vocabulary (Property::allowedStatuses() — systemStatuses()
+            // plus whatever this agency has activated under Settings →
+            // Property Statuses), same source the dashboard's own Status
+            // filter already draws from.
+            'activeRentalStatuses' => LeaseSetting::activeRentalStatusesFor($agencyId),
+            'activeRentalStatusesDefault' => LeaseSetting::defaultActiveRentalStatuses(),
+            'allowedPropertyStatuses' => Property::allowedStatuses($agencyId),
         ]);
     }
 
@@ -57,6 +67,11 @@ class LeaseSettingsController extends Controller
             // an onboarding-wizard saver for the 'leases' step, which posts
             // only the fields that step renders.
             'tenant_notice_period_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // Round 7 (2026-10-05) — same §6.1 nullable/has()-guard
+            // reasoning; an empty array (every box unchecked) is itself a
+            // valid, if unusual, choice, so 'array' here, never 'required'.
+            'active_rental_statuses' => ['nullable', 'array'],
+            'active_rental_statuses.*' => ['string'],
         ]);
 
         $data = [
@@ -75,6 +90,16 @@ class LeaseSettingsController extends Controller
         }
         if ($request->has('tenant_notice_period_days')) {
             $data['tenant_notice_period_days'] = $validated['tenant_notice_period_days'];
+        }
+        // Round 7 (2026-10-05) — a checkbox GROUP going from "every box
+        // checked" to "every box unchecked" submits NO active_rental_statuses
+        // key at all (unchecked checkboxes never appear in a POST) — that
+        // must save as an empty array, not be read as "this form didn't
+        // render the control." The settings page submits an explicit
+        // presence marker so the two are distinguishable; has() alone
+        // cannot tell them apart.
+        if ($request->has('active_rental_statuses_present')) {
+            $data['active_rental_statuses'] = $validated['active_rental_statuses'] ?? [];
         }
 
         LeaseSetting::updateOrCreate(['agency_id' => $agencyId], $data);
