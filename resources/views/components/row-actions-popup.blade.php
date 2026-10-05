@@ -41,10 +41,27 @@
             return document.querySelectorAll('.corex-rap');
         }
 
+        // The panel is teleported to <body> the first time it opens (see
+        // positionPanel below) — after that, details.querySelector('.corex-
+        // rap-panel') finds NOTHING, because the panel is no longer a
+        // descendant of `details` at all. Every lookup after the first open
+        // MUST go through this cached reference, not a fresh querySelector —
+        // getting this wrong is exactly what silently broke Escape/outside-
+        // click/scroll-close here the first time (details.open flipped to
+        // false, but the now-orphaned querySelector returned null, so the
+        // panel itself never actually got display:none and stayed visible,
+        // intercepting clicks on whatever was underneath it).
+        function panelFor(details) {
+            if (!details.__corexPanel) {
+                details.__corexPanel = details.querySelector('.corex-rap-panel');
+            }
+            return details.__corexPanel;
+        }
+
         function closeMenu(details) {
             if (!details.open) { return; }
             details.open = false;
-            var panel = details.querySelector('.corex-rap-panel');
+            var panel = panelFor(details);
             if (panel) {
                 panel.style.display = 'none';
             }
@@ -62,7 +79,7 @@
 
         function positionPanel(details) {
             var summary = details.querySelector('summary');
-            var panel = details.querySelector('.corex-rap-panel');
+            var panel = panelFor(details);
             if (!summary || !panel) { return; }
 
             // Teleport once, first time this panel is ever opened — stays a
@@ -110,7 +127,7 @@
         document.addEventListener('click', function (e) {
             allMenus().forEach(function (d) {
                 if (!d.open) { return; }
-                var panel = d.querySelector('.corex-rap-panel');
+                var panel = panelFor(d);
                 if (d.contains(e.target) || (panel && panel.contains(e.target))) { return; }
                 closeMenu(d);
             });
