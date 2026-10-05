@@ -19,6 +19,7 @@ class RentalWorkOrderPhoto extends Model
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',
+        'rental_job_card_id',
         'photo_type',
         'storage_path',
         'uploaded_by_user_id',
@@ -47,6 +48,12 @@ class RentalWorkOrderPhoto extends Model
     public function workOrder(): BelongsTo
     {
         return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
+    }
+
+    /** Set when this photo belongs to a job card with no linked work order (RentalJobCardService::storePhoto()). */
+    public function jobCard(): BelongsTo
+    {
+        return $this->belongsTo(RentalJobCard::class, 'rental_job_card_id');
     }
 
     public function uploadedBy(): BelongsTo

@@ -460,7 +460,10 @@
                                 @endif
                             @empty
                                 <a href="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id]]) }}" class="corex-btn-outline text-xs">Create work order</a>
-                                <a href="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id], 'assignment_type' => 'internal']) }}" class="corex-btn-outline text-xs">Create job card (our team)</a>
+                                {{-- 2026-10-05 rebuild — a job card is its own screen now, not an
+                                     assignment_type=internal work order; the observation becomes a
+                                     pre-seeded (editable, nothing saved yet) task on the job card draft. --}}
+                                <a href="{{ route('corex.rental-job-cards.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id]]) }}" class="corex-btn-outline text-xs">Create job card (our team)</a>
                             @endforelse
                         </div>
                     </div>
@@ -486,7 +489,9 @@
                 </label>
                 <button type="submit" class="corex-btn-outline text-xs">Create fault report</button>
                 <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" class="corex-btn-outline text-xs">Create work order</button>
-                <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" name="assignment_type" value="internal" class="corex-btn-outline text-xs">Create job card (our team)</button>
+                {{-- 2026-10-05 rebuild — job cards are their own screen; ticked
+                     observation_ids[] (and combine) still serialize via plain GET form submit. --}}
+                <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-job-cards.create', ['rental_inspection_id' => $inspection->id]) }}" class="corex-btn-outline text-xs">Create job card (our team)</button>
             </form>
     </div>
     @endif

@@ -5,9 +5,15 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/** AT-442 — one row on a job card's task checklist. */
+/**
+ * Rebuilt 2026-10-05 — a numbered job on the card (Johan: "1 - Paint
+ * lounge"), with its own parts & labour lines underneath it. Display
+ * numbering is the task's position in RentalJobCard::tasks()' own
+ * sort_order, not a stored column.
+ */
 class RentalJobCardTask extends Model
 {
     use BelongsToAgency;
@@ -44,5 +50,15 @@ class RentalJobCardTask extends Model
     public function doneByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'done_by_user_id');
+    }
+
+    public function lines(): HasMany
+    {
+        return $this->hasMany(RentalJobCardLine::class, 'rental_job_card_task_id')->orderBy('sort_order')->orderBy('id');
+    }
+
+    public function subtotal(): float
+    {
+        return (float) $this->lines->sum('line_total');
     }
 }
