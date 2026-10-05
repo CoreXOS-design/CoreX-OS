@@ -87,9 +87,9 @@
     </div>
 
     @forelse($rows as $roomId => $roomRows)
-        {{-- Multi-line @endphp block form deliberately, not the inline
-             shorthand — see the agency-level show.blade.php's own comment
-             on this exact fix. --}}
+        {{-- Multi-line block form deliberately, not the inline shorthand —
+             see the agency-level show.blade.php's own comment on this
+             exact fix. --}}
         @php
             $room = $roomRows->first()->room;
         @endphp

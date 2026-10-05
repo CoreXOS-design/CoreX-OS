@@ -78,12 +78,28 @@
         </div>
     </div>
 
+    {{--
+        2026-10-05 round 2 (Johan, real-browser check) — same pattern as
+        the Command Centre (resources/views/corex/rentals/command-centre/
+        index.blade.php): left and right columns scroll INDEPENDENTLY,
+        each filling the viewport below the header, no whole-page scroll.
+        #jc-layout/#jc-left-col/#jc-right-col sizing JS at the bottom of
+        this file is the identical measure-actual-#appScroll-overflow
+        technique that screen's own JS comment explains in full (flat
+        `innerHeight - top` alone leaves an outer scrollbar — it can't see
+        every padding layer between here and the viewport's bottom edge).
+        Below the lg breakpoint (<1024px) this reverts to plain stacked
+        page scroll — the JS below never applies a fixed height there.
+        Right panel narrowed (lg:basis-[300px], same shape queue panel
+        already uses) — Johan: "shave the right-hand panel's width a
+        little to give the left column room" for the add-line row.
+    --}}
     <div x-data="rentalJobCardBuilder({
             isDraft: {{ $isDraft ? 'true' : 'false' }},
             catalogueItems: {{ $catalogueItemsJson->toJson() }},
             draftTasks: {{ $draftTasksJson->toJson() }},
-        })" class="grid grid-cols-3 gap-4">
-        <div class="col-span-2 space-y-4">
+        })" id="jc-layout" class="flex flex-col lg:flex-row gap-4 items-stretch" style="min-height:0;">
+        <div id="jc-left-col" class="w-full lg:flex-1 min-w-0 space-y-4 lg:overflow-y-auto" style="min-height:0;">
 
             {{-- 1. THE JOB --}}
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
@@ -490,7 +506,7 @@
         </div>
 
         @if($jobCard)
-        <div class="space-y-4">
+        <div id="jc-right-col" class="w-full lg:basis-[300px] lg:max-w-[320px] lg:flex-shrink-0 lg:grow-0 space-y-4 lg:overflow-y-auto" style="min-height:0;">
             {{-- 3. WHO & WHEN, one line --}}
             <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-sm flex flex-wrap gap-3">
@@ -661,5 +677,57 @@ function rentalJobCardBuilder({ isDraft, catalogueItems, draftTasks }) {
         },
     };
 }
+
+// 2026-10-05 round 2 (Johan, real-browser check) — left/right columns
+// scroll independently instead of the whole page, same technique as
+// resources/views/corex/rentals/command-centre/index.blade.php's own
+// #rcc-layout sizing JS (that file's comment has the full reasoning: a
+// flat `innerHeight - top` estimate alone still leaves an outer scrollbar
+// because it can't see every padding layer between #jc-layout and the
+// viewport's bottom edge that it doesn't own; instead measure the ACTUAL
+// resulting overflow on #appScroll, the real scrolling element — html/body
+// never scroll, by the shared layout's own h-screen+overflow-hidden
+// wrapper — and subtract exactly that much).
+//
+// Below the lg breakpoint (<1024px) this never applies a height — the
+// columns fall back to plain stacked page scroll (lg:overflow-y-auto on
+// each column is likewise a no-op below lg), per Johan's own instruction.
+(function () {
+    var LG_BREAKPOINT = 1024;
+
+    function applyHeight(px) {
+        var left = document.getElementById('jc-left-col');
+        var right = document.getElementById('jc-right-col');
+        if (left) { left.style.height = px === null ? '' : px + 'px'; }
+        if (right) { right.style.height = px === null ? '' : px + 'px'; }
+    }
+
+    function sizeColumns() {
+        var layout = document.getElementById('jc-layout');
+        if (!layout) { return; }
+
+        if (window.innerWidth < LG_BREAKPOINT) {
+            applyHeight(null);
+            return;
+        }
+
+        var top = layout.getBoundingClientRect().top;
+        var height = Math.max(240, window.innerHeight - top);
+        applyHeight(height);
+
+        var appScroll = document.getElementById('appScroll');
+        if (appScroll) {
+            var overflow = appScroll.scrollHeight - appScroll.clientHeight;
+            if (overflow > 0) {
+                applyHeight(Math.max(240, height - overflow));
+            }
+        }
+    }
+
+    window.addEventListener('resize', sizeColumns);
+    document.addEventListener('DOMContentLoaded', sizeColumns);
+    window.addEventListener('load', sizeColumns);
+    sizeColumns();
+})();
 </script>
 @endpush

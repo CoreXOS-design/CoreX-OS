@@ -135,21 +135,22 @@
         </div>
 
         @forelse($rows as $roomId => $roomRows)
-            {{-- Deliberately the multi-line @endphp block form here, not
-                 Blade's inline single-parenthesis shorthand: that shorthand
+            {{-- Deliberately the multi-line block form here, not Blade's
+                 inline single-parenthesis shorthand: that shorthand
                  mis-parses an expression containing its own nested
                  parentheses (closes on the wrong one), corrupting every
                  directive compiled after it in the whole file. Found the
                  hard way in the agency-level show.blade.php this same
                  round — see that file's own comment. Also: never write the
-                 literal open/close comment-token pair as text inside a
-                 Blade comment block like this one, even to document it —
-                 Blade's own comment stripper is not nesting-aware, so a
-                 comment containing another literal comment-open/close pair
-                 closes early at the FIRST inner close token it finds,
-                 leaking everything after it (up to the real close) onto
-                 the page as visible text. This exact file shipped that
-                 exact bug this way. --}}
+                 literal php-block tag names, or a literal open/close
+                 comment-token pair, as text inside a Blade comment block
+                 like this one, even to document it -- Blade extracts raw
+                 php blocks and strips comments with simple non-nesting-
+                 aware regexes, so a comment containing another literal
+                 instance of either token closes early at the FIRST one it
+                 finds, leaking everything after it (up to the real close)
+                 onto the page as visible text. This exact file shipped
+                 that exact bug this way. --}}
             @php
                 $room = $roomRows->first()->room;
             @endphp
