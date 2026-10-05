@@ -24,6 +24,11 @@ Schedule::command('articles:scrape')->daily();
 // Signature reminders — runs daily at 08:00
 Schedule::command('signatures:send-reminders')->dailyAt('08:00');
 
+// PPRA FFC Employment Letter — principal-signature reminders.
+// .ai/specs/ppra-ffc-employment-letter.md. Per-agency cadence
+// (agencies.ppra_employment_letter_reminder_days, 0 = off); no expiry.
+Schedule::command('ppra-employment-letters:send-reminders')->dailyAt('08:30')->withoutOverlapping();
+
 // AT-383 — pre-webinar reminders. HOURLY, deliberately: the lead time is set per
 // webinar in HOURS, so a daily job would fire hours early or late depending on what
 // time the webinar starts. The command is idempotent on reminder_sent_at, so an
