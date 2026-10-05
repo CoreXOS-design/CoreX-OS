@@ -5,11 +5,17 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Compliance\PpraEmploymentLetter;
+use App\Models\User;
 use App\Services\Compliance\PpraEmploymentLetterPdfService;
+use App\Services\Compliance\PpraEmploymentLetterService;
+use App\Services\Compliance\PractitionerFfcRosterService;
+use App\Services\PermissionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,18 +28,124 @@ use Symfony\Component\HttpFoundation\Response;
  * PpraEmploymentLetter::scopeVisibleTo() (§1c) on every action below,
  * including direct-URL-by-id access to show/download.
  *
- * Creation is deliberately NOT exposed here — a letter is always
- * self-service, started by the agent it is about (My Portal), never
- * generated on their behalf by an admin (the PIN signing ceremony that
- * follows can only ever be completed by the real agent/principal anyway).
- * Admin's role is oversight: list, view, download, archive, restore.
+ * Signing is always self-service — the agent and the principal each sign
+ * with their own PIN, never an admin on their behalf. Create-on-behalf
+ * (2026-10-05, Johan) lets an admin/principal START a letter for an agent
+ * in their own scope; the agent-picker is bounded by the SAME own/branch/
+ * all scope as the list (ppra_employment_letters.view's stored scope), and
+ * the created letter runs through the identical missing-data validation and
+ * status machine as PpraEmploymentLetterService::create() — there is no
+ * second code path, only a different caller.
+ *
+ * Gate (2026-10-05, cc1's HR->Documents nav finding, flagged for closing
+ * here): this ENTIRE admin register is the branch/all-scoped register —
+ * an 'own'-scoped user (every agent is seeded 'own' on
+ * ppra_employment_letters.view so they can see their OWN letter via My
+ * Portal) must never reach it, including by direct URL. The sidebar link
+ * was already fixed to stop OFFERING it to 'own'-scoped users; this closes
+ * the matching route-level gap so a direct URL does not bypass that.
+ * assertAdminScope() enforces this on every action below, in addition to
+ * each action's own permission check.
  */
 class PpraEmploymentLetterController extends Controller
 {
+    /** Every action here is for branch/all scope only — 'own' belongs in My Portal, never here, not even by direct URL. */
+    private function assertAdminScope(User $user): void
+    {
+        abort_unless(
+            in_array(PermissionService::getDataScope($user, 'ppra_employment_letters'), ['branch', 'all'], true),
+            403
+        );
+    }
+
+    /** The scoped agent picker for create-on-behalf. */
+    public function create(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
+        $this->assertAdminScope($user);
+
+        $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId());
+        abort_unless($agency, 422, 'No agency context.');
+
+        $resolved = app(PpraEmploymentLetterService::class)->resolvePrincipal($agency);
+
+        return view('admin.ppra-employment-letters.create', [
+            'agents'          => $this->scopedRoster($user, $agency->id),
+            'principalStatus' => $resolved['status'],
+            'principals'      => $resolved['principals'],
+        ]);
+    }
+
+    public function store(Request $request, PpraEmploymentLetterService $service): RedirectResponse
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
+
+        $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId());
+        abort_unless($agency, 422, 'No agency context.');
+
+        $validated = $request->validate([
+            'user_id'           => ['required', 'integer'],
+            'principal_user_id' => ['nullable', 'integer'],
+        ]);
+
+        $agentIds = $this->scopedRoster($user, $agency->id)->pluck('id')->all();
+        abort_unless(in_array($validated['user_id'], $agentIds, true), 403, 'That agent is not in your scope.');
+
+        $agent = User::withoutGlobalScopes()->where('agency_id', $agency->id)->findOrFail($validated['user_id']);
+
+        $missing = $service->missingFieldsFor($agent, $agency);
+        if ($missing !== []) {
+            return back()->withInput()->with('error', 'This agent is missing information needed before a letter can be started: '
+                . implode('; ', array_column($missing, 'label')) . '.');
+        }
+
+        $letter = $service->create($agent, $user, $validated['principal_user_id'] ?? null);
+
+        return redirect()->route('admin.ppra-employment-letters.show', $letter->id)
+            ->with('success', 'Letter started for ' . $agent->name . ' — they will sign it themselves from My Portal.');
+    }
+
+    /**
+     * The agent-picker's candidate list: active practitioners in this agency,
+     * narrowed to the admin's own/branch/all scope — the SAME scope
+     * ppra_employment_letters.view resolves for the list screen
+     * (PermissionService::getDataScope), so an admin can never start a
+     * letter for an agent outside the scope they'd otherwise see.
+     *
+     * @return Collection<int, array{id:int,name:string,role:string,designation:?string,ffc_number:?string,ffc:array}>
+     */
+    private function scopedRoster(User $admin, int $agencyId): Collection
+    {
+        $roster = app(PractitionerFfcRosterService::class)->rosterFor($agencyId);
+        $scope  = PermissionService::getDataScope($admin, 'ppra_employment_letters');
+
+        if ($scope === 'all') {
+            return $roster;
+        }
+        if ($scope === 'own') {
+            return $roster->filter(fn ($a) => $a['id'] === $admin->id)->values();
+        }
+        if ($scope === 'branch') {
+            $branchIds = User::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereIn('id', $roster->pluck('id'))
+                ->pluck('branch_id', 'id');
+
+            $adminBranch = $admin->effectiveBranchId();
+
+            return $roster->filter(fn ($a) => ($branchIds[$a['id']] ?? null) === $adminBranch)->values();
+        }
+
+        return collect();
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
         abort_unless($user->hasPermission('ppra_employment_letters.view'), 403);
+        $this->assertAdminScope($user);
 
         $showArchived = $request->boolean('archived');
 
@@ -109,6 +221,7 @@ class PpraEmploymentLetterController extends Controller
     {
         $user = $request->user();
         abort_unless($user->hasPermission('ppra_employment_letters.view'), 403);
+        $this->assertAdminScope($user);
 
         $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)
             ->with(['user', 'principal', 'branch', 'createdBy'])
@@ -121,6 +234,7 @@ class PpraEmploymentLetterController extends Controller
     {
         $user = $request->user();
         abort_unless($user->hasPermission('ppra_employment_letters.view'), 403);
+        $this->assertAdminScope($user);
 
         $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)->findOrFail($letter);
 
@@ -143,6 +257,7 @@ class PpraEmploymentLetterController extends Controller
     {
         $user = $request->user();
         abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
+        $this->assertAdminScope($user);
 
         $record = PpraEmploymentLetter::visibleTo($user)->findOrFail($letter);
         $record->delete();
@@ -154,6 +269,7 @@ class PpraEmploymentLetterController extends Controller
     {
         $user = $request->user();
         abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
+        $this->assertAdminScope($user);
 
         $record = PpraEmploymentLetter::onlyTrashed()->visibleTo($user)->findOrFail($letter);
         $record->restore();

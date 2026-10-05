@@ -1,6 +1,7 @@
 # PPRA FFC Renewal — Confirmation of Employment Letter
 
-> Status: Built, verified in a worktree, not yet landed. Branch `ppra-ffc-employment-letter-2026-10-05`.
+> Status: Landed on QA1, then fixed again same day (2026-10-05) after Johan's QA1
+> testing found four real bugs — see §15 below. Branch `ppra-letter-fixes-2026-10-05`.
 > Investigation report: `/tmp/ppra-employment-letter-investigation-2026-10-05.md` (2026-10-05).
 
 ---
@@ -247,3 +248,92 @@ the real request IP (`$request->ip()`).
 - `app/Http/Controllers/CoreX/SettingsController.php` (settings saver)
 - `resources/views/corex/settings.blade.php` (settings section)
 - `database/schema/mysql-schema.sql` (snapshot refreshed, DEFINER stripped)
+
+## 15. QA1 bug-fix round (2026-10-05, Johan's testing)
+
+Four bugs found testing the feature live on QA1. All four reproduced in a
+real browser (logged in as clones of the real users' role/permission/
+designation configuration, built from a read-only query against QA1) before
+any fix was written, per Johan's explicit instruction.
+
+**Bug 1 — My Portal PPRA area blank for an Administrator.**
+Root cause: a pure Blade structural defect, not a permission issue — the
+PPRA pane (`x-show="sub.documents === 'ppra_employment_letter'"`) was nested
+inside the COMPLIANCE tab's wrapper (`x-show="tab === 'compliance'"`) in
+`resources/views/agent/portal.blade.php`, while its own nav button and the
+`sub.documents` key both live in the DOCUMENTS tab. Clicking the sub-tab set
+`sub.documents` correctly, but the enclosing `tab === 'compliance'` check
+stayed false while viewing Documents, so the pane never rendered — blank,
+for every user, every time, regardless of role or permissions. Fixed by
+moving the pane block into the Documents tab wrapper, as a sibling of the
+other document-type panes. Confirmed via the real QA1 database that the
+admin's own `ppra_employment_letters.view`/`.create` grants were already
+correct — this was never a permissions bug for admin.
+
+**Bug 2 — PPRA option entirely absent for `office_admin` (Angelique's role).**
+Root cause: `config/corex-permissions.php`'s `office_admin` role_defaults
+entry never had the `ppra_employment_letters.*` keys added when this
+feature shipped — not a zero-keys resolution like the (intentional,
+unrelated) `assistant` role, but a literal absence from the include list.
+Confirmed against the real QA1 `role_permissions` table: `office_admin` had
+zero rows for any `ppra_employment_letters.*` key. Fixed by adding `.view`,
+`.create`, `.sign_as_principal` to `office_admin`'s include list (same
+shape already used for `agent`/`branch_manager`). Backfill for every
+existing agency's `office_admin` role: `php artisan corex:sync-permissions --merge-defaults`
+(existing, idempotent, additive-only command — safe to re-run).
+
+**Bug 3 — Admin had no way to create a letter.**
+This was the original build's deliberate design (see the now-removed
+docblock on `app/Http/Controllers/Admin/PpraEmploymentLetterController.php`)
+— Johan's explicit ask on 2026-10-05 reverses it. Added `create()`/`store()`
+to the Admin controller: an agent-picker scoped to the SAME own/branch/all
+scope as the list (`ppra_employment_letters.view`'s stored scope, via
+`PractitionerFfcRosterService::rosterFor()` filtered by
+`PermissionService::getDataScope()`), gated on `ppra_employment_letters.manage`.
+The created letter runs through the identical `PpraEmploymentLetterService::create()`
+status machine and `missingFieldsFor()` validation as self-service — no
+second code path. The agent still signs with their own PIN afterward. The
+unsigned-PDF download for a draft/awaiting-signature letter already existed
+on the Admin `download()` action (falls back to `PpraEmploymentLetterPdfService::generate()`
+with a null principal signature) — confirmed working, no change needed.
+
+**Bug 4 — Static helper text on the Admin list; no real empty state.**
+Removed the banner subtitle ("Every Confirmation of Employment letter…")
+and the empty-state body text ("A letter is started by the agent
+themselves…") from `resources/views/admin/ppra-employment-letters/index.blade.php`.
+Added a "New letter" primary action in the page banner (always visible, not
+just when empty) and a real empty state — shown only when the list is
+genuinely empty with no filter active — carrying the same "New letter" CTA
+instead of static prose.
+
+**Files additionally created/modified for this round:**
+- Created: `resources/views/admin/ppra-employment-letters/create.blade.php`
+- Modified: `resources/views/agent/portal.blade.php` (moved PPRA pane into
+  the Documents tab)
+- Modified: `config/corex-permissions.php` (office_admin include list)
+- Modified: `routes/web.php` (admin `create`/`store` routes)
+- Modified: `app/Http/Controllers/Admin/PpraEmploymentLetterController.php`
+  (`create()`, `store()`, `scopedRoster()`)
+- Modified: `resources/views/admin/ppra-employment-letters/index.blade.php`
+  (helper text removed, New letter CTA, real empty state)
+- Modified: `tests/Feature/Compliance/PpraEmploymentLetterTest.php` (backfill,
+  create-on-behalf, scoping, cross-agency coverage)
+
+**Bug 5 (found during landing, not one of Johan's original four) — admin
+register reachable by direct URL with 'own' scope.** cc1's concurrent
+HR -> Documents nav fix (`.ai/specs/hr-menu.md`, commit `6182b12da`) found
+that the sidebar link to this admin register was only ever hidden from an
+'own'-scoped agent by an unrelated accident (the old `sidebar.section.admin`
+wrapper), not by a real scope check, and explicitly flagged the matching
+route-level gap for this lane to close: `admin.ppra-employment-letters.*`
+had no scope check at all, only a bare `hasPermission('ppra_employment_letters.view')`
+boolean — every agent is seeded 'own' scope on that key (for their own
+My Portal self-service letter), which also satisfies the boolean, so an
+agent could still reach the ADMIN register by direct URL even though the
+sidebar never links there for them. Not a data leak (`scopeVisibleTo()`
+already narrows query results to their own row), but the wrong screen for
+that role regardless. Fixed with `PpraEmploymentLetterController::assertAdminScope()`
+— every admin action (index/show/download/create/store/archive/restore) now
+requires scope `branch` or `all`, matching cc1's own sidebar-visibility
+logic exactly. Covered by
+`test_own_scoped_agent_cannot_reach_admin_register_by_direct_url`.
