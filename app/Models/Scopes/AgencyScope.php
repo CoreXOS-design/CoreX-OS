@@ -58,6 +58,15 @@ class AgencyScope implements Scope
             return;
         }
 
+        // AT-447 — Platform E-Sign mode: CoreX's own contracts belong to no agency, so an
+        // e-sign model is constrained to agency_id IS NULL (and nothing else). Off everywhere
+        // except an owner on docuperfect/* who entered the mode from Dev Settings.
+        if (\App\Support\PlatformEsignMode::appliesTo($model) && \App\Support\PlatformEsignMode::active()) {
+            $builder->whereNull($model->getTable() . '.agency_id');
+
+            return;
+        }
+
         // Super-admin / owner roles see every agency by default. They opt
         // INTO a specific agency via the agency switcher — until they do,
         // we do not scope their queries at all (even if a stale override

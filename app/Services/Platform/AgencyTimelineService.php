@@ -258,6 +258,37 @@ class AgencyTimelineService
         $this->log($timeline, null, $paused ? 'paused' : 'resumed', $paused ? 'Timeline paused' : 'Timeline resumed', null, null, $userId);
     }
 
+    // ── Agreement (platform e-sign document) ───────────────────────────────
+
+    /** Link (or unlink with null) the platform e-sign document that is this agency's agreement. */
+    public function linkAgreement(AgencyTimeline $timeline, ?int $templateId, ?int $userId): void
+    {
+        $before = $timeline->agreement_template_id;
+        $timeline->update(['agreement_template_id' => $templateId]);
+        $this->log($timeline, null, 'agreement_linked', $templateId ? 'Linked e-sign document #' . $templateId : 'Unlinked the e-sign agreement',
+            ['agreement_template_id' => $before], ['agreement_template_id' => $templateId], $userId);
+        $this->syncAgreement($timeline);
+    }
+
+    /**
+     * If the linked e-sign document is fully signed, fire AgencyContractSigned so the
+     * `contract_signed` steps tick. Idempotent (listener only touches pending items),
+     * and called whenever a timeline is read, so no hook inside the e-sign is needed.
+     */
+    public function syncAgreement(AgencyTimeline $timeline): void
+    {
+        if (!$timeline->agreement_template_id) {
+            return;
+        }
+        $signed = \App\Models\Docuperfect\SignatureTemplate::withoutGlobalScopes()
+            ->where('id', $timeline->agreement_template_id)
+            ->where('status', \App\Models\Docuperfect\SignatureTemplate::STATUS_COMPLETED)
+            ->exists();
+        if ($signed) {
+            event(new \App\Events\Platform\AgencyContractSigned($timeline->agency_id, (int) $timeline->agreement_template_id, null));
+        }
+    }
+
     // ── Reading ───────────────────────────────────────────────────────────
 
     /** Display state of one milestone relative to $today. */

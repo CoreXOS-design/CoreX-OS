@@ -56,6 +56,7 @@ class Template extends Model
         'insertable_blocks',
         'owner_id',
         'agency_id',
+        'is_platform',
         'archived_at',
     ];
 
@@ -362,6 +363,12 @@ class Template extends Model
 
     public function scopeVisibleTo($query, User $user)
     {
+        // AT-447 — Platform E-Sign mode: the owner sees every platform template
+        // (PlatformTemplateScope already restricts the query to is_platform = 1).
+        if (\App\Support\PlatformEsignMode::active()) {
+            return $query;
+        }
+
         $scope = \App\Services\PermissionService::getDataScope($user, 'templates');
 
         // 2026-08-15 — 'all' used to mean "every template on the entire
@@ -548,6 +555,18 @@ class Template extends Model
      */
     protected static function booted(): void
     {
+        // AT-447 — platform (CoreX contract) templates are invisible to customer queries.
+        static::addGlobalScope(new \App\Models\Scopes\PlatformTemplateScope());
+
+        // Created in Platform E-Sign mode: belongs to no agency, never "global/shared".
+        static::creating(function (self $template): void {
+            if (\App\Support\PlatformEsignMode::active()) {
+                $template->agency_id = null;
+                $template->is_global = false;
+                $template->is_platform = true;
+            }
+        });
+
         static::saving(function (self $template): void {
             // Only interesting when someone is trying to turn e-signing ON.
             if (! $template->is_esign) {

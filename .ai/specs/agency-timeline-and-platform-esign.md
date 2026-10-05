@@ -12,6 +12,24 @@
 
 ---
 
+## REVISION 2026-10-05 (Johan) — supersedes §6 "Agency Contracts" and every reference to it
+
+Johan reviewed the first build: the separate contracts module "looks nothing like the e-sign". Direction:
+the contract is created, sent and signed in the **real e-sign (DocuPerfect) including its template creator**,
+reached from **Dev Settings**, outside every customer agency.
+
+How (one engine, no copy of the e-sign code):
+* A dedicated **platform agency** (`agencies.is_platform = 1`, slug `corex-platform`, created lazily on first entry by
+  `PlatformAgencyService::ensure()`) owns CoreX's own templates and documents.
+* **Dev Settings → Platform E-Sign** (`admin.platform-esign.enter`, owner-only) sets `session('active_agency_id')` to
+  that agency and opens `docuperfect.dashboard`. The owner then uses the normal creator, wizard, signing and sealed PDF.
+* `Agency::customers()` excludes it; Agency Management, the switcher, Billing and Agency Timeline all use it.
+* **Timeline link:** the timeline page picks a platform e-sign document (`agency_timelines.agreement_template_id`).
+  `AgencyTimelineService::syncAgreement()` runs whenever the timeline is read (admin + public) and, when the document
+  is `completed`, fires `AgencyContractSigned` so the `contract_signed` steps tick. No hook inside the e-sign.
+* Removed: the separate contract templates/envelopes/PDF/mail/public-signing module and its four tables.
+* Unchanged: Part B (timeline), the defaults, the public link, the setup-wizard auto-tick.
+
 ## 1. What this does and why (business requirement)
 
 Onboarding a new agency today is run from a WhatsApp/email message that Johan writes by hand each time
