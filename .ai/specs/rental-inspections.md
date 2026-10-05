@@ -6766,3 +6766,248 @@ needs no extra per-row query, and a new `POST .../follow-up/fault-reports` route
 `rental-work-orders.md` §15 for the lease/property resolution rule, the combine/batch behaviour, the
 photo-linking mechanism, and the back-links this same build added to the fault report/work order/job
 card show pages.
+
+---
+
+## 43. Scheduling, notifications, and calendar sync (2026-10-05) — approved, Section A of Johan's build; Section B (Core Matches quick-share) NOT built here
+
+Johan's approval, verbatim in substance: build Section A (inspection scheduling) now, per the
+investigation report at `/tmp/inspection-scheduling-and-corematch-share-2026-10-05.md`. Section B
+(a quick-share button on Core Matches) stayed explicitly NOT approved and is untouched by this build.
+
+That investigation found: `scheduled_for` existed as a column but had no write path anywhere in the
+app ("scheduling" meant "start now"); no notification existed at all, at any point, to any party;
+and no calendar integration existed. This section closes all three gaps.
+
+### 43.1 Schedule — a real action, distinct from the existing immediate Start
+
+`scheduled_for` (unchanged, still a `date` column) gains four new columns on `rental_inspections`:
+`scheduled_time` (nullable `time`), `scheduled_duration_minutes` (nullable `unsignedSmallInteger`),
+`inspector_user_id` (nullable FK → `users`, `nullOnDelete` — the agent actually doing the inspection,
+may differ from whoever books it), `schedule_note` (nullable text).
+
+`RentalInspection::schedule(Property $property, string $type, User $by, array $attrs): self` — a new
+static method, sibling to `start()`, sharing its two guards verbatim (active lease required; not
+already under way for this type, via the existing `currentFor()`) rather than refactoring `start()`
+itself, which stays byte-for-byte unchanged and is still what every pre-existing caller (including the
+property tab's own AJAX flow and the Lease Hub's "Start in/out-inspection" links) uses. `inspector_user_id`
+defaults to `$by->id` when not given.
+
+One endpoint, two intents: `RentalInspectionController::store()` now branches on `$request->input('intent')`.
+No `intent` (or any value other than `'schedule'`) — including every pre-existing caller — keeps the
+ORIGINAL behaviour exactly: `start()`, redirect straight into the property's Inspections tab.
+`intent=schedule` validates `scheduled_for` (required) + `scheduled_time`/`scheduled_duration_minutes`/
+`inspector_user_id`/`schedule_note` (all optional) and calls `schedule()` instead, redirecting to the
+inspection's own (read-only) show page — nothing has been recorded yet.
+
+The create form (`resources/views/corex/rental-inspections/create.blade.php`) is the SAME form for
+both — two submit buttons (`name="intent" value="start_now"` / `value="schedule"`), no JS needed. This
+is also the Lease Hub's own "Start in/out-inspection" next-step link's destination
+(`LeaseHubService::nextStep()`, untouched — `lease_id`/`type` prefilled via the existing query params),
+so the Lease Hub gets scheduling for free: **"a Schedule action on the inspections screen AND on the
+lease"** is satisfied by one shared form, not two builds.
+
+"Start" on a scheduled inspection: both the list screen's row and the inspection's own show page gained
+a "Start"/"Start recording" link to the exact same property-tab URL `store()`'s immediate path already
+redirects to (`?tab=inspections`) — shown whenever `scheduled_for` is set and the inspection is still
+recordable. The tab itself needed no change: it already resolves the property's current open
+inspection via `RentalInspection::currentFor()`, which a scheduled (status=`draft`) inspection already
+satisfies.
+
+**Reschedule** — `RentalInspection::reschedule(array $new, User $by, ?string $reason = null):
+RentalInspectionReschedule`. Guarded by the same `assertRecordable()` as `cancel()`/`markCompleted()` —
+a completed/cancelled/archived inspection can never be rescheduled. Writes one immutable history row
+FIRST (via `RentalInspectionReschedule::record()`, mirroring `ContactMatchReassignment`'s own
+append-only pattern — `SoftDeletes` from the first migration per the standing no-hard-deletes rule),
+then updates the inspection, then re-syncs its calendar event and re-notifies the parties. Route:
+`POST /corex/rental-inspections/{id}/reschedule`, gated on the existing `rental_inspections.create`
+permission (no new permission — reusing the existing create-gate, same as every other write action on
+this screen). Reason is optional (unlike cancel, which already required one before this build) — a
+reschedule is a normal operational adjustment, not something needing a justification on record the way
+cancelling is.
+
+New table `rental_inspection_reschedules`: `agency_id`, `rental_inspection_id`, `old_scheduled_for`/
+`old_scheduled_time`/`old_inspector_user_id`, `new_scheduled_for`/`new_scheduled_time`/
+`new_inspector_user_id`, `reason` (nullable), `changed_by_user_id`.
+
+**Cancel** — already existed (`cancel(User $by, string $reason)`, reason already required, soft via
+`status=cancelled` + the standard `deleted_at` floor for archiving separately) — unchanged except for
+two new one-line calls appended at the end: calendar sync (dismisses the event) and
+`RentalInspectionNotificationService::notifyCancelled()`.
+
+**Minimum notice** — `RentalInspectionSetting::minimumNoticeDaysFor($agencyId)` (default 1). Checked in
+the controller only, after a successful schedule/reschedule: **warns, never blocks** — a flash
+`warning` banner on the show page, the booking/reschedule itself always succeeds. Per Johan's own
+instruction, not enforced in the model.
+
+**List screen** (§5, extended): sortable/filterable by `inspector_id` (new query param + column +
+`leftJoin` sort, mirroring the existing `property`-sort join pattern exactly), search now also matches
+the inspector's name. The pre-existing "Scheduled (upcoming)" tile (`scheduled_for >= now()`) now
+actually populates, since `scheduled_for` finally has a write path.
+
+**Own/branch/agency scoping** — `RentalInspection::scopeVisibleTo()`'s `own` branch widened (never
+narrowed) to `created_by_user_id OR inspector_user_id IN $user->dataIdentityIds()` — an inspector
+booked by someone else (e.g. a branch manager scheduling on an agent's behalf) sees it on their own
+board too. `branch`/`agency` scopes are unaffected (already see everything in scope, inspector or
+not).
+
+### 43.2 Notify — tenant(s), landlord, inspector; mail is real, WhatsApp is honestly not
+
+`App\Services\Rentals\RentalInspectionNotificationService` — one service, four entry points
+(`notifyScheduled()`, `notifyRescheduled()`, `notifyCancelled()`, `notifyReminder()`), called from the
+model (`schedule()`/`reschedule()`/`cancel()`) and the reminder command (below).
+
+**Recipients**, each gated by its own agency setting (all default ON except WhatsApp):
+- **Tenant(s)** / **Landlord** — resolved via two new methods on
+  `RentalInspectionNotificationService` (`tenantContacts()`/`landlordContacts()`, also reused by the
+  calendar sync service for the event description, via DI, so the two can never disagree on who
+  counts) — **same semantics as the existing `Lease::tenantContacts()`/`landlordContacts()`**
+  (landlord resolution never falls back to "the only contact on file" — **Johan's explicit
+  instruction**), but NOT literal calls to those methods. Reason, found running the real test suite,
+  not assumed: `Contact` carries its own `ContactScope` (role-based `own`/`branch`/`all` READ
+  visibility keyed to the CURRENTLY ACTING user's own Contacts permission — `core-matches.md`'s own
+  "ContactScope trap" section documents the identical collision on a different screen). A booking
+  agent whose personal Contacts scope is `own`, and who didn't personally create the landlord's (or
+  even the tenant's) Contact row, got ZERO recipients back from the existing relation-based methods
+  in this build's own test run — not a missing landlord, a missing NOTIFICATION, for a system action
+  that must never depend on who happened to click the button. Fixed the same way `core-matches.md`'s
+  own "actual fix" fixed the identical trap: resolve the matching contact IDs via a fresh top-level
+  query on the plain pivot table (`lease_tenants` / `contact_property`, neither of which carries
+  `ContactScope`), then ONE fresh top-level `Contact::query()->withoutGlobalScope(ContactScope::class)`
+  — never inside a relation closure, which that investigation also proved does not reliably reach the
+  compiled SQL. `AgencyScope` is untouched either way — still a hard cross-agency boundary. Verified
+  by test: a lease with a tenant and genuinely no landlord tag logs zero landlord-role rows, never
+  substitutes the tenant; the main notify-all-three test (run as a plain `agent`-role user who did
+  NOT create the tenant/landlord Contact rows) correctly reaches all three parties.
+- **Inspector** — `RentalInspection::inspector()` (the new relation), when set.
+
+**Channels**:
+- **Mail** — a REAL, fully automated send. One new Mailable
+  (`App\Mail\Rentals\RentalInspectionNotificationMail`, extends `App\Mail\Signatures\BaseSignatureMail`
+  for the same per-agent-mailbox send infrastructure `SignedDocumentDistributionMail` already reuses),
+  sent via `SignedDocumentDistributionService::sendGenericMail()` — the existing path already built for
+  exactly this (a Mailable outside the `SignedDocumentDistributable` contract), carrying the SAME
+  non-production test-mail-redirect safety rail as every other outbound CoreX mail. No third outbound
+  mail mechanism invented.
+- **WhatsApp** — **not a real automated send, and this is stated plainly rather than faked.**
+  Investigated before building: there is no server-side WhatsApp sending API anywhere in CoreX today —
+  every existing "WhatsApp" feature (Core Matches, the Outreach Queue) opens `wa.me` in a human's own
+  browser. The Outreach Queue specifically was considered and rejected as the mechanism here: it gates
+  on marketing consent (wrong for an operational notice a tenant cannot opt out of) and has no path at
+  all for notifying a `User` (the inspector is not a `Contact`). So turning this channel on logs a
+  `queued` row carrying the composed message on the inspection's own history, for an agent to act on by
+  hand — it does not pretend to send anything on its own. Default OFF for exactly this reason.
+
+**Templates** — subject line only, via the existing `PerformanceSetting` per-agency key/value store
+(same mechanism Core Matches' own WhatsApp message template already uses,
+`matches_wa_message`/`PerformanceSetting::get()`): key `rental_inspection_notification_subject`,
+placeholders `{event}`/`{type}`/`{address}`. The email body is a fixed Blade template
+(`resources/views/emails/rentals/inspection-notification.blade.php`) — no body templating mechanism
+existed to reuse, and building a new one was out of scope for this build's time budget; flagged here,
+not silently decided, if Johan wants the body editable too.
+
+**Logging** — every attempt, every channel, every recipient, logged to a new append-only table
+`rental_inspection_notifications` (`event`, `party_role`, `recipient_contact_id`/`recipient_user_id`,
+`channel`, `recipient`, `status` — sent/failed/queued/skipped, `error`). A recipient with no
+email/phone on file logs `skipped` with a reason, never silently drops. Shown on the inspection's own
+show page (reschedule history + notification log, both read-only lists).
+
+**Settings** — seven new nullable columns on the existing `rental_inspection_settings` table (same
+"one more Core-Matches-style knob on the table that already owns the siblings" reasoning as every
+other setting on this model): `notify_tenant_enabled`, `notify_landlord_enabled`,
+`notify_inspector_enabled`, `notify_via_mail_enabled`, `notify_via_whatsapp_enabled` (all default ON
+except the last), `minimum_notice_days` (default 1), `reminder_days_before` (default 1, 0 = off). One
+new saver, `RentalInspectionSettingsController::updateScheduleNotifications()` — has()/filled()-guarded
+per field exactly like `update()`'s own established pattern on this controller, never a hard
+"submitted" marker, since this saver is also registered on the Setup Wizard step and must never
+force-default a field the wizard's own render doesn't post.
+
+**Setup Wizard** — all seven added to `config/agency-onboarding-copy.php`'s existing Rentals step
+(same step as `fault_report_window_days`/`auto_send_report_enabled`), per CLAUDE.md #10a — every
+toggle/number here fits the wizard's existing generic control types, so none of them needed the
+"editable here, NOT in the wizard" exception the condition-states/refusal-presets repeaters already
+use.
+
+### 43.3 Calendar — one event per scheduled inspection, kept in sync
+
+`App\Services\Rentals\RentalInspectionCalendarSyncService::syncForInspection(RentalInspection
+$inspection): ?CalendarEvent` — idempotent, `CalendarEvent::updateOrCreate(['source_type' =>
+RentalInspection::class, 'source_id' => $inspection->id], [...])`, the same keying
+`App\Services\CommandCenter\AutoEventService` already uses elsewhere in CoreX for exactly this
+"never duplicate, always update" reason.
+
+Only a genuinely SCHEDULED inspection gets an event — an immediate "Start Now" has no advance booking
+to put on a calendar, so `scheduled_for === null` is a deliberate no-op (verified by test). Fields:
+`user_id` = the inspector (falls back to the creator if somehow unset), `event_type='lease'`,
+`category='rental_inspection'`, `title` = `"<Type>-inspection — <property address>"`, `description` =
+every tenant/landlord contact with their phone number where on file, the schedule note if any, and a
+link back to the inspection (`route('corex.rental-inspections.show', $inspection)`), `event_date`/
+`end_date` from the new `scheduledForDateTime()`/`scheduledEndDateTime()` helpers (date + time +
+duration combined), `all_day` = true only when no time was given.
+
+**Status lifecycle**, mapped onto `CalendarEvent`'s own existing vocabulary (pending/completed/
+dismissed — no new status invented): `pending` while open, `completed` when `markCompleted()` runs
+(one new line appended there), `dismissed` (with `dismissal_reason_code='inspection_cancelled'` +
+`dismissal_reason_notes` = the cancel reason) when `cancel()` runs (one new line appended there).
+Reschedule calls the same sync method again — same `source_type`/`source_id` key, so the existing row
+is updated in place, never duplicated (verified by test).
+
+### 43.4 Portals — already true, not a gap
+
+The tenant and landlord portals (`RentalPortalScopeService::tenantInspections()`/
+`landlordInspections()`) already list every inspection for their lease/properties regardless of
+status, so a scheduled inspection's date/time is already visible there the moment it's booked — no
+change needed. Confirmed during the original investigation, not assumed here.
+
+### 43.5 Files
+
+- `database/migrations/2026_10_05_120000_add_scheduling_fields_to_rental_inspections_table.php`
+- `database/migrations/2026_10_05_120100_create_rental_inspection_reschedules_table.php`
+- `database/migrations/2026_10_05_120200_create_rental_inspection_notifications_table.php`
+- `database/migrations/2026_10_05_120300_add_schedule_notification_settings_to_rental_inspection_settings_table.php`
+- `app/Models/RentalInspection.php` — `schedule()`/`reschedule()`/`scheduledForDateTime()`/
+  `scheduledEndDateTime()`/`inspector()`/`reschedules()`/`notifications()`; `cancel()`/`markCompleted()`
+  gained the calendar-sync (+ notify, for cancel) call; `scopeVisibleTo()`'s `own` branch widened.
+- `app/Models/RentalInspectionReschedule.php`, `app/Models/RentalInspectionNotification.php` — new.
+- `app/Models/RentalInspectionSetting.php` — seven new constants + accessors.
+- `app/Services/Rentals/RentalInspectionCalendarSyncService.php`,
+  `app/Services/Rentals/RentalInspectionNotificationService.php` — new.
+- `app/Mail/Rentals/RentalInspectionNotificationMail.php` + `resources/views/emails/rentals/inspection-notification.blade.php` — new.
+- `app/Console/Commands/SendRentalInspectionReminders.php` — new; registered in `routes/console.php`
+  (`dailyAt('07:15')`).
+- `app/Http/Controllers/CoreX/RentalInspectionController.php` — `create()`/`store()` extended,
+  `storeScheduled()`/`reschedule()` new, `index()`/`filteredInspectionsQuery()` extended for inspector
+  sort/filter/search, `show()` extended for the new relations.
+- `app/Http/Controllers/CoreX/RentalInspectionSettingsController.php` — `edit()` extended,
+  `updateScheduleNotifications()` new.
+- `routes/web.php` — one new route (`.reschedule`), one new settings route
+  (`.schedule-notifications`). No new permission — reuses `rental_inspections.create`/`.view`.
+- `resources/views/corex/rental-inspections/create.blade.php` — the shared Start-now/Schedule form.
+- `resources/views/corex/rental-inspections/index.blade.php` — inspector column/filter/sort, time
+  shown alongside date, a "Start" action for a not-yet-recorded scheduled inspection.
+- `resources/views/corex/rental-inspections/show.blade.php` — scheduling block (date/time/duration/
+  inspector/note), Reschedule toggle + form, reschedule history, notification log, a warning-flash
+  banner.
+- `resources/views/corex/settings/rental-inspections.blade.php` — the new "Schedule notifications"
+  panel.
+- `config/agency-onboarding-copy.php` — seven new wizard controls + the new saver registered on the
+  existing Rentals step.
+- `tests/Feature/RentalInspections/RentalInspectionSchedulingTest.php` — schedule/reschedule/cancel,
+  notification recipients per setting (mail faked; tenant never substituted as landlord), the reminder
+  command (fires once on the configured day, never twice same day, off at 0), calendar sync (create/
+  update-not-duplicate/dismiss/never-for-an-immediate-start), own-scope-by-inspector, cross-agency
+  isolation.
+- `database/schema/mysql-schema.sql` — re-dumped, `DEFINER` clauses stripped.
+
+### 43.6 Not built here — flagged, not silently decided
+
+- **Core Matches quick-share** (Johan's Section B) — explicitly NOT approved for this build; nothing
+  in `.ai/specs/core-matches.md` touched.
+- **WhatsApp as a real automated send** — see §43.2. Would need an actual WhatsApp Business API
+  integration (none exists in CoreX today) before this channel could do more than log a queued
+  message.
+- **Email body as an agency-editable template** — only the subject line is templated
+  (`PerformanceSetting`); the body is a fixed Blade view. A body-templating mechanism was out of scope
+  for this build's time budget.
+- **Export/print-list columns** — `RentalInspectionController::export()`/`printList()` were not
+  extended to show the inspector column; only the on-screen list was.

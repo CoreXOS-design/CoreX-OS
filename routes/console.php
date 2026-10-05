@@ -40,6 +40,12 @@ Schedule::command('rentals:prepare-renewal-drafts')->dailyAt('06:15')->withoutOv
 // Lease rent escalations recorded with a future effective date — applied once due.
 Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOverlapping();
 
+// .ai/specs/rental-inspections.md §43 — scheduled-inspection reminders, N
+// days before per agency setting (default 1, 0 = off). Idempotent per
+// inspection-per-day (RentalInspectionNotification log), so an overlapping
+// or repeated run sends nothing twice.
+Schedule::command('rentals:send-inspection-reminders')->dailyAt('07:15')->withoutOverlapping();
+
 // AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
 Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
 
