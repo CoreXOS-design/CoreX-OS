@@ -797,6 +797,13 @@ class RentalCommandCentreService
                     $property = $group->first()['property'];
 
                     return [
+                        // Round 6 (2026-10-05) — per-group collapse state (Johan)
+                        // persists by this KEY, never by the display heading —
+                        // a renamed/re-addressed property must not silently
+                        // lose its remembered collapsed state, and two
+                        // properties can legitimately share a heading string
+                        // (buildDisplayAddress() isn't guaranteed unique).
+                        'key' => 'property:' . ($property?->id ?? 0),
                         'heading' => $property?->buildDisplayAddress() ?? 'Unknown property',
                         'property' => $property,
                         'items' => $group->values(),
@@ -819,6 +826,11 @@ class RentalCommandCentreService
                     : \Illuminate\Support\Carbon::parse($i['item_date'])->toDateString();
             })->map(function (Collection $group, string $key) {
                 return [
+                    // Same reasoning as the property branch above — the
+                    // bucket key ('overdue'/'none'/a real Y-m-d string) is
+                    // already stable and locale-independent, unlike the
+                    // formatted heading.
+                    'key' => 'date:' . $key,
                     'heading' => match (true) {
                         $key === 'overdue' => 'Overdue',
                         $key === 'none' => 'No date',

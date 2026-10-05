@@ -43,15 +43,21 @@ class RentalCommandCentreController extends Controller
     public function updatePreference(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'preference_key' => ['required', 'string', 'in:queue_collapsed'],
+            // Round 6 (2026-10-05) — collapsed_queue_groups added for the
+            // needs-action queue's per-group collapse state (Johan). Its
+            // value is an array of group keys, not a boolean, so it's
+            // handled separately below rather than forcing every key
+            // through $request->boolean().
+            'preference_key' => ['required', 'string', 'in:queue_collapsed,collapsed_queue_groups'],
             'value' => ['required'],
         ]);
 
-        RentalCommandCentreUserPreference::setFor(
-            $request->user()->id,
-            $validated['preference_key'],
-            $request->boolean('value')
-        );
+        $key = $validated['preference_key'];
+        $value = $key === 'collapsed_queue_groups'
+            ? array_values(array_unique(array_map('strval', (array) $request->input('value'))))
+            : $request->boolean('value');
+
+        RentalCommandCentreUserPreference::setFor($request->user()->id, $key, $value);
 
         return response()->json(['ok' => true]);
     }
@@ -190,6 +196,12 @@ class RentalCommandCentreController extends Controller
 
         $hasAnyRentalProperties = $tileCounts['all'] > 0;
 
+        // Round 6 (2026-10-05, Johan) — per-group collapse state for the
+        // needs-action queue, keyed by each group's stable 'key' (see
+        // RentalCommandCentreService::groupQueueItems()), read once here
+        // for whichever grouping is active.
+        $collapsedQueueGroups = RentalCommandCentreUserPreference::stateFor($user->id)['collapsed_queue_groups'] ?? [];
+
         return [
             'scope' => $scope,
             'scopeOptions' => $scopeOptions,
@@ -210,6 +222,7 @@ class RentalCommandCentreController extends Controller
             'queueDateTo' => $queueDateTo,
             'queuePropertyOptions' => $queuePropertyOptions,
             'queueTotalCount' => $queueTotalCount,
+            'collapsedQueueGroups' => $collapsedQueueGroups,
             'hasAnyRentalProperties' => $hasAnyRentalProperties,
             'branches' => Branch::query()->orderBy('name')->get(['id', 'name']),
             'agents' => $this->agencyAgents($user),
