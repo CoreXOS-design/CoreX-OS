@@ -21,7 +21,21 @@ class PlatformEsignController extends Controller
 
         PlatformEsignMode::enter();
 
-        return redirect()->route('docuperfect.dashboard');
+        return redirect()->route('docuperfect.platform.hub');
+    }
+
+    /** The landing page inside the mode: everything needed to build, send and track a CoreX contract. */
+    public function hub(Request $request)
+    {
+        abort_unless($request->user()?->isOwnerRole() && PlatformEsignMode::active(), 404);
+
+        return view('docuperfect.platform-hub', [
+            'templates' => \App\Models\Docuperfect\Template::active()->count(),
+            'sendable'  => \App\Models\Docuperfect\Template::active()->where('is_esign', true)
+                ->where(fn ($q) => $q->where(fn ($p) => $p->where('render_type', 'pdf')->where('page_count', '>', 0))
+                    ->orWhere(fn ($w) => $w->where('render_type', 'web')->whereNotNull('blade_view')))->count(),
+            'sent'      => \App\Models\Docuperfect\SignatureTemplate::count(),
+        ]);
     }
 
     public function exit(Request $request)

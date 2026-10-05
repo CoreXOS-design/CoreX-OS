@@ -78,6 +78,17 @@ class AgencyTimelineController extends Controller
         ];
 
         $status = (string) $request->get('status', '');
+        $archivedRows = null;
+        if ($status === 'archived') {
+            $archivedRows = AgencyTimeline::onlyTrashed()->with('agency')->orderByDesc('deleted_at')->get();
+            $rows = collect();
+        }
+        // Start-date range (only timelines that HAVE a start date can match).
+        $from = $request->filled('start_from') ? Carbon::parse($request->get('start_from'))->startOfDay() : null;
+        $to = $request->filled('start_to') ? Carbon::parse($request->get('start_to'))->startOfDay() : null;
+        if ($from || $to) {
+            $rows = $rows->filter(fn ($r) => $r['start'] && (!$from || $r['start']->gte($from)) && (!$to || $r['start']->lte($to)));
+        }
         if (in_array($status, ['not_started', 'running', 'live', 'paused'], true)) {
             $rows = $rows->where('status', $status);
         }
@@ -96,7 +107,7 @@ class AgencyTimelineController extends Controller
             'path' => $request->url(), 'query' => $request->query(),
         ]);
 
-        return view('admin.agency-timelines.index', ['rows' => $paged, 'sort' => $sort, 'dir' => $dir, 'status' => $status, 'kpis' => $kpis]);
+        return view('admin.agency-timelines.index', ['rows' => $paged, 'sort' => $sort, 'dir' => $dir, 'status' => $status, 'kpis' => $kpis, 'archivedRows' => $archivedRows]);
     }
 
     // ── Start ──────────────────────────────────────────────────────────────
@@ -218,6 +229,7 @@ class AgencyTimelineController extends Controller
             'is_public' => 'nullable|boolean',
         ]);
         $data['is_public'] = $request->boolean('is_public', true);
+        $data['agency_can_complete'] = $request->boolean('agency_can_complete');
         $this->svc->addCustomItem($timeline, $data, $user->id);
 
         return back()->with('success', 'Added.');
@@ -233,6 +245,7 @@ class AgencyTimelineController extends Controller
             'due_date' => 'nullable|date',
         ]);
         $data['is_public'] = $request->boolean('is_public');
+        $data['agency_can_complete'] = $request->boolean('agency_can_complete');
         $this->svc->updateItem($item, $data, $user->id);
 
         return back()->with('success', 'Saved.');
@@ -300,6 +313,27 @@ class AgencyTimelineController extends Controller
         };
 
         return back()->with('success', 'Public link updated.');
+    }
+
+    public function archive(Request $request, AgencyTimeline $timeline)
+    {
+        $user = $this->owner($request);
+        $this->svc->archiveTimeline($timeline, $user->id);
+
+        return redirect()->route('admin.agency-timelines.index')->with('success', 'Timeline archived. Its public link is offline; you can restore it from the Archived filter.');
+    }
+
+    public function restore(Request $request, int $timeline)
+    {
+        $user = $this->owner($request);
+        $tl = AgencyTimeline::onlyTrashed()->findOrFail($timeline);
+        try {
+            $this->svc->restoreTimeline($tl, $user->id);
+        } catch (\DomainException $e) {
+            return back()->with('warning', $e->getMessage());
+        }
+
+        return redirect()->route('admin.agency-timelines.show', $tl)->with('success', 'Timeline restored.');
     }
 
     public function lifecycle(Request $request, AgencyTimeline $timeline)

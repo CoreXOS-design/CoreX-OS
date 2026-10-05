@@ -41,6 +41,19 @@ final class PlatformEsignMode
         return (bool) ($user && method_exists($user, 'isOwnerRole') && $user->isOwnerRole());
     }
 
+    /**
+     * External e-sign links reached by TOKEN — the signer's page, the signed-document download and the sales
+     * return link. The token is the authorisation, so a CoreX (agency-less) contract must stay reachable even
+     * if the visitor happens to be logged in (an agency principal, or the owner testing in his own browser).
+     * Without this the agency / platform scopes would hide the document and the page would 500.
+     */
+    public static function onTokenRoute(): bool
+    {
+        $request = request();
+
+        return (bool) ($request && $request->is('sign/*', 'documents/download/*', 'sales-documents/return/*'));
+    }
+
     /** Only e-sign models are re-scoped; users, branches, contacts etc. behave as before. */
     public static function appliesTo(Model|string $model): bool
     {

@@ -817,6 +817,13 @@ Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name
 
 // ===== AT-447 PUBLIC: agency timeline (read-only) + platform contract signing =====
 // Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
+// The shareable link carries the agency name for readability (/agency-timeline/caprivi-realty/<token>); the
+// TOKEN alone authorises, the name is cosmetic and never checked. The bare /agency-timeline/<token> form
+// (links already shared) keeps working.
+Route::get('/agency-timeline/{slug}/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'showNamed'])
+    ->where('slug', '[A-Za-z0-9-]{1,80}')->middleware('throttle:60,1')->name('agency-timeline.public.named');
+Route::post('/agency-timeline/{token}/steps/{item}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'complete'])
+    ->whereNumber('item')->middleware('throttle:20,1')->name('agency-timeline.public.complete');
 Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
     ->middleware('throttle:60,1')->name('agency-timeline.public');
 
@@ -3674,11 +3681,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{timeline}/reset-dates',            [$c, 'resetDates'])->whereNumber('timeline')->name('reset-dates');
             Route::post('/{timeline}/link',                   [$c, 'link'])->whereNumber('timeline')->name('link');
             Route::post('/{timeline}/lifecycle',              [$c, 'lifecycle'])->whereNumber('timeline')->name('lifecycle');
+            Route::delete('/{timeline}',                      [$c, 'archive'])->whereNumber('timeline')->name('archive');
+            Route::post('/{timeline}/restore',                [$c, 'restore'])->whereNumber('timeline')->name('restore');
         });
 
         // Platform E-Sign — CoreX's own contracts. Enters the REAL e-sign (creator, wizard,
         // signing) inside the dedicated platform agency, from Dev Settings. Owner only.
-        Route::get('admin/platform-esign', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'enter'])->name('admin.platform-esign.enter');
+        Route::post('admin/platform-esign', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'enter'])->name('admin.platform-esign.enter');
         Route::post('admin/platform-esign/exit', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'exit'])->name('admin.platform-esign.exit');
         Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
     });
@@ -4775,6 +4784,10 @@ Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permissi
         Route::post('/studio/{id}/publish', [$c, 'publish'])->whereNumber('id')
             ->middleware('permission:esign.compiler.publish')->name('publish');
     });
+
+// Platform E-Sign landing page (AT-447) — top level on purpose: the mode only applies to paths under docuperfect/.
+Route::get('docuperfect/platform', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'hub'])
+    ->middleware(['auth', 'owner_only'])->name('docuperfect.platform.hub');
 
 // ===== DOCUPERFECT =====
 Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect', 'feature:docuperfect'])->group(function () {

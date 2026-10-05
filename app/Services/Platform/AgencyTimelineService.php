@@ -60,6 +60,7 @@ class AgencyTimelineService
                         : ($dateOverrides[$d->id] ?? ($d->offset_days !== null
                             ? Carbon::parse($startDate)->addDays($d->offset_days)->toDateString() : null)),
                     'is_public'             => $d->is_public,
+                    'agency_can_complete'   => $d->kind === 'milestone' && (bool) $d->agency_can_complete,
                     'is_go_live'            => $d->is_go_live,
                     'auto_complete_trigger' => $d->auto_complete_trigger,
                     'source_default_id'     => $d->id,
@@ -103,6 +104,7 @@ class AgencyTimelineService
             'body'        => $data['body'] ?? null,
             'due_date'    => $kind === 'milestone' ? ($data['due_date'] ?? null) : null,
             'is_public'   => (bool) ($data['is_public'] ?? true),
+            'agency_can_complete' => $kind === 'milestone' && (bool) ($data['agency_can_complete'] ?? false),
             'is_custom'   => true,
             'sort_order'  => $max + 10,
         ]);
@@ -115,7 +117,7 @@ class AgencyTimelineService
     public function updateItem(AgencyTimelineItem $item, array $data, ?int $userId): AgencyTimelineItem
     {
         $before = $this->snapshot($item);
-        $item->fill(array_intersect_key($data, array_flip(['title', 'body', 'due_date', 'is_public'])));
+        $item->fill(array_intersect_key($data, array_flip(['title', 'body', 'due_date', 'is_public', 'agency_can_complete'])));
         if (!$item->isMilestone()) {
             $item->due_date = null;
         }
@@ -147,7 +149,7 @@ class AgencyTimelineService
         $item->save();
 
         $verb = ['pending' => 'Reopened', 'done' => 'Completed', 'skipped' => 'Skipped'][$status];
-        $this->log($item->timeline, $item->id, 'status_' . $status, $verb . ' "' . $item->title . '"' . ($source !== 'manual' ? ' (automatic: ' . $source . ')' : ''), $before, ['status' => $status], $userId, $source);
+        $this->log($item->timeline, $item->id, 'status_' . $status, $verb . ' "' . $item->title . '"' . ($source === 'agency' ? ' (by the agency, from their public link)' : ($source !== 'manual' ? ' (automatic: ' . $source . ')' : '')), $before, ['status' => $status], $userId, $source);
 
         if ($status === 'done') {
             event(new AgencyTimelineMilestoneCompleted($item->timeline->agency_id, $item->timeline_id, $item->id, $source, $userId));
@@ -256,6 +258,24 @@ class AgencyTimelineService
     {
         $timeline->update(['status' => $paused ? AgencyTimeline::STATUS_PAUSED : AgencyTimeline::STATUS_RUNNING, 'live_at' => null]);
         $this->log($timeline, null, $paused ? 'paused' : 'resumed', $paused ? 'Timeline paused' : 'Timeline resumed', null, null, $userId);
+    }
+
+    // ── Archive / restore a whole timeline (soft delete; never a hard delete) ──
+
+    public function archiveTimeline(AgencyTimeline $timeline, ?int $userId): void
+    {
+        $this->log($timeline, null, 'timeline_archived', 'Archived the timeline', null, null, $userId);
+        $timeline->delete();   // SoftDeletes — also takes the public link offline (the public lookup excludes archived)
+    }
+
+    /** @throws \DomainException when the agency already has an active timeline (one per agency). */
+    public function restoreTimeline(AgencyTimeline $timeline, ?int $userId): void
+    {
+        if (AgencyTimeline::where('agency_id', $timeline->agency_id)->where('id', '!=', $timeline->id)->exists()) {
+            throw new \DomainException('This agency already has an active timeline. Archive that one first, then restore this one.');
+        }
+        $timeline->restore();
+        $this->log($timeline, null, 'timeline_restored', 'Restored the timeline', null, null, $userId);
     }
 
     // ── Agreement (platform e-sign document) ───────────────────────────────

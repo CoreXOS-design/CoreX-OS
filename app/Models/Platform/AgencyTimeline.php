@@ -50,6 +50,8 @@ class AgencyTimeline extends Model
 
     public function publicUrl(): string
     {
-        return url('/agency-timeline/' . $this->token);
+        $slug = \Illuminate\Support\Str::limit(\Illuminate\Support\Str::slug((string) $this->agency?->name), 60, '');
+
+        return url('/agency-timeline/' . ($slug !== '' ? trim($slug, '-') . '/' : '') . $this->token);
     }
 }

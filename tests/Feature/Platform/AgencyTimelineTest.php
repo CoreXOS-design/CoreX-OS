@@ -187,11 +187,11 @@ class AgencyTimelineTest extends TestCase
             route('admin.agency-timelines.show', $tl),
             route('admin.agency-timelines.start-form', $agency),
             route('admin.timeline-defaults.index'),
-            route('admin.platform-esign.enter'),
         ] as $url) {
             $this->get($url)->assertForbidden();
         }
         $this->post(route('admin.agency-timelines.start', $agency), ['start_date' => now()->toDateString()])->assertForbidden();
+        $this->post(route('admin.platform-esign.enter'))->assertForbidden();
         $this->post(route('admin.agency-timelines.link', $tl), ['action' => 'regenerate'])->assertForbidden();
     }
 
@@ -290,6 +290,192 @@ class AgencyTimelineTest extends TestCase
 
         $this->post(route('admin.agency-timelines.agreement', $tl), ['template_id' => $foreign->id])->assertStatus(422);
         $this->assertNull($tl->fresh()->agreement_template_id);
+    }
+
+    public function test_public_link_carries_the_agency_name_but_only_the_token_authorises(): void
+    {
+        $this->seedMini();
+        $agency = $this->agency('Caprivi Realty');
+        $tl = $this->svc()->start($agency, now(), null);
+
+        $url = $tl->fresh()->publicUrl();
+        $this->assertStringContainsString('/agency-timeline/caprivi-realty/', $url, 'agency name is in the link');
+        $this->assertStringEndsWith('/' . $tl->token, $url);
+
+        $page = $this->get($url)->assertOk();
+        $page->assertSee('Your journey to go-live')->assertSee('Today ·')->assertSee('Caprivi Realty');
+
+        // The name is cosmetic: a wrong name with the right token still works; the bare old link too.
+        $this->get('/agency-timeline/some-other-name/' . $tl->token)->assertOk();
+        $this->get('/agency-timeline/' . $tl->token)->assertOk();
+
+        // A wrong token — with the right name — gets the same neutral page as ever.
+        $this->get('/agency-timeline/caprivi-realty/' . str_repeat('a', 48))->assertNotFound()->assertSee('no longer active')->assertDontSee('Caprivi');
+
+        // Switched off: even the exact named link goes neutral.
+        $this->svc()->setLinkEnabled($tl, false, null);
+        $this->get($url)->assertNotFound()->assertDontSee('Caprivi');
+    }
+
+    // ── The agency ticks its own steps from the public link ──
+
+    private function timelineWithAgencySteps(): array
+    {
+        $this->seedMini();
+        AgencyTimelineDefaultItem::where('title', 'Questionnaire')->update(['agency_can_complete' => true]);
+        $tl = $this->svc()->start($this->agency('Caprivi Realty'), now(), null);
+        $items = AgencyTimelineItem::where('timeline_id', $tl->id)->get()->keyBy('title');
+
+        return [$tl, $items['Questionnaire'], $items['Wizard']];
+    }
+
+    public function test_agency_can_complete_its_own_step_from_the_public_link_and_it_is_recorded(): void
+    {
+        [$tl, $step] = $this->timelineWithAgencySteps();
+        $this->assertTrue($step->agency_can_complete, 'the flag is copied from the default');
+        $this->get($tl->publicUrl())->assertOk()->assertSee('Mark this step as completed?')->assertSee('Your step');
+
+        $this->post('/agency-timeline/' . $tl->token . '/steps/' . $step->id, ['status' => 'done'])
+            ->assertRedirect($tl->publicUrl())->assertSessionHas('tl_ok');
+
+        $step->refresh();
+        $this->assertSame('done', $step->status);
+        $this->assertSame('agency', $step->completed_source);
+        $this->assertNull($step->completed_by);
+        $this->assertDatabaseHas('agency_timeline_events', ['timeline_id' => $tl->id, 'item_id' => $step->id, 'event' => 'status_done', 'source' => 'agency']);
+        // The plan-list button only renders while the step can still be completed (the detail panel's copy is
+        // always in the page, hidden until selected).
+        $this->get($tl->publicUrl())->assertOk()->assertSee('Thank you')->assertDontSee('Mark this step as completed?');
+    }
+
+    public function test_agency_cannot_complete_a_step_CoreX_has_not_opened_up(): void
+    {
+        [$tl, , $locked] = $this->timelineWithAgencySteps();
+        $this->assertFalse($locked->agency_can_complete);
+
+        $this->post('/agency-timeline/' . $tl->token . '/steps/' . $locked->id, ['status' => 'done'])->assertForbidden();
+        $this->assertSame('pending', $locked->fresh()->status);
+    }
+
+    public function test_hidden_steps_other_timelines_and_bad_tokens_cannot_be_completed(): void
+    {
+        [$tl, $step] = $this->timelineWithAgencySteps();
+        $url = fn ($token, $id) => '/agency-timeline/' . $token . '/steps/' . $id;
+
+        $step->update(['is_public' => false]);
+        $this->post($url($tl->token, $step->id), ['status' => 'done'])->assertNotFound();
+        $step->update(['is_public' => true]);
+
+        $other = $this->svc()->start($this->agency('Other Agency'), now(), null);
+        $this->post($url($other->token, $step->id), ['status' => 'done'])->assertNotFound();           // step belongs to the first timeline
+        $this->post($url(str_repeat('a', 48), $step->id), ['status' => 'done'])->assertNotFound();      // unknown token
+        $this->post($url('short', $step->id), ['status' => 'done'])->assertNotFound();
+
+        $this->svc()->setLinkEnabled($tl, false, null);
+        $this->post($url($tl->token, $step->id), ['status' => 'done'])->assertNotFound();               // link switched off
+        $this->assertSame('pending', $step->fresh()->status);
+    }
+
+    public function test_a_paused_or_live_timeline_does_not_accept_agency_ticks(): void
+    {
+        [$tl, $step] = $this->timelineWithAgencySteps();
+
+        $this->svc()->setPaused($tl, true, null);
+        $this->post('/agency-timeline/' . $tl->token . '/steps/' . $step->id, ['status' => 'done'])->assertForbidden();
+        $this->assertSame('pending', $step->fresh()->status);
+    }
+
+    public function test_agency_can_undo_only_its_own_tick(): void
+    {
+        [$tl, $step] = $this->timelineWithAgencySteps();
+        $url = '/agency-timeline/' . $tl->token . '/steps/' . $step->id;
+
+        $this->post($url, ['status' => 'pending'])->assertForbidden();                    // nothing to undo yet
+        $this->post($url, ['status' => 'done'])->assertRedirect();
+        $this->post($url, ['status' => 'done'])->assertForbidden();                       // already done
+        $this->post($url, ['status' => 'pending'])->assertRedirect();                     // agency undoes its own tick
+        $this->assertSame('pending', $step->fresh()->status);
+
+        // A tick CoreX made can NOT be undone by the agency.
+        $this->svc()->setStatus($step->fresh(), 'done', null, 'manual');
+        $this->post($url, ['status' => 'pending'])->assertForbidden();
+        $this->assertSame('done', $step->fresh()->status);
+    }
+
+    public function test_owner_can_set_which_steps_the_agency_may_tick_and_sees_who_ticked(): void
+    {
+        [$tl, $step] = $this->timelineWithAgencySteps();
+        $this->post('/agency-timeline/' . $tl->token . '/steps/' . $step->id, ['status' => 'done']);
+
+        $this->actingAs($this->owner());
+        $page = $this->get(route('admin.agency-timelines.show', $tl))->assertOk();
+        $page->assertSee('by the agency');
+
+        $this->put(route('admin.agency-timelines.items.update', [$tl, $step->id]), ['title' => 'Questionnaire', 'agency_can_complete' => '1', 'is_public' => '1'])->assertRedirect();
+        $this->assertTrue($step->fresh()->agency_can_complete);
+        $this->put(route('admin.agency-timelines.items.update', [$tl, $step->id]), ['title' => 'Questionnaire', 'is_public' => '1'])->assertRedirect();
+        $this->assertFalse($step->fresh()->agency_can_complete, 'unticked box turns it off');
+    }
+
+    public function test_owner_can_archive_and_restore_a_timeline_and_the_public_link_goes_offline(): void
+    {
+        $this->seedMini();
+        $this->actingAs($this->owner());
+        $agency = $this->agency('Caprivi Realty');
+        $tl = $this->svc()->start($agency, now(), null);
+        $url = $tl->fresh()->publicUrl();
+        $this->get($url)->assertOk();
+
+        $this->delete(route('admin.agency-timelines.archive', $tl))->assertRedirect(route('admin.agency-timelines.index'));
+        $this->assertSoftDeleted('agency_timelines', ['id' => $tl->id]);
+        $this->get($url)->assertNotFound();
+        $this->get(route('admin.agency-timelines.index', ['status' => 'archived']))->assertOk()->assertSee('Caprivi Realty')->assertSee('Restore');
+        $this->get(route('admin.agency-timelines.index'))->assertOk()->assertSee('Start timeline');   // the agency can be started afresh
+
+        $this->post(route('admin.agency-timelines.restore', $tl->id))->assertRedirect(route('admin.agency-timelines.show', $tl->id));
+        $this->assertNull(AgencyTimeline::withTrashed()->find($tl->id)->deleted_at);
+        $this->get($url)->assertOk();
+        $this->assertDatabaseHas('agency_timeline_events', ['timeline_id' => $tl->id, 'event' => 'timeline_archived']);
+        $this->assertDatabaseHas('agency_timeline_events', ['timeline_id' => $tl->id, 'event' => 'timeline_restored']);
+    }
+
+    public function test_a_timeline_cannot_be_restored_while_the_agency_has_another_active_one(): void
+    {
+        $this->seedMini();
+        $this->actingAs($this->owner());
+        $agency = $this->agency('Caprivi Realty');
+        $old = $this->svc()->start($agency, now(), null);
+        $this->delete(route('admin.agency-timelines.archive', $old));
+        $new = $this->svc()->start($agency, now(), null);
+
+        $this->post(route('admin.agency-timelines.restore', $old->id))->assertSessionHas('warning');
+        $this->assertSoftDeleted('agency_timelines', ['id' => $old->id]);
+        $this->assertNull($new->fresh()->deleted_at);
+    }
+
+    public function test_non_owner_cannot_archive_or_restore_a_timeline(): void
+    {
+        $this->seedMini();
+        $agency = $this->agency();
+        $tl = $this->svc()->start($agency, now(), null);
+        $this->actingAs(User::factory()->create(['role' => 'admin', 'agency_id' => $agency->id]));
+
+        $this->delete(route('admin.agency-timelines.archive', $tl))->assertForbidden();
+        $this->post(route('admin.agency-timelines.restore', $tl->id))->assertForbidden();
+        $this->assertNull($tl->fresh()->deleted_at);
+    }
+
+    public function test_the_timeline_list_filters_by_start_date_range(): void
+    {
+        $this->seedMini();
+        $this->actingAs($this->owner());
+        $this->svc()->start($this->agency('Early Agency'), now()->addDays(1), null);
+        $this->svc()->start($this->agency('Late Agency'), now()->addDays(40), null);
+
+        $this->get(route('admin.agency-timelines.index', ['start_from' => now()->addDays(30)->toDateString()]))
+            ->assertOk()->assertSee('Late Agency')->assertDontSee('Early Agency');
+        $this->get(route('admin.agency-timelines.index', ['start_to' => now()->addDays(10)->toDateString()]))
+            ->assertOk()->assertSee('Early Agency')->assertDontSee('Late Agency');
     }
 
     public function test_owner_edits_defaults_with_single_go_live_enforced(): void

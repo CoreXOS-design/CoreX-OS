@@ -31,13 +31,48 @@
             <select name="status" class="ds-field">
                 <option value="">All</option>
                 @foreach($tones as $k => [$label])<option value="{{ $k }}" @selected($status === $k)>{{ $label }}</option>@endforeach
+                <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
+        </div>
+        <div>
+            <label class="ds-label block mb-1">Started from</label>
+            <input type="date" name="start_from" value="{{ request('start_from') }}" class="ds-field">
+        </div>
+        <div>
+            <label class="ds-label block mb-1">Started to</label>
+            <input type="date" name="start_to" value="{{ request('start_to') }}" class="ds-field">
         </div>
         <input type="hidden" name="sort" value="{{ $sort }}"><input type="hidden" name="dir" value="{{ $dir }}">
         <button class="corex-btn-primary text-xs" type="submit">Filter</button>
-        @if(request()->hasAny(['q', 'status']))<a href="{{ route('admin.agency-timelines.index') }}" class="text-xs underline" style="color:var(--text-muted);">Clear</a>@endif
+        @if(request()->hasAny(['q', 'status', 'start_from', 'start_to']))<a href="{{ route('admin.agency-timelines.index') }}" class="text-xs underline" style="color:var(--text-muted);">Clear</a>@endif
     </form>
 
+    @if($archivedRows !== null)
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border:1px solid var(--border);">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm ds-table">
+                <thead><tr style="background: var(--surface-2);">
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agency</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Started</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Archived</th>
+                    <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                </tr></thead>
+                <tbody>
+                @forelse($archivedRows as $t)
+                    <tr>
+                        <td class="px-4 py-3 font-medium" style="color:var(--text-primary);">{{ $t->agency?->name ?? 'Agency #' . $t->agency_id }}</td>
+                        <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $t->start_date?->format('j M Y') }}</td>
+                        <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $t->deleted_at?->format('j M Y H:i') }}</td>
+                        <td class="px-4 py-3 text-right"><form method="POST" action="{{ route('admin.agency-timelines.restore', $t->id) }}">@csrf<button type="submit" class="corex-btn-outline corex-btn-xs">Restore</button></form></td>
+                    </tr>
+                @empty
+                    <tr><td colspan="4" class="px-4 py-10 text-center" style="color:var(--text-muted);">No archived timelines.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+    @else
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border:1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="w-full text-sm ds-table">
@@ -94,12 +129,13 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="8" class="px-4 py-10 text-center" style="color:var(--text-muted);">No agencies match. @if(request()->hasAny(['q','status']))<a href="{{ route('admin.agency-timelines.index') }}" class="underline">Clear the filters</a>.@endif</td></tr>
+                    <tr><td colspan="8" class="px-4 py-10 text-center" style="color:var(--text-muted);">No agencies match. @if(request()->hasAny(['q','status','start_from','start_to']))<a href="{{ route('admin.agency-timelines.index') }}" class="underline">Clear the filters</a>.@endif</td></tr>
                 @endforelse
                 </tbody>
             </table>
         </div>
     </div>
     {{ $rows->links() }}
+    @endif
 </div>
 @endsection

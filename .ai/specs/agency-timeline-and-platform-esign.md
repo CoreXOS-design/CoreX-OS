@@ -1,333 +1,159 @@
-# Agency Timeline + Platform Contracts (Dev-side E-Sign) — Spec
+# Agency Timeline + Platform E-Sign — Spec
 
-> Status: **Draft pending Johan approval** — 2026-10-05
-> Jira: AT-447
-> Author: Claude (from Johan's brief)
-> Area: **System Developer** (owner-only). Not an agency feature. Nothing here is visible to agency users
-> except the public timeline page, which is read-only and link-gated.
-> Pillars touched: **Agent** (the agency's first Admin is the contract signatory / timeline contact). Does not ingest
-> property/contact/deal data (Non-negotiable #10 N/A). Reads `agencies`; writes only its own tables.
-> Sister specs: `agency-onboarding-setup.md` (the setup wizard — a DIFFERENT thing, see §3), `agency-billing.md`,
-> `ESIGN-CANON.md` (see §6.4), `corex-domain-events-spec.md`.
+> Status: **Built on QA2 (AT-447), awaiting Johan's audit/test before Staging.** Rewritten 2026-10-05 to match
+> what was actually built (the first draft described a separate contracts module and, later, a dedicated
+> platform agency — both were rejected by Johan and removed).
+> Jira: AT-447 · Branch: `AT-447-agency-timeline-platform-contracts`
+> Area: **System Developer** (owner-only). Nothing here is visible to any agency except the read-only,
+> link-gated public timeline page.
+> Pillars touched: **Agent** (the agency's principal signs; the agency ticks its own onboarding steps).
+> Sister specs: `agency-onboarding-setup.md` (the setup wizard — a different thing), `agency-billing.md`,
+> `ESIGN-CANON.md`, `corex-domain-events-spec.md` §5.
 
----
+## 1. Business requirement (Johan, 2026-10-05, summarised)
 
-## REVISION 2026-10-05 (Johan) — supersedes §6 "Agency Contracts" and every reference to it
+1. A **Platform E-Sign** area in the dev side of CoreX, outside every agency, where CoreX keeps and sends its
+   own contract (Subscription Agreement, debit-order form) — **the same e-sign agencies use, including the
+   template creator, not a lookalike**.
+2. An **Agency Timeline** per agency: the onboarding plan from take-on to go-live, with a **public link**
+   that can be shared throughout the agency. Defaults are **editable in Dev Settings**. Starting a timeline
+   offers dates counted from a start date (which can never be in the past) and every step date is
+   customisable. Custom steps per agency. Overdue steps show as overdue and **push the go-live date out**.
+3. The agency can **tick its own steps as completed** on the public page so the plan progresses.
+4. The public page should be wide, look good, carry the agency name in its link, and have an interactive
+   timeline at the top.
 
-Johan reviewed the first build: the separate contracts module "looks nothing like the e-sign". Direction:
-the contract is created, sent and signed in the **real e-sign (DocuPerfect) including its template creator**,
-reached from **Dev Settings**, outside every customer agency.
+## 2. What this is NOT
+* Not a copy of the e-sign code. One engine, run in a special mode (§3).
+* Not the Agency Setup Wizard (`agency-onboarding-setup.md`); finishing the wizard merely ticks a step.
+* No agency can see Platform E-Sign content, ever (§3.3).
 
-How (one engine, no copy of the e-sign code):
-* A dedicated **platform agency** (`agencies.is_platform = 1`, slug `corex-platform`, created lazily on first entry by
-  `PlatformAgencyService::ensure()`) owns CoreX's own templates and documents.
-* **Dev Settings → Platform E-Sign** (`admin.platform-esign.enter`, owner-only) sets `session('active_agency_id')` to
-  that agency and opens `docuperfect.dashboard`. The owner then uses the normal creator, wizard, signing and sealed PDF.
-* `Agency::customers()` excludes it; Agency Management, the switcher, Billing and Agency Timeline all use it.
-* **Timeline link:** the timeline page picks a platform e-sign document (`agency_timelines.agreement_template_id`).
-  `AgencyTimelineService::syncAgreement()` runs whenever the timeline is read (admin + public) and, when the document
-  is `completed`, fires `AgencyContractSigned` so the `contract_signed` steps tick. No hook inside the e-sign.
-* Removed: the separate contract templates/envelopes/PDF/mail/public-signing module and its four tables.
-* Unchanged: Part B (timeline), the defaults, the public link, the setup-wizard auto-tick.
+## 3. Part A — Platform E-Sign (agency-less mode of the real e-sign)
 
-## 1. What this does and why (business requirement)
+### 3.1 Behaviour
+* **Sidebar → System Developer → "Platform E-Sign"** (`admin.platform-esign.enter`, owner-only, no permission
+  key by design) switches the owner into *Platform E-Sign mode* and lands on a hub
+  (`docuperfect.platform.hub`, `/docuperfect/platform`): Send a contract · Contract templates · Create a
+  template from a document (import) · Sent contracts · Recipient presets. An amber banner with the same
+  shortcuts and **Exit** is shown on every e-sign page while in the mode.
+* In the mode everything is the normal DocuPerfect: template creator/import/builder, send wizard, signing
+  screens, sealed PDF, audit. Public signer links (`sign/{token}`) are token-based and untouched.
+* A demo contract can be seeded/archived: `php artisan platform-esign:demo [--remove]` (QA use; soft delete).
 
-Onboarding a new agency today is run from a WhatsApp/email message that Johan writes by hand each time
-("where we are, what we need from you, plan for the month, finances"). It is not recorded, the dates are
-worked out by hand, and the agency has nothing to look at between messages.
+### 3.2 How the mode works (`App\Support\PlatformEsignMode`)
+Active only when **all** hold: owner-role user · session flag set from Dev · request path `docuperfect` or
+`docuperfect/*`. Effects, limited to models in `App\Models\Docuperfect\*`:
+* `AgencyScope` constrains reads to `agency_id IS NULL`; `BelongsToAgency::creating` stamps `agency_id = NULL`.
+* `Template` (which has no BelongsToAgency and where NULL means "shared with every agency") carries
+  **`is_platform`**: `PlatformTemplateScope` hides platform templates from every authenticated non-mode
+  query and shows only them in the mode; a `saving` hook forces `agency_id NULL`, `is_global false`.
+  `TemplateController::cdsGenerate` no longer reassigns a platform template to an agency nor demands one.
+* An owner *outside* the mode (cross-agency view) does not see agency-less `Document`/`SignatureTemplate`.
+* Branding falls back to "CoreX OS"; the audit certificate names CoreX for agency-less documents.
 
-Two things ship together under **System Developer**:
+### 3.3 Isolation guarantee (tested — `PlatformEsignIsolationTest`)
+Six actor types (agency admin, agent, another agency's admin, admin with the flag forced on, owner switched
+into an agency, owner outside the mode) cannot see the platform contract in 12 e-sign list pages, by direct
+id, by starting a flow, or by model query. Only an owner inside the mode can.
 
-1. **Agency Timeline** — a dated, recorded onboarding timeline per agency, from "training done" to "live on CoreX".
-   Defaults are set once in Dev Settings (e.g. "+3 days: send us your CRM export"). Starting a timeline for an
-   agency stamps every default onto real dates counted from the agency's start date. Johan can add custom
-   items per agency. The agency gets **one public link** to share round their office showing the plan, what is
-   done, what is next and what is overdue.
-2. **Agency Contracts** — CoreX's own contract (the Subscription Agreement and the debit order form) is held
-   as a template on the developer side, sent to a new agency for electronic signature, and tracked to signed.
-   It lives **outside the agencies** like Dev Settings and Agency Billing: no agency owns it, no agency admin can
-   see it. When the agency signs, the matching timeline item ticks itself off.
+### 3.4 Known limits (deliberate, reported to Johan)
+* The e-sign's party roles are property roles (Seller/Buyer/Landlord/Tenant/Agent); a CoreX contract uses
+  Seller = agency principal, Agent = CoreX. Custom platform role names would require changing the shared e-sign.
+* Every signer needs an ID/passport number (the e-sign's own legal rule).
+* The wizard's contact/property search still searches all agencies for an owner.
 
-### Why this makes CoreX *best*, not merely *working*
-The onboarding conversation becomes a living, recorded plan the agency can open at any time, and the
-contract step is part of the same flow instead of a separate PDF-and-email chase. Integration is the point:
-signing the contract moves the timeline; finishing the setup wizard moves the timeline.
+## 4. Part B — Agency Timeline
 
----
+### 4.1 Navigation
+Sidebar → System Developer → Agency → **Agency Timeline** (`admin.agency-timelines.*`).
+Dev Settings → **Agency onboarding → Agency timeline defaults** (`admin.timeline-defaults.*`).
+After creating an agency, the success message links to *Start agency timeline*.
 
-## 2. Pillar connections
+### 4.2 Data (migrations `2026_10_05_100000`, `120000`, `130000`, `140000`)
+* `agency_timeline_default_items` — editable template: `kind` (block|milestone), title, body, `offset_days`,
+  `is_public`, `agency_can_complete`, `is_go_live` (exactly one), `auto_complete_trigger`
+  (`contract_signed` | `setup_wizard_completed`), sort, soft delete.
+* `agency_timelines` — one per agency (enforced in code): `token` (48 chars), `start_date`, status
+  (running|live|paused), `public_link_enabled`, `agreement_template_id` (linked Platform E-Sign document), soft delete.
+* `agency_timeline_items` — a **snapshot** of the defaults at start (defaults edited later never change a
+  running timeline) + custom items; `due_date`, `status` (pending|done|skipped), `completed_source`
+  (`manual`|`agency`|`contract_signed`|`setup_wizard_completed`), `agency_can_complete`, soft delete.
+* `agency_timeline_events` — full history of every change (who / what / before / after / source).
+* `agencies` is **not** changed. `docuperfect_templates.is_platform` added; `docuperfect_documents.agency_id`
+  made nullable (FK kept).
 
-| Pillar | Connection |
-|---|---|
-| Agent (`User`) | Signatory defaults to the agency's first Admin (the user created with the agency). Public timeline names the agency, never individual users. |
-| Property / Contact / Deal | None. |
+### 4.3 Owner screens (all owner-only; every action also `abort_unless(isOwnerRole())`)
+* **List** — KPIs; search (agency name); filters: status (incl. Archived), started-from / started-to;
+  sort: agency, overdue, start, go-live (default agency A→Z); pagination 25; empty states; Start / Open / Copy link.
+* **Start** — start date defaults to today and can never be in the past (server-validated, form clamps old
+  dates); every default step shows a date counted from the start date and each is individually editable
+  (not earlier than the start date); Reset per step.
+* **Detail** — header with status/go-live/slip; public link (copy, open, switch off, new link); start date
+  (move open steps or not) and reset dates; **Steps** table (Mark done / Skip / Reopen / Edit / reorder /
+  Archive; custom steps; "Agency ticks" flag; auto-tick badges); **Information sections** (blocks) the same;
+  archived items with Restore; **History** tab; **Agreement** panel (link a Platform E-Sign document);
+  **Archive** the whole timeline (soft delete; public link goes offline) — restorable from the list's Archived
+  filter unless the agency already has an active timeline.
+* **Defaults (Dev Settings)** — add / edit / reorder / archive / restore steps and sections; days-after-start;
+  trigger; go-live; public; agency-can-complete. Running timelines are never changed.
 
-Cross-feature (domain events, Non-negotiable #9) — see §9.
+### 4.4 Overdue → go-live
+`state()` = done | skipped | overdue (due before today and pending) | upcoming. Expected go-live = planned +
+the worst overdue slip among steps due on/before the go-live step (`goLive()`); shown on every screen.
 
----
+### 4.5 Auto-ticks
+`contract_signed`: `syncAgreement()` (run whenever a timeline is read, owner or public) fires
+`AgencyContractSigned` when the linked Platform E-Sign document is `completed`; `setup_wizard_completed`:
+`AgencySetupWizardController` fires `AgencySetupWizardCompleted`. `CompleteTimelineItemsOnTrigger` ticks only
+pending items, once, with a history entry.
 
-## 3. What this is NOT (so nobody conflates them)
-
-* **Not the Agency Onboarding Setup Wizard** (`agency_onboarding_setups`, `/agency-setup/{token}`). That wizard
-  walks an agency Admin through configuring their own CoreX settings, behind a real login. The Agency Timeline is
-  a *project plan* for the take-on, shown read-only, no login. Different tables, different link, different
-  audience. The only coupling: the wizard's `completed_at` can auto-tick one timeline item (§9).
-* **Not Docuperfect e-sign** (agency e-sign for property documents). See §6.4.
-
----
-
-## 4. Navigation (Non-negotiable #2 — same day)
-
-System Developer section of the sidebar, inside the existing owner-only `@if($isOwner)` block:
-
-* Under the existing **Agency** slide-panel (beside Agency Management / Agency Setup Progress / AI Usage /
-  Agency Billing): add **Agency Timeline**.
-* New top-level item **Agency Contracts** directly under **Agency** (own page, outside the agency group, per the
-  brief: "separately outside of the agencies like the dev settings").
-* **Dev Settings** gains a new section **Agency timeline defaults** (the existing `?s=` rail contract in
-  `DevSettingsController::SECTIONS`).
-* Agency Management → create success message carries a **Start agency timeline** link for the new agency. (The
-  Agency Timeline page itself is where a timeline is started for any agency, new or old.)
+### 4.6 Public page (no login)
+* URL `/agency-timeline/{agency-name}/{token}` (name cosmetic, never checked); bare `/agency-timeline/{token}` still works.
+  Unknown / disabled / archived token → the same neutral 404 page (no agency name). `noindex`, `no-store`, throttled.
+* Shows only items marked public, pre-rendered (no models, no emails/names). Hero (progress ring, days to
+  go-live, next-up), an **interactive timeline** (steps share the width — no sideways scroll; vertical on
+  phones; Today pin; click / prev-next), the plan, information sections; Open Graph tags for link previews.
+* **Agency ticks:** `POST /agency-timeline/{token}/steps/{item}` (throttle 20/min, CSRF). Allowed only if the
+  timeline is *running*, the step is a public milestone with `agency_can_complete`, and it is pending. Undo is
+  allowed only for a tick the agency itself made. Every change is logged "by the agency" and fires
+  `AgencyTimelineMilestoneCompleted`. CoreX decides per step which are the agency's.
 
 ## 5. Permissions
+Owner-only (System Owner), **no permission key by design** (a key is grantable via Role Manager and these
+screens expose every agency's commercial/onboarding state). The public routes are token-gated.
 
-`owner_only` middleware + `abort_unless($user->isOwnerRole(), 403)` in every action, **deliberately no key in
-`config/corex-permissions.php`** — identical reasoning to Agency Billing / Dev Settings / Demo Access: a permission
-key is grantable via Role Manager and these pages expose every agency's commercial terms and contract status.
-Sidebar entries sit inside the existing owner block. The public timeline route is the only unauthenticated
-route (§7.5) and the public signing route is the second (§6.3), both token-gated.
+## 6. Domain events (Non-negotiable #9) — catalogued in `corex-domain-events-spec.md` §5
+`AgencyTimelineStarted`, `AgencyTimelineMilestoneCompleted`, `AgencyContractSigned`, `AgencySetupWizardCompleted`.
 
----
+## 7. Multi-tenancy / scoping
+Timeline tables are platform-owned (no `agency_id` scoping; reached only through owner-only routes or an
+unguessable token). Platform E-Sign data is agency-less and isolated as in §3.2–3.3.
 
-## 6. Part A — Agency Contracts (dev-side e-sign)
+## 8. Deployment notes (for the live push — not yet authorised)
+* Migrations are additive except `ALTER TABLE docuperfect_documents MODIFY agency_id … NULL` (brief table
+  lock on a large table — run off-peak) and the `UPDATE … JOIN` in `140000`.
+* Dump the DB to the data volume first; tag; `git merge --ff-only`; only AT-447 commits go to `main`
+  (cherry-pick — `QA2` carries other lanes' work).
+* `php artisan platform-esign:demo` is QA-only; do not run on live.
 
-### 6.1 Scope
-Platform owner can: keep contract templates, send one to an agency, see status, resend/void, download the
-signed PDF. The signer is an external person (the agency principal) with no CoreX login.
+## 9. Acceptance criteria
+1. Owner starts a timeline: past start date rejected; each step date editable; defaults snapshot.
+2. Editing defaults never changes a running timeline; a second timeline for an agency is refused.
+3. Overdue steps show and push the go-live date; marking them done pulls it back.
+4. Public link works by token only; wrong name still works; wrong/disabled/archived token → neutral 404.
+5. Public page hides non-public items and leaks no names/emails; the agency can tick only opened steps while
+   running, can undo only its own tick, every change is in History.
+6. Linking a Platform E-Sign document and fully signing it ticks the "sign agreement" step; finishing the
+   setup wizard ticks its step.
+7. Non-owners get 403 on every owner route; platform contracts are invisible to every agency (§3.3).
+8. Timelines, steps, sections and defaults can be archived and restored; nothing is hard-deleted.
 
-### 6.2 Data model (new tables — none uses `BelongsToAgency`; they are platform-owned, `agency_id` is a plain FK for
-"which agency is this contract for", queried explicitly in owner-only controllers)
-
-`platform_contract_templates`
-`id, name, kind (subscription_agreement|debit_order_form|other), body_html (merge fields below), version (int,
-bumped on each save that changes body), is_active, created_by, timestamps, deleted_at`
-
-`platform_contract_envelopes`
-`id, agency_id, template_id, template_version, title, body_html_snapshot (merged + frozen at send — the signer
-signs exactly this, later template edits never alter it), signatory_name, signatory_email, signatory_role
-(default "Principal"), token (unique, random 48), token_expires_at, status (draft|sent|viewed|signed|declined|
-expired|voided), sent_at, first_viewed_at, signed_at, declined_at, decline_reason, signed_typed_name,
-signed_ip, signed_user_agent, consent_text_snapshot, document_hash (SHA-256 of the sealed PDF),
-sealed_pdf_path, voided_at, voided_by, void_reason, created_by, timestamps, deleted_at`
-
-`platform_contract_events` (append-only audit: created, sent, viewed, signed, declined, resent, voided,
-downloaded — who/when/ip)
-
-`platform_contract_attachments` (e.g. the debit order form PDF that rides with the agreement):
-`id, envelope_id, original_name, stored_path, sha256`. Stored on the private disk (same disk/encryption path
-the app uses for other private uploads — resolved during build; never public).
-
-Merge fields (rendered once at send): `{{agency_name}} {{agency_trading_name}} {{agency_reg_no}} {{agency_vat_no}}
-{{agency_address}} {{signatory_name}} {{signatory_email}} {{today}} {{go_live_date}} {{billing_start_date}}`.
-Unknown field at send time = send is refused with the field named (never a blank in a contract).
-
-### 6.3 Flow
-1. **Templates** screen: list (search name; sort name/updated; filter active/archived; paginate; empty state),
-   create/edit (rich-text editor already used for templates elsewhere — reuse, don't add a new one), preview with
-   sample merge data, archive (soft delete) + restore.
-2. **Send** (from Agency Contracts → "Send contract", or from the agency's timeline item): choose agency,
-   template, optional attachment(s), signatory name/email (pre-filled from the agency's first Admin), expiry
-   (default 14 days, set in Dev Settings). Preview of merged document before sending. Send emails the signer a
-   link `/agency-contract/{token}` via the standard mail path (no raw mail, uses the outbound-mail guard like
-   everything else).
-3. **Public signing page** (`/agency-contract/{token}`, no login, noindex, throttled): shows the frozen document
-   and attachments, the signer types their full name, ticks the consent statement, draws or types a signature,
-   submits. Decline with a reason is available. Expired/voided/already-signed links show a plain status page,
-   never the document.
-4. **On sign:** status `signed`; IP, user agent, timestamp, typed name stored; a **sealed PDF** is generated
-   (document + signature block + audit summary), SHA-256 stored; both the platform owner (notification through
-   the AT-235 gateway) and the signer (copy of the signed PDF by email) are notified; `AgencyContractSigned` event
-   fires (§9).
-5. **Contracts list**: columns agency, template, status, sent, last viewed, signed. Search: agency name,
-   signatory name/email, title. Sort: sent (default desc), status, agency, signed. Filter: status, agency, date
-   range (sent). Pagination. Empty state. Row actions: view, resend (new token + expiry; old link dies), void
-   (reason required), download signed PDF, archive/restore. **No hard delete.**
-
-### 6.4 Why not Docuperfect, and the canon question
-Docuperfect e-sign is tenant-scoped end to end (`BelongsToAgency` on documents/requests), built around
-property/deal documents, FICA gates, the compliance approval gate, role blocks and per-agency letterheads. Forcing
-a CoreX-to-agency contract through it would either put the contract inside HFC's agency (visible to HFC staff,
-the opposite of "outside the agencies") or require bypassing the tenant scope in a pipeline-gated area. So this is a
-**small, separate signing path** with its own tables. It borrows only generic, tenant-free pieces (PDF rendering,
-hashing, the mail path). **It is outside ESIGN-CANON** (which governs the property-document e-sign path) —
-recorded here as a deliberate divergence for Johan's information; ESIGN-CANON's §0 already distinguishes paths.
-Evidence standard kept equivalent to what the product already treats as acceptable: typed name + consent + IP +
-timestamp + document hash + append-only audit.
-
----
-
-## 7. Part B — Agency Timeline
-
-### 7.1 Concept
-A timeline is made of two kinds of item, both per agency and both editable:
-
-* **Info blocks** — narrative sections with a heading and body (e.g. "Where we are", "Training going forward",
-  "What we need from you", "Finances"). Ordered. No date.
-* **Milestones** — dated items (e.g. "Take-on questionnaire completed", "CRM data exported and sent to us",
-  "Agency goes live"). Each has a title, optional description, a due date, a status, and exactly one milestone per
-  timeline can be flagged **Go live**.
-
-Text in both supports merge fields `{{agency_name}} {{go_live_date}} {{billing_start_date}} {{start_date}}`
-so the default text reads "Caprivi live on CoreX" for Caprivi without anyone editing it.
-
-### 7.2 Dev Settings → "Agency timeline defaults"
-New section in `admin/dev-settings`. Stored as the default template (own tables below, not a JSON blob in
-`dev_settings`, because it is ordered, edited item-by-item and audited):
-
-* **Default info blocks**: title, body, order, shown publicly (yes/no).
-* **Default milestones**: title, description, **offset in days from the start date** (0 = start date; negative
-  not allowed), order, shown publicly (yes/no), is-go-live flag (exactly one), optional **auto-complete trigger**
-  (`none | contract_signed | setup_wizard_completed`).
-* Add / edit / reorder / archive / restore (soft delete) each default.
-* Seeded on first install with Johan's example (Where we are → Finances; milestones: questionnaire +3d … live
-  +27d etc.) as a migration/seeder via `deploy:sync-reference-data`-safe idempotent code, so staging and live
-  carry it. Offsets in the seed are Johan's to confirm — see §13.
-
-Changing defaults never rewrites a running timeline (§7.3 snapshots).
-
-### 7.3 Data model
-
-`agency_timeline_default_items`
-`id, kind (block|milestone), title, body, sort_order, offset_days (nullable for block), is_public (bool),
-is_go_live (bool), auto_complete_trigger (nullable string), timestamps, deleted_at`
-
-`agency_timelines`
-`id, agency_id (unique among non-deleted), token (unique, random 48, the public link), start_date (date),
-status (running|live|paused), public_link_enabled (bool, default true), started_by, live_at, timestamps, deleted_at`
-
-`agency_timeline_items` — **a snapshot copy** of the defaults taken at start, then freely editable:
-`id, timeline_id, kind, title, body, sort_order, due_date (nullable), offset_days (kept for "reset to default"),
-is_public, is_go_live, auto_complete_trigger, status (pending|done|skipped), completed_at, completed_by,
-completed_source (manual|contract_signed|setup_wizard_completed), is_custom (bool — added for this agency, not
-from defaults), source_default_id (nullable), timestamps, deleted_at`
-
-`agency_timeline_events` — **the record** ("the timeline should be recorded"): append-only audit of every
-change: started, item added/edited/date-moved (old → new)/completed/reopened/skipped/archived/restored, link
-enabled/disabled/regenerated, status changes. Who, when, before/after.
-
-`due_date = start_date + offset_days` at snapshot time. Moving a date manually keeps the offset untouched and
-logs the move. Changing the **start date** afterwards offers "shift all not-yet-done dated items by the
-difference" (default on) — every shift is logged.
-
-### 7.4 Owner screens
-
-**Agency Timeline (index)** — every agency, one row: agency, status (Not started / Running / Live / Paused),
-progress (done/total milestones), next due item, overdue count, start date, go-live date, actions:
-**Start timeline** (for agencies without one), Open, Copy public link. Search: agency name. Sort: agency (default),
-go-live date, start date, overdue count. Filter: status. Pagination. Empty state. Demo agencies are listed but
-marked; archived (soft-deleted) agencies excluded.
-
-**Start timeline** — modal/page: start date (defaults to the agency's **creation date**, editable), preview of the
-resulting dates for every default milestone, confirm. One timeline per agency; a second Start is refused with a
-message pointing at the existing one.
-
-**Agency timeline detail** — (the owner's working view of one agency)
-* Header: agency, start date, go-live date, progress bar, status, public link (copy / open / disable / regenerate).
-* The info blocks and the milestone list in order, same as the public page plus owner-only controls:
-  mark done / reopen / skip, edit title/description/date, show/hide on public page, reorder, **Add custom
-  milestone** and **Add custom info block** (this agency only), archive/restore any item, **Reset to default dates**.
-* **Contract panel**: the agency's contract envelopes and status with a **Send contract** shortcut (Part A).
-* **History** tab: the `agency_timeline_events` log.
-* Mark **Live**: sets timeline status Live and stamps `live_at` (does NOT flip any agency feature or billing —
-  it is a record, not a switch).
-
-### 7.5 Public page `/agency-timeline/{token}`
-Read-only, no login, `noindex`, `Cache-Control: no-store`, throttled, shows **only**: agency name (and logo if
-set), the public info blocks, the public milestones with status — **Done** (with date), **Next**, **Upcoming**,
-**Overdue** — a progress indicator, and the go-live date. Never shows: users, emails, contract content,
-hidden items, internal notes, other agencies, the token of anything else. Disabled, regenerated (old token
-dies) or unknown token → one neutral "This link is no longer active" page (same response for unknown and
-disabled, so tokens can't be probed). Mobile-first (it will be opened on phones inside agency offices).
-Uses the CoreX UI design system (`UI_DESIGN_SYSTEM.md`); no admin chrome.
-
----
-
-## 8. API / routes (Non-negotiable #7)
-All owner screens are server-rendered web routes (no JSON data endpoints, so nothing hidden outside the catalog).
-Any later JSON need goes under `/api/v1/*` with `->name()`.
-
-```
-admin/dev-settings?s=timeline_defaults           GET/PUT + item CRUD   (extends DevSettingsController, owner_only)
-admin/agency-timelines                            index, start, show, item CRUD, link toggle/regenerate (owner_only)
-admin/agency-contracts                            templates + envelopes CRUD, send, resend, void, download (owner_only)
-agency-timeline/{token}                           public read-only (throttled)
-agency-contract/{token}                           public signing (throttled): show, sign, decline
-```
-
-## 9. Domain events (Non-negotiable #9)
-Read `.ai/specs/corex-domain-events-spec.md` and register in the catalogue before building:
-`AgencyTimelineStarted`, `AgencyTimelineMilestoneCompleted`, `AgencyContractSent`, `AgencyContractSigned`,
-`AgencyContractDeclined`.
-Listeners: `AgencyContractSigned` → completes every open timeline item for that agency with trigger
-`contract_signed`; the setup wizard's completion (existing completion point in `AgencySetupWizardController::finish`)
-emits `AgencySetupWizardCompleted` (new, tiny) → completes items with trigger `setup_wizard_completed`. Auto-completions
-are logged with their source. No ad-hoc observers.
-
-## 10. Setup Wizard (Non-negotiable #10a)
-**Not applicable.** None of this is a setting an agency configures; it is platform-owner tooling. Recorded here so
-the omission is on the record, not an oversight.
-
-## 11. Multi-tenancy / scoping (Non-negotiable #8-full-CRUD floor)
-* Every screen is owner-only. There is no agency-user surface, so own/branch/agency scoping is "owner sees all
-  agencies" by design, enforced by middleware **and** per-action `isOwnerRole()` aborts, never by hidden links.
-* Public pages resolve exactly one record by token and expose only whitelisted fields.
-* Models do **not** use `BelongsToAgency` (they are platform-owned and an agency-scoped query would hide them
-  from the owner when switched into an agency); every owner query is explicit about `agency_id`. A test proves a
-  non-owner (agency Admin) gets 403 on every route and cannot reach the public tokens of others.
-* No hard deletes anywhere: templates, envelopes, defaults, timelines and items all soft delete with Restore.
-
-## 12. Acceptance criteria
-1. Dev Settings has an "Agency timeline defaults" section; defaults can be added, edited, reordered, archived,
-   restored; exactly one go-live milestone enforced.
-2. Starting a timeline for an agency (start date defaulting to its creation date) creates items with
-   `due_date = start + offset`, a unique public link, and a logged `started` event.
-3. Changing a default afterwards does not alter an already-started timeline.
-4. Owner can add a custom milestone and a custom info block to one agency's timeline; it appears on the public
-   page unless hidden; it never appears on another agency's.
-5. Public link shows done/next/upcoming/overdue correctly for a fixed "today"; hidden items absent; disabled or
-   regenerated link serves the neutral page; no login needed; no agency/user data leaks.
-6. Every change to a timeline is in its History log with who/when/before→after.
-7. A contract template can be created, previewed, archived, restored; an unknown merge field blocks sending.
-8. Sending a contract emails the signer a link; the public signing page shows the frozen document; signing stores
-   the evidence, produces a sealed PDF whose hash matches, emails the signer a copy, notifies the owner.
-9. Signing ticks the timeline's contract item automatically and logs the source.
-10. Resend kills the old link; void kills the link; expired/voided/signed links never show the document.
-11. Contracts list and Agency Timeline index have the search/sort/filter/pagination/empty states in §6.3/§7.4.
-12. Agency Admin (non-owner) receives 403 on every owner route.
-13. Sidebar entries exist under System Developer the same day; no new entry visible to non-owners.
-
-## 13. Open business questions for Johan (everything else is decided above)
-1. **Default dates.** Your example has fixed calendar dates (5 Oct, 12 Oct, 15 Oct, 1 Nov). I'm turning them into
-   "days after start" in the seed — which day-counts do you want for each step? (I'll seed a first guess from the
-   example: questionnaire +3, CRM export +10, import/setup +13, team working +13→+29, live +30, billing starts
-   the day after live. Tell me if that's wrong and I'll change the seed.)
-2. **Overdue wording on the public page.** Should the agency see an item flagged "Overdue" in red, or just
-   "Past due date"? (Overdue is visible to everyone in their office.)
-3. **Who gets the contract.** I'm assuming the agency's first Admin (the one created with the agency), editable
-   at send time. Correct?
-
-## 14. Files to create / modify
-New: migrations for the 8 tables; models (`AgencyTimeline`, `AgencyTimelineItem`, `AgencyTimelineDefaultItem`,
-`AgencyTimelineEvent`, `PlatformContractTemplate`, `PlatformContractEnvelope`, `PlatformContractEvent`,
-`PlatformContractAttachment`); services (`AgencyTimelineService` — start/snapshot/shift/complete/log;
-`PlatformContractService` — merge/send/seal/void); controllers under `Admin\` + `Public\`; events/listeners;
-Blade views (owner screens + 2 public pages); mailables (contract invite, signed copy); seeder for defaults;
-tests (feature: start/snapshot/shift/public visibility/403s/sign flow/auto-complete; unit: offset math, merge-field
-refusal).
-Modify: `routes/web.php`, `corex-sidebar.blade.php`, `DevSettingsController` + `dev-settings/index.blade.php`,
-`AgencyController@store` success message, `AgencySetupWizardController@finish` (event only),
-`.ai/CHAT_STARTER.md`, `.ai/CODEBASE_MAP.md`.
-
-## 15. Build phases (each independently shippable and tested)
-1. Timeline defaults (Dev Settings) + start + owner detail + history. 2. Public timeline page + link controls.
-3. Contract templates + send + public signing + sealed PDF. 4. Event wiring (contract/wizard → timeline) + sidebar polish.
+## 10. Files
+Controllers: `Admin/AgencyTimelineController`, `Admin/AgencyTimelineDefaultsController`,
+`Admin/PlatformEsignController`, `Public/AgencyTimelinePublicController`. Service: `Platform/AgencyTimelineService`,
+`Platform/PlainDocRenderer`. Models: `Platform/AgencyTimeline*`. Mode: `Support/PlatformEsignMode`,
+`Scopes/PlatformTemplateScope` (+ small guarded changes to `AgencyScope`, `BelongsToAgency`, `Docuperfect/Template`,
+`TemplateController::cdsGenerate`, `SignaturePdfService`). Views: `admin/agency-timelines/*`,
+`admin/dev-settings/timeline-defaults` + `_timeline-default-form`, `docuperfect/platform-hub`,
+`partials/platform-esign-banner`, `public/agency-timeline/*`. Command: `platform-esign:demo`.
+Tests: `tests/Feature/Platform/{AgencyTimelineTest,PlatformEsignModeTest,PlatformEsignIsolationTest}`.

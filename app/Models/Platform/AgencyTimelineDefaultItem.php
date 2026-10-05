@@ -27,13 +27,14 @@ class AgencyTimelineDefaultItem extends Model
 
     protected $fillable = [
         'kind', 'title', 'body', 'sort_order', 'offset_days',
-        'is_public', 'is_go_live', 'auto_complete_trigger',
+        'is_public', 'agency_can_complete', 'is_go_live', 'auto_complete_trigger',
     ];
 
     protected $casts = [
         'sort_order'  => 'integer',
         'offset_days' => 'integer',
         'is_public'   => 'boolean',
+        'agency_can_complete' => 'boolean',
         'is_go_live'  => 'boolean',
     ];
 }

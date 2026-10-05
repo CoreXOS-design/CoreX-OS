@@ -18,23 +18,29 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('docuperfect_templates', function (Blueprint $table) {
-            $table->boolean('is_platform')->default(false)->after('is_global');
-            $table->index('is_platform');
-        });
+        if (!Schema::hasColumn('docuperfect_templates', 'is_platform')) {
+            Schema::table('docuperfect_templates', function (Blueprint $table) {
+                $table->boolean('is_platform')->default(false)->after('is_global');
+                $table->index('is_platform');
+            });
+        }
 
         DB::statement('ALTER TABLE docuperfect_documents MODIFY agency_id BIGINT UNSIGNED NULL');
     }
 
     public function down(): void
     {
+        // Never destroy data on a rollback: refuse — BEFORE changing anything — while platform
+        // (agency-less) contracts exist.
+        if (DB::table('docuperfect_documents')->whereNull('agency_id')->exists()) {
+            throw new \RuntimeException('Cannot roll back: agency-less Platform E-Sign documents exist in docuperfect_documents. Archive/export them first (php artisan platform-esign:demo --remove for the demo).');
+        }
+
         Schema::table('docuperfect_templates', function (Blueprint $table) {
             $table->dropIndex(['is_platform']);
             $table->dropColumn('is_platform');
         });
 
-        // Only reversible while no platform rows exist.
-        DB::table('docuperfect_documents')->whereNull('agency_id')->delete();
         DB::statement('ALTER TABLE docuperfect_documents MODIFY agency_id BIGINT UNSIGNED NOT NULL');
     }
 };

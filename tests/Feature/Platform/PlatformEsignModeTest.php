@@ -52,11 +52,12 @@ class PlatformEsignModeTest extends TestCase
     {
         $agency = Agency::create(['name' => 'Caprivi', 'slug' => 'caprivi-' . uniqid()]);
         $admin = User::factory()->create(['role' => 'admin', 'agency_id' => $agency->id]);
-        $this->actingAs($admin)->get(route('admin.platform-esign.enter'))->assertForbidden();
+        $this->actingAs($admin)->post(route('admin.platform-esign.enter'))->assertForbidden();
+        $this->actingAs($admin)->get(route('admin.platform-esign.enter'))->assertStatus(405);   // entering changes session state: POST only
         $this->actingAs($admin)->post(route('admin.platform-esign.exit'))->assertForbidden();
 
         $this->actingAs($this->owner());
-        $this->get(route('admin.platform-esign.enter'))->assertRedirect(route('docuperfect.dashboard'));
+        $this->post(route('admin.platform-esign.enter'))->assertRedirect(route('docuperfect.platform.hub'));
         $this->assertTrue(session(PlatformEsignMode::SESSION_KEY));
         $this->post(route('admin.platform-esign.exit'))->assertRedirect();
         $this->assertNull(session(PlatformEsignMode::SESSION_KEY));
@@ -90,6 +91,25 @@ class PlatformEsignModeTest extends TestCase
 
         // In platform mode they do.
         $this->withSession($this->inMode())->get(route('docuperfect.templates.index'))->assertOk()->assertSee('CoreX Subscription Agreement');
+    }
+
+    public function test_the_landing_page_offers_every_action_and_is_owner_only_and_mode_only(): void
+    {
+        $agency = Agency::create(['name' => 'Caprivi', 'slug' => 'caprivi-' . uniqid()]);
+        $admin = User::factory()->create(['role' => 'admin', 'agency_id' => $agency->id]);
+        $this->actingAs($admin)->withSession($this->inMode())->get(route('docuperfect.platform.hub'))->assertForbidden();
+
+        $this->actingAs($this->owner());
+        $this->flushSession()->get(route('docuperfect.platform.hub'))->assertNotFound();   // not in the mode
+
+        $this->withSession($this->inMode())->get(route('docuperfect.platform.hub'))->assertOk()
+            ->assertSee('Send a contract')->assertSee('Contract templates')->assertSee('Import a document')
+            ->assertSee('Sent contracts')->assertSee('Recipient presets')
+            ->assertSee(route('docuperfect.esign.create'), false)->assertSee(route('docuperfect.templates.index'), false)
+            ->assertSee(route('docuperfect.import.index'), false);
+
+        // The shortcuts are on every page inside the mode.
+        $this->get(route('docuperfect.templates.index'))->assertOk()->assertSee('Send a contract')->assertSee('Import a document');
     }
 
     public function test_agency_templates_are_hidden_inside_platform_mode(): void
