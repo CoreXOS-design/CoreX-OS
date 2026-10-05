@@ -130,7 +130,7 @@ class Property24ListingMapper
             $commercial = [];
             if ($property->gross_price) $commercial['grossPrice'] = (float) $property->gross_price;
             if ($property->net_price) $commercial['netPrice'] = (float) $property->net_price;
-            if ($property->lease_start_date) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
+            if ($this->shouldSendAvailableFrom($property)) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
             // .ai/specs/rental-property-tab.md §5, Part 4 — closes P24-G4
             // (.ai/audits/syndication-mapping-audit-2026-07-05.md:45): lease_type
             // is now an agency-editable list (PropertySettingItem::GROUP_LEASE_TYPE)
@@ -154,7 +154,7 @@ class Property24ListingMapper
         }
 
         // Occupation date
-        if ($property->lease_start_date) {
+        if ($this->shouldSendAvailableFrom($property)) {
             $listing['occupationDate'] = $property->lease_start_date->format('Y-m-d\TH:i:s');
         }
 
@@ -187,6 +187,24 @@ class Property24ListingMapper
         }
 
         return $listing;
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (3):
+     * whether `lease_start_date` (reused as "available from" both for an
+     * ordinary rental's own move-in date and for the notice-readvertise
+     * path, §15 GATE 2) reaches P24 at all. Gates BOTH of this mapper's
+     * existing consumers of that column — the generic `occupationDate`
+     * (fires for any listing type) and `commercialInfo.availabilityDate`
+     * (commercial-typed only) — so one property-level setting governs the
+     * field everywhere it's sent, not just the notice flow. Default true:
+     * matches this mapper's own pre-existing, always-on behaviour, so an
+     * agency only sees a change if it explicitly turns this off.
+     */
+    private function shouldSendAvailableFrom(Property $property): bool
+    {
+        return $property->lease_start_date !== null
+            && (bool) ($property->show_available_from_on_portals ?? true);
     }
 
     /**

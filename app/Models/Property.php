@@ -813,6 +813,9 @@ class Property extends Model
         'expiry_date',
         'lease_start_date',
         'lease_end_date',
+        // .ai/specs/rental-renewals.md §19 — whether lease_start_date (reused
+        // as "available from") is pushed to Property24/Private Property.
+        'show_available_from_on_portals',
         'headline',
         'street_name',
         'street_name_normalised',
@@ -958,6 +961,7 @@ class Property extends Model
         'occupation_date'     => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',
+        'show_available_from_on_portals' => 'boolean',
         'baths'               => 'decimal:1',
         'half_baths'          => 'integer',
         'rental_amount'       => 'float',

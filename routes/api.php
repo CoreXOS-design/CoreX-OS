@@ -477,6 +477,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
             Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
         });
 
         // Session-authed "who am I" — fired automatically on every page

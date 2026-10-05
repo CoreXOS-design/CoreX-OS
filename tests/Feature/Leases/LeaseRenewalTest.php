@@ -144,7 +144,7 @@ final class LeaseRenewalTest extends TestCase
         $user = $this->makeUser($agency, $branch);
 
         $moveOut = now()->addDays(30)->toDateString();
-        $updated = app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, $moveOut, 'Relocating for work', $user);
+        $updated = app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, $moveOut, 'Relocating for work', $user, Lease::NOTICE_OUTCOME_LEAVE);
 
         self::assertTrue($updated->hasActiveNotice());
         self::assertSame('tenant', $updated->notice_given_by);
@@ -158,7 +158,7 @@ final class LeaseRenewalTest extends TestCase
         self::assertNull($reversed->notice_given_by);
 
         // Landlord path, same mechanism, distinct description.
-        $landlordUpdated = app(LeaseRenewalService::class)->recordNotice($reversed, Lease::NOTICE_BY_LANDLORD, $moveOut, null, $user);
+        $landlordUpdated = app(LeaseRenewalService::class)->recordNotice($reversed, Lease::NOTICE_BY_LANDLORD, $moveOut, null, $user, Lease::NOTICE_OUTCOME_LEAVE);
         $landlordDescription = $lease->fresh()->events->last()->description;
         self::assertStringContainsString('Landlord not renewing', $landlordDescription);
         self::assertTrue($landlordUpdated->hasActiveNotice());
@@ -178,6 +178,7 @@ final class LeaseRenewalTest extends TestCase
 
         $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
             'move_out_date' => now()->addYears(5)->toDateString(),
+            'notice_outcome' => Lease::NOTICE_OUTCOME_LEAVE,
         ]);
 
         $response->assertSessionHasErrors('move_out_date');
@@ -192,10 +193,74 @@ final class LeaseRenewalTest extends TestCase
 
         $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
             'move_out_date' => now()->addDays(30)->toDateString(),
+            'notice_outcome' => Lease::NOTICE_OUTCOME_LEAVE,
         ]);
 
         $response->assertSessionDoesntHaveErrors();
         self::assertTrue($lease->fresh()->hasActiveNotice());
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (1): "the
+     * dialog cannot be confirmed without a choice" — enforced server-side,
+     * not just by the dialog's own `required` radios.
+     */
+    public function test_tenant_notice_http_rejects_a_missing_outcome_choice(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+
+        $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
+            'move_out_date' => now()->addDays(30)->toDateString(),
+        ]);
+
+        $response->assertSessionHasErrors('notice_outcome');
+        self::assertFalse($lease->fresh()->hasActiveNotice());
+    }
+
+    public function test_tenant_notice_http_rejects_an_unrecognised_outcome_choice(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+
+        $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
+            'move_out_date' => now()->addDays(30)->toDateString(),
+            'notice_outcome' => 'not-a-real-outcome',
+        ]);
+
+        $response->assertSessionHasErrors('notice_outcome');
+        self::assertFalse($lease->fresh()->hasActiveNotice());
+    }
+
+    public function test_change_notice_outcome_http_updates_the_choice(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $user, Lease::NOTICE_OUTCOME_LEAVE);
+
+        $response = $this->actingAs($user)->post(route('corex.leases.renewal.notice.change-outcome', $lease), [
+            'notice_outcome' => Lease::NOTICE_OUTCOME_WITHDRAW,
+        ]);
+
+        $response->assertRedirect();
+        self::assertSame(Lease::NOTICE_OUTCOME_WITHDRAW, $lease->fresh()->notice_outcome);
+        self::assertSame('withdrawn', $property->fresh()->status);
+    }
+
+    public function test_change_notice_outcome_http_requires_a_choice(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $user, Lease::NOTICE_OUTCOME_LEAVE);
+
+        $response = $this->actingAs($user)->post(route('corex.leases.renewal.notice.change-outcome', $lease), []);
+
+        $response->assertSessionHasErrors('notice_outcome');
+        self::assertSame(Lease::NOTICE_OUTCOME_LEAVE, $lease->fresh()->notice_outcome);
     }
 
     public function test_record_notice_rejects_an_invalid_given_by_value(): void
@@ -206,7 +271,19 @@ final class LeaseRenewalTest extends TestCase
 
         $this->expectException(ValidationException::class);
 
-        app(LeaseRenewalService::class)->recordNotice($lease, 'agent', now()->toDateString(), null, $user);
+        app(LeaseRenewalService::class)->recordNotice($lease, 'agent', now()->toDateString(), null, $user, Lease::NOTICE_OUTCOME_LEAVE);
+    }
+
+    /** .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (1): the agent picks a choice every time, nothing defaulted server-side either. */
+    public function test_record_notice_rejects_an_invalid_outcome_value(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+
+        $this->expectException(ValidationException::class);
+
+        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->toDateString(), null, $user, 'not-a-real-outcome');
     }
 
     public function test_renewal_events_appear_in_the_tenancy_log_as_notice_type(): void
@@ -215,7 +292,7 @@ final class LeaseRenewalTest extends TestCase
         $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
         $user = $this->makeUser($agency, $branch);
 
-        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $user);
+        app(LeaseRenewalService::class)->recordNotice($lease, Lease::NOTICE_BY_TENANT, now()->addDays(30)->toDateString(), null, $user, Lease::NOTICE_OUTCOME_LEAVE);
 
         $entries = app(\App\Services\Rentals\LeaseTimelineService::class)->paginatedFor($lease->fresh(), null, ['notice']);
         self::assertSame(1, $entries['total']);

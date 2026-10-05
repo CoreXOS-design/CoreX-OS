@@ -108,6 +108,7 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-m2m')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Goes month-to-month&hellip;</button>
                                 @endif
                                 @if($lease->hasActiveNotice())
+                                    <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-change-notice-outcome')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Change notice outcome&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-reverse-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse notice&hellip;</button>
                                 @else
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-tenant-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Tenant gave notice&hellip;</button>
@@ -209,11 +210,7 @@
                             <label class="text-xs font-medium">Note (optional)</label>
                             <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $isReopening('tenant-notice') ? old('note') : '' }}</textarea>
                         </div>
-                        <input type="hidden" name="readvertise" value="0">
-                        <label class="flex items-center gap-2 text-xs">
-                            <input type="checkbox" name="readvertise" value="1" @checked($isReopening('tenant-notice') ? old('readvertise') === '1' : $autoReadvertiseOnNotice)>
-                            Put this property back on the market, available the day after move-out
-                        </label>
+                        @include('corex.leases._notice-outcome-fields', ['isReopening' => $isReopening('tenant-notice'), 'showAvailableFromOnPortals' => $showAvailableFromOnPortals])
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
                             <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
@@ -235,11 +232,7 @@
                             <label class="text-xs font-medium">Note (optional)</label>
                             <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $isReopening('landlord-notice') ? old('note') : '' }}</textarea>
                         </div>
-                        <input type="hidden" name="readvertise" value="0">
-                        <label class="flex items-center gap-2 text-xs">
-                            <input type="checkbox" name="readvertise" value="1" @checked($isReopening('landlord-notice') ? old('readvertise') === '1' : $autoReadvertiseOnNotice)>
-                            Put this property back on the market, available the day after move-out
-                        </label>
+                        @include('corex.leases._notice-outcome-fields', ['isReopening' => $isReopening('landlord-notice'), 'showAvailableFromOnPortals' => $showAvailableFromOnPortals])
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
                             <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
@@ -247,11 +240,29 @@
                     </form>
                 </x-modal>
             @else
+                <x-modal name="lease-dialog-change-notice-outcome" :show="$openDialog === 'change-notice-outcome'" focusable>
+                    <form method="POST" action="{{ route('corex.leases.renewal.notice.change-outcome', $lease) }}" class="p-6 space-y-3">
+                        @csrf
+                        <input type="hidden" name="_lease_action" value="change-notice-outcome">
+                        <h2 class="text-lg font-medium">Change notice outcome</h2>
+                        <p class="text-sm" style="color: var(--text-muted);">Move-out date and who gave notice stay as recorded — only what happens to the property changes.</p>
+                        @include('corex.leases._notice-outcome-fields', [
+                            'isReopening' => $isReopening('change-notice-outcome'),
+                            'presetOutcome' => $isReopening('change-notice-outcome') ? null : $lease->notice_outcome,
+                            'showAvailableFromOnPortals' => $showAvailableFromOnPortals,
+                        ])
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
+                        </div>
+                    </form>
+                </x-modal>
+
                 <x-modal name="lease-dialog-reverse-notice" :show="false" focusable>
                     <form method="POST" action="{{ route('corex.leases.renewal.notice.reverse', $lease) }}" class="p-6 space-y-4">
                         @csrf
                         <h2 class="text-lg font-medium">Reverse notice?</h2>
-                        <p class="text-sm" style="color: var(--text-muted);">Clears the recorded move-out date and who gave notice. Any readvertising this notice triggered is reversed too.</p>
+                        <p class="text-sm" style="color: var(--text-muted);">Clears the recorded move-out date and who gave notice. Any status change this notice triggered (readvertised or withdrawn) is reversed too.</p>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
                             <button type="submit" class="corex-btn-primary text-xs">Confirm</button>

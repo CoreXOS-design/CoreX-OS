@@ -31,6 +31,15 @@ class Lease extends Model
     public const NOTICE_BY_TENANT = 'tenant';
     public const NOTICE_BY_LANDLORD = 'landlord';
 
+    // rental-renewals.md §19 — Johan's ruling 2026-10-05: what happens to the
+    // PROPERTY once notice is recorded. The agent picks exactly one, every
+    // time; nothing defaults/pre-selects. Replaces the old boolean
+    // `notice_readvertised`, which could only ever represent READVERTISE or
+    // LEAVE, never WITHDRAW.
+    public const NOTICE_OUTCOME_READVERTISE = 'readvertise';
+    public const NOTICE_OUTCOME_WITHDRAW = 'withdraw';
+    public const NOTICE_OUTCOME_LEAVE = 'leave';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -57,7 +66,7 @@ class Lease extends Model
         'notice_given_by',
         'notice_note',
         'move_out_date',
-        'notice_readvertised',
+        'notice_outcome',
         'renewal_draft_flow_id',
     ];
 
@@ -70,7 +79,6 @@ class Lease extends Model
         'cancelled_at' => 'datetime',
         'notice_date' => 'date',
         'move_out_date' => 'date',
-        'notice_readvertised' => 'boolean',
     ];
 
     public function property(): BelongsTo

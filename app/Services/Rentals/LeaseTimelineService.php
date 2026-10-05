@@ -256,7 +256,7 @@ class LeaseTimelineService
      */
     private function renewalEventEntries(Lease $lease): array
     {
-        $noticeTypes = [\App\Models\LeaseEvent::TYPE_NOTICE_RECORDED, \App\Models\LeaseEvent::TYPE_NOTICE_REVERSED];
+        $noticeTypes = [\App\Models\LeaseEvent::TYPE_NOTICE_RECORDED, \App\Models\LeaseEvent::TYPE_NOTICE_REVERSED, \App\Models\LeaseEvent::TYPE_NOTICE_OUTCOME_CHANGED];
 
         return $lease->events->map(function (\App\Models\LeaseEvent $event) use ($noticeTypes, $lease) {
             return $this->entry(

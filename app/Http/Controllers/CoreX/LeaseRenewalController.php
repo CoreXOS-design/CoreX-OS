@@ -57,7 +57,7 @@ class LeaseRenewalController extends Controller
             'canCopyForward' => $lease->source === 'esign_document' && (bool) $lease->source_document_id,
             'leaseTemplates' => $leaseTemplates,
             'tenantNoticePeriodDays' => \App\Models\LeaseSetting::tenantNoticePeriodDaysFor($lease->agency_id),
-            'autoReadvertiseOnNotice' => \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id),
+            'showAvailableFromOnPortals' => (bool) ($lease->property?->show_available_from_on_portals ?? true),
         ]);
     }
 
@@ -201,21 +201,25 @@ class LeaseRenewalController extends Controller
             // is a fixed, generous sanity bound, not a configurable rule.
             'move_out_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
             'note' => ['nullable', 'string', 'max:500'],
+            // .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05:
+            // the agent picks exactly one of the three, every time; nothing
+            // pre-selected, nothing defaulted server-side either.
+            'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
+            'show_available_from_on_portals' => ['nullable', 'boolean'],
         ], [
             'move_out_date.before_or_equal' => 'Move-out date is too far in the future.',
+            'notice_outcome.required' => 'Choose what happens to the property.',
         ]);
 
-        // .ai/specs/rental-renewals.md §15 (GATE 2) row 2 — the dialog's own
-        // tick, defaulting from the agency setting when the form didn't
-        // render a value at all (never when the box was actually unticked —
-        // the view always renders this checkbox, so has() tells apart "box
-        // absent from this request" from "box present and unticked").
-        $readvertise = $request->has('readvertise')
-            ? $request->boolean('readvertise')
-            : \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id);
+        // Only meaningful (and only ever rendered by the dialog) for the
+        // "readvertise" outcome — has() tells apart "box present and
+        // unticked" from "this outcome doesn't render the field at all".
+        $showAvailableFromOnPortals = $validated['notice_outcome'] === Lease::NOTICE_OUTCOME_READVERTISE && $request->has('show_available_from_on_portals')
+            ? $request->boolean('show_available_from_on_portals')
+            : null;
 
         try {
-            app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $readvertise);
+            app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $validated['notice_outcome'], $showAvailableFromOnPortals);
         } catch (ValidationException $e) {
             // AT-444 follow-up (2026-10-05) — the Lease Hub's notice dialogs
             // reopen with the entered values on error; withInput() is needed
@@ -225,6 +229,30 @@ class LeaseRenewalController extends Controller
         }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice recorded.');
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §19 — lets the agent change the
+     * readvertise/withdraw/leave choice later, from the Lease actions menu,
+     * while the notice is still active (the move-out date/given-by are not
+     * re-entered here, only the outcome).
+     */
+    public function changeNoticeOutcome(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+        $validated = $request->validate([
+            'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
+        ], [
+            'notice_outcome.required' => 'Choose what happens to the property.',
+        ]);
+
+        try {
+            app(LeaseRenewalService::class)->changeNoticeOutcome($lease, $validated['notice_outcome'], $request->user());
+        } catch (ValidationException $e) {
+            return back()->withInput()->withErrors($e->errors());
+        }
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice outcome updated.');
     }
 
     public function reverseNotice(Request $request, Lease $lease): RedirectResponse

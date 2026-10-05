@@ -52,8 +52,16 @@ class PropertyStatusFollowsLeaseService
      * field P24's own mapper already reads as "availabilityDate" for
      * commercial listings (Property24ListingMapper.php:133) — reused here
      * rather than inventing a new column; no new portal-sync code.
+     *
+     * $showAvailableFromOnPortals — the notice dialog's own "Show
+     * available-from date on portals" tick (§19, ruling #3), persisted onto
+     * the property's own `show_available_from_on_portals` setting in this
+     * SAME save() so the dialog acts as a shortcut to that setting rather
+     * than a separate one-off flag. Null (the controller only passes a
+     * value when the dialog actually rendered this field) leaves whatever
+     * the property already had untouched.
      */
-    public function readvertiseOnNotice(Lease $lease, string $moveOutDate, ?User $user = null): void
+    public function readvertiseOnNotice(Lease $lease, string $moveOutDate, ?User $user = null, ?bool $showAvailableFromOnPortals = null): void
     {
         $property = $lease->property;
         if (!$property) {
@@ -70,6 +78,9 @@ class PropertyStatusFollowsLeaseService
 
         $property->status = $newStatus;
         $property->lease_start_date = $availableFrom;
+        if ($showAvailableFromOnPortals !== null) {
+            $property->show_available_from_on_portals = $showAvailableFromOnPortals;
+        }
         $property->save();
 
         app(PropertyAuditService::class)->log(
@@ -100,6 +111,68 @@ class PropertyStatusFollowsLeaseService
         $oldStatus = $property->status;
         $property->status = 'let_out';
         $property->lease_start_date = null;
+        $property->save();
+
+        app(PropertyAuditService::class)->log(
+            $property,
+            'property',
+            'status_changed',
+            $user,
+            ['status' => $oldStatus],
+            ['status' => 'let_out'],
+            metadata: ['cause' => "Notice reversed on Lease #{$lease->id}"],
+            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to Let Out — notice reversed on Lease #{$lease->id}",
+        );
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05: the
+     * three-way notice-outcome choice's "Withdraw" arm. Uses the EXISTING
+     * `withdrawn` status (already in Property::OFF_MARKET_STATUSES, already
+     * a system status valid for every agency — no new status introduced)
+     * through the same save()-driven mechanism as readvertiseOnNotice()
+     * above, applied IMMEDIATELY (same timing as readvertise — Johan's
+     * ruling #2: nothing invents a new timing rule, this matches the
+     * existing design). No availability date is meaningful for a withdrawn
+     * listing, so lease_start_date is left untouched.
+     */
+    public function withdrawOnNotice(Lease $lease, ?User $user = null): void
+    {
+        $property = $lease->property;
+        if (!$property) {
+            return;
+        }
+
+        $oldStatus = $property->status;
+        $property->status = 'withdrawn';
+        $property->save();
+
+        app(PropertyAuditService::class)->log(
+            $property,
+            'property',
+            'status_changed',
+            $user,
+            ['status' => $oldStatus],
+            ['status' => 'withdrawn'],
+            metadata: ['cause' => "Notice recorded on Lease #{$lease->id} — property withdrawn"],
+            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to Withdrawn — notice recorded on Lease #{$lease->id}",
+        );
+    }
+
+    /**
+     * Reversing a notice that was withdrawn — same "let_out" restore as
+     * reverseReadvertise() above, since a property with an active,
+     * un-notified lease can only ever be "let_out".
+     */
+    public function reverseWithdraw(Lease $lease, ?User $user = null): void
+    {
+        $property = $lease->property;
+        if (!$property) {
+            return;
+        }
+
+        $oldStatus = $property->status;
+        $property->status = 'let_out';
         $property->save();
 
         app(PropertyAuditService::class)->log(
