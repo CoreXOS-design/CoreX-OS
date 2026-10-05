@@ -331,6 +331,10 @@ class RentalFaultReport extends Model
         ])->save();
 
         $this->logUpdate(RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED, $by);
+
+        // AT-445 — .ai/specs/rental-portal-access.md §6. A decision is now
+        // waiting in the landlord's portal.
+        app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyLandlordDecisionNeeded($this);
     }
 
     /**
@@ -342,7 +346,14 @@ class RentalFaultReport extends Model
      * columns, same "current column + log" shape §3.4 already uses for
      * rental_work_orders.status/rental_work_order_updates.
      */
-    public function recordApproval(User $recordedBy, array $attributes): RentalApproval
+    /**
+     * AT-445 — $recordedBy widened to `User|Contact`: a landlord can now
+     * record this decision directly through the portal (evidence_type
+     * 'portal', no agent transcription), rather than only an agent
+     * transcribing a verbal/whatsapp/email decision. Behaviour for an
+     * existing `User` caller is completely unchanged.
+     */
+    public function recordApproval(User|\App\Models\Contact $recordedBy, array $attributes): RentalApproval
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
@@ -366,7 +377,8 @@ class RentalFaultReport extends Model
             'evidence_text' => $attributes['evidence_text'] ?? null,
             'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
             'decided_at' => $attributes['decided_at'] ?? now(),
-            'recorded_by_user_id' => $recordedBy->id,
+            'recorded_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
+            'recorded_by_contact_id' => $recordedBy instanceof \App\Models\Contact ? $recordedBy->id : null,
         ]);
 
         $newStatus = match (true) {
@@ -382,6 +394,9 @@ class RentalFaultReport extends Model
             'approval_route' => $route,
         ])->save();
 
+        // AT-445 — .ai/specs/rental-portal-access.md §6.
+        app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
+
         return $approval;
     }
 
@@ -394,7 +409,13 @@ class RentalFaultReport extends Model
      * `repaired` outcome with no work order ever having existed. This method
      * is callable from any state except already-closed, on purpose.
      */
-    public function setOutcome(array $attributes, User $by): void
+    /**
+     * AT-445 — $by widened to nullable: a tenant's own first-aid
+     * self-resolution has no staff actor at all (logUpdate() already
+     * tolerates a null actor). reported_by_contact_id on the report itself
+     * is the attribution that matters for that case.
+     */
+    public function setOutcome(array $attributes, ?User $by = null): void
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
@@ -431,6 +452,13 @@ class RentalFaultReport extends Model
         // ONE state-changing action on this table with no actor recorded
         // anywhere. This is the fix.
         $this->logUpdate(RentalFaultReportUpdate::TYPE_OUTCOME_SET, $by, $note);
+
+        // AT-445 — .ai/specs/rental-portal-access.md §6. Skipped for the
+        // tenant's own first-aid self-resolution — notifying someone of
+        // the action they just took themselves is noise, not news.
+        if ($outcome !== self::OUTCOME_RESOLVED_BY_FIRST_AID) {
+            app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
+        }
     }
 
     /**
@@ -449,6 +477,9 @@ class RentalFaultReport extends Model
         ])->save();
 
         $this->logUpdate(RentalFaultReportUpdate::TYPE_WORK_ORDER_RAISED, $by, null, $fromStatus, self::STATUS_WORK_ORDER_RAISED);
+
+        // AT-445 — .ai/specs/rental-portal-access.md §6.
+        app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
     }
 
     /**

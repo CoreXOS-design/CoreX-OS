@@ -89,8 +89,13 @@ class RentalWorkOrderService
         return $workOrder;
     }
 
-    /** §3a.3/§3.1 — same image pipeline as every other photo in this feature family. */
-    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, User $uploadedBy, ?string $clientKey = null): \App\Models\RentalWorkOrderPhoto
+    /**
+     * §3a.3/§3.1 — same image pipeline as every other photo in this
+     * feature family. AT-445 — $uploadedBy widened to nullable: a
+     * contractor uploading "after" photos through their no-login secure
+     * link has no User actor at all.
+     */
+    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null): \App\Models\RentalWorkOrderPhoto
     {
         $url = app(PropertyImageStorer::class)->store($file, $workOrder->property_id);
 
@@ -98,7 +103,7 @@ class RentalWorkOrderService
             'agency_id' => $workOrder->agency_id,
             'photo_type' => $photoType,
             'storage_path' => $url,
-            'uploaded_by_user_id' => $uploadedBy->id,
+            'uploaded_by_user_id' => $uploadedBy?->id,
             'client_idempotency_key' => $clientKey,
             'file_size_bytes' => $file->getSize(),
         ]);

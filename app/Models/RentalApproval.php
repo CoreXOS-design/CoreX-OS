@@ -26,6 +26,8 @@ class RentalApproval extends Model
     public const EVIDENCE_WHATSAPP = 'whatsapp';
     public const EVIDENCE_EMAIL = 'email';
     public const EVIDENCE_VERBAL_NOTE = 'verbal_note';
+    /** AT-445 — the landlord decided directly through the portal; the click itself is the evidence. */
+    public const EVIDENCE_PORTAL = 'portal';
 
     protected $fillable = [
         'agency_id',
@@ -38,6 +40,7 @@ class RentalApproval extends Model
         'evidence_file_path',
         'decided_at',
         'recorded_by_user_id',
+        'recorded_by_contact_id', // AT-445
         'created_at',
         // 2026-09-22, Johan — an unanchored "approved" says nothing about
         // what it was for. quote_id_at_decision is identity-only (never
@@ -85,5 +88,11 @@ class RentalApproval extends Model
     public function recordedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by_user_id');
+    }
+
+    /** AT-445 */
+    public function recordedByContact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'recorded_by_contact_id');
     }
 }

@@ -4262,6 +4262,30 @@
              any save. --}}
         @if($isNew || $property->listing_type_pending || strtolower($property->listing_type ?? '') === 'rental')
         <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-4">
+            {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access
+                 invited from here too, same mechanism as the Lease Hub. --}}
+            @unless($isNew)
+                @php($currentLease = $property->leases()->where('status', 'active')->first())
+                <div class="rounded-md p-4 space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <h2 class="text-sm font-semibold">Portal access</h2>
+                    @if($currentLease)
+                        @forelse($currentLease->tenantContacts() as $tenantContact)
+                            <p class="text-xs font-medium">Tenant: {{ $tenantContact->full_name }}</p>
+                            @include('corex.contacts.partials.client-app-access', ['contact' => $tenantContact])
+                        @empty
+                        @endforelse
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);">No active lease — invite a tenant from the Lease Hub once one exists.</p>
+                    @endif
+                    @forelse($property->contactsForRole('landlord')->merge($property->contactsForRole('lessor'))->unique('id') as $landlordContact)
+                        <p class="text-xs font-medium">Landlord: {{ $landlordContact->full_name }}</p>
+                        @include('corex.contacts.partials.client-app-access', ['contact' => $landlordContact])
+                    @empty
+                        <p class="text-xs" style="color: var(--text-muted);">No landlord linked to this property yet.</p>
+                    @endforelse
+                </div>
+            @endunless
+
             @if($isNew || $property->listing_type_pending)
                 {{-- The property may not exist yet (or is mid type-change), so
                      the dedicated rental-details action below can't be used —

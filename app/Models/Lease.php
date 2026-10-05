@@ -124,6 +124,12 @@ class Lease extends Model
         return $this->hasMany(RentalInventory::class);
     }
 
+    /** AT-445 — .ai/specs/rental-portal-access.md §8/§10. */
+    public function notices(): HasMany
+    {
+        return $this->hasMany(RentalNotice::class);
+    }
+
     /**
      * Whether this lease can still be soft-deleted through the ordinary CRUD
      * path (leases.md §2 — deletable only while nothing has attached yet).
@@ -163,6 +169,16 @@ class Lease extends Model
             ->merge($this->property->contactsForRole('lessor'))
             ->unique('id')
             ->values();
+    }
+
+    /**
+     * AT-445 — the tenant-side equivalent of landlordContacts(), used by the
+     * portal to resolve which leases a given Contact may see as a tenant.
+     * N-party: every contact on this lease's `lease_tenants` pivot.
+     */
+    public function tenantContacts(): \Illuminate\Support\Collection
+    {
+        return $this->tenants->map(fn (LeaseTenant $t) => $t->contact)->filter()->unique('id')->values();
     }
 
     /**

@@ -150,6 +150,35 @@ class RentalDocumentPdfService
         return $this->safeFilename('Job Card - ' . $this->addressOrFallback($jobCard->property, 'Job Card ' . $jobCard->id));
     }
 
+    /**
+     * AT-445 — .ai/specs/rental-portal-access.md §8. The rendered notice
+     * (breach / notice-to-vacate), already token-substituted by
+     * RentalNoticeService::render(). One dompdf convention, not two.
+     */
+    public function noticePdf(\App\Models\RentalNotice $notice, string $renderedHtml)
+    {
+        $lease = $notice->lease;
+        $lease?->loadMissing(['property', 'branch', 'agency']);
+
+        $pdf = Pdf::loadView('corex.rental-notices.pdf', [
+            'notice' => $notice,
+            'bodyHtml' => $renderedHtml,
+            'logo' => $this->logoDataUri($lease?->branch?->logo_path, $lease?->agency?->logo_path),
+            'agencyName' => $lease?->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function noticeFilename(\App\Models\RentalNotice $notice): string
+    {
+        $lease = $notice->lease;
+
+        return $this->safeFilename(ucfirst(str_replace('_', ' ', $notice->notice_type)) . ' - ' . $this->addressOrFallback($lease?->property, 'Lease ' . $notice->lease_id));
+    }
+
     /** Same dompdf options as PropertyBrochureService::pdf() — one convention, not two. */
     private function applyOptions($pdf): void
     {

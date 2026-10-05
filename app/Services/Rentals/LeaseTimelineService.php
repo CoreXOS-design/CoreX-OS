@@ -26,7 +26,7 @@ use Illuminate\Support\Collection;
  */
 class LeaseTimelineService
 {
-    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order'];
+    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice'];
 
     /**
      * @return array{entries: Collection, total: int}
@@ -75,7 +75,8 @@ class LeaseTimelineService
             ->merge($this->leaseEntries($lease))
             ->merge($this->inspectionEntries($lease))
             ->merge($this->faultEntries($lease))
-            ->merge($this->workOrderEntries($lease));
+            ->merge($this->workOrderEntries($lease))
+            ->merge($this->noticeEntries($lease));
 
         return $entries->sortByDesc('occurred_at')->values();
     }
@@ -210,6 +211,27 @@ class LeaseTimelineService
                 $workOrder->status,
                 'corex.rental-work-orders.show',
                 $workOrder->id,
+            );
+        })->all();
+    }
+
+    /** AT-445 — .ai/specs/rental-portal-access.md §8/§10. */
+    private function noticeEntries(Lease $lease): array
+    {
+        return $lease->notices()->get()->map(function ($notice) {
+            $recipients = array_filter([
+                $notice->sent_to_tenant ? 'tenant' : null,
+                $notice->sent_to_landlord ? 'landlord' : null,
+            ]);
+
+            return $this->entry(
+                'notice',
+                (string) ($notice->sent_at ?? $notice->created_at),
+                ucfirst(str_replace('_', ' ', $notice->notice_type)) . ' notice sent to ' . (implode(' and ', $recipients) ?: 'nobody'),
+                $notice->sentByUser?->name,
+                'sent',
+                'corex.rental-notices.show',
+                $notice->id,
             );
         })->all();
     }
