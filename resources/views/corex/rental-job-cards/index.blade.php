@@ -80,11 +80,11 @@
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, crew, title" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <div>
-            <label class="text-xs" style="color: var(--text-muted);">Crew member</label><br>
-            <select name="assigned_user_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <label class="text-xs" style="color: var(--text-muted);">Crew</label><br>
+            <select name="rental_crew_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach($crew as $c)
-                    <option value="{{ $c->id }}" @selected(($filters['assigned_user_id'] ?? null) == $c->id)>{{ $c->name }}</option>
+                @foreach($crews as $c)
+                    <option value="{{ $c->id }}" @selected(($filters['rental_crew_id'] ?? null) == $c->id)>{{ $c->name }}</option>
                 @endforeach
             </select>
         </div>
@@ -117,7 +117,7 @@
             <input type="checkbox" name="archived" value="1" @checked($showArchived)> Show archived
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'assigned_user_id', 'property_id', 'date_from', 'date_to', 'overdue']))
+        @if(request()->hasAny(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue']))
             <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -161,7 +161,7 @@
                         <td class="px-4 py-2">{{ $jc->property?->buildDisplayAddress() ?? '—' }}{{ $jc->property?->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-2">{{ $jc->title }}</td>
                         <td class="px-4 py-2">{{ $jc->lease?->tenantNames() ?? '—' }}</td>
-                        <td class="px-4 py-2">{{ $jc->assignedUser?->name ?? '—' }}</td>
+                        <td class="px-4 py-2">{{ $jc->crew?->name ?? ($jc->assigned_user_id ? 'Previously assigned: ' . ($jc->assignedUser?->name ?? '—') : '—') }}</td>
                         <td class="px-4 py-2"><span class="ds-badge ds-badge-info">{{ ucfirst(str_replace('_', ' ', $jc->status)) }}</span></td>
                         <td class="px-4 py-2">{{ $jc->due_at?->format('Y-m-d H:i') ?? '—' }}</td>
                         <td class="px-4 py-2 text-right">

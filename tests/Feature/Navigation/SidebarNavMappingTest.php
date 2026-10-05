@@ -186,4 +186,49 @@ final class SidebarNavMappingTest extends TestCase
             $this->assertSame('rental-applications', $alt, "Expected '{$routeName}' to have 'rental-applications' as its lens-flag alternate group.");
         }
     }
+
+    /**
+     * HR menu (2026-10-05, Johan) — Payroll moved from a top-level Branch
+     * Manager group into HR -> Payroll (one level deeper); the PPRA
+     * employment-letters admin register moved from a root-level Admin item
+     * into HR -> Documents. Every moved route must still:
+     *  (a) resolve to its OWN group (not the new parent's) via
+     *      resolveActiveGroup() — pins the $activeGroup chain, and
+     *  (b) report its sidebar link as living in that SAME group via
+     *      crossReference()'s per-row 'items' — pins groupAtLine()'s
+     *      innermost-match fix (a nested panel's own links must not be
+     *      misattributed to its OUTER parent panel).
+     */
+    public function test_hr_menu_moved_routes_resolve_to_their_own_nested_group_not_the_parent(): void
+    {
+        $result = $this->runAudit();
+        $rules = $result['rules'];
+
+        $expectations = [
+            'payroll.employees.index' => 'payroll',
+            'payroll.earning-types.index' => 'payroll',
+            'payroll.deduction-types.index' => 'payroll',
+            'payroll.runs.index' => 'payroll',
+            'admin.ppra-employment-letters.index' => 'hr-documents',
+        ];
+
+        foreach ($expectations as $routeName => $expectedGroup) {
+            [$group] = SidebarNavAuditor::resolveActiveGroup($routeName, $rules);
+            $this->assertSame($expectedGroup, $group, "Expected route '{$routeName}' to open the '{$expectedGroup}' panel.");
+        }
+
+        $rowsByRoute = [];
+        foreach ($result['rows'] as $row) {
+            $rowsByRoute[$row['route']] = $row;
+        }
+
+        foreach ($expectations as $routeName => $expectedGroup) {
+            $this->assertArrayHasKey($routeName, $rowsByRoute, "Route '{$routeName}' missing from the audit's authenticated-route table.");
+            $row = $rowsByRoute[$routeName];
+            $this->assertSame([], $row['flags'], "Route '{$routeName}' must resolve cleanly (its nav link's group must match its \$activeGroup, not a parent panel) — got flags: " . implode(',', $row['flags']));
+            foreach ($row['items'] as $item) {
+                $this->assertStringStartsWith($expectedGroup . ' » ', $item, "Route '{$routeName}'s own sidebar link must be attributed to '{$expectedGroup}', not an outer parent panel — got: {$item}");
+            }
+        }
+    }
 }

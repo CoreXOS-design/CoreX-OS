@@ -273,14 +273,33 @@ class SidebarNavAuditor
         return $panels;
     }
 
+    /**
+     * A nested panel (e.g. HR → Payroll) has its range fully CONTAINED
+     * within its parent's range — both match a link that lives in the
+     * innermost one. First-match-wins would always report the OUTER
+     * (parent) group for every link in a nested panel, since parsePanels()
+     * appends panels in the order their div line is encountered (parent
+     * before child). Correct resolution is the panel with the SMALLEST
+     * (tightest) span that still contains the line — the standard
+     * "nearest enclosing scope" rule. Added 2026-10-05 for the HR menu
+     * (HR → Payroll / HR → Documents), the first LIVE three-level nesting
+     * this auditor has had to resolve.
+     */
     public static function groupAtLine(int $line, array $panels): ?string
     {
+        $bestGroup = null;
+        $bestSpan = null;
         foreach ($panels as $p) {
-            if ($line >= $p['start'] && $line <= $p['end']) {
-                return $p['group'];
+            if ($line < $p['start'] || $line > $p['end']) {
+                continue;
+            }
+            $span = $p['end'] - $p['start'];
+            if ($bestSpan === null || $span < $bestSpan) {
+                $bestSpan = $span;
+                $bestGroup = $p['group'];
             }
         }
-        return null;
+        return $bestGroup;
     }
 
     public static function parseNavEntries(array $lines, int $totalLines, array $panels): array

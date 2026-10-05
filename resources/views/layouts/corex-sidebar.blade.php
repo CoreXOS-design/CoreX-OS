@@ -270,6 +270,13 @@
         $activeGroup = 'leave';
     } elseif (request()->routeIs('payroll.*')) {
         $activeGroup = 'payroll';
+    } elseif (request()->routeIs('admin.ppra-employment-letters.*')) {
+        // HR → Documents → "PPRA FFC Letter", 2026-10-05 (Johan). Moved from a
+        // root-level Admin item, which never needed an $activeGroup branch of
+        // its own — now that its link lives inside a panel, landing here
+        // directly must open that panel (the "jumps away" bug class this
+        // whole resolver chain exists to prevent).
+        $activeGroup = 'hr-documents';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
     } elseif (request()->routeIs(
@@ -340,6 +347,10 @@
     // it any more.
     $navGroupParents = [
         'evaluation' => 'hidden',
+        // HR menu (2026-10-05, Johan) — Payroll and Documents are both
+        // drill-downs of the new top-level HR panel. See the HR block below.
+        'payroll' => 'hr',
+        'hr-documents' => 'hr',
     ];
 
     // Full open-chain for the active group, root-most first.
@@ -1254,6 +1265,8 @@
                      directly under Job Cards in the agent's own workflow. --}}
                 @permission('rental_catalogue.view')
                 <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-catalogue-items.*') ? 'active' : '' }}">Parts &amp; Labour Catalogue</a>
+                {{-- 2026-10-05 — crews are picked on job cards the same way the catalogue is, so it sits right next to it. --}}
+                <a href="{{ route('corex.rental-crews.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}">Rental Crews</a>
                 @endpermission
 
                 @if($user->isRentalApplicationAuthoriser())
@@ -2009,39 +2022,12 @@
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Branch Manager</div>
 
-        {{-- Payroll (slide-panel group) --}}
-        @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
-        @feature('payroll')
-        <div>
-            <button type="button" @click="push('payroll')"
-                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'payroll' ? 'active' : '' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" />
-                </svg>
-                <span>Payroll</span>
-                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-            </button>
-
-            <div class="corex-nav-panel {{ $activeGroup === 'payroll' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('payroll') }">
-                <button type="button" @click="pop()" class="corex-nav-back">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    <span>Back</span>
-                </button>
-                <div class="corex-nav-panel-title">Payroll</div>
-
-                @permission('manage_payroll')
-                <a href="{{ route('payroll.employees.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.employees.*') ? 'active' : '' }}">Employees</a>
-                <a href="{{ route('payroll.earning-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.earning-types.*') ? 'active' : '' }}">Earning Types</a>
-                <a href="{{ route('payroll.deduction-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.deduction-types.*') ? 'active' : '' }}">Deduction Types</a>
-                @endpermission
-
-                @permission('run_payroll')
-                <a href="{{ route('payroll.runs.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.runs.*') ? 'active' : '' }}">Runs</a>
-                @endpermission
-            </div>
-        </div>
-        @endfeature
-        @endif
+        {{-- Payroll moved into the new top-level HR menu, 2026-10-05 (Johan) —
+             HR → Payroll, with its own items nested one level deeper beneath
+             it. No URL/route/permission change — see the HR block below,
+             placed after this section closes (it must not be gated by
+             sidebar.section.branch_manager, since HR also needs to show for
+             admin-only users who hold only ppra_employment_letters.view). --}}
 
         {{-- Leave Management (slide-panel group) --}}
         @if($user && $user->hasAnyPermission(['manage_leave', 'approve_leave', 'view_leave_reports', 'manage_leave_types', 'adjust_leave_balances']))
@@ -2091,6 +2077,99 @@
         @endfeature
         @endif
         @endpermission {{-- /sidebar.section.branch_manager --}}
+
+        {{-- ═══════════════════════════════════════════
+             HR (2026-10-05, Johan) — a new top-level menu combining Payroll
+             (moved from the Branch Manager section, all items unchanged —
+             no URL/route/permission change) and Documents (the PPRA FFC
+             Letter, moved from the Admin section — same route/permission,
+             PPRA controller/views untouched). Deliberately NOT wrapped in
+             sidebar.section.branch_manager or sidebar.section.admin: HR
+             must show for EITHER audience on its own merits — a branch
+             manager with only payroll permissions, or a pure admin with
+             only ppra_employment_letters.view and no branch_manager
+             section flag at all. Visibility is computed the same way
+             Payroll/Leave already compute their own: at least one
+             permission among everything nested inside.
+             ═══════════════════════════════════════════ --}}
+        @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports', 'ppra_employment_letters.view']))
+        <div class="corex-nav-divider"></div>
+        <div class="corex-nav-section-label">HR</div>
+
+        <div>
+            <button type="button" @click="push('hr')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('hr') ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.964 0a9 9 0 1 0-11.964 0m11.964 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+                <span>HR</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $groupOpen('hr') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('hr') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">HR</div>
+
+                {{-- Payroll — nested drill-down, items unchanged --}}
+                @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
+                @feature('payroll')
+                <div>
+                    <button type="button" @click="push('payroll')"
+                            class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('payroll') ? 'active' : '' }}">
+                        <span>Payroll</span>
+                        <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </button>
+
+                    <div class="corex-nav-panel {{ $groupOpen('payroll') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('payroll') }">
+                        <button type="button" @click="pop()" class="corex-nav-back">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                            <span>Back</span>
+                        </button>
+                        <div class="corex-nav-panel-title">Payroll</div>
+
+                        @permission('manage_payroll')
+                        <a href="{{ route('payroll.employees.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.employees.*') ? 'active' : '' }}">Employees</a>
+                        <a href="{{ route('payroll.earning-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.earning-types.*') ? 'active' : '' }}">Earning Types</a>
+                        <a href="{{ route('payroll.deduction-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.deduction-types.*') ? 'active' : '' }}">Deduction Types</a>
+                        @endpermission
+
+                        @permission('run_payroll')
+                        <a href="{{ route('payroll.runs.index') }}" class="corex-nav-subitem {{ request()->routeIs('payroll.runs.*') ? 'active' : '' }}">Runs</a>
+                        @endpermission
+                    </div>
+                </div>
+                @endfeature
+                @endif
+
+                {{-- Documents — nested drill-down. Only "PPRA FFC Letter" today;
+                     Employment Contract / Disclosure Letter slot in here once
+                     Johan sends those documents — deliberately no dead links
+                     for them yet. --}}
+                @permission('ppra_employment_letters.view')
+                <div>
+                    <button type="button" @click="push('hr-documents')"
+                            class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('hr-documents') ? 'active' : '' }}">
+                        <span>Documents</span>
+                        <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                    </button>
+
+                    <div class="corex-nav-panel {{ $groupOpen('hr-documents') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('hr-documents') }">
+                        <button type="button" @click="pop()" class="corex-nav-back">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                            <span>Back</span>
+                        </button>
+                        <div class="corex-nav-panel-title">Documents</div>
+
+                        <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ppra-employment-letters.*') ? 'active' : '' }}">PPRA FFC Letter</a>
+                    </div>
+                </div>
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- ═══════════════════════════════════════════
              TOOLS SECTION
@@ -2466,15 +2545,11 @@
         </a>
         @endpermission
 
-        {{-- PPRA FFC Employment Letter — Admin register. .ai/specs/ppra-ffc-employment-letter.md --}}
-        @permission('ppra_employment_letters.view')
-        <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ppra-employment-letters.*') ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-            </svg>
-            <span>PPRA Employment Letters</span>
-        </a>
-        @endpermission
+        {{-- PPRA FFC Employment Letter moved into the new top-level HR menu,
+             2026-10-05 (Johan) — HR → Documents → "PPRA FFC Letter". Same
+             route, same permission, same controller/views (untouched) —
+             .ai/specs/ppra-ffc-employment-letter.md. See the HR block for
+             its new home. --}}
 
         {{-- Ellie Reference Sources (ellie-reference-sources spec) — super_admin only --}}
         @permission('manage_reference_sources')
