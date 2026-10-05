@@ -40,6 +40,11 @@ class Lease extends Model
     public const NOTICE_OUTCOME_WITHDRAW = 'withdraw';
     public const NOTICE_OUTCOME_LEAVE = 'leave';
 
+    // rental-takeon-import.md §5.3 — audit trail of how this lease came to
+    // exist. 'source' is a plain string(30), not a real enum, so this is
+    // just a new recognised value, no schema change.
+    public const SOURCE_MIGRATED_TAKEON = 'migrated_takeon';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
