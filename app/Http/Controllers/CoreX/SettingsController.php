@@ -1472,4 +1472,34 @@ class SettingsController extends Controller
         return redirect()->route('corex.settings', ['s' => 'ppra-inspection-pack-settings'])
             ->with('success', 'PPRA Inspection Pack settings saved.');
     }
+
+    /**
+     * PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md.
+     * Two settings: the "RE:" addressee block (default: PPRA's own published
+     * Sandton address — not HFC's), and the principal reminder cadence
+     * (0 = off). Deliberately NOT surfaced in the Setup Wizard — see the
+     * spec's "Deliberately NOT in the wizard" list for the reasoning.
+     */
+    public function savePpraEmploymentLetterSettings(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('ppra_employment_letters.manage'), 403);
+
+        $data = $request->validate([
+            'ppra_employment_letter_address_block' => ['nullable', 'string', 'max:2000'],
+            'ppra_employment_letter_reminder_days'  => ['required', 'integer', 'min:0', 'max:60'],
+        ]);
+
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->effectiveAgencyId());
+        if (!$agency) {
+            return redirect()->back()->with('error', 'Agency not found.');
+        }
+
+        $agency->update([
+            'ppra_employment_letter_address_block' => $data['ppra_employment_letter_address_block'] ?? null,
+            'ppra_employment_letter_reminder_days'  => $data['ppra_employment_letter_reminder_days'],
+        ]);
+
+        return redirect()->route('corex.settings', ['s' => 'ppra-employment-letter-settings'])
+            ->with('success', 'PPRA FFC Employment Letter settings saved.');
+    }
 }
