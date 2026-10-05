@@ -371,7 +371,7 @@
                             @endpermission
 
                             @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
-                            @include('corex.rental-job-cards._lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard])
+                            @include('corex.rental-job-cards._lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes])
 
                             @if($pricesOn)
                                 <div class="text-xs text-right" style="color: var(--text-muted);">Task subtotal: R{{ number_format($task->subtotal(), 2) }}</div>
@@ -411,7 +411,7 @@
                     <div class="rounded-md p-3 space-y-2" style="border: 1px dashed var(--border);">
                         <span class="text-sm font-medium">General</span>
                         @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
-                        @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard])
+                        @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes])
                         @permission('rental_job_cards.create')
                         @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
                         @endpermission
@@ -422,7 +422,7 @@
                                     <li class="flex items-center justify-between gap-2">
                                         <span style="color: var(--text-muted);">{{ $al->description }}</span>
                                         @permission('rental_job_cards.create')
-                                        <form method="POST" action="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $al->id]) }}">
+                                        <form method="POST" action="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $al->id]) }}" data-keep-scroll>
                                             @csrf
                                             <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
                                         </form>
@@ -653,6 +653,11 @@
 
 @push('scripts')
 <script>
+// The agency's active catalogue, printed ONCE — the in-place line editors
+// (_add-line-row.blade.php, mode 'edit') read it from here instead of each
+// embedding their own copy.
+window.jcCatalogueItems = {!! \Illuminate\Support\Js::from($catalogueItemsJson) !!};
+
 function rentalJobCardBuilder({ isDraft, draftTasks }) {
     let seq = 0;
     const key = () => ++seq;
@@ -709,9 +714,19 @@ function rentalJobCardBuilder({ isDraft, draftTasks }) {
 // type couldn't be changed" (the OLD onchange handler only ever disabled
 // Type/Unit, never actually set their value, and disabled fields are never
 // submitted at all, so the server never even saw a type to disagree with).
-function catalogueLinePicker(items) {
+//
+// 2026-10-05 round 4 (Johan): the dropdown list is teleported to <body> and
+// placed `fixed` from the Item input's rectangle (place()) — in place it was
+// as narrow as the 100px Item box and clipped by the scrolling left panel.
+// `opts` is only used by the in-place line EDITOR: the line's current
+// catalogue item (selectedId) and, for a line with a code whose item is no
+// longer in the active catalogue, its code as the box's text (fallbackQuery).
+function catalogueLinePicker(items, opts) {
+    opts = opts || {};
     return {
-        items, query: '', open: false, selectedId: '', highlighted: -1, rootEl: null,
+        items, query: '', open: false, selectedId: '', highlighted: -1, rootEl: null, listEl: null,
+        dropStyle: 'display:none;',
+        uid: 'jcpick' + Math.random().toString(36).slice(2, 8),
         // $el inside a method called from an x-for child's @click (e.g. pick(it))
         // resolves to the CLICKED child element, not this component's root — Alpine
         // binds magics per evaluation context, not per component. field() needs the
@@ -719,6 +734,56 @@ function catalogueLinePicker(items) {
         // $el still means "the element x-data is declared on".
         init() {
             this.rootEl = this.$el;
+            if (opts.selectedId) {
+                this.selectedId = opts.selectedId;
+                const current = this.items.find(it => String(it.id) === String(opts.selectedId));
+                this.query = current ? current.label : (opts.fallbackQuery || '');
+            }
+            const reposition = () => { if (this.open) this.place(); };
+            window.addEventListener('resize', reposition);
+            document.addEventListener('scroll', reposition, true); // capture: the panels scroll, not the page
+            // The list lives in <body>, outside this component's DOM — close on a press anywhere else.
+            document.addEventListener('mousedown', (e) => {
+                if (!this.open) return;
+                const input = this.$refs.itemInput;
+                if ((input && input.contains(e.target)) || (this.listEl && this.listEl.contains(e.target))) return;
+                this.open = false;
+            });
+        },
+        show() {
+            this.open = true;
+            this.place();
+        },
+        onType() {
+            // The typed text changed the list: highlight the first match so
+            // "type a few letters, press Enter" picks it, and a stale index
+            // from the previous list can never point past the new one.
+            this.highlighted = this.filtered().length ? 0 : -1;
+            this.show();
+        },
+        // Width: at least Item + Description (the two columns the list sits
+        // under), never less than 360px, never wider than the window. Opens
+        // below the input, or above it when there is little room below.
+        place() {
+            const input = this.$refs.itemInput;
+            if (!input) return;
+            const r = input.getBoundingClientRect();
+            const panel = document.getElementById('jc-left-col');
+            if (panel) {
+                const p = panel.getBoundingClientRect();
+                if (r.bottom < p.top || r.top > p.bottom) { this.open = false; return; } // scrolled out of the panel
+            }
+            const grid = this.rootEl.querySelector('[style*="grid-template-columns"]');
+            const descCell = grid && grid.children[1];
+            const right = descCell ? descCell.getBoundingClientRect().right : r.right;
+            const width = Math.min(Math.max(right - r.left, 360), window.innerWidth - 16);
+            const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+            const below = window.innerHeight - r.bottom - 8;
+            const above = r.top - 8;
+            const flip = below < 150 && above > below;
+            const maxH = Math.max(100, Math.min(260, flip ? above : below));
+            this.dropStyle = 'position:fixed; z-index:70; overflow-y:auto; left:' + Math.round(left) + 'px; width:' + Math.round(width) + 'px; max-height:' + Math.round(maxH) + 'px; '
+                + (flip ? 'bottom:' + Math.round(window.innerHeight - r.top + 4) + 'px;' : 'top:' + Math.round(r.bottom + 4) + 'px;');
         },
         filtered() {
             const q = this.query.trim().toLowerCase();
@@ -728,10 +793,19 @@ function catalogueLinePicker(items) {
         moveSelection(dir) {
             const list = this.filtered();
             if (!list.length) return;
-            this.highlighted = (this.highlighted + dir + list.length) % list.length;
-            this.open = true;
+            const wasOpen = this.open;
+            this.show();
+            // A closed list opens on the first press instead of skipping a row.
+            this.highlighted = wasOpen || this.highlighted >= 0
+                ? (this.highlighted + dir + list.length) % list.length
+                : (dir > 0 ? 0 : list.length - 1);
+            this.$nextTick(() => {
+                const active = this.listEl && this.listEl.querySelector('[data-active="1"]');
+                if (active) active.scrollIntoView({ block: 'nearest' });
+            });
         },
         pickHighlighted() {
+            if (!this.open) { this.show(); return; }
             const list = this.filtered();
             if (this.highlighted >= 0 && list[this.highlighted]) this.pick(list[this.highlighted]);
         },
@@ -771,11 +845,25 @@ function catalogueLinePicker(items) {
 // never scroll, by the shared layout's own h-screen+overflow-hidden
 // wrapper — and subtract exactly that much).
 //
-// Below the lg breakpoint (<1024px) this never applies a height — the
-// columns fall back to plain stacked page scroll (lg:overflow-y-auto on
-// each column is likewise a no-op below lg), per Johan's own instruction.
+// 2026-10-05 round 4 (Johan, "outer scrollbar on top of the two inner ones")
+// — root cause: that estimate was a ONE-SHOT with a 240px floor, and #appScroll
+// stayed scrollable. Any slop — 1px of sub-pixel rounding (the old code was
+// exactly 1px over at 1366x600), a window shorter than header+240px (the
+// floor won over the real space), a late layout shift above the panels —
+// left #appScroll with overflow, so the browser drew a page scrollbar
+// beside the two panel ones. Fixed at the cause: at lg+ #appScroll is set
+// to overflow-y:hidden (the page itself can never scroll here; the two
+// panels are the only scrollers), the floor is 120px, the height is floored
+// to whole pixels, and the sizing re-runs whenever anything above the
+// panels changes size (ResizeObserver) and once fonts have loaded.
+//
+// Below the lg breakpoint (<1024px) this never applies a height and leaves
+// #appScroll alone — the columns fall back to plain stacked page scroll
+// (lg:overflow-y-auto on each column is likewise a no-op below lg), per
+// Johan's own instruction.
 (function () {
     var LG_BREAKPOINT = 1024;
+    var MIN_PANEL = 120;
 
     function applyHeight(px) {
         var left = document.getElementById('jc-left-col');
@@ -787,21 +875,27 @@ function catalogueLinePicker(items) {
     function sizeColumns() {
         var layout = document.getElementById('jc-layout');
         if (!layout) { return; }
+        var appScroll = document.getElementById('appScroll');
 
         if (window.innerWidth < LG_BREAKPOINT) {
             applyHeight(null);
+            if (appScroll) { appScroll.style.overflowY = ''; }
             return;
         }
 
+        if (appScroll) {
+            appScroll.style.overflowY = 'hidden';
+            appScroll.scrollTop = 0;
+        }
+
         var top = layout.getBoundingClientRect().top;
-        var height = Math.max(240, window.innerHeight - top);
+        var height = Math.max(MIN_PANEL, Math.floor(window.innerHeight - top));
         applyHeight(height);
 
-        var appScroll = document.getElementById('appScroll');
         if (appScroll) {
             var overflow = appScroll.scrollHeight - appScroll.clientHeight;
             if (overflow > 0) {
-                applyHeight(Math.max(240, height - overflow));
+                applyHeight(Math.max(MIN_PANEL, height - overflow));
             }
         }
     }
@@ -809,7 +903,87 @@ function catalogueLinePicker(items) {
     window.addEventListener('resize', sizeColumns);
     document.addEventListener('DOMContentLoaded', sizeColumns);
     window.addEventListener('load', sizeColumns);
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(sizeColumns); }
     sizeColumns();
+
+    // Anything above the panels (title row, context bar, a wrapped button) changing height moves #jc-layout's top.
+    var layoutEl = document.getElementById('jc-layout');
+    if (layoutEl && window.ResizeObserver) {
+        var ro = new ResizeObserver(sizeColumns);
+        Array.prototype.forEach.call(layoutEl.parentElement.children, function (c) { if (c !== layoutEl) { ro.observe(c); } });
+        var appScrollEl = document.getElementById('appScroll');
+        if (appScrollEl) { ro.observe(appScrollEl); }
+    }
+})();
+
+// 2026-10-05 round 4 (Johan, "adding a line jumps back to the top") — root
+// cause: adding/editing/archiving a line is a plain form POST + redirect, so
+// the browser loads a fresh document. The two panels (#jc-left-col /
+// #jc-right-col) are inner scrollers whose scrollTop is just a property of the
+// old DOM — browser scroll restoration only handles the window — so the new
+// page always starts both at 0. Fix: any form marked `data-keep-scroll`
+// (add / edit / archive / restore line) records both panels' scrollTop in
+// sessionStorage as it submits; the next load puts it back, then brings the
+// changed line (jc_focus_line, flashed by the controller) into view with the
+// MINIMUM scroll needed and briefly highlights it. Scrolling is done by hand
+// on the panel — Element.scrollIntoView() would also scroll #appScroll
+// (overflow:hidden is still programmatically scrollable) and shift the page.
+(function () {
+    var KEY = 'jcScroll:' + location.pathname;
+    var focusLineId = {!! \Illuminate\Support\Js::from(session('jc_focus_line')) !!};
+
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (e.defaultPrevented || !form.hasAttribute || !form.hasAttribute('data-keep-scroll')) { return; } // a cancelled confirm()
+        var left = document.getElementById('jc-left-col');
+        var right = document.getElementById('jc-right-col');
+        try {
+            sessionStorage.setItem(KEY, JSON.stringify({ l: left ? left.scrollTop : 0, r: right ? right.scrollTop : 0, t: Date.now() }));
+        } catch (err) { /* private window / storage blocked — falls back to the old behaviour, nothing breaks */ }
+    });
+
+    var saved = null;
+    try {
+        var raw = sessionStorage.getItem(KEY);
+        sessionStorage.removeItem(KEY);
+        saved = raw ? JSON.parse(raw) : null;
+        if (saved && Date.now() - saved.t > 120000) { saved = null; } // stale — not from the submit that just happened
+    } catch (err) { saved = null; }
+
+    function ensureVisible(panel, el) {
+        var p = panel.getBoundingClientRect();
+        var r = el.getBoundingClientRect();
+        if (r.top < p.top) { panel.scrollTop -= (p.top - r.top) + 8; }
+        else if (r.bottom > p.bottom) { panel.scrollTop += (r.bottom - p.bottom) + 8; }
+    }
+
+    function restore(highlight) {
+        var left = document.getElementById('jc-left-col');
+        var right = document.getElementById('jc-right-col');
+        if (saved) {
+            if (left) { left.scrollTop = saved.l; }
+            if (right) { right.scrollTop = saved.r; }
+        }
+        if (!left) { return; }
+        // A failed validation reopens that line's editor — bring it into view.
+        var open = document.querySelector('[id^="jc-edit-line-"]');
+        var target = open || (focusLineId ? document.querySelector('[data-line-id="' + focusLineId + '"]') : null);
+        if (target) {
+            ensureVisible(left, target);
+            if (highlight && !open) {
+                target.style.transition = 'background-color .4s';
+                target.style.backgroundColor = 'rgba(14,165,233,.16)';
+                setTimeout(function () { target.style.backgroundColor = ''; }, 2200);
+            }
+        }
+    }
+
+    // Sync (heights already applied by the sizing block above), then again once
+    // Alpine has rendered (an editor reopened by a failed validation only exists
+    // after it) and once everything has loaded — idempotent, same target each time.
+    restore(false);
+    document.addEventListener('DOMContentLoaded', function () { restore(false); });
+    window.addEventListener('load', function () { restore(true); });
 })();
 </script>
 @endpush

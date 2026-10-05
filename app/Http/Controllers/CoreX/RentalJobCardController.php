@@ -510,19 +510,32 @@ class RentalJobCardController extends Controller
         }
 
         $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
-        $service->addLine($rentalJobCard, $validated, $request->user(), $task);
+        $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line added.');
+        // jc_focus_line — the show screen scrolls the changed line into view
+        // after restoring the panel's scroll position (see show.blade.php).
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line added.')->with('jc_focus_line', $line->id);
     }
 
     public function updateLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
+        // A closed card's lines never change (completed figures are frozen,
+        // cancelled is a dead record). The edit control isn't rendered there
+        // either; this is the server-side guard behind the hidden link.
+        if (in_array($rentalJobCard->status, [RentalJobCard::STATUS_COMPLETED, RentalJobCard::STATUS_CANCELLED], true)) {
+            return back()->withErrors(['rental_job_card' => 'This job card is closed — its lines can no longer be changed.']);
+        }
+
+        // quantity is `sometimes` — an agency with prices off renders no
+        // quantity/unit/price/VAT fields at all, so none are posted.
         $validated = $request->validate([
+            'rental_catalogue_item_id' => ['nullable', Rule::exists('rental_catalogue_items', 'id')->where('agency_id', $rentalJobCard->agency_id)],
+            'type' => ['nullable', 'in:labour,part'],
             'description' => ['required', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],
-            'quantity' => ['required', 'numeric', 'min:0.01'],
+            'quantity' => ['sometimes', 'required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -530,7 +543,7 @@ class RentalJobCardController extends Controller
 
         $service->updateLine($rentalJobCard, $line, $validated, $request->user());
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line updated.');
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line updated.')->with('jc_focus_line', $line->id);
     }
 
     public function destroyLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse
@@ -548,7 +561,7 @@ class RentalJobCardController extends Controller
 
         $service->restoreLine($rentalJobCard, $line, $request->user());
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line restored.');
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line restored.')->with('jc_focus_line', $line);
     }
 
     /** req #5 — "Send to owner as quote." */

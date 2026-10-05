@@ -2665,6 +2665,83 @@ RentalCatalogueImportTemplateService,RentalCatalogueImportDryRunResolver}.php` (
 `resources/views/corex/rental-catalogue-items/import/{index,preview}.blade.php` (new),
 `resources/views/corex/rental-catalogue-items/index.blade.php` (Import button), `routes/web.php`.
 
+### 14.20 Job card lines — edit in place, stay where you were, readable item list, no page scroll (2026-10-05, Johan QA1 findings)
+
+Four faults Johan hit on the job card screen after §14.18. Root cause first, then the fix.
+
+**1. Saved lines could not be changed.** Root cause: the saved-lines partial rendered static text plus
+an archive ×; the `updateLine` route/controller/service existed but nothing on the screen ever called
+them, and the service could not change `type` or the catalogue item, and treated a blanked field as
+"keep the old value" (`?? $line->x`).
+Fix: every saved line (task lines and General) gets an **Edit** pencil (permission
+`rental_job_cards.create`, only while the card is open). It swaps the row, in place, for the SAME
+fields and grid as the add row (`_add-line-row.blade.php`, new mode `edit` — one partial, so editor and
+add row cannot drift): **Item** (the same code/description picker; clearing it makes the line free
+text, dropping the catalogue link AND the copied `code`), **Description**, **Type**, **Unit**, **Qty**,
+**Unit price**, **VAT type** (+ custom rate where the type needs one) with **Save / Cancel**. Cancel
+discards (the editor is created fresh each time it opens). Validation (description required, qty ≥
+0.01, price ≥ 0, type labour/part, VAT type and catalogue item must belong to the agency) returns the
+agent to the same card with that line's editor reopened, what they typed preserved, and the messages
+shown under the row. Saving recalculates the line total, task subtotal, card total and the VAT
+breakdown (they are computed from the lines on every render; `recalcTotal()` refreshes the stored
+total). A key absent from the request leaves that field alone; a key present but blank clears it
+(unit "—" and an emptied price really clear). **Archive (×) is unchanged** — still a soft archive,
+restored from "archived line(s)". A **completed or cancelled** card never lets a line be edited (no
+pencil rendered; the server refuses too). A card whose VAT is already frozen by "Send to owner as
+quote" shows the edit in its totals: only the EDITED line's frozen figures are re-frozen
+(`RentalJobCardVatService::refreshLineSnapshot()`); every other line keeps the figures it was issued
+with even if the agency's VAT rate moved since. No new permission, route or setting (nothing for the
+Setup Wizard — this is an action on an existing record, not a setting).
+
+**2. Adding a line jumped the panel back to the top.** Root cause: add/edit/archive is a plain form
+POST + redirect, i.e. a fresh document; the two panels are inner scrollers (`#jc-left-col` /
+`#jc-right-col`) whose `scrollTop` lives in the old DOM, and browser scroll restoration only covers the
+window — so both started at 0. Fix: every line form carries `data-keep-scroll`; on submit the show
+screen stores both panels' scrollTop in `sessionStorage`; the next load restores it, then brings the
+changed line (`jc_focus_line`, flashed by the controller on add/edit/restore) into view with the
+minimum scroll needed and briefly highlights it. After an archive the position is simply kept. A failed
+validation reopens the editor and scrolls it into view. Scrolling is done on the panel by hand — not
+`scrollIntoView()`, which would also move `#appScroll`. Stale entries (> 2 min) are ignored; storage
+being blocked falls back to the old behaviour without breaking anything.
+
+**3. The item dropdown was 100px wide, wrapped, and clipped.** Root cause: the list was
+`position:absolute; width:100%` inside the Item cell, and an `overflow-y:auto` ancestor (the left
+panel) clips absolutely-positioned descendants on both axes. Fix: the list is teleported to `<body>`
+and placed `position:fixed` from the Item input's own rectangle — at least as wide as Item + Description
+(never under 360px, never wider than the window), one line per item ("CODE — Description", ellipsis +
+tooltip beyond that), flips above the input when there is little room below, follows the panel while it
+scrolls and closes if the input scrolls out of the panel. Keyboard: ↓/↑ move (opening the list on the
+first press, wrapping, keeping the highlighted row in view), **Enter** picks the highlighted row —
+typing auto-highlights the first match so "type a few letters, Enter" works — **Esc**/Tab close;
+hover highlights; `role=combobox/listbox/option` + `aria-activedescendant`. Applies to the create
+screen's draft rows as well (same partial).
+
+**4. A page scrollbar appeared on top of the two panel scrollbars.** Root cause: the panel height was a
+one-shot JS estimate with a 240px floor while `#appScroll` (the page scroller) stayed scrollable, so any
+slop — sub-pixel rounding (exactly 1px over at 1366×600), a window shorter than header + 240px, a late
+layout shift — left `#appScroll` overflowing and the browser drew its own scrollbar. Fix: at ≥1024px
+`#appScroll` is `overflow-y:hidden` on this screen (the page itself cannot scroll; the two panels are the
+only scrollers), floor lowered to 120px, height floored to whole pixels, and the sizing re-runs when
+anything above the panels changes size (ResizeObserver) and after fonts load. Below 1024px nothing
+changes — stacked page scroll. Verified 1366 and 1920 wide, 560–1080 tall, at 1× / 1.1× / 1.25× / 1.5×.
+
+**Known, not changed (outside this scope — reported):** the same "reload jumps to top" happens on the
+other forms of this screen (task add/rename/archive, crew assign, schedule, sign-offs — one
+`data-keep-scroll` attribute each); adding or archiving a line on a quoted/completed card is still
+allowed by the screen and the add path does not freeze the new line's VAT figures.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardLineEditTest.php` — every editable field persists
+and totals/subtotal/VAT breakdown follow; a different item re-copies its code, free text clears it, an
+unchanged item keeps the link; blank unit/price clear; validation failures change nothing and keep the
+editor's input; another agency's VAT type / catalogue item rejected; completed and cancelled cards
+refuse edits; another agency gets 404; a quoted card shows the edit while the other line keeps its
+issued figure; the screen renders the pencil only while open; archive/restore/add flash the focus id.
+
+**Files:** `app/Services/Rentals/RentalJobCardService.php` (`updateLine`),
+`app/Services/Rentals/RentalJobCardVatService.php` (`refreshLineSnapshot`),
+`app/Http/Controllers/CoreX/RentalJobCardController.php`,
+`resources/views/corex/rental-job-cards/{show,_lines-table,_add-line-row}.blade.php`.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge

@@ -345,27 +345,73 @@ class RentalJobCardService
         return $line;
     }
 
+    /**
+     * 2026-10-05 (Johan, "a saved line cannot be changed") — edits a saved
+     * line in place: item, description, type, unit, qty, unit price, VAT.
+     * A key ABSENT from $attributes leaves that field untouched (a caller
+     * posting only some fields stays valid); a key PRESENT but null/blank
+     * clears it — the in-place edit form always posts every field it
+     * renders, and "unit —" / an emptied price must really clear (the old
+     * `?? $line->x` fallback silently kept the previous value, so a blanked
+     * field would have appeared to save but not changed).
+     *
+     * rental_catalogue_item_id: null means the agent switched the line to
+     * free text — the catalogue link AND the copied `code` are both dropped
+     * (code is "the catalogue item's own code, copied at add-time", never
+     * kept for a line that no longer points at an item). A different item
+     * re-copies its code. The item's default price/type/unit are NOT
+     * re-applied here: what the agent has in the form (which the client-side
+     * picker pre-filled) is exactly what is saved.
+     *
+     * A card that already carries a VAT freeze (quote sent, not completed)
+     * has THIS LINE's frozen figures refreshed after the edit —
+     * breakdown() reads the per-line snapshots once a card is frozen, so
+     * without this the edit would save but the totals would silently keep
+     * the old figures. Only the edited line is re-frozen (every other
+     * line's figures stay exactly as issued, even if the agency's VAT rate
+     * moved since). A COMPLETED card never moves again; the controller
+     * refuses edits on completed/cancelled cards before getting here.
+     */
     public function updateLine(RentalJobCard $jobCard, RentalJobCardLine $line, array $attributes, User $by): void
     {
         abort_unless($line->rental_job_card_id === $jobCard->id, 404);
 
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
-        $quantity = (float) ($attributes['quantity'] ?? $line->quantity);
-        $unitPrice = $pricesOn ? ($attributes['unit_price'] ?? $line->unit_price) : null;
-        $vatTypeId = array_key_exists('rental_vat_type_id', $attributes) ? $attributes['rental_vat_type_id'] : $line->rental_vat_type_id;
-        $customVatRate = array_key_exists('custom_vat_rate', $attributes) ? $attributes['custom_vat_rate'] : $line->custom_vat_rate;
+        $has = fn (string $key): bool => array_key_exists($key, $attributes);
 
-        $line->forceFill([
-            'description' => $attributes['description'] ?? $line->description,
-            'unit' => $attributes['unit'] ?? $line->unit,
+        $quantity = $has('quantity') && $attributes['quantity'] !== null ? (float) $attributes['quantity'] : (float) $line->quantity;
+        $unitPrice = $pricesOn
+            ? ($has('unit_price') ? $attributes['unit_price'] : $line->unit_price)
+            : null;
+
+        $changes = [
+            'description' => $has('description') && $attributes['description'] !== null ? $attributes['description'] : $line->description,
+            'unit' => $has('unit') ? $attributes['unit'] : $line->unit,
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $unitPrice !== null ? round($quantity * (float) $unitPrice, 2) : null,
-            'rental_vat_type_id' => $vatTypeId,
-            'custom_vat_rate' => $customVatRate,
-        ])->save();
+            'rental_vat_type_id' => $has('rental_vat_type_id') ? $attributes['rental_vat_type_id'] : $line->rental_vat_type_id,
+            'custom_vat_rate' => $has('custom_vat_rate') ? $attributes['custom_vat_rate'] : $line->custom_vat_rate,
+        ];
+
+        if ($has('type') && $attributes['type'] !== null) {
+            $changes['type'] = $attributes['type'];
+        }
+
+        if ($has('rental_catalogue_item_id')) {
+            $catalogueItem = $attributes['rental_catalogue_item_id'] !== null
+                ? RentalCatalogueItem::find($attributes['rental_catalogue_item_id'])
+                : null;
+            $changes['rental_catalogue_item_id'] = $catalogueItem?->id;
+            $changes['code'] = $catalogueItem?->code;
+        }
+
+        $line->forceFill($changes)->save();
 
         $jobCard->recalcTotal();
+        if ($jobCard->vat_snapshotted_at !== null && $jobCard->status !== RentalJobCard::STATUS_COMPLETED) {
+            $this->vat->refreshLineSnapshot($jobCard, $line->refresh());
+        }
         $jobCard->logUpdate('line_changed', $by, $line->description);
     }
 

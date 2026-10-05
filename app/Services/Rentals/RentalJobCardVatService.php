@@ -277,6 +277,37 @@ class RentalJobCardVatService
     }
 
     /**
+     * Re-freezes ONE line's VAT figures on a card that is already frozen
+     * (quote sent, not completed) — called after that line is edited, so
+     * breakdown() (which reads the snapshots once a card is frozen) shows
+     * the edit. Every other line keeps the figures it was issued with.
+     * A line left with no amount (price cleared) loses its snapshot rather
+     * than keeping the previous excl/VAT/incl behind.
+     */
+    public function refreshLineSnapshot(RentalJobCard $jobCard, RentalJobCardLine $line): void
+    {
+        $agency = $jobCard->agency ?? Agency::withoutGlobalScopes()->find($jobCard->agency_id);
+        $pricesOn = RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
+
+        if (! $agency?->vat_registered || ! $pricesOn) {
+            return;
+        }
+
+        $calc = $this->lineVat($line, $agency);
+
+        $line->forceFill($calc['excl'] === null ? [
+            'vat_type_name_snapshot' => null, 'vat_rate_snapshot' => null, 'vat_excl_snapshot' => null,
+            'vat_amount_snapshot' => null, 'vat_incl_snapshot' => null,
+        ] : [
+            'vat_type_name_snapshot' => $calc['label'],
+            'vat_rate_snapshot' => $calc['rate'],
+            'vat_excl_snapshot' => $calc['excl'],
+            'vat_amount_snapshot' => $calc['vat'],
+            'vat_incl_snapshot' => $calc['incl'],
+        ])->save();
+    }
+
+    /**
      * The figure that must go to the owner as the quote amount, and the
      * figure the landlord no-approval spend threshold is compared against
      * — VAT-INCLUSIVE, because that is what the landlord actually pays.
