@@ -94,6 +94,26 @@ class RentalVatType extends Model
         return $query->where('is_active', true);
     }
 
+    /**
+     * 2026-10-05 — Johan: the job-card line's VAT picker must show just the
+     * type name ("Standard", "None", "Custom"), never the word "VAT" or a
+     * rate, so it fits a narrow column. Strips a bare "VAT" word from
+     * whatever the agency's own (editable) name currently is, rather than
+     * hardcoding the three seeded strings — "Standard VAT" -> "Standard",
+     * "No VAT" -> "No" -> "None" (the one seeded name this strip alone
+     * doesn't land on), "Custom" unchanged (no "VAT" substring to strip).
+     */
+    public function shortLabel(): string
+    {
+        $label = trim((string) preg_replace('/\s+/', ' ', preg_replace('/\bVAT\b/i', '', $this->name)));
+
+        return match (true) {
+            $label === '' => 'Standard',
+            $label === 'No' => 'None',
+            default => $label,
+        };
+    }
+
     /** Exactly one default at a time — unsets every sibling before setting this one. */
     public function makeDefault(): void
     {

@@ -231,6 +231,15 @@ class RentalJobCardController extends Controller
             $draftTasks[] = $desc;
         }
 
+        // A job card is always created within the AUTHENTICATED user's own
+        // agency, regardless of which property ends up picked (the
+        // searchable picker resolves client-side, so a fresh /create with
+        // no prefill has no $property yet at all) — resolve pricesOn/VAT
+        // off the user's own agency, not $property?->agency, so the draft
+        // screen's catalogue/VAT controls are correct from the first paint
+        // instead of silently empty until a property happens to be chosen.
+        $agency = $property?->agency ?? $user->agency;
+
         return view('corex.rental-job-cards.show', [
             'jobCard' => null,
             'property' => $property,
@@ -240,11 +249,11 @@ class RentalJobCardController extends Controller
             'draftTasks' => $draftTasks,
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
-            'pricesOn' => $property ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($property->agency_id) : true,
-            'vatTypes' => $property && $property->agency?->vat_registered
-                ? RentalVatType::active()->where('agency_id', $property->agency_id)->orderBy('sort_order')->get()
+            'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
+            'vatTypes' => $agency?->vat_registered
+                ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get()
                 : collect(),
-            'vatRegistered' => (bool) $property?->agency?->vat_registered,
+            'vatRegistered' => (bool) $agency?->vat_registered,
         ]);
     }
 

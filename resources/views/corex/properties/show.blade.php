@@ -4279,7 +4279,23 @@
             {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access
                  invited from here too, same mechanism as the Lease Hub. --}}
             @unless($isNew)
-                @php($currentLease = $property->leases()->where('status', 'active')->first())
+                @php
+                    // AT-445 regression (2026-10-05, 6b14f9e4c) — the inline
+                    // @php(...) form's own extraction regex is NOT paren-
+                    // balance-aware: it closes the directive at the FIRST
+                    // literal ')' it finds, which here was leases()'s own
+                    // empty parens — not the one actually closing this
+                    // statement. Everything from ->where(...) onward was
+                    // left as literal, uncompiled text, and because Blade's
+                    // single-pass compiler had already moved past this
+                    // point, every directive/echo for the rest of this tab
+                    // panel (lease_period, showLeaseType, has_deposit, the
+                    // AT-402/rental-work-orders/rentals-faults-work-orders
+                    // comments) rendered as raw Blade source instead of
+                    // compiling. Block form has no such regex — @endphp is
+                    // a literal token match, not a paren count.
+                    $currentLease = $property->leases()->where('status', 'active')->first();
+                @endphp
                 <div class="rounded-md p-4 space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <h2 class="text-sm font-semibold">Portal access</h2>
                     @if($currentLease)
