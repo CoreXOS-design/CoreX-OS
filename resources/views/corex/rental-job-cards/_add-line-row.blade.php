@@ -114,16 +114,18 @@
                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
             <input type="hidden" {{ $named ? 'name=rental_catalogue_item_id' : 'x-ref=' . $refPrefix . 'CatalogueItem' }} x-model="selectedId">
             <template x-teleport="body">
+                {{-- NB: Alpine's STRING :style REPLACES the element's static style attribute, so the list's
+                     whole look (dropStyle, built in catalogueLinePicker().place()) lives in the bound value, and
+                     the rows use the OBJECT form, which merges with their static style. --}}
                 <div x-show="open" x-cloak x-init="listEl = $el" :id="uid + '-list'" role="listbox" :style="dropStyle"
-                     class="text-xs"
-                     style="background: var(--surface); color: var(--text, inherit); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.18);">
+                     class="text-xs">
                     <template x-for="(it, idx) in filtered()" :key="it.id">
                         <div @mousedown.prevent="pick(it)" @mouseenter="highlighted = idx"
                              :id="uid + '-opt-' + idx" role="option" :aria-selected="idx === highlighted ? 'true' : 'false'"
                              :data-active="idx === highlighted ? '1' : null" :title="it.label"
                              :class="idx === highlighted ? 'font-semibold' : ''"
                              style="padding: 6px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-                             :style="idx === highlighted ? 'background: var(--surface-2, rgba(0,0,0,.06));' : ''"
+                             :style="{ backgroundColor: idx === highlighted ? 'var(--surface-2, rgba(0,0,0,.08))' : '' }"
                              x-text="it.label"></div>
                     </template>
                     <div x-show="filtered().length === 0" style="padding: 6px 10px; color: var(--text-muted);">No match — free text below</div>

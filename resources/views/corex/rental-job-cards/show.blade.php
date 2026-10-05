@@ -782,7 +782,9 @@ function catalogueLinePicker(items, opts) {
             const above = r.top - 8;
             const flip = below < 150 && above > below;
             const maxH = Math.max(100, Math.min(260, flip ? above : below));
-            this.dropStyle = 'position:fixed; z-index:70; overflow-y:auto; left:' + Math.round(left) + 'px; width:' + Math.round(width) + 'px; max-height:' + Math.round(maxH) + 'px; '
+            // The list's whole look lives here — Alpine's string :style replaces a static style attribute.
+            this.dropStyle = 'position:fixed; z-index:70; overflow-y:auto; background:var(--surface); color:var(--text, inherit); border:1px solid var(--border); border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.18); '
+                + 'left:' + Math.round(left) + 'px; width:' + Math.round(width) + 'px; max-height:' + Math.round(maxH) + 'px; '
                 + (flip ? 'bottom:' + Math.round(window.innerHeight - r.top + 4) + 'px;' : 'top:' + Math.round(r.bottom + 4) + 'px;');
         },
         filtered() {
