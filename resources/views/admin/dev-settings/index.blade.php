@@ -52,6 +52,12 @@
                 ],
             ],
             [
+                'label' => 'Agency onboarding',
+                'items' => [
+                    ['key'=>'timeline-defaults', 'label'=>'Agency timeline defaults', 'type'=>'link', 'href'=>route('admin.timeline-defaults.index'), 'keywords'=>'agency timeline onboarding plan default milestones days take-on go live training steps'],
+                ],
+            ],
+            [
                 'label' => 'Demo',
                 'items' => [
                     ['key'=>'demo', 'label'=>'Demo Mode', 'type'=>'section', 'keywords'=>'login bypass role buttons admin branch manager agent viewer password authentication'],

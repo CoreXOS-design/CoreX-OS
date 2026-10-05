@@ -815,6 +815,17 @@ Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name
     Route::post('/login', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'login'])->name('login');
 });
 
+// ===== AT-447 PUBLIC: agency timeline (read-only) + platform contract signing =====
+// Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
+Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
+    ->middleware('throttle:60,1')->name('agency-timeline.public');
+Route::prefix('agency-contract/{token}')->middleware('throttle:30,1')->name('agency-contract.')->group(function () {
+    Route::get('/',                          [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'show'])->name('show');
+    Route::post('/sign',                     [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'sign'])->name('sign');
+    Route::post('/decline',                  [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'decline'])->name('decline');
+    Route::get('/attachments/{attachment}',  [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'attachment'])->whereNumber('attachment')->name('attachment');
+});
+
 // ===== P24 MARKET INTELLIGENCE =====
 // Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
 // /listings (admin browse) and /import (POST upload trigger) stay mounted
@@ -3631,6 +3642,69 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
+    });
+
+    // ── AT-447 — Agency Timeline + Agency Contracts + timeline defaults ──
+    //
+    // owner_only, and DELIBERATELY no permission key in corex-permissions.php:
+    // a permission key is grantable via Role Manager and these pages expose every
+    // agency's contract status and onboarding plan (same reasoning as Agency
+    // Billing / Dev Settings / Demo Access). Every action ALSO aborts unless the
+    // actor isOwnerRole(). Spec: .ai/specs/agency-timeline-and-platform-esign.md §5, §8.
+    Route::middleware('owner_only')->group(function () {
+        // Dev Settings → Agency timeline defaults (editable plan new timelines start from)
+        Route::prefix('admin/dev-settings/timeline-defaults')->name('admin.timeline-defaults.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyTimelineDefaultsController::class;
+            Route::get('/',                 [$c, 'index'])->name('index');
+            Route::post('/',                [$c, 'store'])->name('store');
+            Route::put('/{item}',           [$c, 'update'])->whereNumber('item')->name('update');
+            Route::post('/{item}/move',     [$c, 'move'])->whereNumber('item')->name('move');
+            Route::delete('/{item}',        [$c, 'destroy'])->whereNumber('item')->name('destroy');
+            Route::post('/{item}/restore',  [$c, 'restore'])->whereNumber('item')->name('restore');
+        });
+
+        // Agency Timeline
+        Route::prefix('admin/agency-timelines')->name('admin.agency-timelines.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyTimelineController::class;
+            Route::get('/',                                   [$c, 'index'])->name('index');
+            Route::get('/start/{agency}',                     [$c, 'startForm'])->whereNumber('agency')->name('start-form');
+            Route::post('/start/{agency}',                    [$c, 'start'])->whereNumber('agency')->name('start');
+            Route::get('/{timeline}',                         [$c, 'show'])->whereNumber('timeline')->name('show');
+            Route::post('/{timeline}/items',                  [$c, 'storeItem'])->whereNumber('timeline')->name('items.store');
+            Route::put('/{timeline}/items/{item}',            [$c, 'updateItem'])->whereNumber(['timeline', 'item'])->name('items.update');
+            Route::post('/{timeline}/items/{item}/status',    [$c, 'status'])->whereNumber(['timeline', 'item'])->name('items.status');
+            Route::post('/{timeline}/items/{item}/move',      [$c, 'move'])->whereNumber(['timeline', 'item'])->name('items.move');
+            Route::delete('/{timeline}/items/{item}',         [$c, 'archiveItem'])->whereNumber(['timeline', 'item'])->name('items.archive');
+            Route::post('/{timeline}/items/{item}/restore',   [$c, 'restoreItem'])->whereNumber(['timeline', 'item'])->name('items.restore');
+            Route::put('/{timeline}/start-date',              [$c, 'startDate'])->whereNumber('timeline')->name('start-date');
+            Route::post('/{timeline}/reset-dates',            [$c, 'resetDates'])->whereNumber('timeline')->name('reset-dates');
+            Route::post('/{timeline}/link',                   [$c, 'link'])->whereNumber('timeline')->name('link');
+            Route::post('/{timeline}/lifecycle',              [$c, 'lifecycle'])->whereNumber('timeline')->name('lifecycle');
+        });
+
+        // Agency Contracts (dev-side e-sign) — outside every agency
+        Route::prefix('admin/agency-contracts')->name('admin.agency-contracts.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyContractController::class;
+            // Static paths FIRST so they are not swallowed by /{envelope}.
+            Route::get('/templates',                         [$c, 'templates'])->name('templates');
+            Route::get('/templates/create',                  [$c, 'templateCreate'])->name('templates.create');
+            Route::post('/templates',                        [$c, 'templateStore'])->name('templates.store');
+            Route::get('/templates/{template}/edit',         [$c, 'templateEdit'])->whereNumber('template')->name('templates.edit');
+            Route::put('/templates/{template}',              [$c, 'templateUpdate'])->whereNumber('template')->name('templates.update');
+            Route::get('/templates/{template}/preview',      [$c, 'templatePreview'])->whereNumber('template')->name('templates.preview');
+            Route::delete('/templates/{template}',           [$c, 'templateDestroy'])->whereNumber('template')->name('templates.destroy');
+            Route::post('/templates/{template}/restore',     [$c, 'templateRestore'])->whereNumber('template')->name('templates.restore');
+            Route::get('/send',                              [$c, 'create'])->name('create');
+            Route::post('/',                                 [$c, 'store'])->name('store');
+            Route::get('/',                                  [$c, 'index'])->name('index');
+            Route::get('/{envelope}',                        [$c, 'show'])->whereNumber('envelope')->name('show');
+            Route::post('/{envelope}/resend',                [$c, 'resend'])->whereNumber('envelope')->name('resend');
+            Route::post('/{envelope}/void',                  [$c, 'void'])->whereNumber('envelope')->name('void');
+            Route::get('/{envelope}/download',               [$c, 'download'])->whereNumber('envelope')->name('download');
+            Route::get('/{envelope}/attachments/{attachment}', [$c, 'attachment'])->whereNumber(['envelope', 'attachment'])->name('attachment');
+            Route::delete('/{envelope}',                     [$c, 'archive'])->whereNumber('envelope')->name('archive');
+            Route::post('/{envelope}/restore',               [$c, 'restore'])->whereNumber('envelope')->name('restore');
+        });
     });
 
     // Agency Setup Progress board — platform-owner cross-agency tracking of the
