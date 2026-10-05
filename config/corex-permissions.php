@@ -160,6 +160,13 @@ return [
         // rental lease/renewal/addendum documents.
         ['key' => 'rental_lease_templates.manage_settings', 'label' => 'Manage Rental Lease Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 7],
 
+        // .ai/specs/rental-takeon-import.md §8 — one-time, high-stakes bulk
+        // migration of an agency's existing rental book. Agency-admin only
+        // by design (not granted to branch_manager/agent/office_admin
+        // defaults below) — this is not a day-to-day agent action.
+        ['key' => 'rentals_take_on_import.view',   'label' => 'View Rental Take-On Import Batches', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rentals_take_on_import', 'sort_order' => 1],
+        ['key' => 'rentals_take_on_import.manage', 'label' => 'Upload & Confirm Rental Take-On Imports', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rentals_take_on_import', 'sort_order' => 2],
+
         // ── Rental Inspections (rental-inspections.md) ──
         ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],
         ['key' => 'rental_inspections.create',             'label' => 'Record Inspections & Observations',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 2],

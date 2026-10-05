@@ -3402,6 +3402,33 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->name('corex.rental-notices.download-document');
     });
 
+    // .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
+    // migration of an agency's existing rental book: upload -> dry-run
+    // preview -> confirm -> archivable batch history. Never a day-to-day
+    // agent action, hence the narrower .manage key for every write action.
+    Route::prefix('rentals/take-on-import')->middleware('permission:rentals_take_on_import.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'index'])->name('corex.rentals.take-on-import.index');
+        Route::get('/template', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'downloadTemplate'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.template');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'upload'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.upload');
+        Route::get('/{run}/preview', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'preview'])->name('corex.rentals.take-on-import.preview');
+        Route::get('/{run}', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'show'])->name('corex.rentals.take-on-import.show');
+        Route::get('/{run}/issues.csv', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'errorsCsv'])->name('corex.rentals.take-on-import.issues');
+        Route::post('/{run}/cancel', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'cancel'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.cancel');
+        Route::post('/{run}/confirm-bulk', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'confirmBulk'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.confirm-bulk');
+        Route::post('/{run}/archive', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'archive'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.archive');
+        Route::post('/{runId}/restore', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'restore'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.restore');
+        Route::post('/rows/{row}/confirm', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'confirmRow'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.rows.confirm');
+        Route::post('/rows/{row}/exclude', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'excludeRow'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.rows.exclude');
+    });
+
     // AT-445 — Rental Notice Templates (Settings).
     Route::prefix('rental-notice-templates')->middleware('permission:rental_notice_templates.manage_settings')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'index'])->name('corex.rental-notice-templates.index');

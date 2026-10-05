@@ -235,7 +235,7 @@
         // list OR detail pages even though their nav links live in this same panel.
         // 'corex.rental-notices.*' had the identical gap (sidebar-active-item
         // audit, 2026-10-05) — its own link already lives in this panel too.
-        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*')
+        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.rentals.take-on-import.*')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
         || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
         || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
@@ -1196,6 +1196,13 @@
                      off it. Same-day nav entry per non-negotiable #2. --}}
                 @permission('leases.view')
                 <a href="{{ route('corex.leases.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
+                @endpermission
+
+                {{-- .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
+                     migration of an existing rental book. Same-day nav entry per
+                     non-negotiable #2. --}}
+                @permission('rentals_take_on_import.view')
+                <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.take-on-import.*') ? 'active' : '' }}">Rental Take-On Import</a>
                 @endpermission
 
                 {{-- .ai/specs/rental-inspections.md §5 — the tracked/searchable list of

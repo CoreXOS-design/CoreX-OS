@@ -4,6 +4,16 @@
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+DROP TABLE IF EXISTS `_corex_lane_test_fingerprint`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `_corex_lane_test_fingerprint` (
+  `id` tinyint NOT NULL,
+  `fingerprint` char(64) NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `activity_columns`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -14549,6 +14559,71 @@ CREATE TABLE `rental_secure_access_tokens` (
   CONSTRAINT `rental_secure_access_tokens_rental_work_order_id_foreign` FOREIGN KEY (`rental_work_order_id`) REFERENCES `rental_work_orders` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_take_on_import_rows`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_take_on_import_rows` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `run_id` bigint unsigned NOT NULL,
+  `row_number` int unsigned NOT NULL,
+  `payload_json` json DEFAULT NULL,
+  `property_match_action` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `property_match_tracked_id` bigint unsigned DEFAULT NULL,
+  `property_match_label` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `landlord_match_json` json DEFAULT NULL,
+  `tenant_match_json` json DEFAULT NULL,
+  `lease_completeness` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `errors_json` json DEFAULT NULL,
+  `warnings_json` json DEFAULT NULL,
+  `status` varchar(15) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `target_property_id` bigint unsigned DEFAULT NULL,
+  `target_lease_id` bigint unsigned DEFAULT NULL,
+  `target_landlord_contact_ids_json` json DEFAULT NULL,
+  `target_tenant_contact_ids_json` json DEFAULT NULL,
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `confirmed_by` bigint unsigned DEFAULT NULL,
+  `archived_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_take_on_import_rows_target_property_id_foreign` (`target_property_id`),
+  KEY `rental_take_on_import_rows_target_lease_id_foreign` (`target_lease_id`),
+  KEY `rental_take_on_import_rows_confirmed_by_foreign` (`confirmed_by`),
+  KEY `rental_take_on_import_rows_run_id_status_index` (`run_id`,`status`),
+  CONSTRAINT `rental_take_on_import_rows_confirmed_by_foreign` FOREIGN KEY (`confirmed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_take_on_import_rows_run_id_foreign` FOREIGN KEY (`run_id`) REFERENCES `rental_take_on_import_runs` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_take_on_import_rows_target_lease_id_foreign` FOREIGN KEY (`target_lease_id`) REFERENCES `leases` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_take_on_import_rows_target_property_id_foreign` FOREIGN KEY (`target_property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_take_on_import_runs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_take_on_import_runs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'parsing',
+  `source_filename` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_file_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `counts_json` json DEFAULT NULL,
+  `error_message` text COLLATE utf8mb4_unicode_ci,
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_take_on_import_runs_branch_id_foreign` (`branch_id`),
+  KEY `rental_take_on_import_runs_user_id_foreign` (`user_id`),
+  KEY `rental_take_on_import_runs_agency_id_status_index` (`agency_id`,`status`),
+  CONSTRAINT `rental_take_on_import_runs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_take_on_import_runs_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_take_on_import_runs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_vat_types`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -19050,3 +19125,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1546,'2026_10_05_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1547,'2026_10_05_240300_backfill_rental_catalogue_item_types_and_units',260);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1548,'2026_10_05_240400_drop_type_and_unit_strings_from_rental_catalogue_items_table',260);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1549,'2026_10_05_200100_add_active_rental_statuses_to_lease_settings_table',261);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1550,'2026_10_05_260000_create_rental_take_on_import_runs_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1551,'2026_10_05_260100_create_rental_take_on_import_rows_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1552,'2026_10_05_260200_add_archived_at_to_rental_take_on_import_rows_table',262);
