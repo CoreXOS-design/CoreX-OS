@@ -1242,6 +1242,13 @@
                 <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-job-cards.*') ? 'active' : '' }}">Job Cards</a>
                 @endpermission
 
+                {{-- Agency VAT set-up (2026-10-05) — Johan: surface the catalogue
+                     from the Rentals panel too, not just Settings, since it sits
+                     directly under Job Cards in the agent's own workflow. --}}
+                @permission('rental_catalogue.view')
+                <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-catalogue-items.*') ? 'active' : '' }}">Parts &amp; Labour Catalogue</a>
+                @endpermission
+
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif

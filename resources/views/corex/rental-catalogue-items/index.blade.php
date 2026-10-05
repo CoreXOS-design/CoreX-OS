@@ -56,7 +56,7 @@
                     <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'name'])) }}">Name</a></th>
                     <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'type'])) }}">Type</a></th>
                     <th class="text-left px-4 py-2 font-medium">Unit</th>
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">Default price</a></th>
+                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">{{ $priceLabel }}</a></th>
                     <th class="text-right px-4 py-2 font-medium">Actions</th>
                 </tr>
             </thead>

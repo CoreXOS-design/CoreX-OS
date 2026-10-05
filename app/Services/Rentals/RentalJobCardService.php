@@ -26,6 +26,10 @@ use Illuminate\Support\Facades\Storage;
  */
 class RentalJobCardService
 {
+    public function __construct(private RentalJobCardVatService $vat)
+    {
+    }
+
     /**
      * A job card raised directly from the property (no upstream fault
      * report) — req #1/#4. Creates the work order and the job card
@@ -171,6 +175,12 @@ class RentalJobCardService
         $quantity = (float) ($attributes['quantity'] ?? 1);
         $unitPrice = $pricesOn ? ($attributes['unit_price'] ?? $catalogueItem?->default_price) : null;
 
+        // VAT type — the agent's explicit pick on this line, else the
+        // catalogue item's own default, else the agency's default type.
+        // Null for an agency that isn't VAT registered (nothing to pick).
+        $vatTypeId = $attributes['rental_vat_type_id'] ?? $this->vat->defaultVatTypeIdFor($jobCard->agency_id, $catalogueItem);
+        $customVatRate = $attributes['custom_vat_rate'] ?? null;
+
         $line = $jobCard->lines()->create([
             'agency_id' => $jobCard->agency_id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
@@ -182,6 +192,8 @@ class RentalJobCardService
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $unitPrice !== null ? round($quantity * (float) $unitPrice, 2) : null,
+            'rental_vat_type_id' => $vatTypeId,
+            'custom_vat_rate' => $customVatRate,
             'sort_order' => (int) ($jobCard->lines()->max('sort_order') ?? 0) + 1,
             'created_by_user_id' => $by->id,
         ]);
@@ -199,6 +211,8 @@ class RentalJobCardService
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
         $quantity = (float) ($attributes['quantity'] ?? $line->quantity);
         $unitPrice = $pricesOn ? ($attributes['unit_price'] ?? $line->unit_price) : null;
+        $vatTypeId = array_key_exists('rental_vat_type_id', $attributes) ? $attributes['rental_vat_type_id'] : $line->rental_vat_type_id;
+        $customVatRate = array_key_exists('custom_vat_rate', $attributes) ? $attributes['custom_vat_rate'] : $line->custom_vat_rate;
 
         $line->forceFill([
             'description' => $attributes['description'] ?? $line->description,
@@ -206,6 +220,8 @@ class RentalJobCardService
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $unitPrice !== null ? round($quantity * (float) $unitPrice, 2) : null,
+            'rental_vat_type_id' => $vatTypeId,
+            'custom_vat_rate' => $customVatRate,
         ])->save();
 
         $jobCard->recalcTotal();
@@ -253,15 +269,25 @@ class RentalJobCardService
         $jobCard->recalcTotal();
         $jobCard->refresh();
 
+        // Freeze VAT (registration/rate/capture-mode/type, per line) at the
+        // moment the quote goes out — a later change to any of the agency's
+        // VAT settings must never alter an issued quote.
+        $this->vat->snapshot($jobCard);
+        $jobCard->refresh();
+
         $pdf = $pdfService->jobCardQuotePdf($jobCard);
         $path = 'rental-job-card-quotes/' . $jobCard->id . '/' . now()->timestamp . '.pdf';
         Storage::disk('local')->put($path, $pdf->output());
 
+        // The landlord pays the VAT-inclusive figure, so that is both the
+        // quote amount AND the figure the no-approval spend threshold
+        // compares against (RentalWorkOrder::selectQuote()) — identical to
+        // total_amount when the agency isn't VAT registered.
         $workOrder = $jobCard->workOrder;
         $quote = $workOrder->recordQuote([
             'rental_job_card_id' => $jobCard->id,
             'agency_service_provider_id' => null,
-            'amount' => $jobCard->total_amount ?? 0,
+            'amount' => $this->vat->inclusiveTotal($jobCard),
             'quote_date' => now()->toDateString(),
             'document_storage_path' => $path,
             'detail_text' => 'Quote generated from job card #' . $jobCard->id,
@@ -297,6 +323,13 @@ class RentalJobCardService
      */
     public function complete(RentalJobCard $jobCard, User $by): void
     {
+        // A job card can reach completion without ever having a quote sent
+        // (under-threshold internal jobs often won't need one) — freeze VAT
+        // here too, idempotently, so a closed card's figures never move
+        // even if nothing froze them earlier.
+        $this->vat->snapshot($jobCard);
+        $jobCard->refresh();
+
         $jobCard->complete($by);
 
         $workOrder = $jobCard->workOrder;
@@ -304,7 +337,9 @@ class RentalJobCardService
             try {
                 $workOrder->complete($by, [
                     'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
-                    'cost_amount' => $jobCard->total_amount,
+                    // VAT-inclusive — the actual amount the owner pays, same
+                    // figure the quote/threshold already used.
+                    'cost_amount' => $this->vat->inclusiveTotal($jobCard),
                     'completion_notes' => 'Completed via job card #' . $jobCard->id,
                 ]);
             } catch (\LogicException) {

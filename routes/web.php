@@ -3370,6 +3370,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/tenant-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'tenantNotice'])->name('corex.leases.renewal.tenant-notice');
             Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->name('corex.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->name('corex.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'changeNoticeOutcome'])->name('corex.leases.renewal.notice.change-outcome');
         });
 
         Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])
@@ -4517,6 +4518,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'toggleTestimonial'])
         ->middleware('permission:testimonials.publish')
         ->name('admin.company-settings.testimonials.toggle');
+
+    // Agency VAT set-up — VAT types (Standard/No VAT/Custom + agency
+    // additions), embedded in the Company Settings "VAT" block. Same
+    // permission as the rest of Company Settings — agency admin only.
+    Route::prefix('admin/company-settings/{agency}/vat-types')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'store'])->name('admin.vat-types.store');
+        Route::put('/{vatType}', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'update'])->name('admin.vat-types.update');
+        Route::patch('/{vatType}/default', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'makeDefault'])->name('admin.vat-types.default');
+        Route::delete('/{vatType}', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'archive'])->name('admin.vat-types.archive');
+        Route::post('/{vatType}/restore', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'restore'])->name('admin.vat-types.restore');
+    });
 
 
     // SPINE-SETTINGS — Activity scoring (full catalogue: calendar +

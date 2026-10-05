@@ -7723,7 +7723,7 @@ CREATE TABLE `leases` (
   `notice_given_by` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notice_note` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `move_out_date` date DEFAULT NULL,
-  `notice_readvertised` tinyint(1) DEFAULT NULL,
+  `notice_outcome` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `lease_type` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `source` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `rental_application_id` bigint unsigned DEFAULT NULL,
@@ -10906,6 +10906,7 @@ CREATE TABLE `properties` (
   `expiry_date` date DEFAULT NULL,
   `occupation_date` date DEFAULT NULL,
   `lease_start_date` date DEFAULT NULL,
+  `show_available_from_on_portals` tinyint(1) NOT NULL DEFAULT '1',
   `lease_end_date` date DEFAULT NULL,
   `pp_syndication_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `pp_syndication_status` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -18872,3 +18873,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1524,'2026_10_07_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1525,'2026_10_07_100400_create_rental_notices_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1526,'2026_10_07_100500_add_tenant_confirmation_to_rental_work_orders_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1527,'2026_10_07_100600_add_recorded_by_contact_to_rental_approvals_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1528,'2026_10_05_120000_add_notice_outcome_to_leases_table',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1529,'2026_10_05_120100_add_show_available_from_on_portals_to_properties_table',2);

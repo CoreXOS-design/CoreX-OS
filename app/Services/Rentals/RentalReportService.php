@@ -462,7 +462,7 @@ class RentalReportService
 
         $query = RentalJobCard::query()
             ->visibleTo($user, $scope)
-            ->with(['property', 'assignedUser', 'lines']);
+            ->with(['property', 'assignedUser', 'lines.vatType']);
 
         if ($period['from']) {
             $query->where(fn ($q) => $q->where('scheduled_at', '>=', $period['from'])->orWhere('completed_at', '>=', $period['from']));
@@ -514,19 +514,25 @@ class RentalReportService
 
         $cards = $query->get();
 
+        // Agency VAT set-up — one agency per report run (the user's own),
+        // so this resolves once rather than per row.
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find($user->effectiveAgencyId());
+        $vatRegistered = (bool) $agency?->vat_registered;
+        $vatService = $vatRegistered ? app(RentalJobCardVatService::class) : null;
+
         $groupLabel = match ($params['group_by'] ?? null) {
             'crew' => fn (RentalJobCard $c) => $c->assignedUser?->name ?? 'Unassigned',
             'property' => fn (RentalJobCard $c) => $c->property?->buildDisplayAddress() ?? 'Unknown property',
             default => null,
         };
 
-        $rows = $cards->map(function (RentalJobCard $c) {
+        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered) {
             $labourHours = (float) $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
             $partsUsed = $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_PART)
                 ->map(fn ($l) => $l->description . ($l->quantity ? " ({$l->quantity})" : ''))
                 ->implode(', ');
 
-            return [
+            $row = [
                 '_model' => $c,
                 'date' => optional($c->scheduled_at ?? $c->completed_at)->format('Y-m-d'),
                 'property' => $c->property?->buildDisplayAddress() ?? '—',
@@ -539,6 +545,15 @@ class RentalReportService
                 // layer renders it blank rather than "R 0.00".
                 'total_cost' => $c->total_amount !== null ? (float) $c->total_amount : null,
             ];
+
+            if ($vatRegistered) {
+                $breakdown = $vatService->breakdown($c);
+                $row['total_excl'] = $breakdown['registered'] ? (float) $breakdown['subtotalExcl'] : null;
+                $row['total_vat'] = $breakdown['registered'] ? (float) $breakdown['totalVat'] : null;
+                $row['total_incl'] = $breakdown['registered'] ? (float) $breakdown['totalIncl'] : null;
+            }
+
+            return $row;
         });
 
         $sort = $params['sort'] ?? 'date';
@@ -547,13 +562,20 @@ class RentalReportService
 
         [$rows, $groups] = $this->applyGrouping($rows, $params['group_by'] ?? null, $groupLabel);
 
+        $columns = [
+            'date' => 'Date', 'property' => 'Property', 'crew_member' => 'Crew member',
+            'labour_hours' => 'Labour hours', 'parts_used' => 'Parts used', 'status' => 'Status',
+            'total_cost' => 'Total cost',
+        ];
+        $sumKeys = ['labour_hours', 'total_cost'];
+        if ($vatRegistered) {
+            $columns += ['total_excl' => 'Total (excl VAT)', 'total_vat' => 'VAT', 'total_incl' => 'Total (incl VAT)'];
+            $sumKeys = array_merge($sumKeys, ['total_excl', 'total_vat', 'total_incl']);
+        }
+
         return [
-            'columns' => [
-                'date' => 'Date', 'property' => 'Property', 'crew_member' => 'Crew member',
-                'labour_hours' => 'Labour hours', 'parts_used' => 'Parts used', 'status' => 'Status',
-                'total_cost' => 'Total cost',
-            ],
-            'sumKeys' => ['labour_hours', 'total_cost'],
+            'columns' => $columns,
+            'sumKeys' => $sumKeys,
             'rows' => $rows,
             'groups' => $groups,
             'count' => $cards->count(),

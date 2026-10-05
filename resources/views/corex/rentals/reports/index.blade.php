@@ -18,7 +18,10 @@
     $sortIndicator = fn ($col) => $params['sort'] === $col ? ($params['direction'] === 'asc' ? ' ▲' : ' ▼') : '';
     $forwardPeriodReports = ['lease-expiries'];
     $noShellReports = []; // every built report uses the shared shell
-    $isMoneyCol = fn ($k) => str_contains($k, 'amount') || $k === 'rent';
+    // 'total_' prefix added for the job cards report's cost/VAT columns
+    // (total_cost, total_excl, total_vat, total_incl) — rand figures that
+    // don't contain 'amount' in their key.
+    $isMoneyCol = fn ($k) => str_contains($k, 'amount') || $k === 'rent' || str_starts_with($k, 'total_');
     $groupByOptions = match($reportKey) {
         'fault-reports' => ['property' => 'Property', 'landlord' => 'Landlord', 'agent' => 'Agent', 'fault_type' => 'Fault type'],
         'work-orders' => ['property' => 'Property', 'supplier' => 'Supplier', 'trade' => 'Trade'],

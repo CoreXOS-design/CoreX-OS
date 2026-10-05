@@ -205,6 +205,9 @@ class Agency extends Model
         'reg_no',
         'vat_no',
         'vat_registered',
+        'vat_capture_mode',
+        'vat_settings_updated_at',
+        'vat_settings_updated_by_user_id',
         'ffc_no',
         'ppra_number',
         'ncc_registration_number',
@@ -405,11 +408,16 @@ class Agency extends Model
     public const BRANCH_ORDER_ALPHABETICAL = 'alphabetical';
     public const BRANCH_ORDER_CUSTOM       = 'custom';
 
+    /** Agency VAT set-up — whether prices this agency captures are excl. or incl. VAT. */
+    public const VAT_CAPTURE_EXCL = 'excl';
+    public const VAT_CAPTURE_INCL = 'incl';
+
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
         'fica_referral_enabled' => 'boolean', // AT-236
         'vat_registered' => 'boolean',
+        'vat_settings_updated_at' => 'datetime',
         'payroll_default_cut_day' => 'integer', // AT-237
 
         'wa_history_backfill' => 'boolean', // AT-135 — read-only WA body backfill toggle (default on)
@@ -729,6 +737,17 @@ class Agency extends Model
     public function oneEmailUser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(User::class, 'one_email_user_id');
+    }
+
+    /** Agency VAT set-up audit trail — who last changed vat_registered/vat_capture_mode/vat_no, and when. */
+    public function vatSettingsUpdatedByUser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'vat_settings_updated_by_user_id');
+    }
+
+    public function rentalVatTypes(): HasMany
+    {
+        return $this->hasMany(RentalVatType::class);
     }
 
     /** Website API keys (one per agency website). Spec: agency-public-api.md §3.5. */

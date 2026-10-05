@@ -692,6 +692,38 @@ class RentalInspectionSetting extends Model
     }
 
     /**
+     * §15 (AT-447) — the inspection Follow-up block's own filter: the SAME
+     * underlying question as conditionNeedsAttentionFor() ("does this
+     * condition mean something needs doing"), reusing the agency's EXISTING
+     * configured severity — deliberately not a second, independently-
+     * configurable flag, per this class's own Architectural Law against
+     * exactly that (see severity's own docblock above — `needs_attention`
+     * was already merged into `severity` once for this reason).
+     *
+     * The ONE deliberate difference from conditionNeedsAttentionFor(): an
+     * unmapped/legacy condition key defaults to `false` here, not
+     * conditionSeverityFor()'s `red` fallback. That fallback exists to make
+     * an agent LOOK at something unclassified while actively recording —
+     * the right default for a live data-entry screen. It is the WRONG
+     * default for a list of actions nobody asked the system to propose:
+     * Johan, 2026-10-05, QA1 property walk — an "N/A" observation (already
+     * fixed by reusing severity at all: N/A is configured grey) and a
+     * stray "OK CC1" value (not configured anywhere — a value that reached
+     * the column through a path that bypassed the agency's own vocabulary,
+     * e.g. an OMR scan import) both appeared in the Follow-up block as if
+     * they were faults.
+     */
+    public static function conditionNeedsFollowUpFor(?int $agencyId, string $conditionKey): bool
+    {
+        $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
+        if ($state === null) {
+            return false;
+        }
+
+        return in_array($state['severity'] ?? 'blue', ['red', 'amber'], true);
+    }
+
+    /**
      * .ai/specs/rental-inspections.md §36 — the agency's own configured
      * severity for one condition key: `blue`/`red`/`amber`/`grey`, driving
      * the selected condition button's colour (every rendering — editable,

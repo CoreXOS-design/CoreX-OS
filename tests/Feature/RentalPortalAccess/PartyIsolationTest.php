@@ -209,6 +209,25 @@ class PartyIsolationTest extends TestCase
         $this->assertSame(0, RentalFaultReport::withoutGlobalScopes()->where('property_id', $propertyB->id)->count(), 'The rejected request must not have created a fault report on property B.');
     }
 
+    /** §15 (AT-447, portal frontend follow-up) — the fault-type picker behind "Request work" carries the same ownership gate. */
+    public function test_landlord_cannot_load_fault_types_for_a_property_they_do_not_own(): void
+    {
+        $agency = $this->makeAgency('Isolation Agency G');
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
+        $propertyA = $this->makeProperty($agency, $agent, 'Landlord A Unit');
+        $propertyB = $this->makeProperty($agency, $agent, 'Landlord B Unit');
+
+        $landlordA = $this->makeContact($agency, ['first_name' => 'Lenny']);
+        $landlordB = $this->makeContact($agency, ['first_name' => 'Larry']);
+        $propertyA->contacts()->attach($landlordA->id, ['role' => 'landlord']);
+        $propertyB->contacts()->attach($landlordB->id, ['role' => 'landlord']);
+
+        Sanctum::actingAs($this->clientUserFor($landlordA), ['client']);
+
+        $this->getJson('/api/v1/client/rentals/landlord/properties/' . $propertyA->id . '/fault-types')->assertOk();
+        $this->getJson('/api/v1/client/rentals/landlord/properties/' . $propertyB->id . '/fault-types')->assertStatus(404);
+    }
+
     /** §11 — cross-agency: a landlord contact in agency B must never reach agency A's property. */
     public function test_cross_agency_landlord_cannot_request_work_on_another_agencys_property(): void
     {

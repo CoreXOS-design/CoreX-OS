@@ -231,6 +231,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
             // §15 (AT-447 follow-up) — "Request work / report a problem."
+            Route::get('/properties/{property}/fault-types', [ClientLandlordRentalsController::class, 'faultTypes'])->name('fault-types.index');
             Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->name('fault-reports.store');
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
@@ -479,6 +480,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
             Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
         });
 
         // Session-authed "who am I" — fired automatically on every page

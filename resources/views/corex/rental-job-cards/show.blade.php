@@ -130,6 +130,11 @@
             {{-- Lines --}}
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Parts &amp; labour</h2>
+                @php
+                    // Agency VAT set-up (2026-10-05) — the landlord pays the VAT-INCLUSIVE
+                    // figure, so that is what the no-approval limit compares against.
+                    $compareTotal = $vat['registered'] ? (float) $vat['totalIncl'] : (float) ($jobCard->total_amount ?? 0);
+                @endphp
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="color: var(--text-muted);">
@@ -139,6 +144,9 @@
                                 <th class="text-left py-1">Qty</th>
                                 <th class="text-left py-1">Unit price</th>
                                 <th class="text-left py-1">Line total</th>
+                                @if($vat['registered'])
+                                    <th class="text-left py-1">VAT type</th>
+                                @endif
                             @endif
                             <th></th>
                         </tr>
@@ -152,6 +160,14 @@
                                     <td class="py-1">{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }} {{ $line->unit }}</td>
                                     <td class="py-1">{{ $line->unit_price !== null ? 'R' . number_format((float) $line->unit_price, 2) : '—' }}</td>
                                     <td class="py-1">{{ $line->line_total !== null ? 'R' . number_format((float) $line->line_total, 2) : '—' }}</td>
+                                    @if($vat['registered'])
+                                        <td class="py-1">
+                                            {{ $line->vat_display_label ?? $line->vatType?->name ?? '—' }}
+                                            @if($line->vat_display_rate !== null)
+                                                <span style="color: var(--text-muted);">({{ rtrim(rtrim(number_format((float) $line->vat_display_rate, 2), '0'), '.') }}%)</span>
+                                            @endif
+                                        </td>
+                                    @endif
                                 @endif
                                 <td class="py-1 text-right">
                                     @permission('rental_job_cards.create')
@@ -164,24 +180,38 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="py-2 text-xs" style="color: var(--text-muted);">No lines yet.</td></tr>
+                            <tr><td colspan="7" class="py-2 text-xs" style="color: var(--text-muted);">No lines yet.</td></tr>
                         @endforelse
                     </tbody>
                     @if($pricesOn)
                     <tfoot>
+                        @if($vat['registered'])
+                            <tr style="border-top: 1px solid var(--border);">
+                                <td colspan="5" class="py-1 text-right">Subtotal (excl VAT)</td>
+                                <td class="py-1">R{{ number_format((float) $vat['subtotalExcl'], 2) }}</td>
+                                <td></td>
+                            </tr>
+                            @foreach($vat['groups'] as $group)
+                                <tr>
+                                    <td colspan="5" class="py-1 text-right" style="color: var(--text-muted);">{{ $group['label'] }}</td>
+                                    <td class="py-1" style="color: var(--text-muted);">R{{ number_format((float) $group['amount'], 2) }}</td>
+                                    <td></td>
+                                </tr>
+                            @endforeach
+                        @endif
                         <tr style="border-top: 1px solid var(--border); font-weight: 600;">
-                            <td colspan="4" class="py-1 text-right">
-                                Total
-                                {{-- AT-442 fix #6 — the landlord's no-approval limit and whether this total is within or over it, next to the total itself. --}}
-                                <div class="text-xs font-normal" style="color: {{ ($jobCard->total_amount ?? 0) <= $noApprovalThreshold ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
-                                    @if(($jobCard->total_amount ?? 0) <= $noApprovalThreshold)
-                                        Within the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit
+                            <td colspan="5" class="py-1 text-right">
+                                {{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}
+                                {{-- AT-442 fix #6 — the landlord's no-approval limit and whether this total is within or over it, next to the total itself. Compared VAT-inclusive. --}}
+                                <div class="text-xs font-normal" style="color: {{ $compareTotal <= $noApprovalThreshold ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
+                                    @if($compareTotal <= $noApprovalThreshold)
+                                        Within the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit (incl VAT)
                                     @else
-                                        Over the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit — owner approval required
+                                        Over the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit (incl VAT) — owner approval required
                                     @endif
                                 </div>
                             </td>
-                            <td class="py-1">R{{ number_format((float) ($jobCard->total_amount ?? 0), 2) }}</td>
+                            <td class="py-1">R{{ number_format($compareTotal, 2) }}</td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -223,6 +253,19 @@
                             <label class="text-xs">Unit price (R)</label>
                             <input type="number" name="unit_price" step="0.01" min="0" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
                         </div>
+                        @if($vat['registered'])
+                        <div>
+                            <label class="text-xs">VAT type</label>
+                            <select name="rental_vat_type_id" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);"
+                                    onchange="this.form.custom_vat_rate.classList.toggle('hidden', this.options[this.selectedIndex].dataset.custom !== '1')">
+                                @foreach($vatTypes as $vt)
+                                    <option value="{{ $vt->id }}" data-custom="{{ $vt->rate_mode === 'custom_per_line' ? '1' : '0' }}" {{ $vt->is_default ? 'selected' : '' }}>{{ $vt->name }}</option>
+                                @endforeach
+                            </select>
+                            <input type="number" name="custom_vat_rate" step="0.01" min="0" max="100" placeholder="Rate %"
+                                   class="w-full rounded-md px-2 py-1.5 text-xs mt-1 hidden" style="border: 1px solid var(--border);">
+                        </div>
+                        @endif
                     @endif
                     <div>
                         <button type="submit" class="corex-btn-outline text-xs">Add line</button>
