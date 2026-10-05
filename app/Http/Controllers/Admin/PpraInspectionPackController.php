@@ -290,7 +290,10 @@ class PpraInspectionPackController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        return view('admin.ppra-inspection-pack.practitioners', compact('agency', 'roster', 'principalOnly'));
+        // Role filter options = the roles this agency ticked in Role Manager for the roster, not a fixed list.
+        $roleOptions = collect($this->practitionerRoster->rosterRolesFor($agency->id))->sort()->values();
+
+        return view('admin.ppra-inspection-pack.practitioners', compact('agency', 'roster', 'principalOnly', 'roleOptions'));
     }
 
     /**

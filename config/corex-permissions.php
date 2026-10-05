@@ -761,6 +761,10 @@ return [
         ['key' => 'ppra_inspection_pack.export',    'label' => 'Export PPRA Inspection Pack Data',          'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 2],
         ['key' => 'ppra_inspection_pack.generate',  'label' => 'Generate Full PPRA Inspection Pack',        'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 3],
         ['key' => 'ppra_inspection_pack.configure', 'label' => 'Configure PPRA Inspection Pack Settings',   'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 4],
+        // 2026-10-05 (Johan): WHO appears on the Inspection Pack staff roster (items c/f: practitioner list,
+        // PDF/CSV, pack) is a per-role Role Manager setting, never a hardcoded role list. A user appears if
+        // their agency's copy of their role holds this key. Not a view/scope permission.
+        ['key' => 'ppra_inspection_pack.roster',    'label' => 'Appears on inspection pack staff roster',    'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 5],
 
         // ── PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) ──
         // A genuinely separate feature from PPRA Inspection Pack above. .view's
@@ -1010,6 +1014,8 @@ return [
                 // effect when combined with the resolved principal_user_id on a given
                 // letter, so granting it broadly here is safe.
                 'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
+                // Inspection Pack staff roster — the roles that qualify today (agent/branch_manager/admin); an admin ticks others in Role Manager.
+                'ppra_inspection_pack.roster',
                 'access_filing_register',
                 'filing.view', 'filing.create', 'filing.edit',
                 'access_misfiled_documents', 'misfiled_documents.refile',
@@ -1145,6 +1151,8 @@ return [
                 // own scope via scope_defaults; sign_as_principal only takes effect for
                 // an agent who is ALSO the resolved principal on a given letter.
                 'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
+                // Inspection Pack staff roster — the roles that qualify today (agent/branch_manager/admin); an admin ticks others in Role Manager.
+                'ppra_inspection_pack.roster',
                 'access_filing_register',
                 'filing.view', 'filing.create',
                 'access_commercial_evaluations',
