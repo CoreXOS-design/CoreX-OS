@@ -19,13 +19,22 @@ class RentalJobCardLineGrid
     /** @return array<int, string> grid-template-columns track list */
     public static function columns(bool $pricesOn, bool $vatRegistered): array
     {
-        $cols = ['minmax(0,130px)', 'minmax(0,1fr)', '110px'];
+        // Item capped lower (100px, not 130px) and Description given a real
+        // floor (70px, not 0) — 2026-10-05 round 3 (Johan browser check at
+        // 1366px): with the old minmax(0,1fr) Description had NO floor, so
+        // at 1366 the grid's auto-sizing gave it ~18px (effectively
+        // invisible/unusable) once Type/Unit/Qty/Price/VAT's fixed widths
+        // ate the row. Those fixed columns are also trimmed here (still
+        // comfortably wide enough for their longest realistic value) so the
+        // combined floor-respecting budget fits inside the ~604px actually
+        // available at 1366px alongside the crew/sign-off right panel.
+        $cols = ['minmax(0,100px)', 'minmax(70px,1fr)', '90px'];
         if ($pricesOn) {
-            $cols[] = '70px';
-            $cols[] = '56px';
-            $cols[] = '92px';
+            $cols[] = '64px';
+            $cols[] = '50px';
+            $cols[] = '84px';
             if ($vatRegistered) {
-                $cols[] = '96px';
+                $cols[] = '84px';
             }
         }
         $cols[] = '36px';
