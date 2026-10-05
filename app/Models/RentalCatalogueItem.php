@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -28,6 +29,7 @@ class RentalCatalogueItem extends Model
         'name',
         'unit',
         'default_price',
+        'default_rental_vat_type_id',
         'is_active',
         'sort_order',
         'created_by_user_id',
@@ -38,6 +40,11 @@ class RentalCatalogueItem extends Model
         'is_active' => 'boolean',
         'sort_order' => 'integer',
     ];
+
+    public function defaultVatType(): BelongsTo
+    {
+        return $this->belongsTo(RentalVatType::class, 'default_rental_vat_type_id');
+    }
 
     public function scopeActive(Builder $query): Builder
     {

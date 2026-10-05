@@ -11,13 +11,16 @@ use App\Models\RentalFaultReport;
 use App\Models\RentalJobCard;
 use App\Models\RentalJobCardLine;
 use App\Models\RentalJobCardTask;
+use App\Models\RentalVatType;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
 use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalJobCardService;
+use App\Services\Rentals\RentalJobCardVatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -222,7 +225,7 @@ class RentalJobCardController extends Controller
 
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
-            'property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem',
+            'property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem', 'lines.vatType',
             'workOrder.photos', 'updates.createdByUser', 'createdByUser',
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
@@ -236,6 +239,13 @@ class RentalJobCardController extends Controller
             'catalogueItems' => RentalCatalogueItem::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
             'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
+            // Agency VAT set-up (2026-10-05) — the totals block and per-line
+            // VAT type picker. vatTypes empty when the agency isn't VAT
+            // registered: the view renders no selector at all in that case.
+            'vat' => app(RentalJobCardVatService::class)->breakdown($rentalJobCard),
+            'vatTypes' => $rentalJobCard->agency?->vat_registered
+                ? RentalVatType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get()
+                : collect(),
         ]);
     }
 
@@ -364,6 +374,8 @@ class RentalJobCardController extends Controller
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['nullable', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
+            'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
         if (empty($validated['rental_catalogue_item_id']) && empty($validated['description'])) {
@@ -384,6 +396,8 @@ class RentalJobCardController extends Controller
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
+            'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
         $service->updateLine($rentalJobCard, $line, $validated, $request->user());

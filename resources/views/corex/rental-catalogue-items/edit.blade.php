@@ -29,9 +29,21 @@
             <input type="text" name="unit" value="{{ old('unit', $item->unit) }}" required maxlength="30" class="prop-input w-full">
         </div>
         <div>
-            <label class="prop-label">Default price (R, optional)</label>
+            <label class="prop-label">{{ $priceLabel }} (R, optional)</label>
             <input type="number" name="default_price" value="{{ old('default_price', $item->default_price) }}" step="0.01" min="0" class="prop-input w-full">
         </div>
+        @if($vatTypes->isNotEmpty())
+        <div>
+            <label class="prop-label">Default VAT type</label>
+            <select name="default_rental_vat_type_id" class="prop-select w-full">
+                <option value="">— Agency default —</option>
+                @foreach($vatTypes as $vt)
+                    <option value="{{ $vt->id }}" @selected((string) old('default_rental_vat_type_id', $item->default_rental_vat_type_id) === (string) $vt->id)>{{ $vt->name }}</option>
+                @endforeach
+            </select>
+            <p class="text-[11px] mt-1" style="color:var(--text-muted);">A job card line that picks this item inherits this VAT type — still editable per line.</p>
+        </div>
+        @endif
         <div class="flex items-center gap-2">
             <input type="checkbox" id="is_active" name="is_active" value="1" @checked(old('is_active', $item->is_active)) class="rounded">
             <label for="is_active" class="prop-label !mb-0">Active</label>

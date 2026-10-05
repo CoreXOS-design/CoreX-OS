@@ -50,6 +50,9 @@
         <table>
             <tr><td class="label">Property</td><td>{{ $jobCard->property?->buildDisplayAddress() ?? '—' }}</td></tr>
             <tr><td class="label">Tenancy</td><td>{{ $jobCard->lease?->tenantNames() ?? '—' }}</td></tr>
+            @if($vat['registered'] && $vatNumber)
+            <tr><td class="label">VAT No</td><td>{{ $vatNumber }}</td></tr>
+            @endif
         </table>
     </div>
 
@@ -68,6 +71,9 @@
                     <th>Qty</th>
                     <th>Unit price</th>
                     <th>Line total</th>
+                    @if($vat['registered'])
+                        <th>VAT type</th>
+                    @endif
                 @endif
             </tr>
             @foreach($jobCard->lines as $line)
@@ -78,14 +84,29 @@
                     <td>{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}{{ $line->unit ? ' ' . $line->unit : '' }}</td>
                     <td>{{ $line->unit_price !== null ? 'R' . number_format((float) $line->unit_price, 2) : '—' }}</td>
                     <td>{{ $line->line_total !== null ? 'R' . number_format((float) $line->line_total, 2) : '—' }}</td>
+                    @if($vat['registered'])
+                        <td>{{ $line->vat_display_label ?? $line->vat_type_name_snapshot ?? '—' }}</td>
+                    @endif
                 @endif
             </tr>
             @endforeach
             @if($pricesOn)
-            <tr class="total-row">
-                <td colspan="4">Total</td>
-                <td>R{{ number_format((float) ($jobCard->total_amount ?? 0), 2) }}</td>
-            </tr>
+                @if($vat['registered'])
+                    <tr>
+                        <td colspan="{{ $vat['registered'] ? 5 : 4 }}">Subtotal (excl VAT)</td>
+                        <td>R{{ number_format((float) $vat['subtotalExcl'], 2) }}</td>
+                    </tr>
+                    @foreach($vat['groups'] as $group)
+                        <tr>
+                            <td colspan="5">{{ $group['label'] }}</td>
+                            <td>R{{ number_format((float) $group['amount'], 2) }}</td>
+                        </tr>
+                    @endforeach
+                @endif
+                <tr class="total-row">
+                    <td colspan="{{ $vat['registered'] ? 5 : 4 }}">{{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}</td>
+                    <td>R{{ number_format($vat['registered'] ? (float) $vat['totalIncl'] : (float) ($jobCard->total_amount ?? 0), 2) }}</td>
+                </tr>
             @endif
         </table>
     </div>

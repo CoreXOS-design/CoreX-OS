@@ -4521,6 +4521,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:testimonials.publish')
         ->name('admin.company-settings.testimonials.toggle');
 
+    // Agency VAT set-up — VAT types (Standard/No VAT/Custom + agency
+    // additions), embedded in the Company Settings "VAT" block. Same
+    // permission as the rest of Company Settings — agency admin only.
+    Route::prefix('admin/company-settings/{agency}/vat-types')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'store'])->name('admin.vat-types.store');
+        Route::put('/{vatType}', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'update'])->name('admin.vat-types.update');
+        Route::patch('/{vatType}/default', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'makeDefault'])->name('admin.vat-types.default');
+        Route::delete('/{vatType}', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'archive'])->name('admin.vat-types.archive');
+        Route::post('/{vatType}/restore', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'restore'])->name('admin.vat-types.restore');
+    });
+
 
     // SPINE-SETTINGS — Activity scoring (full catalogue: calendar +
     // every SPINE-1/2/3/2.5 instant slug). Replaces the M6.2 calendar-

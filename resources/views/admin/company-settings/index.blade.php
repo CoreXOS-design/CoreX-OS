@@ -137,6 +137,40 @@
                     </div>
                 </div>
 
+                {{-- Agency VAT set-up — registered/number/capture-mode in one place; the rate
+                     itself stays on the Performance tab (PerformanceSetting 'vat_rate',
+                     already agency-scoped, reused unchanged). Guarded on vat_registered's
+                     own presence (a toggle, always posts hidden 0 + checkbox 1 together) —
+                     this is the only form that ever renders it, so the Branding/other
+                     forms sharing this action never silently touch it. --}}
+                <div x-data="{ vatRegistered: {{ old('vat_registered', (int) $agency->vat_registered) ? 'true' : 'false' }} }">
+                    <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">VAT Set-up</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                        <div class="sm:col-span-2 flex items-center gap-2">
+                            <input type="hidden" name="vat_registered" value="0">
+                            <input type="checkbox" id="vat_registered" name="vat_registered" value="1" x-model="vatRegistered"
+                                   class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);"
+                                   {{ old('vat_registered', $agency->vat_registered) ? 'checked' : '' }}>
+                            <label for="vat_registered" class="text-sm" style="color:var(--text-primary);">This agency is VAT registered</label>
+                        </div>
+                        <template x-if="vatRegistered">
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Prices I capture are</label>
+                            <select name="vat_capture_mode" class="w-full rounded-md px-3 py-2 text-sm"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="excl" {{ old('vat_capture_mode', $agency->vat_capture_mode) === 'excl' ? 'selected' : '' }}>Excluding VAT</option>
+                                <option value="incl" {{ old('vat_capture_mode', $agency->vat_capture_mode) === 'incl' ? 'selected' : '' }}>Including VAT</option>
+                            </select>
+                            <p class="text-[11px] mt-1" style="color:var(--text-muted);">Whether prices your agents type in (job card lines, the parts &amp; labour catalogue) are excl. or incl. VAT. Existing prices are never converted when you change this.</p>
+                        </div>
+                        </template>
+                    </div>
+                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">VAT No is set above. The VAT rate itself is set on the Performance tab. This set-up drives VAT on rental job cards and quotes, and will drive the rental money/invoicing stage.</p>
+                    @if($agency->vat_settings_updated_at)
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">Last changed {{ $agency->vat_settings_updated_at->format('Y-m-d H:i') }}@if($agency->vatSettingsUpdatedByUser) by {{ $agency->vatSettingsUpdatedByUser->name }}@endif.</p>
+                    @endif
+                </div>
+
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Contact Details</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div class="sm:col-span-2">
@@ -461,6 +495,112 @@
                     <button type="submit" class="corex-btn-primary">Save Company Settings</button>
                 </div>
             </form>
+
+            {{-- ── VAT types — Standard/No VAT/Custom + whatever this agency adds.
+                 Reused by job card lines (and the future rental money/invoicing
+                 stage). Full add/rename/archive/restore, no hard delete. ── --}}
+            <div class="rounded-md p-4 space-y-3 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">VAT Types</div>
+                <p class="text-xs" style="color:var(--text-muted);">Used on rental job card lines. One is always the default a new line starts with.</p>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr style="color:var(--text-muted);">
+                                <th class="text-left font-medium py-1">Name</th>
+                                <th class="text-left font-medium py-1">Rate</th>
+                                <th class="text-left font-medium py-1">Default</th>
+                                <th class="text-left font-medium py-1">Status</th>
+                                <th class="text-right font-medium py-1">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @forelse($vatTypes as $vt)
+                            <tr style="border-top:1px solid var(--border);">
+                                <td class="py-1.5" style="color:var(--text-primary);">{{ $vt->name }}</td>
+                                <td class="py-1.5" style="color:var(--text-secondary);">
+                                    @if($vt->rate_mode === 'agency_rate') Agency rate
+                                    @elseif($vt->rate_mode === 'fixed') {{ rtrim(rtrim(number_format((float) $vt->fixed_rate, 2), '0'), '.') }}%
+                                    @else Entered per line
+                                    @endif
+                                </td>
+                                <td class="py-1.5">
+                                    @if($vt->is_default)
+                                        <span class="text-[11px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">Default</span>
+                                    @elseif(!$vt->trashed())
+                                        <form method="POST" action="{{ route('admin.vat-types.default', [$agency, $vt]) }}" class="inline">
+                                            @csrf @method('PATCH')
+                                            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Make default</button>
+                                        </form>
+                                    @endif
+                                </td>
+                                <td class="py-1.5" style="color:var(--text-muted);">{{ $vt->trashed() ? 'Archived' : ($vt->is_active ? 'Active' : 'Inactive') }}</td>
+                                <td class="py-1.5 text-right">
+                                    @if($vt->trashed())
+                                        <form method="POST" action="{{ route('admin.vat-types.restore', [$agency, $vt->id]) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Restore</button>
+                                        </form>
+                                    @else
+                                        <button type="button" class="text-xs underline" style="color:var(--text-muted);"
+                                                onclick="document.getElementById('vt-edit-{{ $vt->id }}').classList.toggle('hidden')">Rename</button>
+                                        @if(!$vt->is_default)
+                                        <form method="POST" action="{{ route('admin.vat-types.archive', [$agency, $vt]) }}" class="inline" onsubmit="return confirm('Archive this VAT type?');">
+                                            @csrf @method('DELETE')
+                                            <button type="submit" class="text-xs underline ml-2" style="color:var(--ds-crimson);">Archive</button>
+                                        </form>
+                                        @endif
+                                    @endif
+                                </td>
+                            </tr>
+                            @if(!$vt->trashed())
+                            <tr id="vt-edit-{{ $vt->id }}" class="hidden">
+                                <td colspan="5" class="pb-2">
+                                    <form method="POST" action="{{ route('admin.vat-types.update', [$agency, $vt]) }}" class="flex flex-wrap items-end gap-2 pt-1">
+                                        @csrf @method('PUT')
+                                        <input type="hidden" name="rate_mode" value="{{ $vt->rate_mode }}">
+                                        <input type="hidden" name="fixed_rate" value="{{ $vt->fixed_rate }}">
+                                        <div>
+                                            <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Name</label>
+                                            <input type="text" name="name" value="{{ $vt->name }}" required maxlength="100"
+                                                   class="rounded-md px-2 py-1 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        @if($vt->rate_mode === 'fixed')
+                                        <div>
+                                            <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Rate %</label>
+                                            <input type="number" step="0.01" min="0" max="100" name="fixed_rate_visible" value="{{ $vt->fixed_rate }}"
+                                                   onchange="this.form.fixed_rate.value = this.value"
+                                                   class="w-20 rounded-md px-2 py-1 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        @endif
+                                        <button type="submit" class="corex-btn-primary text-xs px-3 py-1.5">Save</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            @endif
+                        @empty
+                            <tr><td colspan="5" class="py-2 text-xs" style="color:var(--text-muted);">No VAT types yet.</td></tr>
+                        @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <form method="POST" action="{{ route('admin.vat-types.store', $agency) }}" class="flex flex-wrap items-end gap-2 pt-2" style="border-top:1px solid var(--border);">
+                    @csrf
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">New type name</label>
+                        <input type="text" name="name" required maxlength="100" placeholder="e.g. Zero-rated"
+                               class="rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Rate %</label>
+                        <input type="number" step="0.01" min="0" max="100" name="fixed_rate" placeholder="0.00"
+                               class="w-20 rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <input type="hidden" name="rate_mode" value="fixed">
+                    <button type="submit" class="corex-btn-secondary text-xs px-3 py-1.5">Add VAT type</button>
+                </form>
+            </div>
 
             {{-- ── Proforma Invoice — Banking & Numbering (Accounting pillar) ── --}}
             {{-- The agency being SHOWN ($agency — the controller already applied the owner
