@@ -191,8 +191,18 @@ class LeaseRenewalController extends Controller
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate([
-            'move_out_date' => ['required', 'date'],
+            // AT-444 follow-up 2 (2026-10-05) — a bare 'date' rule accepts
+            // anything Carbon can parse, including a mistyped 6-digit year
+            // (e.g. "202611-03-01") that slips past the dialog's own
+            // min/max attributes when typed on a keyboard instead of
+            // picked. No agency setting exists for "how far ahead can a
+            // move-out date be" (CLAUDE.md non-negotiable: reuse a window
+            // setting if one exists, never invent one for this) — 2 years
+            // is a fixed, generous sanity bound, not a configurable rule.
+            'move_out_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
             'note' => ['nullable', 'string', 'max:500'],
+        ], [
+            'move_out_date.before_or_equal' => 'Move-out date is too far in the future.',
         ]);
 
         // .ai/specs/rental-renewals.md §15 (GATE 2) row 2 — the dialog's own

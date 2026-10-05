@@ -372,6 +372,31 @@ final class RentalInspectionListScreenTest extends TestCase
             ->assertOk()->assertDontSee('No active lease here');
     }
 
+    /**
+     * AT-444 follow-up 2 (2026-10-05) — the Lease Hub's "Start out-inspection"
+     * next-step link passes ?type=out&lease_id=, same pattern the existing
+     * "Start in-inspection" link already used; this screen's own <select>
+     * only ever read old('type') and silently ignored the query param, so
+     * the Out-inspection option never actually got selected on arrival.
+     */
+    public function test_create_screen_preselects_type_from_the_query_param(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $property = $this->property($this->branchA, 'Out-inspection property', $admin);
+        $lease = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'property_id' => $property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now(), 'created_by_user_id' => $admin->id,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('corex.rental-inspections.create', ['lease_id' => $lease->id, 'type' => RentalInspection::TYPE_OUT]));
+
+        $response->assertOk();
+        self::assertStringContainsString(
+            'value="' . RentalInspection::TYPE_OUT . '" selected',
+            $response->getContent()
+        );
+    }
+
     public function test_cross_agency_inspection_is_not_reachable_by_id(): void
     {
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);

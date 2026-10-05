@@ -40,10 +40,19 @@
 
         <div>
             <label class="text-xs font-medium">Type</label>
+            @php
+                // AT-444 follow-up 2 (2026-10-05) — the Lease Hub's next-step
+                // links (both "Start in-inspection" and the new "Start
+                // out-inspection") pass ?type= alongside lease_id; old()
+                // alone never read it, so this select silently fell back to
+                // whichever option sits first in the DOM (TYPE_IN) regardless
+                // of the link clicked. old() still wins on a failed resubmit.
+                $preselectedType = old('type', request()->query('type'));
+            @endphp
             <select name="type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                <option value="{{ \App\Models\RentalInspection::TYPE_IN }}" @selected(old('type') === \App\Models\RentalInspection::TYPE_IN)>In-inspection — move-in condition</option>
-                <option value="{{ \App\Models\RentalInspection::TYPE_OUT }}" @selected(old('type') === \App\Models\RentalInspection::TYPE_OUT)>Out-inspection — move-out condition</option>
-                <option value="{{ \App\Models\RentalInspection::TYPE_AD_HOC }}" @selected(old('type') === \App\Models\RentalInspection::TYPE_AD_HOC)>Ad-hoc — a mid-tenancy check</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_IN }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_IN)>In-inspection — move-in condition</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_OUT }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_OUT)>Out-inspection — move-out condition</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_AD_HOC }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_AD_HOC)>Ad-hoc — a mid-tenancy check</option>
             </select>
         </div>
 
