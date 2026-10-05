@@ -103,20 +103,26 @@
         @endforeach
     </div>
 
-    <div class="flex flex-col lg:flex-row gap-4 items-start" id="rcc-layout">
+    <div class="flex flex-col lg:flex-row gap-4 items-stretch flex-1" id="rcc-layout" style="min-height: 0;">
 
         {{-- §3.2 — needs-action queue. One row per item, named by its own
              record (fault/work-order title, or lease tenant), one compact
              action button each, opening THAT specific record. Fixed
              narrow column on wide screens (300px, capped 28%); collapses
              to its first 5 rows on narrow screens. Collapse/expand state
-             remembered per user. --}}
+             remembered per user.
+
+             LAYOUT round 4 (2026-10-05, Johan) — this panel is its own
+             scroll container (#rcc-queue-scroll) filling the space between
+             its sticky header/controls and its pinned-at-bottom pagination,
+             so the page itself never has to scroll to reach a queue row,
+             and scrolling this panel never moves the properties table. --}}
         <div id="rcc-queue-collapsed-bar" class="{{ $queueCollapsed ? 'flex' : 'hidden' }} w-full lg:w-auto items-center">
             <button type="button" onclick="corexRccSetQueueCollapsed(false)" class="corex-btn-outline text-xs">Needs action ({{ $queueTotalCount }}) — Expand</button>
         </div>
 
-        <div id="rcc-queue-panel" class="{{ $queueCollapsed ? 'hidden' : '' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="px-3 py-2 flex items-center justify-between gap-2" style="border-bottom: 1px solid var(--border);">
+        <div id="rcc-queue-panel" class="{{ $queueCollapsed ? 'hidden' : 'flex' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 flex-col rounded-md" style="background: var(--surface); border: 1px solid var(--border); min-height: 0;">
+            <div class="px-3 py-2 flex items-center justify-between gap-2 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm font-semibold">Needs action ({{ $queueTotalCount }})</span>
                 <button type="button" onclick="corexRccSetQueueCollapsed(true)" class="text-xs flex-shrink-0" style="color: var(--text-muted);">Collapse</button>
             </div>
@@ -125,35 +131,41 @@
                  date range. Query-layer filtering + the existing own/branch/all
                  scoping happen in RentalCommandCentreService::queueItems();
                  group-by/sort are remembered per user
-                 (RentalCommandCentreUserPreference — see resolveQueuePreference()). --}}
-            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="px-3 py-2 flex flex-wrap items-center gap-1.5" style="border-bottom: 1px solid var(--border);">
+                 (RentalCommandCentreUserPreference — see resolveQueuePreference()).
+
+                 Round 4 (2026-10-05, Johan: "make the controls fit on ONE
+                 line at this panel's width") — flex-nowrap + a local
+                 horizontal scroll fallback, same technique the right-hand
+                 filter bar already uses (Fix B2), rather than wrapping to
+                 three lines in a ~300px column. --}}
+            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="px-3 py-2 flex flex-nowrap items-center gap-1 overflow-x-auto flex-shrink-0" style="border-bottom: 1px solid var(--border);">
                 @foreach(request()->except(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page']) as $qk => $qv)
                     @if(!is_array($qv))<input type="hidden" name="{{ $qk }}" value="{{ $qv }}">@endif
                 @endforeach
-                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border);" aria-label="Group needs-action by">
-                    <option value="none" @selected($queueGroupBy === 'none')>No grouping</option>
-                    <option value="property" @selected($queueGroupBy === 'property')>Group by property</option>
-                    <option value="date" @selected($queueGroupBy === 'date')>Group by date</option>
+                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 68px;" aria-label="Group needs-action by">
+                    <option value="none" @selected($queueGroupBy === 'none')>No group</option>
+                    <option value="property" @selected($queueGroupBy === 'property')>By property</option>
+                    <option value="date" @selected($queueGroupBy === 'date')>By date</option>
                 </select>
-                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border);" aria-label="Sort needs-action by">
-                    <option value="urgency" @selected($queueSort === 'urgency')>Sort: Urgency</option>
-                    <option value="date" @selected($queueSort === 'date')>Sort: Date</option>
-                    <option value="property" @selected($queueSort === 'property')>Sort: Property</option>
+                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 58px;" aria-label="Sort needs-action by">
+                    <option value="urgency" @selected($queueSort === 'urgency')>Urgency</option>
+                    <option value="date" @selected($queueSort === 'date')>Date</option>
+                    <option value="property" @selected($queueSort === 'property')>Property</option>
                 </select>
-                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px] max-w-[130px]" style="border: 1px solid var(--border);" aria-label="Filter needs-action by property">
-                    <option value="">All properties</option>
+                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 64px;" aria-label="Filter needs-action by property">
+                    <option value="">Property</option>
                     @foreach($queuePropertyOptions as $p)
-                        <option value="{{ $p->id }}" @selected($queuePropertyId === $p->id)>{{ \Illuminate\Support\Str::limit($p->buildDisplayAddress(), 26) }}</option>
+                        <option value="{{ $p->id }}" @selected($queuePropertyId === $p->id)>{{ \Illuminate\Support\Str::limit($p->buildDisplayAddress(), 18) }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border); width: 104px;" aria-label="Needs-action date from">
-                <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="rounded-md px-1.5 py-1 text-[11px]" style="border: 1px solid var(--border); width: 104px;" aria-label="Needs-action date to">
+                <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 90px;" aria-label="Needs-action date from">
+                <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0" style="border: 1px solid var(--border); width: 90px;" aria-label="Needs-action date to">
                 @if($queuePropertyId || $queueDateFrom || $queueDateTo)
-                <a href="{{ route('corex.rentals.command-centre.index', request()->except(['queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page'])) }}" class="text-[11px]" style="color: var(--text-muted);">Clear</a>
+                <a href="{{ route('corex.rentals.command-centre.index', request()->except(['queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page'])) }}" class="text-[11px] flex-shrink-0" style="color: var(--text-muted);">Clear</a>
                 @endif
             </form>
 
-            <div>
+            <div id="rcc-queue-scroll" class="flex-1 overflow-y-auto" style="min-height: 0;">
                 @if($queueGroupBy === 'none')
                     @php($i = 0)
                     @forelse($queue as $item)
@@ -178,20 +190,29 @@
                 @endif
             </div>
             @if($queueGroupBy === 'none' && $queue->hasPages())
-            <div class="px-3 py-2">{{ $queue->links() }}</div>
+            <div class="px-3 py-2 flex-shrink-0" style="border-top: 1px solid var(--border);">{{ $queue->links() }}</div>
             @elseif($queueGroupBy !== 'none' && $queueGroups?->hasPages())
-            <div class="px-3 py-2">{{ $queueGroups->links() }}</div>
+            <div class="px-3 py-2 flex-shrink-0" style="border-top: 1px solid var(--border);">{{ $queueGroups->links() }}</div>
             @endif
         </div>
 
-        {{-- §3.3/§4 — full table: search, status/agent/branch/date filters, sort, pagination, empty state. --}}
-        <div class="w-full lg:flex-1 min-w-0 space-y-4">
+        {{-- §3.3/§4 — full table: search, status/agent/branch/date filters, sort, pagination, empty state.
+
+             LAYOUT round 4 (2026-10-05, Johan) — its own scroll container
+             (#rcc-table-scroll) between the fixed filter bar and the
+             pagination pinned at the bottom of this section, matching the
+             queue panel's structure; the <thead> is sticky inside that
+             container (position: sticky; top: 0) so column headers stay
+             visible while rows scroll — independent of the queue panel's
+             own scroll, and without the page itself ever needing to scroll
+             to reach a row. --}}
+        <div id="rcc-table-section" class="w-full lg:flex-1 min-w-0 flex flex-col" style="min-height: 0;">
             {{-- Fix B2 (2026-10-05) — one line at normal desktop widths:
                  labels dropped in favour of aria-label/placeholder, padding
                  and control widths cut down, flex-nowrap with a local
                  horizontal-scroll fallback instead of wrapping to a second
                  line if a narrower agency's data pushes it past the fold. --}}
-            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="flex flex-nowrap items-center gap-1.5 overflow-x-auto" style="padding-bottom: 2px;">
+            <form method="GET" action="{{ route('corex.rentals.command-centre.index') }}" class="flex flex-nowrap items-center gap-1.5 overflow-x-auto flex-shrink-0 mb-2" style="padding-bottom: 2px;">
                 <input type="hidden" name="scope" value="{{ $scope }}">
                 @if($filters['tile'])<input type="hidden" name="tile" value="{{ $filters['tile'] }}">@endif
                 @foreach(request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']) as $qk => $qv)
@@ -229,17 +250,17 @@
                 @endif
             </form>
 
-            <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="rcc-table-scroll" class="rounded-md flex-1 overflow-auto" style="background: var(--surface); border: 1px solid var(--border); min-height: 0;">
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="border-bottom: 1px solid var(--border);">
-                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('address') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('address') }}</a></th>
-                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                            <th class="text-left px-3 py-2">Tenant(s)</th>
-                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
-                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('open_total') }}" style="color: var(--text-muted);" title="Open faults · open work orders">Open{{ $sortIndicator('open_total') }}</a></th>
-                            <th class="text-left px-3 py-2"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
-                            <th class="text-left px-3 py-2" style="position: sticky; right: 0; background: var(--surface);"></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('address') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('address') }}</a></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);">Tenant(s)</th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('open_total') }}" style="color: var(--text-muted);" title="Open faults · open work orders">Open{{ $sortIndicator('open_total') }}</a></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
+                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; right: 0; background: var(--surface);"></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -272,26 +293,23 @@
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->last_inspection_at ? \Illuminate\Support\Carbon::parse($property->last_inspection_at)->format('Y-m-d') : 'Never' }}</td>
                             <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;">
-                                <details class="relative inline-block rcc-actions-menu">
-                                    <summary class="corex-btn-outline text-xs cursor-pointer list-none" style="display: inline-block;">Actions ▾</summary>
-                                    <div class="rcc-actions-popup absolute right-0 z-10 mt-1 rounded-md text-xs" style="background: var(--surface); border: 1px solid var(--border); min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
-                                        @if($property->active_lease_id)
-                                        <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open lease</a>
-                                        {{-- AT-444 follow-up (2026-10-05) — opens the Lease Hub's matching
-                                             "Lease actions" dialog directly (LeaseActionDialogResolver);
-                                             ignored by the hub if not valid for the lease's current state. --}}
-                                        <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'renew']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Renew</a>
-                                        <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'tenant-notice']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Record notice</a>
-                                        @if((int) $property->pending_renewal_draft_count > 0 && $property->pending_renewal_draft_lease_id)
-                                        <a href="{{ route('corex.leases.show', $property->pending_renewal_draft_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--ds-red, #dc2626);">Cancel renewal draft</a>
-                                        @endif
-                                        @endif
-                                        <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
-                                        <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>
-                                        <a href="{{ route('corex.rental-work-orders.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">New work order</a>
-                                        <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Start inspection</a>
-                                    </div>
-                                </details>
+                                <x-row-actions-popup>
+                                    @if($property->active_lease_id)
+                                    <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open lease</a>
+                                    {{-- AT-444 follow-up (2026-10-05) — opens the Lease Hub's matching
+                                         "Lease actions" dialog directly (LeaseActionDialogResolver);
+                                         ignored by the hub if not valid for the lease's current state. --}}
+                                    <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'renew']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Renew</a>
+                                    <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'tenant-notice']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Record notice</a>
+                                    @if((int) $property->pending_renewal_draft_count > 0 && $property->pending_renewal_draft_lease_id)
+                                    <a href="{{ route('corex.leases.show', $property->pending_renewal_draft_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--ds-red, #dc2626);">Cancel renewal draft</a>
+                                    @endif
+                                    @endif
+                                    <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
+                                    <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>
+                                    <a href="{{ route('corex.rental-work-orders.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">New work order</a>
+                                    <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Start inspection</a>
+                                </x-row-actions-popup>
                             </td>
                         </tr>
                         @empty
@@ -307,7 +325,7 @@
                 </table>
             </div>
 
-            {{ $properties->links() }}
+            <div class="flex-shrink-0 pt-2">{{ $properties->links() }}</div>
         </div>
     </div>
 </div>
@@ -330,63 +348,45 @@ function corexRccSetQueueCollapsed(collapsed) {
     });
 }
 
-// Fix B3 (2026-10-05) — the row "Actions ▾" popup rendered BEHIND other
-// rows' own sticky Actions cell/buttons, and got clipped near the bottom
-// of the table's own overflow-x-auto wrapper. Both are the same class of
-// bug: the popup is positioned relative to its row, which sits inside a
-// scroll/clip container and beside other positioned sticky cells. Fixed
-// for EVERY row's menu (not one instance) by switching the open popup to
-// position:fixed with coordinates computed from the button it belongs to
-// — that escapes the table's clipping box and any sticky-column stacking
-// entirely, the standard pattern for a dropdown inside a scrolling table.
+// Fix B3 (2026-10-05) / round 2 (2026-10-05, same day): the row "Actions ▾"
+// popup's own stacking-context fix (position:fixed computed from the
+// button) was still painted BEHIND later rows' sticky Actions cells — a
+// position:fixed descendant of a sticky table cell does not reliably
+// out-rank siblings elsewhere in the tree by z-index alone. Replaced with
+// <x-row-actions-popup> (resources/views/components/row-actions-popup.blade.php),
+// which physically teleports the open panel to a direct child of <body> —
+// removing it from the table's DOM subtree entirely, not just its paint
+// layer, so there is no ancestor stacking context left to be trapped in.
+// That component's own @once script (loaded once per page) now drives
+// every one of this table's row-action menus.
+
+// Round 4 (2026-10-05) — fill the remaining viewport height with the two
+// panels below the tiles, each scrolling independently, instead of the
+// whole page scrolling to reach a row. #rcc-layout's own top is wherever
+// the tiles/heading pushed it to (varies by scope-switcher/print-button
+// wrapping), so the available height has to be measured, not hardcoded.
 (function () {
-    var menus = document.querySelectorAll('.rcc-actions-menu');
+    function sizeScrollPanels() {
+        var layout = document.getElementById('rcc-layout');
+        if (!layout) { return; }
 
-    function closeAllExcept(except) {
-        menus.forEach(function (m) {
-            if (m !== except && m.open) {
-                m.open = false;
-            }
-        });
+        // Height for the PANELS, not their inner scroll divs directly —
+        // each panel's own flex column (header/controls flex-shrink-0,
+        // the scroll div flex-1, pagination flex-shrink-0) is what actually
+        // allocates the remaining space to the scroll area. Setting this on
+        // the inner scroll div instead would double-count the header/
+        // controls/pagination height and overshoot the viewport.
+        var top = layout.getBoundingClientRect().top;
+        var height = Math.max(240, window.innerHeight - top - 16) + 'px';
+        var queuePanel = document.getElementById('rcc-queue-panel');
+        var tableSection = document.getElementById('rcc-table-section');
+        if (queuePanel) { queuePanel.style.height = height; }
+        if (tableSection) { tableSection.style.height = height; }
     }
 
-    function positionPopup(details) {
-        var summary = details.querySelector('summary');
-        var popup = details.querySelector('.rcc-actions-popup');
-        if (!summary || !popup) {
-            return;
-        }
-
-        var rect = summary.getBoundingClientRect();
-        popup.style.position = 'fixed';
-        popup.style.margin = '0';
-        popup.style.zIndex = '9999';
-
-        // Measure first (display is already visible — <details open> shows
-        // its content before this runs), then flip upward if it would
-        // overflow the bottom of the viewport — covers "rows near the
-        // bottom edge" explicitly.
-        var popupHeight = popup.offsetHeight;
-        var popupWidth = popup.offsetWidth;
-        var opensUpward = (rect.bottom + popupHeight + 4) > window.innerHeight;
-
-        popup.style.top = opensUpward
-            ? Math.max(4, rect.top - popupHeight - 4) + 'px'
-            : (rect.bottom + 4) + 'px';
-
-        var left = rect.right - popupWidth;
-        popup.style.left = Math.max(4, Math.min(left, window.innerWidth - popupWidth - 4)) + 'px';
-        popup.style.right = 'auto';
-    }
-
-    menus.forEach(function (details) {
-        details.addEventListener('toggle', function () {
-            if (details.open) {
-                closeAllExcept(details);
-                positionPopup(details);
-            }
-        });
-    });
+    window.addEventListener('resize', sizeScrollPanels);
+    document.addEventListener('DOMContentLoaded', sizeScrollPanels);
+    sizeScrollPanels();
 })();
 </script>
 @endsection
