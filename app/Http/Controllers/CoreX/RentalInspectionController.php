@@ -9,6 +9,7 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
+use App\Services\Rentals\RentalInspectionFollowUpService;
 use App\Services\Rentals\RentalInspectionFormPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -317,7 +318,7 @@ class RentalInspectionController extends Controller
 
         $rentalInspection->load([
             'property', 'lease.tenants.contact',
-            'observations.item', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
+            'observations.item.room', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
             'discrepancies.observations', 'discrepancies.resolvedBy', 'discrepancies.acceptedObservation',
             'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'createdBy', 'cancelledBy',
             // 2026-09-23 — the chain. previousInspection loaded one level
@@ -328,6 +329,15 @@ class RentalInspectionController extends Controller
             'previousInspection.observations.item',
             'nextInChain',
         ]);
+
+        // §15 (AT-447) — the Follow-up block: every marked-faulty/damaged
+        // observation on this inspection, plus which of them already have a
+        // fault report / work order (and its job card) raised against them,
+        // so the show page can render a link instead of a create action for
+        // those (idempotent, per Johan's own requirement).
+        $followUpService = app(RentalInspectionFollowUpService::class);
+        $followUpObservations = $followUpService->followUpObservations($rentalInspection);
+        $followUpLinked = $followUpService->linkedRecordsFor($rentalInspection);
 
         return view('corex.rental-inspections.show', [
             'inspection' => $rentalInspection,
@@ -341,7 +351,50 @@ class RentalInspectionController extends Controller
             // for the on-demand history popover. Null when this is the
             // first inspection in its chain (§6 — must render gracefully).
             'comparisonRows' => $this->buildComparisonRows($rentalInspection),
+            'followUpObservations' => $followUpObservations,
+            'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
+            'followUpWorkOrdersByObservation' => $followUpLinked['work_orders'],
         ]);
+    }
+
+    /**
+     * §15 (AT-447) — the Follow-up block's "Create fault report" action,
+     * per-row (one ticked observation) or batched with "combine into one"
+     * (several). Direct, immediate creation — unlike a work order, a fault
+     * report needs no further human decision (no supplier/internal choice),
+     * so there is no intermediate form to redirect to. Permission reuses
+     * rental_fault_reports.create (the same gate the normal "Report a
+     * Fault" create form already sits behind), per Johan's instruction to
+     * reuse the existing create permissions rather than invent a new one.
+     */
+    public function storeFollowUpFaultReports(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        $validated = $request->validate([
+            'observation_ids' => ['required', 'array', 'min:1'],
+            'observation_ids.*' => ['integer', 'exists:rental_inspection_observations,id'],
+        ]);
+
+        $result = app(RentalInspectionFollowUpService::class)->createFaultReports(
+            $rentalInspection,
+            array_map('intval', $validated['observation_ids']),
+            $request->boolean('combine'),
+            $request->user()
+        );
+
+        $created = count($result['created']);
+        if ($created === 0) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->with('error', 'Nothing to create — every selected item already has a fault report.');
+        }
+
+        $message = $created === 1 ? 'Fault report created.' : "{$created} fault reports created.";
+        if ($result['skipped'] > 0) {
+            $message .= ' (' . $result['skipped'] . ' already had one — skipped.)';
+        }
+
+        return redirect()->route('corex.rental-inspections.show', $rentalInspection)->with('success', $message);
     }
 
     /**
@@ -439,12 +492,10 @@ class RentalInspectionController extends Controller
             'observations.item.room', 'observations.item', 'signatures.partyContact',
         ]);
 
-        // A tenant/landlord scans the PDF's QR code straight into the
-        // public link — generate one now if none is live, rather than
-        // printing a QR that 404s the moment someone actually scans it.
-        if (! $rentalInspection->publicLinkIsValid()) {
-            $rentalInspection->generatePublicLink();
-        }
+        // Audit M3 — a GET must never change state. The PDF carries the QR /
+        // link only when a live public link ALREADY exists; creating one is
+        // the explicit POST generatePublicLink() action (permission-gated).
+        // The report service omits the QR block when there is no token.
 
         $pdf = $service->generate($rentalInspection);
 
@@ -514,6 +565,12 @@ class RentalInspectionController extends Controller
     {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
+        // Audit L2/M3 — no live link for a cancelled or archived inspection.
+        if ($rentalInspection->status === RentalInspection::STATUS_CANCELLED || $rentalInspection->trashed()) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => 'A public link cannot be created for a cancelled inspection.']);
+        }
+
         $rentalInspection->generatePublicLink();
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)
@@ -538,7 +595,12 @@ class RentalInspectionController extends Controller
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $rentalInspection->cancel($request->user(), $validated['cancel_reason']);
+        try {
+            $rentalInspection->cancel($request->user(), $validated['cancel_reason']);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)->with('success', 'Inspection cancelled.');
     }
@@ -572,5 +634,18 @@ class RentalInspectionController extends Controller
         $inspection->forceFill(['archived_by_user_id' => null])->save();
 
         return redirect()->route('corex.rental-inspections.show', $inspection)->with('success', 'Inspection restored.');
+    }
+
+    /**
+     * Audit M4 — serve a signature image / wet-ink upload from the private
+     * disk. Route-bound inspection is already agency- and own/branch-scoped
+     * (RentalInspection::resolveRouteBinding); the file must belong to it.
+     */
+    public function signatureFile(Request $request, RentalInspection $rentalInspection, \App\Models\RentalInspectionSignature $signature, string $kind)
+    {
+        abort_unless(in_array($kind, ['signature', 'wet-ink'], true), 404);
+        abort_unless((int) $signature->rental_inspection_id === (int) $rentalInspection->id, 404);
+
+        return $signature->fileResponse($kind);
     }
 }

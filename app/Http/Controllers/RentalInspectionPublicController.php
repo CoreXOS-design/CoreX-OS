@@ -30,7 +30,7 @@ use Illuminate\View\View;
  */
 class RentalInspectionPublicController extends Controller
 {
-    public function show(Request $request, string $token): View
+    public function show(Request $request, string $token): \Symfony\Component\HttpFoundation\Response
     {
         $inspection = RentalInspection::findByPublicToken($token);
 
@@ -40,22 +40,36 @@ class RentalInspectionPublicController extends Controller
             // never distinguishing "wrong" from "expired" to an
             // unauthenticated caller, same principle as a login failure
             // never confirming which half of a credential pair was wrong.
-            return view('rental-inspections.public.unavailable');
+            return $this->privateHeaders(response()->view('rental-inspections.public.unavailable'));
         }
 
+        // Audit L1 — every relation is loaded scope-free: the token is the
+        // authority here. A logged-in agent of ANOTHER agency opening a
+        // forwarded link would otherwise get AgencyScope-filtered nulls
+        // (property = null) and a 500.
+        $unscoped = fn ($q) => $q->withoutGlobalScopes();
         $inspection->load([
-            'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
-            'observations.item.room', 'observations.photos',
-            'signatures.partyContact',
-            'roomNotes',
+            'property' => $unscoped,
+            'lease' => $unscoped,
+            'lease.tenants' => $unscoped,
+            'lease.tenants.contact' => $unscoped,
+            'previousInspection' => $unscoped,
+            'createdBy' => $unscoped,
+            'observations' => $unscoped,
+            'observations.item' => $unscoped,
+            'observations.item.room' => $unscoped,
+            'observations.photos' => $unscoped,
+            'signatures' => $unscoped,
+            'signatures.partyContact' => $unscoped,
+            'roomNotes' => $unscoped,
         ]);
 
         $agencyId = $inspection->property?->agency_id;
         $conditionStates = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->keyBy('key');
 
-        $items = RentalInspectionItem::where('property_id', $inspection->property_id)
+        $items = RentalInspectionItem::withoutGlobalScopes()->where('property_id', $inspection->property_id)
             ->where('is_retired', false)
-            ->with('room')
+            ->with(['room' => $unscoped])
             ->get();
 
         // AT-433, §20.22 — a photo-anchor row (CONDITION_PENDING) is not an
@@ -100,13 +114,50 @@ class RentalInspectionPublicController extends Controller
             ->groupBy('property_room_id')
             ->map(fn ($notes) => $notes->sortByDesc('created_at')->first());
 
-        return view('rental-inspections.public.show', [
+        return $this->privateHeaders(response()->view('rental-inspections.public.show', [
             'inspection' => $inspection,
             'rows' => $rows,
             'roomNotes' => $roomNotes,
             'signatureRows' => $inspection->signatureSummaryRows(),
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
-        ]);
+        ]));
+    }
+
+    /**
+     * Audit L2 — the token lives in the URL: keep the page out of search
+     * indexes and shared caches, and stop the token leaking in a Referer
+     * header when a photo / signature link is opened.
+     */
+    private function privateHeaders(\Symfony\Component\HttpFoundation\Response $response): \Symfony\Component\HttpFoundation\Response
+    {
+        $response->headers->set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+        $response->headers->set('Cache-Control', 'no-store, private');
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+
+        return $response;
+    }
+
+    /**
+     * Audit M4 — signature / wet-ink files are on the private disk; this is
+     * the token-authorised way the public page (and only it) may fetch one.
+     * Same uniform 404 as the page itself for a bad/expired/revoked token,
+     * and the file must belong to THAT inspection.
+     */
+    public function signatureFile(Request $request, string $token, int $signature, string $kind)
+    {
+        abort_unless(in_array($kind, ['signature', 'wet-ink'], true), 404);
+
+        $inspection = RentalInspection::findByPublicToken($token);
+        abort_if(! $inspection, 404);
+
+        $row = \App\Models\RentalInspectionSignature::withoutGlobalScopes()
+            ->where('id', $signature)
+            ->where('rental_inspection_id', $inspection->id)
+            ->whereNull('superseded_at')
+            ->first();
+        abort_if(! $row, 404);
+
+        return $row->fileResponse($kind);
     }
 }

@@ -73,6 +73,29 @@
                         after this — an agent can always issue a fresh one from the inspection's own screen.
                     </p>
                 </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="require_notes_blocks_progression" value="0">
+                        <input type="checkbox" name="require_notes_blocks_progression" value="1" @checked(old('require_notes_blocks_progression', $requireNotesBlocksProgression))>
+                        Block an inspection from moving on while a required note is missing
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        On (the default): an agent cannot send an inspection for signature or complete it while
+                        an item graded with a state that "needs a reason" has no note. Off: the same list of
+                        missing notes is still shown, but only as a warning.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned-form tick-box sensitivity</label>
+                    <input type="number" name="omr_mark_threshold" value="{{ old('omr_mark_threshold', $omrMarkThreshold) }}"
+                           min="0.05" max="0.95" step="0.05"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 0.35. The share of a tick box that must be dark before a scanned paper
+                        inspection form reads it as marked. Lower it for faint or light scans; raise it if
+                        stray marks are being read as ticks.
+                    </p>
+                </div>
             </div>
         </div>
 
@@ -379,6 +402,41 @@
 
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save condition states</button>
+        </div>
+    </form>
+
+    {{-- AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo note's
+         classification list. Same repeater shape as the condition states above; an
+         existing row's key is carried as a hidden field, never re-derived. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.photo-note-classifications') }}" class="space-y-3"
+          x-data="{ classifications: {{ Js::from($photoNoteClassifications) }} }">
+        @csrf
+        <input type="hidden" name="photo_note_classifications_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Photo note classifications</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    What an inspector can classify a photo note as. At least one is required.
+                </p>
+                <template x-for="(row, i) in classifications" :key="row.key">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="row.label" :name="`photo_note_classifications[${i}][label]`"
+                               maxlength="60" required placeholder="Label"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="hidden" :name="`photo_note_classifications[${i}][key]`" :value="row.key">
+                        <button type="button" @click="classifications.splice(i, 1)" :disabled="classifications.length <= 1"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                    </div>
+                </template>
+                <button type="button" @click="classifications.push({ key: 'custom_' + Date.now(), label: '' })" class="corex-btn-outline text-xs">+ Add a classification</button>
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save classifications</button>
         </div>
     </form>
 

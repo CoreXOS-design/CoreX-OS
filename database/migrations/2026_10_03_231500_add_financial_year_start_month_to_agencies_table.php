@@ -13,6 +13,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('agencies', 'financial_year_start_month')) {
+            return;
+        }
+
         Schema::table('agencies', function (Blueprint $table) {
             $table->unsignedTinyInteger('financial_year_start_month')->default(3)->after('email');
         });

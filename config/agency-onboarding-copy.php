@@ -190,6 +190,22 @@ return [
              'label' => 'Maximum PP exclusive days',
              'explain' => 'Private Property lets a sole mandate go exclusive to PP for a chosen number of days, during which no other portal may carry the listing. This is the ceiling an agent can choose from — nothing is ever exclusive unless an agent explicitly opts in on that listing. Private Property\'s own hard limit is 92 days.',
              'affects' => 'The maximum number of days offered on the exclusivity opt-in when an agent ticks it on a sole mandate sale listing.'],
+
+            // Syndication Approval — the third layer after compliance.
+            // .ai/specs/syndication-approval-gate.md §9. The two controls are a
+            // PAIR: the switch cannot be saved on with an empty roster, and the
+            // saver throws a ValidationException (never a redirect) so this step
+            // re-renders with the error instead of silently not saving.
+            ['key' => 'syndication_approval_required', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
+             'heading' => 'Approval before a listing goes out',
+             'label' => 'Require approval before a listing is syndicated',
+             'explain' => 'When this is on, a listing that has passed compliance still cannot be sent to Property24, Private Property or your website until a person you choose has approved it. Anything already out on a portal is approved automatically the day you switch this on, so nobody has to work through your back catalogue.',
+             'affects' => 'When compliance is done your agents get a "Send for approval" button instead of the portal switches; the people you pick are emailed for every listing and get an "Awaiting approval" filter on the Properties list.'],
+
+            ['key' => 'syndication_approver_user_ids', 'source' => 'perf_json', 'type' => 'user_multiselect', 'default' => [],
+             'label' => 'Who approves',
+             'explain' => 'Everyone you tick is emailed when a listing is sent for approval, and any one of them can approve it. Pick more than one so a listing never waits on somebody who is away.',
+             'affects' => 'Who receives the approval emails and who can release a listing to the portals. If the switch is off, this does nothing.'],
         ],
     ],
 
@@ -326,7 +342,7 @@ return [
         ],
     ],
 
-    // .ai/specs/agency-onboarding-rentals-step.md — Johan's ruling 2026-09-19:
+    // .ai/specs/agency-onboarding-setup.md — Johan's ruling 2026-09-19:
     // "we will have to set up a rental in the take on wizard with all things
     // rental related." One home for every rental setting, not settings
     // scattered across the wizard. This step's KEY stays 'leases' deliberately
@@ -355,7 +371,13 @@ return [
         // key/type/default control this generic form can render on its own.
         // It renders via the partial, BEFORE the generic controls below,
         // through the SAME form/save cycle (wizard.blade.php).
-        'partial' => 'agency-setup.steps.rentals-field-config',
+        //
+        // The second partial renders the agency-worded repeater lists (refusal
+        // reasons, condition ratings, photo-note types, inventory ratings) —
+        // owner's ruling 2026-09-30, moved IN from the "Pending" list in
+        // agency-onboarding-setup.md §5.1. Each list posts its own *_submitted
+        // marker and saves through RentalListsWizardSaver / the canonical savers.
+        'partial' => ['agency-setup.steps.rentals-field-config', 'agency-setup.steps.rentals-inspection-lists'],
         'savers' => [
             // Johan, 2026-09-22 (property 4283) — update() now also carries
             // default_deposit_months (§6.1: nullable + has()-guarded, NOT
@@ -379,10 +401,8 @@ return [
             // update() (see that saver's own docblock for why).
             ['controller' => RentalInventorySettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
             // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
-            // threshold. completion_requires_photo/overdue_reminder_days are
-            // still Stage 4 (work orders themselves aren't built), so this
-            // saver validates and writes ONLY no_approval_spend_threshold —
-            // never merged into either saver above.
+            // threshold, plus completion_requires_photo/overdue_reminder_days
+            // (has()-guarded in the saver). Never merged into either saver above.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
             // AT-442 — own narrow saver, same has()-guarded checkbox
             // discipline as RentalInspectionSettingsController's own
@@ -395,6 +415,19 @@ return [
             // discipline as the one directly above; the worker's printed
             // copy and the owner's quote PDF are not the same audience.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowPricesOnPrintedJobCard'],
+            // Owner's ruling 2026-09-30 — the four rental settings + three lists that
+            // were "Pending Johan's ruling" are now in this step. Scalars use
+            // has()-guarded canonical savers (credit bureau / tenanted label /
+            // show_lease_type_field — LeaseSettingsController::update above;
+            // require_notes_blocks_progression / omr_mark_threshold —
+            // RentalInspectionSettingsController::update above). The lists go
+            // through RentalListsWizardSaver, a no-op unless that list's
+            // marker was posted, then straight to the canonical saver.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionConditionStates'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionPhotoNoteClassifications'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inventoryConditionStates'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateCreditBureau'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantedLabel'],
             // Shipped-field tick grid (rentals-field-config.blade.php partial) —
             // narrow, has()/submitted-marker-guarded savers, same independence
             // pattern as every other saver on this step.
@@ -474,7 +507,7 @@ return [
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
              'label' => 'No-approval spend limit (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
-             'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+             'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific property can be set higher or lower on the property itself.'],
             // AT-442 — whether prices are used at all on internal job cards.
             ['key' => 'capture_prices_on_job_cards', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
              'label' => 'Capture prices on job cards',
@@ -523,9 +556,39 @@ return [
              'label' => 'Default deposit, as a multiple of monthly rent',
              'explain' => 'When an agent ticks "Has deposit" on a property but leaves the deposit amount blank, CoreX fills in a starting figure — this many months of that property\'s own rent.',
              'affects' => 'The deposit amount a property starts with when one is required but not yet typed in. 1 month suits most South African tenancies — the figure is always shown as a starting point an agent can change, never locked in.'],
-            // Reserved for rental-work-orders.md's two remaining settings
-            // (completion_requires_photo, overdue_reminder_days) — added here
-            // once work orders themselves are built (Stage 4), not before.
+            // rental-work-orders.md — the two remaining work-order settings
+            // (Stage 4 shipped). Saved by RentalWorkOrderSettingsController::
+            // update(), has()-guarded there (§6.1).
+            ['key' => 'completion_requires_photo', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require a photo before a work order is marked complete',
+             'explain' => 'When on, whoever completes a repair job must attach photo evidence of the finished work before CoreX lets it be marked complete.',
+             'affects' => 'Whether a work order can be closed without a photo. Off by default, because some repairs (a replaced circuit board inside a gate motor, say) cannot sensibly be photographed.'],
+            ['key' => 'overdue_reminder_days', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 365, 'step' => 1,
+             'label' => 'Overdue work order reminder (days)',
+             'explain' => 'How many days a work order can sit with no progress before CoreX reminds the responsible agent that it is overdue.',
+             'affects' => 'How quickly stalled repairs are flagged. 3 days is the default — lower it to chase contractors harder, raise it if your jobs routinely take longer.'],
+            // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
+            ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show the lease type field on a lease',
+             'explain' => 'Whether a lease record asks for a lease type (for example fixed-term or month-to-month). Agencies that only ever write one kind of lease can leave it off.',
+             'affects' => 'Whether the "Lease type" field appears when an agent captures or edits a lease. Off hides the field; nothing already saved is deleted.'],
+            ['key' => 'require_notes_blocks_progression', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Stop an inspection moving on while a required note is missing',
+             'explain' => 'When an item is graded with a rating that needs a reason, an agent must type a note. This decides whether a missing note is a hard stop or only a warning.',
+             'affects' => 'On: an inspection cannot be sent for signature or completed until every required note is written. Off: agents still see which rooms and items are missing notes, but can carry on.'],
+            ['key' => 'omr_mark_threshold', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 0.35, 'min' => 0.05, 'max' => 0.95, 'step' => 0.05,
+             'label' => 'Scanned inspection form: tick-box sensitivity',
+             'explain' => 'If you print the paper inspection form and scan it back in, CoreX reads the tick boxes. This is the share of a box that must be dark before it counts as ticked. Most agencies never need to change it.',
+             'affects' => 'How readily a scanned paper form is read as ticked. Lower it if faint or light scans are missing ticks; raise it if stray marks are being read as ticks.'],
+            ['key' => 'credit_bureau_name', 'source' => 'rental_application', 'type' => 'text', 'default' => '',
+             'heading' => 'Rental application wording',
+             'label' => 'Credit bureau you use for tenant checks',
+             'explain' => 'The name of the credit bureau your agency runs applicants through (for example TPN, XDS or Experian). Leave blank if you do not run a bureau check.',
+             'affects' => 'The bureau name shown on the applicant\'s consent section and signature caption, and on the application PDF. Blank shows generic "Credit Bureau" wording.'],
+            ['key' => 'tenanted_label', 'source' => 'rental_application', 'type' => 'text', 'default' => 'Rented Out',
+             'label' => 'Wording for an approved application with an active lease',
+             'explain' => 'Once an approved application is linked to an active lease, CoreX shows a further status so it is not confused with a recent approval that has no tenant yet. This is the word your agency uses for it.',
+             'affects' => 'The status label on the applications list, the application detail screen and the contact record. Clearing it goes back to "Rented Out".'],
             // .ai/specs/rental-application-field-config.md — the 5 scalar rental-
             // application settings the conductor ruled IN the wizard, 2026-09-20.
             // identity_gate_enabled deliberately stays OUT — its own docblock

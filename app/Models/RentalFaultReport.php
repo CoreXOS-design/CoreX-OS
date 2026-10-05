@@ -29,6 +29,16 @@ class RentalFaultReport extends Model
     public const REPORTED_BY_TENANT = 'tenant';
     public const REPORTED_BY_AGENT_NOTICED = 'agent_noticed';
     public const REPORTED_BY_OWNER_INSTRUCTED = 'owner_instructed';
+    /**
+     * AT-445 follow-up, 2026-10-05 — the landlord's own portal submission
+     * ("Request work / report a problem"), distinct from `owner_instructed`
+     * (an agent recording that the owner asked for something verbally/by
+     * phone): this value means the landlord typed it in themselves, through
+     * their own portal session. Never offered on the agent-side create form
+     * (`rental-fault-reports/create.blade.php`) — only
+     * `ClientLandlordRentalsController::faultReportStore()` ever sets it.
+     */
+    public const REPORTED_BY_LANDLORD = 'landlord';
 
     public const CHANNEL_PHONE = 'phone';
     public const CHANNEL_WHATSAPP = 'whatsapp';
@@ -279,6 +289,10 @@ class RentalFaultReport extends Model
         if ($this->status === self::STATUS_CANCELLED) {
             throw new \LogicException('This fault report is already cancelled.');
         }
+        if ($this->status === self::STATUS_RESOLVED) {
+            // A resolved report is the closed evidence record (audit M2).
+            throw new \LogicException('A resolved fault report is a permanent record and cannot be cancelled.');
+        }
 
         $fromStatus = $this->status;
         $this->forceFill([
@@ -357,6 +371,12 @@ class RentalFaultReport extends Model
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
+        }
+        // Once a work order has been raised the decision is spent: a second
+        // approval would reset status to approved and let a second work order
+        // be raised, orphaning the first (audit M3).
+        if ($this->rental_work_order_id !== null || $this->status === self::STATUS_WORK_ORDER_RAISED) {
+            throw new \LogicException('A work order has already been raised for this fault report — its approval decision can no longer be changed.');
         }
 
         $decision = $attributes['decision'];

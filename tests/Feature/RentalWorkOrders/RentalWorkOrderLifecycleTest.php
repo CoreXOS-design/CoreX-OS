@@ -235,7 +235,11 @@ final class RentalWorkOrderLifecycleTest extends TestCase
 
     public function test_completion_requires_a_completed_photo_when_setting_is_on(): void
     {
-        \App\Models\RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'completion_requires_photo' => true]);
+        // The gate defaults OFF (corrected 2026-09-21) — turn it on for this agency.
+        \App\Models\RentalWorkOrderSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['completion_requires_photo' => true],
+        );
         $workOrder = $this->workOrder(['status' => RentalWorkOrder::STATUS_ORDERED]);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $workOrder), [
@@ -269,7 +273,7 @@ final class RentalWorkOrderLifecycleTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $workOrder), [
-            'paid_by' => 'owner', 'cost_amount' => 850,
+            'paid_by' => 'owner', 'cost_amount' => 450,
         ])->assertRedirect();
 
         $workOrder->refresh();

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Services\Syndication\Property24\Property24SyndicationService;
+use App\Services\Syndication\SyndicationApprovalService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -39,8 +40,18 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
     // the constructor (default read 120 → 180, the prior hardcoded value).
     public int $timeout = 180;
 
-    public function __construct(public Property $property)
-    {
+    /**
+     * @param bool $confirmAgentSwitch The user confirmed sending under the CoreX
+     *   listing agent although P24 holds the listing under someone else
+     *   (.ai/specs/portal-agent-mismatch-guard.md). Observer/bulk dispatches never set it.
+     * @param bool $reactivateAfter    Put the listing back on the market after the
+     *   send — the confirmed-switch path of Reactivate.
+     */
+    public function __construct(
+        public Property $property,
+        public bool $confirmAgentSwitch = false,
+        public bool $reactivateAfter = false,
+    ) {
         $readTimeout = $property->agency?->p24HttpReadTimeout() ?? Agency::P24_DEFAULT_HTTP_READ_TIMEOUT;
         $this->timeout = $readTimeout + 60;
     }
@@ -55,7 +66,27 @@ class SubmitListingToProperty24 implements ShouldQueue, ShouldBeUnique
             Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — PP exclusive until {$this->property->pp_delay_until->format('d M Y')}");
         }
 
-        $service->submitListing($this->property);
+        // Layer 3 — re-check at RUN time: the approval may have been revoked
+        // while this job sat in the queue. (submitListing() also refuses; this
+        // just avoids the lock/cost-window work and resolves a 'submitting' row.)
+        if ($refusal = app(SyndicationApprovalService::class)->refusalForUpdate($this->property, 'Property24')) {
+            Log::channel('property24')->warning("SubmitListingToProperty24 job skipped for property #{$this->property->id} — syndication approval required");
+            $fresh = $this->property->fresh();
+            if ($fresh && $fresh->p24_syndication_status === 'submitting') {
+                $fresh->update([
+                    'p24_syndication_status' => 'error',
+                    'p24_last_error'         => $refusal['message'],
+                ]);
+            }
+            return;
+        }
+
+        if ($this->reactivateAfter) {
+            $service->switchAgentAndReactivate($this->property);
+            return;
+        }
+
+        $service->submitListing($this->property, $this->confirmAgentSwitch);
     }
 
     /**

@@ -163,7 +163,14 @@ class RentalWorkOrderService
      */
     public function notifyOwner(RentalWorkOrder $workOrder, string $stage): void
     {
-        $owner = $workOrder->property?->sellerOwnerContact();
+        // AT-442 follow-up (item 8) — landlordContact(), NOT sellerOwnerContact():
+        // the latter's sole-contact fallback addressed a real quote email to a
+        // TENANT when a property had no landlord linked (QA1, property 5792).
+        // Covers both callers of this method — the job card's "Send to owner
+        // as quote" (RentalJobCardService::sendToOwnerAsQuote()) and every
+        // outside-supplier owner notification (report/fromFaultReport/complete
+        // above) — one choke point, one fix.
+        $owner = $workOrder->property?->landlordContact();
         if (!$owner || !$owner->email) {
             return;
         }

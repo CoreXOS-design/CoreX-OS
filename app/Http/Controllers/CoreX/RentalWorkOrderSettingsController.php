@@ -11,7 +11,7 @@ use Illuminate\View\View;
 /**
  * .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — deliberately narrow,
  * single-purpose, mirrors RentalInspectionSettingsController exactly.
- * Validates and writes ONLY this one column on RentalWorkOrderSetting —
+ * Validates and writes ONLY RentalWorkOrderSetting's own columns —
  * never touches LeaseSetting, RentalInspectionSetting, or anything else.
  * This is what makes it safe to register as a THIRD saver on the same
  * onboarding "Rentals" step without risking the saver-precondition
@@ -28,6 +28,9 @@ class RentalWorkOrderSettingsController extends Controller
             'defaultNoApprovalSpendThreshold' => RentalWorkOrderSetting::DEFAULT_NO_APPROVAL_SPEND_THRESHOLD,
             'capturePricesOnJobCards' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($agencyId),
             'showPricesOnPrintedJobCard' => RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($agencyId),
+            'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($agencyId),
+            'overdueReminderDays' => RentalWorkOrderSetting::overdueReminderDaysFor($agencyId),
+            'defaultOverdueReminderDays' => RentalWorkOrderSetting::DEFAULT_OVERDUE_REMINDER_DAYS,
         ]);
     }
 
@@ -37,12 +40,22 @@ class RentalWorkOrderSettingsController extends Controller
 
         $validated = $request->validate([
             'no_approval_spend_threshold' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            // Nullable + has()-guarded below (agency-onboarding-setup.md §6.1):
+            // this method is also a wizard saver and must tolerate a request
+            // that omits these fields without resetting them.
+            'completion_requires_photo' => ['nullable', 'boolean'],
+            'overdue_reminder_days' => ['nullable', 'integer', 'min:1', 'max:365'],
         ]);
 
-        RentalWorkOrderSetting::updateOrCreate(
-            ['agency_id' => $agencyId],
-            ['no_approval_spend_threshold' => $validated['no_approval_spend_threshold']],
-        );
+        $data = ['no_approval_spend_threshold' => $validated['no_approval_spend_threshold']];
+        if ($request->has('completion_requires_photo')) {
+            $data['completion_requires_photo'] = $request->boolean('completion_requires_photo');
+        }
+        if ($request->has('overdue_reminder_days') && $validated['overdue_reminder_days'] !== null) {
+            $data['overdue_reminder_days'] = (int) $validated['overdue_reminder_days'];
+        }
+
+        RentalWorkOrderSetting::updateOrCreate(['agency_id' => $agencyId], $data);
 
         return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Rental work order settings saved.');
     }

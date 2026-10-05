@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyRoom;
@@ -13,7 +15,9 @@ use App\Services\Compliance\MarketingReadinessService;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -32,6 +36,9 @@ use Illuminate\View\View;
  */
 class RentalInventoryCaptureController extends Controller
 {
+    use AuthorizesPropertyAccess;
+    use EnforcesRecordVisibility;
+
     /**
      * GET /corex/properties/{property}/inventory — resolves or transparently
      * starts the property's current inventory (RentalInventory::
@@ -42,6 +49,8 @@ class RentalInventoryCaptureController extends Controller
      */
     public function show(Request $request, Property $property): View
     {
+        $this->authorizeProperty($property, false);
+
         // §13.10 — the property shell (header + tab bar) reused verbatim
         // from PropertyController::show(), not a second computation:
         // partials/_property-shell-header.blade.php and
@@ -56,7 +65,10 @@ class RentalInventoryCaptureController extends Controller
         }
         $coreMatches = app(MatchingService::class)->matchesForProperty($property);
 
-        $inventory = RentalInventory::resolveOrStartFor($property, $request->user());
+        // Read-only: a GET (view permission) never creates an inventory
+        // (audit M4). With none yet, the view offers a "Start inventory"
+        // button that POSTs to start() below (needs rental_inventories.create).
+        $inventory = RentalInventory::findCurrentFor($property);
 
         $rooms = PropertyRoom::where('property_id', $property->id)
             ->where('is_retired', false)
@@ -118,6 +130,7 @@ class RentalInventoryCaptureController extends Controller
             'allDriveDocs' => $allDriveDocs,
             'coreMatches' => $coreMatches,
             'inventory' => $inventory,
+            'canStartInventory' => $request->user()->hasPermission('rental_inventories.create'),
             // A completed inventory is a signed legal record and a
             // cancelled one is closed — neither may be edited from this
             // screen. Drives whether the capture markup (Add space, room
@@ -165,6 +178,24 @@ class RentalInventoryCaptureController extends Controller
     }
 
     /**
+     * POST /corex/properties/{property}/inventory — explicit creation of the
+     * property's inventory (audit M4: the GET must not create it). Runs under
+     * a row lock on the property so two simultaneous clicks/tabs cannot each
+     * start a draft; the second finds the first and just redirects.
+     */
+    public function start(Request $request, Property $property): RedirectResponse
+    {
+        $this->authorizeProperty($property, true);
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($request, $property) {
+            Property::withoutGlobalScopes()->whereKey($property->id)->lockForUpdate()->first();
+            RentalInventory::resolveOrStartFor($property, $request->user());
+        });
+
+        return redirect()->route('corex.properties.inventory.show', $property);
+    }
+
+    /**
      * POST /corex/rental-inventories/{inventory}/photos — batched multi-file
      * upload, following the SAME client-batching contract already
      * established for property galleries/inspection photos this session
@@ -183,10 +214,11 @@ class RentalInventoryCaptureController extends Controller
      */
     public function storePhotos(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         $rentalInventory->assertEditable();
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
+            'property_room_id' => ['nullable', 'integer', Rule::exists('property_rooms', 'id')->where('property_id', $rentalInventory->property_id)],
             'rental_inventory_line_id' => ['nullable', 'integer', 'exists:rental_inventory_lines,id'],
             'photos' => ['required', 'array', 'min:1', 'max:10'],
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
@@ -206,7 +238,8 @@ class RentalInventoryCaptureController extends Controller
         foreach ($validated['photos'] as $i => $file) {
             $clientKey = $validated['client_idempotency_keys'][$i] ?? null;
             if ($clientKey) {
-                $existing = RentalInventoryPhoto::where('client_idempotency_key', $clientKey)->first();
+                $existing = RentalInventoryPhoto::where('client_idempotency_key', $clientKey)
+                    ->where('rental_inventory_id', $rentalInventory->id)->first();
                 if ($existing) {
                     $created[] = $existing;
                     continue;
@@ -254,6 +287,7 @@ class RentalInventoryCaptureController extends Controller
      */
     public function archivePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryPhoto $photo): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_if((int) $photo->rental_inventory_id !== (int) $rentalInventory->id, 404);
         $rentalInventory->assertEditable();
 
@@ -265,6 +299,7 @@ class RentalInventoryCaptureController extends Controller
     /** POST /corex/rental-inventories/{inventory}/lines/{line}/photos/{photo} — tag a line to a photo. Optional, never required (§0b). */
     public function attachLinePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line, RentalInventoryPhoto $photo): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
         abort_unless((int) $photo->rental_inventory_id === (int) $rentalInventory->id, 404);
         $rentalInventory->assertEditable();
@@ -277,7 +312,9 @@ class RentalInventoryCaptureController extends Controller
     /** DELETE /corex/rental-inventories/{inventory}/lines/{line}/photos/{photo} — remove the tag. The line and the photo are both untouched. */
     public function detachLinePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line, RentalInventoryPhoto $photo): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        abort_unless((int) $photo->rental_inventory_id === (int) $rentalInventory->id, 404);
         $rentalInventory->assertEditable();
 
         $line->photos()->detach($photo->id);

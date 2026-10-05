@@ -123,8 +123,8 @@ echo "-- 2. enforce storage/ + bootstrap/cache/ ownership + permissions --"
 # fixes. Reported as a WARNING (never silently swallowed, matches this
 # script's own WARNING/ERROR convention) and the deploy continues; the
 # storage-permission bug class stays possible until the grant is fixed.
-PERM_OUT="$( { sudo chown -R www-data:www-data storage bootstrap/cache || chown -R www-data:www-data storage bootstrap/cache; } 2>&1 && \
-             { sudo chmod -R ug+rwX storage bootstrap/cache || chmod -R ug+rwX storage bootstrap/cache; } 2>&1 )"
+PERM_OUT="$( { sudo -n chown -R www-data:www-data storage bootstrap/cache || chown -R www-data:www-data storage bootstrap/cache; } 2>&1 && \
+             { sudo -n chmod -R ug+rwX storage bootstrap/cache || chmod -R ug+rwX storage bootstrap/cache; } 2>&1 )"
 PERM_STATUS=$?
 if [ $PERM_STATUS -ne 0 ]; then
     echo "$PERM_OUT"

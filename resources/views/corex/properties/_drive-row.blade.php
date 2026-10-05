@@ -33,6 +33,18 @@
         <button type="button" @click="editing = !editing" class="text-xs px-1.5 py-1 rounded hover:bg-black/5" style="color:var(--text-muted);" title="Tag document">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
         </button>
+        {{-- View — opens the PDF/image over the page so the agent never has to download to read.
+             NOT gated on canDownloadDocuments(): AT-267 lets an assistant OPEN and VIEW a
+             document, only not pull it down. Spec: .ai/specs/document-inline-view.md --}}
+        @if($doc->isViewableInline())
+        <x-document-view-link
+            :url="route('corex.properties.files.view', [$property, $doc])"
+            :name="$doc->original_name"
+            :is-image="$doc->isImage()"
+            :download-url="auth()->user()?->canDownloadDocuments() ? route('corex.properties.files.download', [$property, $doc]) : null"
+            class="text-xs font-semibold no-underline px-3 py-1.5 rounded-md"
+            style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);" />
+        @endif
         {{-- AT-267 / POPIA — always download through the gated route (never a direct /storage URL,
              even for legacy public-disk files). Hidden for an assistant with the download toggle off;
              the route also carries deny_assistant_download. --}}

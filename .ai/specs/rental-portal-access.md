@@ -263,3 +263,48 @@ surfaced during Step 0 investigation and resolved with Johan before building (20
    plus the first web shell.
 6. The AT-443 landlord property activity report route did not exist at build time — omitted per
    the build brief's own contingency instruction.
+
+## 15. Landlord "Request work / report a problem" (AT-447 follow-up, built 2026-10-05)
+
+**Small, additive amendment.** §3 above described the landlord as decide-only ("Decisions — fault
+reports awaiting the owner-approval route... Approve / Decline / 'I'll handle it myself'") — this
+section adds the one thing that was genuinely missing: a landlord can now also RAISE a problem
+themselves, on a property they own, from the portal.
+
+**What it does NOT change:** the landlord still never creates a work order directly and never picks
+a supplier — both of those stay exclusively an agent action, raised from the fault report the agent
+now sees once the landlord's request lands. This is a new way to CREATE a `rental_fault_reports` row,
+not a new way to commission work.
+
+- **New value**, `RentalFaultReport::REPORTED_BY_LANDLORD = 'landlord'` — distinct from
+  `owner_instructed` (an agent recording that the owner asked for something verbally/by phone/
+  WhatsApp); `landlord` means the landlord typed it into their own portal session directly. Never
+  offered on the agent-side "Report a Fault" create form — only
+  `ClientLandlordRentalsController::faultReportStore()` ever sets it. Rendered automatically by the
+  existing generic `ucfirst(str_replace('_', ' ', $faultReport->reported_by_type))` label everywhere
+  "Reported by" is already shown — no new template/match-statement needed.
+- **Route**: `POST /api/v1/client/rentals/landlord/properties/{property}/fault-reports` →
+  `ClientLandlordRentalsController::faultReportStore()`, gated by the SAME
+  `rental-portal.enabled:landlord` middleware and `RentalPortalScopeService::landlordProperty()`
+  ownership check (404 for a property the contact isn't a landlord/lessor on, including cross-agency)
+  as every other landlord-portal route in §6 — mirrors
+  `ClientTenantRentalsController::faultReportStore()` closely, minus the fault-type/first-aid step
+  (a landlord isn't asked "did that fix it" the way a tenant is — there is no self-resolution path
+  for a landlord's own request).
+- **Lease attachment**: the property's active lease if one exists, else `lease_id = null` — the same
+  vacancy-period allowance the agent-side create form already has.
+- **Lands exactly like any other fault report**: `RentalFaultReportService::report()` is the same
+  method the agent-side and tenant-side paths both call, so the new row appears in the agency's Fault
+  Reports list and the Command Centre's open-faults tile with NO extra wiring — both already query by
+  `status`, never by `reported_by_type` (confirmed directly against
+  `RentalCommandCentreService`'s own fault-report queries before writing this). An agent raises the
+  work order from it via the pre-existing `raiseWorkOrder()` action, choosing supplier or the internal
+  team exactly as for any other fault report.
+- **Isolation**: covered by the same party-isolation suite as the tenant path —
+  `tests/Feature/RentalPortalAccess/PartyIsolationTest.php` — a landlord can only raise on their own
+  property; a cross-agency landlord contact 404s, never leaks a row into the wrong agency's list.
+
+**Files:** `app/Models/RentalFaultReport.php` (new constant) ·
+`app/Http/Controllers/Api/V1/ClientLandlordRentalsController.php` (new `faultReportStore()`) ·
+`routes/api.php` (one new route) ·
+`tests/Feature/RentalPortalAccess/{RentalPortalWorkflowTest.php,PartyIsolationTest.php}` (new tests).

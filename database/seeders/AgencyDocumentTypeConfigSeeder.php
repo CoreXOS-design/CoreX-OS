@@ -29,9 +29,12 @@ class AgencyDocumentTypeConfigSeeder extends Seeder implements SyncableReference
         return [
             ['name' => 'FFC Certificate',              'slug' => 'ffc_certificate',    'has_expiry' => true,  'renewal_days' => 60,   'required' => true,  'sort_order' => 1],
             ['name' => 'Bank Confirmation Letter',     'slug' => 'bank_confirmation',  'has_expiry' => true,  'renewal_days' => 14,   'required' => true,  'sort_order' => 2],
-            ['name' => 'BEE Certificate',              'slug' => 'bee_certificate',    'has_expiry' => true,  'renewal_days' => 30,   'required' => false, 'sort_order' => 3],
+            ['name' => 'BEE Certificate',              'slug' => 'bee_certificate',    'satisfies_group' => 'bee', 'has_expiry' => true,  'renewal_days' => 30,   'required' => false, 'sort_order' => 3],
             ['name' => 'Company Registration (CIPC)',  'slug' => 'cipc_registration',  'has_expiry' => false, 'renewal_days' => null, 'required' => true,  'sort_order' => 4],
             ['name' => 'VAT Registration Certificate', 'slug' => 'vat_certificate',    'has_expiry' => false, 'renewal_days' => null, 'required' => false, 'sort_order' => 5],
+            // PPRA Inspection Pack (checklist items h / e) — mirrors migration 2026_09_28_130100 exactly.
+            ['name' => 'BEE Sworn Affidavit',          'slug' => 'bee_affidavit',      'satisfies_group' => 'bee', 'description' => 'Alternative to a BEE certificate — a sworn affidavit is acceptable where the agency holds no formal certificate.', 'has_expiry' => true, 'renewal_days' => 365, 'required' => false, 'sort_order' => 6],
+            ['name' => 'Trial Balance (latest)',       'slug' => 'trial_balance',      'satisfies_group' => null,  'description' => 'The agency\'s latest trial balance, provided by its accountant. CoreX does not keep trust accounting records — this is a manual upload.', 'has_expiry' => true, 'renewal_days' => 90, 'required' => false, 'sort_order' => 7],
         ];
     }
 
@@ -48,6 +51,14 @@ class AgencyDocumentTypeConfigSeeder extends Seeder implements SyncableReference
                     array_merge($card, ['agency_id' => $agencyId, 'is_active' => true]),
                 );
             }
+
+            // Existing bee_certificate cards join the 'bee' alternatives group
+            // (only where it is still unset — never overwrites an agency's own value).
+            AgencyDocumentTypeConfig::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->where('slug', 'bee_certificate')
+                ->whereNull('satisfies_group')
+                ->update(['satisfies_group' => 'bee']);
         }
     }
 }

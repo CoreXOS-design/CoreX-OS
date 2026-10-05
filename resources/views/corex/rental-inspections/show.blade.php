@@ -114,7 +114,7 @@
                 <p class="text-xs break-all" style="color: var(--text-secondary);">{{ route('rental-inspections.public.show', $inspection->public_token) }}</p>
                 <p class="text-xs" style="color: var(--text-muted);">Live until {{ $inspection->public_token_expires_at->format('Y-m-d') }}.</p>
             @else
-                <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share, or download the report above (it generates one automatically).</p>
+                <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share. The downloaded report only carries the QR code / link once a live link exists.</p>
             @endif
             <div class="flex items-center gap-2">
                 <form method="POST" action="{{ route('corex.rental-inspections.public-link.generate', $inspection) }}">
@@ -302,6 +302,97 @@
     </div>
     @endif
 
+    {{--
+        .ai/specs/rental-work-orders.md §15 (AT-447) — Johan's requirement:
+        at the end of an inspection, every item marked faulty/damaged can
+        become a fault report, work order, or job card straight from here,
+        linked back to this inspection/lease/property. Shown on every
+        inspection, whatever its status — a draft being finished can raise
+        follow-up just as well as a completed one. "Faulty" = not this
+        agency's own configured baseline condition (never a hardcoded
+        "good" check — multi-agency floor, CLAUDE.md #9).
+
+        Per-row mini-actions are always single-item (no ticking needed,
+        idempotent — an already-raised item shows its linked record(s)
+        instead). The shared form below them is for "combine into one" —
+        tick several rows, then one of the three buttons raises ONE record
+        covering all of them (or, if "combine" is left unticked, one record
+        PER ticked item — the stated default).
+    --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Follow-up</h2>
+        @if($followUpObservations->isEmpty())
+            <p class="text-xs" style="color: var(--text-muted);">Nothing marked faulty or damaged on this inspection yet.</p>
+        @else
+            <form method="POST" action="{{ route('corex.rental-inspections.follow-up.fault-reports', $inspection) }}" class="space-y-3">
+                @csrf
+                <input type="hidden" name="rental_inspection_id" value="{{ $inspection->id }}">
+                @foreach($followUpObservations as $observation)
+                    @php
+                        $existingFaultReports = $followUpFaultReportsByObservation->get($observation->id, collect());
+                        $existingWorkOrders = $followUpWorkOrdersByObservation->get($observation->id, collect());
+                        $roomLabel = $observation->item?->room?->label ?? 'General';
+                        $itemLabel = $observation->item?->label ?? 'Unknown item';
+                    @endphp
+                    <div class="text-sm space-y-1" style="border-bottom: 1px solid var(--border); padding-bottom: 8px;">
+                        <div class="flex items-start justify-between gap-2">
+                            <label class="flex items-start gap-2">
+                                <input type="checkbox" name="observation_ids[]" value="{{ $observation->id }}" class="mt-1" form="follow-up-shared-form">
+                                <span>
+                                    {{ $roomLabel }} — {{ $itemLabel }}
+                                    <span class="ds-badge {{ $conditionBadgeClass($observation->condition) }}">{{ ucfirst(str_replace('_', ' ', $observation->condition)) }}</span>
+                                    @if($observation->notes) — <span style="color: var(--text-muted);">{{ $observation->notes }}</span> @endif
+                                    @if($observation->photos->isNotEmpty())
+                                        <span class="text-xs" style="color: var(--text-muted);">· {{ $observation->photos->count() }} photo(s)</span>
+                                    @endif
+                                </span>
+                            </label>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 text-xs" style="padding-left: 24px;">
+                            @forelse($existingFaultReports as $faultReport)
+                                <a href="{{ route('corex.rental-fault-reports.show', $faultReport) }}" style="color: var(--brand-icon, #2563eb);">Fault report #{{ $faultReport->id }} ({{ ucfirst(str_replace('_', ' ', $faultReport->status)) }})</a>
+                            @empty
+                                <button type="submit" formaction="{{ route('corex.rental-inspections.follow-up.fault-reports', $inspection) }}" name="observation_ids[]" value="{{ $observation->id }}" class="corex-btn-outline text-xs">Create fault report</button>
+                            @endforelse
+
+                            @forelse($existingWorkOrders as $workOrder)
+                                <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" style="color: var(--brand-icon, #2563eb);">Work order #{{ $workOrder->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->status)) }})</a>
+                                @if($workOrder->jobCard)
+                                    <a href="{{ route('corex.rental-job-cards.show', $workOrder->jobCard) }}" style="color: var(--brand-icon, #2563eb);">Job card #{{ $workOrder->jobCard->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->jobCard->status)) }})</a>
+                                @endif
+                            @empty
+                                <a href="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id]]) }}" class="corex-btn-outline text-xs">Create work order</a>
+                                <a href="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id], 'assignment_type' => 'internal']) }}" class="corex-btn-outline text-xs">Create job card (our team)</a>
+                            @endforelse
+                        </div>
+                    </div>
+                @endforeach
+            </form>
+
+            {{-- The combine/batch bar — ticked checkboxes above belong to
+                 THIS form via the "form" attribute, even though they are
+                 visually nested in the per-row form above. Which button is
+                 clicked decides where the ticked set goes: fault reports
+                 are created directly (this form's own default method/
+                 action); work orders/job cards redirect (GET) to the
+                 existing create screen, carrying every ticked id — only the
+                 CLICKED button's own name/value pair is submitted, so
+                 assignment_type is absent unless "Create job card" was
+                 pressed (standard HTML submit-button behaviour, no JS
+                 needed). --}}
+            <form id="follow-up-shared-form" method="POST" action="{{ route('corex.rental-inspections.follow-up.fault-reports', $inspection) }}" class="flex flex-wrap items-center gap-3 pt-2" style="border-top: 1px solid var(--border);">
+                @csrf
+                <input type="hidden" name="rental_inspection_id" value="{{ $inspection->id }}">
+                <label class="text-xs flex items-center gap-1">
+                    <input type="checkbox" name="combine" value="1"> Combine ticked items into one
+                </label>
+                <button type="submit" class="corex-btn-outline text-xs">Create fault report</button>
+                <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" class="corex-btn-outline text-xs">Create work order</button>
+                <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" name="assignment_type" value="internal" class="corex-btn-outline text-xs">Create job card (our team)</button>
+            </form>
+        @endif
+    </div>
+
     </div>
     {{-- Side column: scans, signatures — the paperwork evidence trail. --}}
     <div class="col-span-3 lg:col-span-1 space-y-4">
@@ -402,7 +493,7 @@
                         <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Signed</span>
                         @if($signature->party_signature_path)
                             <div class="mt-1">
-                                <img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }}'s signature"
+                                <img src="{{ $signature->fileUrl('signature') }}" alt="{{ $partyLabel }}'s signature"
                                      style="max-height: 60px; background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 4px;">
                             </div>
                         @endif
@@ -428,7 +519,7 @@
                             </div>
                         @elseif($signature->wet_ink_upload_path)
                             <div class="text-xs mt-0.5">
-                                <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #0ea5e9);">View uploaded page</a>
+                                <a href="{{ $signature->fileUrl('wet-ink') }}" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #0ea5e9);">View uploaded page</a>
                             </div>
                         @endif
                         @if($signature->recordedByUser)

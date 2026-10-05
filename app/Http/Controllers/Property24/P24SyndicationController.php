@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SubmitListingToProperty24;
 use App\Models\Property;
 use App\Services\PermissionService;
+use App\Services\Syndication\PortalAgentGuard;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use App\Services\Syndication\Property24\Property24SyndicationService;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,10 @@ use Illuminate\Http\Request;
 class P24SyndicationController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    // Layer 3 — a chosen person must approve before this listing is syndicated.
+    // .ai/specs/syndication-approval-gate.md §6.3. Inert unless the agency
+    // switched it on.
+    use \App\Http\Controllers\Concerns\EnforcesSyndicationApproval;
 
     private Property24SyndicationService $syndicationService;
     private Property24ListingMapper $mapper;
@@ -39,7 +44,7 @@ class P24SyndicationController extends Controller
             ], 422);
         }
 
-        if ($nowEnabled) { $this->enforceListingNotDraft($property, 'Property24'); $this->enforceMarketingReadiness($property); }
+        if ($nowEnabled) { $this->enforceListingNotDraft($property, 'Property24'); $this->enforceMarketingReadiness($property); $this->enforceSyndicationApproval($property, 'Property24'); }
         $updateData = ['p24_syndication_enabled' => $nowEnabled];
 
         if ($nowEnabled && $property->p24_syndication_status === null) {
@@ -72,6 +77,7 @@ class P24SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Property24');
 
         // AT-369 — fail fast, before ever queuing the job. The service-layer
         // guard (Property24SyndicationService::submitListing) is the real
@@ -99,8 +105,14 @@ class P24SyndicationController extends Controller
         // otherwise block the browser for the whole request. Mark 'submitting'
         // so the UI shows a syncing state and polls sync-state until the queued
         // SubmitListingToProperty24 job flips the status to active/error.
+        // Portal Agent Mismatch Guard — ask BEFORE queuing, while the user is here.
+        $confirmSwitch = $request->boolean('confirm_agent_switch');
+        if ($blocked = $this->agentConflictResponse($property, $confirmSwitch)) {
+            return $blocked;
+        }
+
         $property->update(['p24_syndication_status' => 'submitting', 'p24_last_error' => null]);
-        SubmitListingToProperty24::dispatch($property);
+        SubmitListingToProperty24::dispatch($property, $confirmSwitch);
 
         return response()->json([
             'success' => true,
@@ -126,6 +138,7 @@ class P24SyndicationController extends Controller
             'p24_ref'                => $fresh->p24_ref,
             'p24_last_error'         => $fresh->p24_last_error,
             'p24_last_submitted_at'  => $fresh->p24_last_submitted_at?->format('d M Y H:i'),
+            'agent_conflict'         => app(PortalAgentGuard::class)->current($fresh, PortalAgentGuard::P24),
         ]);
     }
 
@@ -148,8 +161,62 @@ class P24SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Property24');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Property24');
+
+        // Portal Agent Mismatch Guard. A confirmed switch sends the full listing
+        // (that is what carries the agent) and then puts it back on the market —
+        // queued, because the full send can take a minute with photos.
+        $confirmSwitch = $request->boolean('confirm_agent_switch');
+        if ($blocked = $this->agentConflictResponse($property, $confirmSwitch)) {
+            return $blocked;
+        }
+        if ($confirmSwitch && app(PortalAgentGuard::class)->check($property, PortalAgentGuard::P24) !== null) {
+            if ($property->isPpExclusiveActive()) {
+                return response()->json(['success' => false, 'message' => 'Cannot reactivate — Private Property exclusivity is active until ' . $property->pp_delay_until->format('d M Y') . '.', 'p24_syndication_status' => $property->p24_syndication_status], 422);
+            }
+            $property->update(['p24_syndication_status' => 'submitting', 'p24_last_error' => null]);
+            SubmitListingToProperty24::dispatch($property, true, true);
+            return response()->json([
+                'success' => true,
+                'queued'  => true,
+                'message' => 'Sending to Property24 under the listing agent… this can take up to a minute.',
+                'p24_syndication_status' => 'submitting',
+            ], 202);
+        }
+
         $result = $this->syndicationService->reactivateListing($property);
-        return response()->json(['success' => $result['success'], 'message' => $result['message'], 'p24_syndication_status' => $property->fresh()->p24_syndication_status], $result['success'] ? 200 : 422);
+        return response()->json([
+            'success'                => $result['success'],
+            'message'                => $result['message'],
+            'p24_syndication_status' => $property->fresh()->p24_syndication_status,
+            'agent_conflict'         => $result['agent_conflict'] ?? null,
+        ], $result['success'] ? 200 : (isset($result['agent_conflict']) ? 409 : 422));
+    }
+
+    /**
+     * 409 + the conflict when the send must not go ahead as asked: a listing
+     * agent is inactive in CoreX (never overridable), or Property24 holds the
+     * listing under a different agent and the user has not confirmed the switch.
+     * .ai/specs/portal-agent-mismatch-guard.md §4
+     */
+    private function agentConflictResponse(Property $property, bool $confirmSwitch): ?JsonResponse
+    {
+        $guard    = app(PortalAgentGuard::class);
+        $conflict = $guard->check($property, PortalAgentGuard::P24);
+
+        if ($conflict === null || ($confirmSwitch && $conflict['can_switch'])) {
+            return null;
+        }
+
+        $guard->recordConflict($property, PortalAgentGuard::P24, $conflict);
+
+        return response()->json([
+            'success'                => false,
+            'message'                => $conflict['message'],
+            'agent_conflict'         => $conflict,
+            'p24_syndication_status' => $property->p24_syndication_status,
+            'p24_ref'                => $property->p24_ref,
+        ], 409);
     }
 
     public function status(Request $request, Property $property): JsonResponse

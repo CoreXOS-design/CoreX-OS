@@ -182,4 +182,51 @@ class PartyIsolationTest extends TestCase
     {
         $this->getJson('/api/v1/client/rentals/leases')->assertStatus(401);
     }
+
+    /** §15 (AT-447 follow-up) — a landlord can only raise work on a property they own. */
+    public function test_landlord_cannot_request_work_on_a_property_they_do_not_own(): void
+    {
+        $agency = $this->makeAgency('Isolation Agency E');
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
+        $propertyA = $this->makeProperty($agency, $agent, 'Landlord A Unit');
+        $propertyB = $this->makeProperty($agency, $agent, 'Landlord B Unit');
+
+        $landlordA = $this->makeContact($agency, ['first_name' => 'Lenny']);
+        $landlordB = $this->makeContact($agency, ['first_name' => 'Larry']);
+        $propertyA->contacts()->attach($landlordA->id, ['role' => 'landlord']);
+        $propertyB->contacts()->attach($landlordB->id, ['role' => 'landlord']);
+
+        Sanctum::actingAs($this->clientUserFor($landlordA), ['client']);
+
+        $this->postJson('/api/v1/client/rentals/landlord/properties/' . $propertyA->id . '/fault-reports', [
+            'title' => 'My own roof leak',
+        ])->assertStatus(201);
+
+        $this->postJson('/api/v1/client/rentals/landlord/properties/' . $propertyB->id . '/fault-reports', [
+            'title' => 'Trying to raise work on a property I do not own',
+        ])->assertStatus(404);
+
+        $this->assertSame(0, RentalFaultReport::withoutGlobalScopes()->where('property_id', $propertyB->id)->count(), 'The rejected request must not have created a fault report on property B.');
+    }
+
+    /** §11 — cross-agency: a landlord contact in agency B must never reach agency A's property. */
+    public function test_cross_agency_landlord_cannot_request_work_on_another_agencys_property(): void
+    {
+        $agencyA = $this->makeAgency('Isolation Agency F1');
+        $agencyB = $this->makeAgency('Isolation Agency F2');
+        $agentA = User::factory()->create(['agency_id' => $agencyA->id, 'role' => 'admin']);
+        $propertyA = $this->makeProperty($agencyA, $agentA, 'Agency A Unit');
+
+        $landlordB = $this->makeContact($agencyB, ['first_name' => 'Foreign']);
+        $clientB = ClientUser::create(['email' => $landlordB->email, 'current_agency_id' => $agencyB->id]);
+        $landlordB->forceFill(['client_user_id' => $clientB->id])->saveQuietly();
+
+        Sanctum::actingAs($clientB, ['client']);
+
+        $this->postJson('/api/v1/client/rentals/landlord/properties/' . $propertyA->id . '/fault-reports', [
+            'title' => 'Cross-agency attempt',
+        ])->assertStatus(404);
+
+        $this->assertSame(0, RentalFaultReport::withoutGlobalScopes()->where('property_id', $propertyA->id)->count());
+    }
 }

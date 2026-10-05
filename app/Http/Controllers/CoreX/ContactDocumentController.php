@@ -78,6 +78,27 @@ class ContactDocumentController extends Controller
         return $document->downloadResponse();
     }
 
+    /**
+     * Inline (in-browser) view of a contact Drive document — the View button beside Download.
+     *
+     * Same ownership guard as download(); deliberately NOT behind the assistant download toggle
+     * (AT-267 allows an assistant to OPEN and VIEW, only not pull the file down). Non-viewable
+     * types fall back to the gated download response.
+     * Spec: .ai/specs/document-inline-view.md §6
+     */
+    public function view(Contact $contact, Document $document)
+    {
+        abort_unless($document->contacts()->where('contacts.id', $contact->id)->exists(), 404);
+
+        if (! $document->isViewableInline()) {
+            abort_unless(auth()->user()?->canDownloadDocuments(), 403);
+
+            return $document->downloadResponse();
+        }
+
+        return $document->inlineResponse();
+    }
+
     public function destroy(Contact $contact, Document $document)
     {
         $this->authorizeContact($contact);

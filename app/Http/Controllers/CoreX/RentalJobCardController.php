@@ -144,16 +144,31 @@ class RentalJobCardController extends Controller
         ]);
     }
 
-    /** req #1/#4 — reachable from a property, a lease, or (pre-filled) from an already-approved fault report. */
+    /**
+     * req #1/#4 — reachable from a property, a lease, or (pre-filled) from
+     * an already-approved fault report.
+     *
+     * AT-442 fix #1 (class of bug) — lease_id WINS and derives the
+     * property, same guard as RentalWorkOrderController::create() — a
+     * property_id and a lease_id resolved independently is exactly how a
+     * job card can end up pointed at another property's lease. Resolved
+     * only inside the user's own scope.
+     */
     public function create(Request $request): View
     {
-        $property = $request->get('property_id') ? Property::findOrFail($request->get('property_id')) : null;
-        $lease = $request->get('lease_id') ? Lease::findOrFail($request->get('lease_id')) : null;
+        $user = $request->user();
+
+        $lease = $request->get('lease_id') ? Lease::query()->visibleTo($user, null)->find($request->get('lease_id')) : null;
         $faultReport = $request->get('fault_report_id') ? RentalFaultReport::findOrFail($request->get('fault_report_id')) : null;
+        $lease = $lease ?? $faultReport?->lease;
+
+        $property = $lease
+            ? $lease->property
+            : ($faultReport?->property ?? ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null));
 
         return view('corex.rental-job-cards.create', [
-            'property' => $property ?? $faultReport?->property,
-            'lease' => $lease ?? $faultReport?->lease,
+            'property' => $property,
+            'lease' => $lease,
             'faultReport' => $faultReport,
         ]);
     }
@@ -178,6 +193,19 @@ class RentalJobCardController extends Controller
                 $jobCard = $service->createFromFaultReport($faultReport, $validated, $user);
             } else {
                 $property = Property::findOrFail($validated['property_id']);
+
+                // AT-442 fix #1 (class of bug) — "the lease wins" (Johan's
+                // ruling): never trust a property_id posted alongside a
+                // lease_id without checking they agree. See the identical
+                // guard in RentalWorkOrderController::store().
+                if (!empty($validated['lease_id'])) {
+                    $lease = Lease::findOrFail($validated['lease_id']);
+                    if ($lease->property_id !== $property->id) {
+                        $property = $lease->property;
+                        $validated['property_id'] = $property->id;
+                    }
+                }
+
                 $validated['description'] = $validated['description'] ?? $validated['title'];
                 $jobCard = $service->createForProperty($property, $validated, $user);
             }
@@ -195,13 +223,19 @@ class RentalJobCardController extends Controller
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
             'property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem',
-            'workOrder.photos', 'updates.createdByUser', 'createdByUser',
+            // §15 (AT-447) — "From inspection <type> <date>" back-link,
+            // reached through the linked work order (a job card has no
+            // inspection FK of its own — rentals-rebuild.md §15.3).
+            'workOrder.photos', 'workOrder.reportedInspectionObservation.inspection',
+            'updates.createdByUser', 'createdByUser',
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
 
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
             'pricesOn' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id),
+            // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
+            'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crew' => User::query()->orderBy('name')->get(['id', 'name']),
             'catalogueItems' => RentalCatalogueItem::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),

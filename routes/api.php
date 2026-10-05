@@ -230,6 +230,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
             Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
+            // §15 (AT-447 follow-up) — "Request work / report a problem."
+            Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->name('fault-reports.store');
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');

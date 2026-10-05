@@ -69,12 +69,15 @@ class WhistleblowComplaintMail extends BaseSignatureMail
         }
 
         // CC — compliance officer + approver
+        // Demo mode suppresses the real CC recipients (must never reach real people).
         $cc = [];
-        if ($agency->whistleblow_compliance_officer_email) {
-            $cc[] = $agency->whistleblow_compliance_officer_email;
-        }
-        if ($complaint->approvedBy && $complaint->approvedBy->email) {
-            $cc[] = $complaint->approvedBy->email;
+        if (! $this->isDemoMode) {
+            if ($agency->whistleblow_compliance_officer_email) {
+                $cc[] = $agency->whistleblow_compliance_officer_email;
+            }
+            if ($complaint->approvedBy && $complaint->approvedBy->email) {
+                $cc[] = $complaint->approvedBy->email;
+            }
         }
 
         return new Envelope(

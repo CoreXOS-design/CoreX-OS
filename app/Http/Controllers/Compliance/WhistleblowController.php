@@ -7,6 +7,7 @@ use App\Models\Compliance\WhistleblowComplaint;
 use App\Services\Compliance\WhistleblowComplaintService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class WhistleblowController extends Controller
 {
@@ -147,7 +148,7 @@ class WhistleblowController extends Controller
                 if ($request->hasFile('screenshot')) {
                     $file = $request->file('screenshot');
                     $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
-                    $this->service->attachEvidence($complaint, 'screenshot', storage_path('app/' . $path),
+                    $this->service->attachEvidence($complaint, 'screenshot', Storage::disk('local')->path($path),
                         $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Screenshot uploaded with report', $user);
                 }
 
@@ -157,7 +158,7 @@ class WhistleblowController extends Controller
                         $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
                         $isImage = str_starts_with($file->getMimeType(), 'image/');
                         $this->service->attachEvidence($complaint, $isImage ? 'screenshot' : 'document_upload',
-                            storage_path('app/' . $path), $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Evidence file uploaded with report', $user);
+                            Storage::disk('local')->path($path), $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Evidence file uploaded with report', $user);
                     }
                 }
 
@@ -194,6 +195,8 @@ class WhistleblowController extends Controller
      */
     public function show(WhistleblowComplaint $complaint)
     {
+        $this->authorizeComplaintAccess($complaint);
+
         $complaint->load(['reporter', 'approvedBy', 'rejectedBy', 'evidence', 'sellerContact', 'subjects', 'emailLogs.sentBy']);
         $auditLog = $complaint->auditLog()->with('user')->orderBy('created_at')->get();
         $agency = \App\Models\Agency::withoutGlobalScopes()->find($complaint->agency_id);
@@ -216,6 +219,8 @@ class WhistleblowController extends Controller
      */
     public function approve(Request $request, WhistleblowComplaint $complaint)
     {
+        $this->authorizeComplaintAccess($complaint);
+
         try {
             $this->service->approve(
                 $complaint,
@@ -241,6 +246,8 @@ class WhistleblowController extends Controller
      */
     public function resendToPpra(Request $request, WhistleblowComplaint $complaint)
     {
+        $this->authorizeComplaintAccess($complaint);
+
         $request->validate([
             'resend_seller_pack' => 'nullable|boolean',
         ]);
@@ -265,6 +272,8 @@ class WhistleblowController extends Controller
      */
     public function reject(Request $request, WhistleblowComplaint $complaint)
     {
+        $this->authorizeComplaintAccess($complaint);
+
         $request->validate(['reason' => 'required|string|max:2000']);
 
         try {
@@ -288,6 +297,8 @@ class WhistleblowController extends Controller
      */
     public function requestChanges(Request $request, WhistleblowComplaint $complaint)
     {
+        $this->authorizeComplaintAccess($complaint);
+
         $request->validate(['notes' => 'required|string|max:2000']);
 
         try {
@@ -315,6 +326,22 @@ class WhistleblowController extends Controller
         $filename = 'whistleblow-lawyer-review-pack-' . now()->format('Y-m-d') . '.zip';
 
         return response()->download($zipPath, $filename)->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Same own-scope as index(): a complaint is visible only to its reporter,
+     * to users with view_all_agency, or to an approver for the agency.
+     */
+    private function authorizeComplaintAccess(WhistleblowComplaint $complaint): void
+    {
+        $user = Auth::user();
+
+        abort_unless(
+            $user->hasPermission('compliance.whistleblow.view_all_agency')
+                || (int) $complaint->reported_by_user_id === (int) $user->id
+                || $this->canApprove($complaint, $user),
+            403
+        );
     }
 
     /**

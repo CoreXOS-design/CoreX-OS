@@ -2216,6 +2216,229 @@ this build modified. Failure: `Session is missing expected key [errors]. Failed 
 is true.` at line 242. Confirmed unrelated by direct inspection of the diff, not a stash-compare (see
 the build's own report for why) — flagged for whoever owns that file, not resolved here.
 
+### 14.16 QA1-walk follow-up fixes (AT-442, 2026-10-05)
+
+Johan's first browser walk of the §14 build on QA1 surfaced a real cross-property data-integrity bug
+plus five smaller gaps. Fixed here, tests in `RentalJobCardAt442FollowUpTest.php`:
+
+- **Lease/property cross-contamination (the class of bug).** `RentalWorkOrderController::create()`/
+  `RentalJobCardController::create()` used to resolve `property_id` and `lease_id` from the query
+  string INDEPENDENTLY — a `lease_id` left over from one link (or typed directly, e.g.
+  `?lease_id=22`) combined with a DIFFERENT property picked from the create form's own dropdown
+  produced a job card/work order whose `lease_id` belonged to another property entirely. This is
+  exactly how QA1 job card #1 (work order #13) ended up with `property_id=5792` but `lease_id=22`
+  (lease 22 belongs to property 21068) instead of property 5792's real active lease (#10, Andre
+  Roets). Fixed per Johan's ruling ("faults, work orders and job cards belong to the LEASE first,
+  then the property; with no tenant they attach to the property alone"):
+  - `create()` on both controllers now resolves `lease_id` FIRST (scoped via
+    `Lease::visibleTo($user, null)->find()`, graceful fallback to no pre-selection outside scope —
+    same shape as `RentalInspectionController::create()`) and DERIVES the property from the lease;
+    `property_id` is only consulted when no lease_id resolved.
+  - `store()` on both controllers now re-derives the property from a posted `lease_id` server-side
+    whenever it disagrees with the posted `property_id` — belt-and-braces against a direct/stale POST,
+    not just a UI-level fix.
+  - QA1 job card #1 / work order #13's `lease_id` is a data-only correction (real lease 10, not code)
+    — left for Johan to action once the QA1 freeze lifts, per Standard −1q (QA fixture row, not a
+    migration-worthy backfill).
+- **Property picker (#2).** The work-order create screen's property `<select>` capped at 500 rows,
+  unfiltered-by-search — on QA1's 570 rental properties it could never offer every property. Replaced
+  with a searchable, debounced picker backed by a new scoped `RentalWorkOrderController::
+  searchProperties()` endpoint (`GET .../rental-work-orders/search-properties`), same pattern as
+  `RentalApplicationController::searchProperties()` — `Property::visibleTo()` + `searchAddress()`,
+  10-result limit, no cap on what CAN be found.
+- **Pre-select wiring (#3).** The Lease Hub had no "Work order" action at all (only "Report a fault")
+  — added, paired `property_id`/`lease_id` same as the existing fault-report button. The work orders
+  list's own "New Work Order" button was completely bare (dropped any active `lease_id`/`property_id`
+  filter, including one arrived at via the rental context bar's "Work orders" chip) — now forwards
+  `request()->only(['property_id', 'lease_id'])`.
+- **Context bar (#4).** `rental-job-cards/show.blade.php` had no `<x-rental-context-bar>` at all —
+  added, same props as `rental-work-orders/show.blade.php` (`current="work_orders"`).
+- **Free-text line type (#5).** A free-text line always saved as Labour — the add-line form had no
+  Type control. Added a Labour/Part `<select>`, disabled (so it never posts) once a catalogue item is
+  picked. `RentalJobCardService::addLine()`'s precedence flipped so the CATALOGUE ITEM's own type
+  always wins over a posted `type` — only a true free-text line (no catalogue item) uses the posted
+  value.
+- **No-approval limit next to the total (#6).** `RentalJobCardController::show()` now passes
+  `noApprovalThreshold` (`RentalWorkOrderSetting::thresholdFor()`, same figure the work order's own
+  show screen already surfaces) and the totals row states whether the current total is within or over
+  it. The static explainer paragraph under "Quote to owner" (duplicated what the figure now shows
+  concretely) was removed.
+- **Duplicate success message (#7).** `rental-job-cards/show.blade.php` rendered its own inline
+  `session('success')` banner ON TOP OF the app's standard toast
+  (`components.toast-notifications`, which reads the same flash key) — same bug, same fix, as
+  `leases/show.blade.php` (AT-444 follow-up 2): banner removed, toast is the only success surface.
+- **"Send to owner as quote" mail (#8) — FIXED 2026-10-05, Johan's follow-up ruling.** Confirmed the
+  defect: `RentalWorkOrderService::notifyOwner()` (`app/Services/Rentals/RentalWorkOrderService.php:166`,
+  prior to this fix) resolved its recipient via `Property::sellerOwnerContact()`
+  (`app/Models/Property.php:1169`) — a method whose own documented fallback (AT-105, for PDF Splitter
+  filing) returns "the sole linked contact" when none is tagged seller/owner/landlord/lessor. On a
+  property with ONLY a tenant linked (QA1 property 5792 — Andre Roets, a real personal email, no
+  landlord contact at all), that fallback resolves the TENANT as "the owner." Never actually
+  triggered on QA1 (job card #1 has no quote row), but a real defect, not a hypothetical.
+  **Fix — narrowest point covering both callers, sales-side untouched:**
+  - New `Property::landlordContact()` (`app/Models/Property.php`, right after `sellerOwnerContact()`)
+    — the SAME seller-side role match, but NO sole-contact fallback; null when nothing is explicitly
+    tagged landlord/owner/seller/lessor. `sellerOwnerContact()` itself is untouched — every other
+    caller (PDF Splitter, FICA pre-fill, compliance aggregation, reports, the rental-context-bar's own
+    landlord display) keeps its existing, deliberate fallback.
+  - `RentalWorkOrderService::notifyOwner()` now calls `landlordContact()` instead — the ONE choke
+    point both the job card's "Send to owner as quote" (`RentalJobCardService::sendToOwnerAsQuote()`)
+    and every outside-supplier owner notification (creation + completion, §4) route through. No
+    landlord → mail is skipped, exactly as it already was for a property with zero contacts; it now
+    also correctly skips for a property with a tenant-only contact instead of mis-firing.
+  - `RentalJobCardService::sendToOwnerAsQuote()` additionally hard-blocks the WHOLE action (not just
+    the mail) when `landlordContact()` is null — throws `LogicException('No landlord linked — link a
+    landlord before sending the quote.')` before generating the PDF or recording anything, per
+    Johan's ruling that an owner quote must never silently proceed without a real owner to send it to.
+    The job card show screen's "Quote to owner" block shows this message plus a "Link landlord" link
+    (→ the property's Contacts tab) instead of the send button whenever no landlord is linked.
+  - The outside-supplier path (work order creation/completion) is NOT hard-blocked the same way —
+    those notifications are automatic side effects of actions a user already took for other reasons
+    (reporting/completing a work order), not a standalone "send" the user clicked expecting a mail;
+    they keep their existing silent-skip-if-no-recipient behaviour, just now correctly never
+    resolving a tenant as that recipient.
+  - `RentalJobCardLifecycleTest`'s fixture property had no contacts at all, so its three quote-sending
+    tests (relying on the OLD skip-mail-but-still-send behaviour) needed a landlord contact added to
+    `setUp()` to keep passing — this is the intended behavioural tightening, not a regression.
+
+---
+
+## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
+
+**Johan's requirement, verbatim (via the conductor's investigation brief):** "at the end of an
+inspection (in, routine, out), where items/rooms were marked as faulty or damaged, the agent must be
+able to create fault reports, work orders or job cards straight from those marked items, linked back
+to the inspection, the lease and the property." A prior read-only investigation
+(`/tmp/rentals-inspection-followup-investigation-2026-10-05.md`) found the schema ALREADY carried the
+bridge FKs (`rental_fault_reports.rental_inspection_item_id` /
+`.reported_inspection_observation_id`, `rental_work_orders.rental_inspection_item_id` /
+`.reported_inspection_observation_id`, and `RentalWorkOrder::REPORTED_BY_INSPECTION` — all present
+since Stages 1/4 of this same spec) but no UI anywhere ever set them — this section is the wiring,
+not a new data model.
+
+### 15.1 The Follow-up block
+
+`resources/views/corex/rental-inspections/show.blade.php`, rendered on every inspection regardless of
+status (a draft being finished can raise follow-up just as well as a completed one) — one row per
+observation whose `condition` is not the agency's own configured baseline
+(`RentalInspectionSetting::baselineConditionKeyFor()`, never a hardcoded `'good'` check — the
+observation's existing photo-anchor exclusion, `RentalInspectionObservation::isPending()`, applies
+too, so a bare photo with no condition recorded yet never appears here). Each row shows room/item/
+condition/note/photo-count, a checkbox, and either a create action or — idempotent, per Johan's own
+requirement — the existing linked record(s) with status, if one has already been raised from that
+observation.
+
+### 15.2 Three actions, one shared resolution service
+
+`App\Services\Rentals\RentalInspectionFollowUpService` is the one place the resolution/derivation
+logic lives; every controller it serves is a thin caller, same discipline as every other service in
+this family:
+
+- **`resolveLeaseAndProperty()`** — lease first (the inspection's own `lease_id`, required per
+  `rentals-rebuild.md` §0's dependency note), property derived from it; falls back to the
+  inspection's own denormalized `property_id` only if the lease can't resolve one. If the two ever
+  disagree (should never happen — `property_id` is denormalized FROM the lease at creation,
+  `RentalInspection::boot()`), the lease wins — absorbed, never thrown (BUILD_STANDARD §3), matching
+  the identical lease-first/absorb discipline `RentalInspectionController::create()`'s own
+  lease_id/property_id pre-select already established (AT-439 Part 3).
+- **Title** — `"<Room> — <Item>: <Condition>"` (room falls back to `'General'` when the item has no
+  room set). **Description** — the observation's own note, falling back to the same title string
+  when the note is empty (`description` is NOT NULL on both target tables — BUILD_STANDARD §2).
+- **"Create fault report"** — direct, immediate server-side creation (`POST .../follow-up/fault-
+  reports`, `RentalInspectionController::storeFollowUpFaultReports()`). No intermediate form: unlike
+  a work order, a fault report needs no further human decision before it can exist.
+  `reported_by_type` defaults to `tenant` on an in/ad-hoc inspection, `agent_noticed` on an out
+  (Johan's own instruction: label the reported-by default as owner/agent, not tenant, on an out
+  inspection — a tenant does not usually self-report the damage found at their own move-out).
+  `reported_by_contact_id` resolves from the observation's own `observed_by_contact_id` when set,
+  else the lease's primary tenant. `reported_channel = 'in_person'` (the agent was physically there).
+  Idempotent: an observation that already has a fault report is silently skipped (never duplicated),
+  with the skip count folded into the flash message.
+- **"Create work order" / "Create job card (our team)"** — BOTH redirect (GET) to the existing
+  `corex.rental-work-orders.create` form — "opens the existing work-order create with its 'Who does
+  the work?' choice," per Johan's own framing, not a second creation path. The shortcut only
+  pre-selects that radio to `internal`; the agent can still change it. `reported_by_type` is forced
+  to the existing-but-previously-unused `REPORTED_BY_INSPECTION` value (§3.2's own documented, never-
+  wired-up meaning: "the fault was raised as an observation during an in-inspection, out-inspection…
+  `reported_inspection_observation_id` links directly to that observation").
+
+### 15.3 One record per ticked item by default, "combine" for several
+
+Per-row mini-actions are always single-item (no ticking required). A shared checkbox + "Combine
+ticked items into one" control sits below the list, feeding all three action buttons:
+
+- **Combine OFF (default), several ticked** — one record PER ticked item. For fault reports this
+  loops `RentalFaultReportService::report()` once per observation, in the SAME request (no
+  intermediate form, since none is needed). For work orders/job cards, the create screen switches to
+  a **batch** mode: the item list (titles already derived, nothing left to type per item) plus only
+  the fields a human must still decide ONCE for the whole batch — who does the work, trade type —
+  and `RentalWorkOrderController::store()`'s new `storeBatch()` path loops the SAME
+  `RentalWorkOrderService::report()` / `RentalJobCardService::createForProperty()` calls `store()`'s
+  single-item path already used, one call per item.
+- **Combine ON, several ticked** — exactly one record, whichever observation sorts lowest-id as the
+  primary FK (`rental_inspection_item_id`/`reported_inspection_observation_id`), title
+  `"Multiple items (N) — <address>"`, description a bulleted per-item summary. A genuine
+  many-to-many "one record covering several items" join table was considered and rejected as
+  disproportionate to this request — the single-primary-FK-plus-bulleted-description shape is the
+  smallest design that satisfies "combine into one" without a new table.
+- **Idempotency under a race/resubmit** — both the direct fault-report path and the batch work-order
+  path re-check "does this observation already have one" at submit time, not just at render time;
+  an item raised between the form rendering and the batch submitting is skipped, not duplicated.
+
+### 15.4 Photos — linked, not re-uploaded
+
+An observation's existing `rental_inspection_photos` rows are linked onto the new fault report by
+creating a new `rental_fault_report_photos` row with the SAME `storage_path` — a second database
+reference to the same physical file, zero disk-duplication cost, and the photo genuinely is the same
+piece of evidence, now filed against two records. (Work orders/job cards raised from the Follow-up
+block do not carry photos across automatically — an agent uploads a fresh "reported" photo on the
+work order itself if wanted; the fault-report path is the one Johan's own wording ("carrying photos +
+notes across") most directly describes, and is the one built.)
+
+### 15.5 Back-links and the tenancy log
+
+Every fault report / work order / job card raised this way shows "From inspection `<type>`
+`<date>`" on its own show page, linking back to the inspection (`reportedInspectionObservation.
+inspection`, reached through the work order for a job card — a job card carries no inspection FK of
+its own, only its 1:1 `rental_work_order_id`, per §14's existing design). The Lease Hub tenancy log
+(`LeaseTimelineService::faultEntries()`/`workOrderEntries()`) needed **no new code at all** — it
+already computes its rows live from `lease->faultReports()`/`lease->workOrders()`, so any record
+created here that carries a `lease_id` (resolved per §15.2's lease-first rule) appears there
+automatically, the same as one raised directly from the property or lease screen.
+
+### 15.6 No clash with AT-442 (Job Cards) or AT-445 (Portal)
+
+A job card raised via the "Create job card" shortcut is still created by the SAME
+`RentalJobCardService::createForProperty()` AT-442 built — 1:1 with its own work order, same
+lifecycle, same settings. The only change to that service is one new passthrough field
+(`reported_inspection_observation_id`, §15.5's own back-link need) — nothing about job-card creation,
+sign-off, or quoting changed. The portal's tenant fault-report flow
+(`ClientTenantRentalsController::faultReportStore`) and this inspection follow-up flow both ultimately
+call the same `RentalFaultReportService::report()` — two callers of one existing service, the exact
+pattern §3.2a already designed for ("a future mobile/app endpoint can call the identical method").
+
+### 15.7 Permissions, scoping, files
+
+No new permission keys — reuses `rental_fault_reports.create` (the follow-up fault-report route) and
+`rental_work_orders.create` (the existing create/store routes, unchanged gate). The follow-up route
+also re-checks `AuthorizesRentalRecordScope::guardRentalRecordScope()` against the INSPECTION itself
+(own/branch/all, same as every other action on `RentalInspectionController`) before touching any of
+its observations — a user who cannot open this inspection cannot raise a fault report from it either,
+direct-POST-by-id included. Cross-agency inspection ids are absorbed by the existing `AgencyScope`
+route-model-binding 404, never a raw exception.
+
+**Files:** `app/Services/Rentals/RentalInspectionFollowUpService.php` (new) ·
+`app/Http/Controllers/CoreX/RentalInspectionController.php` (show() data, new
+`storeFollowUpFaultReports()`) · `app/Http/Controllers/CoreX/RentalWorkOrderController.php`
+(create()/store() batch+prefill) · `app/Http/Controllers/CoreX/RentalFaultReportController.php` /
+`RentalJobCardController.php` (back-link eager-loads) ·
+`app/Services/Rentals/RentalJobCardService.php` (one passthrough field) ·
+`resources/views/corex/rental-inspections/show.blade.php` (the Follow-up block) ·
+`resources/views/corex/rental-work-orders/create.blade.php` (single/batch prefill) ·
+`resources/views/corex/{rental-fault-reports,rental-work-orders,rental-job-cards}/show.blade.php`
+(back-links) · `routes/web.php` (one new route) ·
+`tests/Feature/RentalInspections/RentalInspectionFollowUpTest.php` (new).
+
 ---
 
 ## AT-439 (Rentals rebuild 1/7, "Foundation") — Own/Branch/All scope, Fault Reports + Work Orders, 2026-10-04

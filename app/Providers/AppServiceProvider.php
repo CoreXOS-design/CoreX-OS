@@ -404,6 +404,16 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
 
         // ─────────────────────────────────────────────────────────────────
+        // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.
+        // The listener is SYNC on purpose: a queued listener on an
+        // AbstractDomainEvent fatals restoring the parent's readonly $eventId, so
+        // it only dispatches a job carrying scalars. Registered HERE because event
+        // discovery is off in CoreX — a listener not listed here does nothing.
+        Event::listen(\App\Events\Property\SyndicationApprovalRequested::class, [\App\Listeners\Property\NotifySyndicationApprovalDecision::class, 'handleRequested']);
+        Event::listen(\App\Events\Property\SyndicationApproved::class,          [\App\Listeners\Property\NotifySyndicationApprovalDecision::class, 'handleApproved']);
+        Event::listen(\App\Events\Property\SyndicationRejected::class,          [\App\Listeners\Property\NotifySyndicationApprovalDecision::class, 'handleRejected']);
+        Event::listen(\App\Events\Property\SyndicationApprovalRevoked::class,   [\App\Listeners\Property\NotifySyndicationApprovalDecision::class, 'handleRevoked']);
+
         // DR2 Wave 2 — Deal → Property → Portal status sync (agency-configurable,
         // OFF by default). Cross-pillar reactivity via the domain-event catalogue
         // (non-negotiable #9): subscribe to existing Deal events; each listener sets

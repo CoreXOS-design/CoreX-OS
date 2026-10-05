@@ -459,6 +459,14 @@ class RentalApplicationSettingsController extends Controller
     {
         $agencyId = $request->user()->effectiveAgencyId();
 
+        // has()-guarded (agency-onboarding-setup.md §6.1): the Setup Wizard also
+        // calls this saver, and a post that never rendered the control must
+        // leave the stored bureau alone rather than clear it. A blank value
+        // that IS posted still clears it, as before.
+        if (! $request->has('credit_bureau_name')) {
+            return redirect()->route('corex.settings.rental-applications.edit');
+        }
+
         $validated = $request->validate([
             'credit_bureau_name' => ['nullable', 'string', 'max:100'],
         ]);
@@ -484,6 +492,11 @@ class RentalApplicationSettingsController extends Controller
     public function updateTenantedLabel(Request $request)
     {
         $agencyId = $request->user()->effectiveAgencyId();
+
+        // has()-guarded — same reasoning as updateCreditBureau() above.
+        if (! $request->has('tenanted_label')) {
+            return redirect()->route('corex.settings.rental-applications.edit');
+        }
 
         $validated = $request->validate([
             'tenanted_label' => ['nullable', 'string', 'max:60'],

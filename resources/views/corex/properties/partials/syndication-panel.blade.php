@@ -46,9 +46,28 @@
     // server-side by `deny_assistant_property_write`, so hiding them just removes a
     // button that would 403 — it never removes a capability the assistant had.
     $synReadOnly = (bool) auth()->user()?->is_assistant;
+
+    // Layer 3 — syndication approval state. Computed ONCE here and handed to
+    // both the banner and the lock wrapper below, so the panel can never
+    // disagree with itself. Inert (approved: true) unless the agency switched
+    // the feature on. .ai/specs/syndication-approval-gate.md §6.4
+    $synApprovalState = $synApprovalState
+        ?? app(\App\Services\Syndication\SyndicationApprovalService::class)->stateFor($property);
 @endphp
                 {{-- Step: main --}}
                 <div x-show="synStep === 'main'" class="p-4 space-y-4">
+
+                    {{-- Layer 3 — syndication approval. Renders NOTHING unless the
+                         agency switched it on, so every other agency's panel is
+                         byte-for-byte unchanged. .ai/specs/syndication-approval-gate.md §6.4 --}}
+                    @include('corex.properties.partials._syndication-approval-banner', ['property' => $property])
+
+                    {{-- While the listing is unapproved, the portal controls below are
+                         shown but inert, with the reason stated above — never a dead
+                         switch with no explanation. The server refuses these POSTs
+                         regardless (the three syndication controllers), so this is the
+                         courtesy layer, not the gate. --}}
+                    <div @if(! $synApprovalState->approved) class="opacity-50 pointer-events-none" aria-disabled="true" @endif>
 
                     @if($websiteKeys->isNotEmpty())
                     {{-- Website portals — one panel per agency website (API key). Mirrors the
@@ -219,6 +238,8 @@
                                 // One-time-per-agent forced-read explainer — never shown again
                                 // once acknowledged, tracked on the user, not the listing.
                                 'explainerSeen'   => (bool) auth()->user()?->pp_exclusivity_explainer_seen_at,
+                                // Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §6.
+                                'agentConflict'   => app(\App\Services\Syndication\PortalAgentGuard::class)->current($property, 'pp'),
                             ];
                         @endphp
                         <div x-data="ppSyndication({{ Js::from($ppConfig) }})" @click.stop class="space-y-2 mt-2"
@@ -273,6 +294,8 @@
                                     <span style="color:var(--text-muted);">Deactivated</span>
                                 </template>
                             </div>
+
+                            @include('corex.properties.partials.portal-agent-conflict')
 
                             {{-- PP Exclusive listing warning --}}
                             <div x-show="isPpExclusiveActive()" x-cloak
@@ -563,6 +586,8 @@
                                 'resolvedP24AgencyLabel' => $resolvedP24AgencyLabel ?? '',
                                 // A.2.1 — single source of truth for the public URL lives on Property.
                                 'publicUrl'              => $property->publicListingUrls()['p24'] ?? '',
+                                // Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §6.
+                                'agentConflict'          => app(\App\Services\Syndication\PortalAgentGuard::class)->current($property, 'p24'),
                             ];
                         @endphp
                         <div x-data="p24Syndication({{ Js::from($p24Config) }})" @click.stop class="space-y-2 mt-2"
@@ -614,6 +639,8 @@
                                 <template x-if="status === 'rejected'"><span style="color:var(--ds-crimson);" x-text="'Rejected: ' + lastError"></span></template>
                                 <template x-if="status === 'deactivated'"><span style="color:var(--text-muted);">Deactivated</span></template>
                             </div>
+
+                            @include('corex.properties.partials.portal-agent-conflict')
 
                             {{-- Deferred-sync note: the listing is LIVE on P24 (has a ref,
                                  status active/submitted) but the last push didn't land
@@ -792,6 +819,10 @@
                     {{-- Live preview — see the listing exactly as the public does.
                          In the panel itself so every caller gets it, not just the
                          property page's sidebar action. --}}
+                    </div>{{-- /layer-3 lock wrapper. Live preview stays OUTSIDE it: previewing
+                              a listing changes nothing and must stay available while it waits
+                              for approval — that is how an approver looks at it. --}}
+
                     <div class="pt-3" style="border-top:1px solid var(--border);">
                         <button type="button" @click.stop="synStep = 'preview'"
                                 class="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold transition-opacity"

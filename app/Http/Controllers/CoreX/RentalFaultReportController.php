@@ -193,7 +193,8 @@ class RentalFaultReportController extends Controller
             $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
         }
         if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_fault_reports.reported_at', '<=', $dateTo);
+            // Inclusive end date (a bare date compares as midnight).
+            $query->where('rental_fault_reports.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
         }
 
         return $query;
@@ -296,10 +297,14 @@ class RentalFaultReportController extends Controller
 
     public function store(Request $request, RentalFaultReportService $service): RedirectResponse
     {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $propertyId = $request->input('property_id');
+
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            // Lease / inspection item must belong to THIS property (audit L2).
+            'lease_id' => ['nullable', \Illuminate\Validation\Rule::exists('leases', 'id')->where('property_id', $propertyId)],
+            'rental_inspection_item_id' => ['nullable', \Illuminate\Validation\Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
             // .ai/specs/rentals-faults-work-orders.md §2.2 — optional; a
             // report can still be free-text-only if nothing in the catalogue
             // fits.
@@ -309,7 +314,7 @@ class RentalFaultReportController extends Controller
                 RentalFaultReport::REPORTED_BY_AGENT_NOTICED,
                 RentalFaultReport::REPORTED_BY_OWNER_INSTRUCTED,
             ])],
-            'reported_by_contact_id' => ['nullable', 'exists:contacts,id'],
+            'reported_by_contact_id' => ['nullable', \Illuminate\Validation\Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
             'reported_channel' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::CHANNEL_PHONE,
                 RentalFaultReport::CHANNEL_WHATSAPP,
@@ -323,6 +328,12 @@ class RentalFaultReportController extends Controller
         ]);
 
         $property = Property::findOrFail($validated['property_id']);
+        // The acting user must be able to see this property (own/branch/agency)
+        // — same rule as the inventory store; AgencyScope alone is not enough.
+        abort_unless(
+            Property::query()->visibleTo($request->user())->whereKey($property->id)->exists(),
+            404
+        );
         $user = $request->user();
 
         $attributes = $validated;
@@ -351,6 +362,8 @@ class RentalFaultReportController extends Controller
             // exists (see RentalFaultReport::workOrder()'s own note).
             'reportedByContact', 'reportedByUser', 'capturedByUser', 'cancelledByUser',
             'createdByUser', 'photos.uploadedBy', 'approvals.recordedByUser', 'updates.createdByUser',
+            // §15 (AT-447) — "From inspection <type> <date>" back-link.
+            'reportedInspectionObservation.inspection',
         ]);
 
         return view('corex.rental-fault-reports.show', ['faultReport' => $rentalFaultReport]);
@@ -546,7 +559,11 @@ class RentalFaultReportController extends Controller
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $rentalFaultReport->cancel($request->user(), $validated['cancel_reason']);
+        try {
+            $rentalFaultReport->cancel($request->user(), $validated['cancel_reason']);
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Fault report cancelled.');
     }
@@ -589,7 +606,8 @@ class RentalFaultReportController extends Controller
 
         $clientKey = $request->input('client_idempotency_key');
         if ($clientKey) {
-            $existing = RentalFaultReportPhoto::where('client_idempotency_key', $clientKey)->first();
+            $existing = RentalFaultReportPhoto::where('client_idempotency_key', $clientKey)
+                ->where('rental_fault_report_id', $rentalFaultReport->id)->first();
             if ($existing) {
                 return response()->json($existing, 200);
             }
