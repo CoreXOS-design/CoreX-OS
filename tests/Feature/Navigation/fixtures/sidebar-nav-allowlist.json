@@ -1,4 +1,22 @@
 {
+  "corex.rental-crews.create": {
+    "flags": [
+      "GROUP_NEVER_OPENS"
+    ],
+    "reason": "Rental Crews (resources/views/layouts/corex-sidebar.blade.php:1269) landed via a concurrent lane's merge (rental-crews-build-2026-10-05) with a sidebar link but no $activeGroup branch for corex.rental-crews.* — landing on this page directly never opens its owning panel. Pre-existing, unrelated to and unaffected by the 2026-10-05 HR menu reorg; that lane's own fix, not this one's."
+  },
+  "corex.rental-crews.edit": {
+    "flags": [
+      "GROUP_NEVER_OPENS"
+    ],
+    "reason": "Rental Crews (resources/views/layouts/corex-sidebar.blade.php:1269) landed via a concurrent lane's merge (rental-crews-build-2026-10-05) with a sidebar link but no $activeGroup branch for corex.rental-crews.* — landing on this page directly never opens its owning panel. Pre-existing, unrelated to and unaffected by the 2026-10-05 HR menu reorg; that lane's own fix, not this one's."
+  },
+  "corex.rental-crews.index": {
+    "flags": [
+      "GROUP_NEVER_OPENS"
+    ],
+    "reason": "Rental Crews (resources/views/layouts/corex-sidebar.blade.php:1269) landed via a concurrent lane's merge (rental-crews-build-2026-10-05) with a sidebar link but no $activeGroup branch for corex.rental-crews.* — landing on this page directly never opens its owning panel. Pre-existing, unrelated to and unaffected by the 2026-10-05 HR menu reorg; that lane's own fix, not this one's."
+  },
   "ppra-employment-letters.download": {
     "flags": [
       "NO_ITEM"
