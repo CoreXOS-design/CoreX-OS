@@ -527,3 +527,166 @@ text), `tests/Feature/Leases/LeaseHubTest.php` (+4 — the landlord-contact fall
 tagged landlord, and the Renew dialog's two states), all passing alongside their full existing files
 (no regressions) and `tests/Feature/Leases/RentalContextBarLandlordChipTest.php` (existing, re-verified
 unaffected).
+
+## 19. Follow-up 4, 2026-10-05 — three-way notice outcome, "change outcome" later, availability-date mapper gap closed
+
+Johan's ruling, 5 Oct 2026, on top of §15 GATE 2 row 2 and §17/§18's "readvertise" checkbox:
+
+1. **The dialog's pre-ticked "Put this property back on the market" checkbox is gone.** The agent now
+   picks exactly ONE of three every time, nothing pre-selected, and the dialog cannot be confirmed
+   without a choice (HTML `required` radios client-side, `required|in:` server-side):
+   (a) **Readvertise** — put back on the market, available from the day after move-out (row 2's
+   existing behaviour, unchanged mechanism);
+   (b) **Withdraw** — the property is lost/taken back; uses the EXISTING `withdrawn` status (already
+   in `Property::OFF_MARKET_STATUSES`/`systemStatuses()` — no new status anywhere), through the same
+   save()-driven mechanism as (a) (`PropertyStatusFollowsLeaseService::withdrawOnNotice()`/
+   `reverseWithdraw()`);
+   (c) **Leave as is** — no property write at all (identical to the old unticked behaviour).
+   `leases.notice_readvertised` (boolean) is replaced outright by `leases.notice_outcome` (string:
+   `readvertise`/`withdraw`/`leave`) — a boolean could only ever represent two of the three states.
+   The choice is recorded on the lease, in `lease_events` (`TYPE_NOTICE_RECORDED`'s own metadata/
+   description), and surfaces under the tenancy log's existing `notice` filter type.
+2. **Timing — confirmed, not invented**: Withdraw applies IMMEDIATELY, same as readvertise already
+   did (row 2's own pre-existing timing) — no new timing rule. Neither one-click outcome is deferred
+   to the move-out date; only rows 6/7 (lease actually ending) are date-driven, unchanged.
+3. **"Change the choice later"** — `LeaseRenewalService::changeNoticeOutcome()` (new), reached from
+   the Lease Hub's "Lease actions" menu via a new "Change notice outcome…" dialog (menu-only, like
+   Reverse notice/Cancel — never `?action=`-triggerable) and its own route
+   (`corex.leases.renewal.notice.change-outcome` / API mirror). Reverses whichever property effect the
+   CURRENT outcome applied (if any), applies the new one, and logs
+   `LeaseEvent::TYPE_NOTICE_OUTCOME_CHANGED` — `move_out_date`/`notice_given_by` are untouched, only
+   the outcome changes.
+4. **"Show available-from date on portals"** — new `properties.show_available_from_on_portals`
+   boolean (default **true** — matches both mappers' own pre-existing, always-on behaviour, so an
+   agency only sees a change if it explicitly turns this off). Surfaced in TWO places: (i) a sub-option
+   on the readvertise choice in the notice dialog (default ticked), which persists straight onto this
+   same property setting in the same `save()`; (ii) a standalone checkbox on the property's Rental
+   Details tab (`corex.properties.rental-details.update` → `PropertyController::updateRentalDetails()`),
+   same unchecked-checkbox-means-false rule as `has_deposit`/`water_included`/etc. on that same form.
+   **This is a single setting governing the field everywhere `lease_start_date` is read as "available
+   from" — not notice-flow-specific.**
+
+**Investigation finding, BEFORE any mapper change (per instruction) — the "gap" §15/§18 flagged was
+only half right:**
+- **Property24** (`Property24ListingMapper.php`) actually has TWO consumers of `lease_start_date` as
+  an availability date, not one: `commercialInfo.availabilityDate` (commercial-typed only, the line
+  §15/§18 flagged) **and** a listing-type-agnostic top-level `occupationDate` that already fires for
+  ANY listing type whenever `lease_start_date` is set (pre-dates this ticket — `bd5204ac0`, 2 Aug
+  2026). So P24 was **already correctly receiving a residential rental's availability date** via
+  `occupationDate` — §15/§18's claim that "neither portal's mapper will show the real availability
+  date for a residential rental" was wrong for P24 specifically; it missed this second field. Both
+  consumers are now gated behind the single `shouldSendAvailableFrom()` helper (new private method)
+  so the one setting governs both.
+- **Private Property** (`PrivatePropertyListingMapper.php`) was the real, confirmed gap: `AvailableFrom`
+  (a REQUIRED WSDL struct field — PP's contract has no "omit this field" option) was hardcoded to
+  `now()->format(...)` unconditionally, for every listing type, every time. Now
+  `PrivatePropertyListingMapper::resolveAvailableFrom()` (new public static method, same convention as
+  the existing `resolveListingDate()`) reads `lease_start_date` when the setting allows it and a date is
+  actually set; otherwise falls back to `now()` exactly as before. Because the field can never be
+  omitted, "when off, send nothing extra" means PP falls back to its pre-existing default, not a blank
+  field.
+
+**Nothing is pushed to any real portal from this build or from QA1 while this is tested** — confirmed,
+not assumed:
+- The build itself never calls either mapper's `map()` or any syndication service — it only changes
+  what a LATER, pre-existing push would read.
+- `PropertyObserver` DOES auto-fire a real, synchronous (non-queued) `Property24ApiClient` call the
+  moment `properties.status` changes on a property with `p24_syndication_enabled` + a real `p24_ref`
+  (`app/Observers/PropertyObserver.php` ~L720-804) — this is pre-existing (row 1/2's own mechanism,
+  not new here), and it is **not gated by whether a queue worker is running**, since it never goes
+  through the queue at all.
+- `.ai/BUILD_STANDARD.md` §8 states outbound is "neutralised on QA" and names mail/WAHA/PP/Firebase as
+  blanked — **it does not name Property24 explicitly**, and no code-level `APP_ENV`/environment guard
+  exists anywhere in `Property24ApiClient`/`PrivatePropertyListingMapper` (checked, not assumed) — the
+  neutralisation (if it covers P24) must be a QA1-database-level credential wipe, which this build
+  cannot verify from a worktree with no access to the real QA1 database.
+- Separately, `scripts/qa-deploy.sh` (L63, L324-325) restarts a real systemd queue worker
+  (`corex-qa1-queue`) on every deploy — directly contradicting `BUILD_STANDARD.md` §8's own "QA is
+  web-only (no queue worker/scheduler)" claim. Not touched (outside this ticket's scope), reported here
+  because it's exactly the kind of fact Johan asked this build to confirm, not assume.
+- **Flagged to Johan, not fixed**: before relying on "QA1 can't reach a real portal," confirm directly
+  on the QA1 host whether the agencies there actually carry live P24 credentials/`p24_ref`s, since the
+  synchronous status-push path means a readvertise/withdraw choice CAN reach a real P24 endpoint on any
+  property that does.
+
+**Also flagged, not changed (same reasoning as non-negotiable #2 — report, don't fix outside scope)**:
+`LeaseSetting::autoReadvertiseOnNoticeFor()`/`auto_readvertise_on_notice` (§15's own setting) had
+exactly one consumer — defaulting the old checkbox's tick — which this ruling removes outright ("nothing
+pre-selected, ever"). The setting/column/getter/Setup-Wizard-and-Settings-page controls are left exactly
+as they were; removing them is a bigger, separate call than this ticket's explicit scope. It is now a
+setting with no behavioural effect on this flow.
+
+**Tests**: `tests/Feature/Leases/LeaseRenewalTest.php` (+6 — missing-outcome-choice HTTP rejection,
+unrecognised-outcome HTTP rejection, invalid-outcome service rejection, change-outcome HTTP
+accept/reject), `tests/Feature/Leases/LeasePropertyStatusTest.php` (+6 — withdraw sets `withdrawn`
+immediately and leaves `lease_start_date` untouched, withdraw reversed by reverse-notice, the
+available-from-on-portals tick persisting onto the property, change-outcome reversing the old effect
+and applying the new one, change-outcome's active-notice guard, change-outcome's invalid-value guard;
+existing boolean-arg call sites updated to the new string outcome, no behaviour change),
+`tests/Unit/Services/Rentals/LeaseActionDialogResolverTest.php` (+3 — change-notice-outcome reopens on
+error only with an active notice, never `?action=`-triggerable),
+`tests/Unit/Syndication/Property24AvailableFromGateTest.php` (new, 4 cases — the exact gate both
+`occupationDate`/`commercialInfo.availabilityDate` call),
+`tests/Unit/PrivateProperty/PpAvailableFromResolutionTest.php` (new, 4 cases, same convention as the
+existing `PpListingDateResolutionTest`), `tests/Feature/Properties/ShowAvailableFromOnPortalsSettingTest.php`
+(new, 3 cases — DB column default, tick persists, unchecked-checkbox-means-false), all passing alongside
+their full existing files.
+
+**Pre-existing test bug found, NOT fixed (outside this ticket's scope, per non-negotiable #2)** —
+`tests/Feature/Leases/LeaseActionsMenuTest.php:87-88` (`test_an_active_notice_swaps_the_two_notice_actions_for_reverse_notice`,
+introduced `120658d99`, 2026-10-05, unrelated to this ticket) asserts the Lease Hub page never shows the
+literal words "Tenant gave notice"/"Landlord not renewing" once a notice is active — but the tenancy
+log panel on that SAME page (`show.blade.php:349`, `{{ $entry['description'] }}`) has always rendered
+`LeaseRenewalService::recordNotice()`'s own event description verbatim, and that description has always
+been built as `"{$who} — move-out …"` where `$who` is literally `'Tenant gave notice'`/`'Landlord not
+renewing'` — unchanged by this ticket. The assertion was wrong from the day it shipped; reproduced on a
+clean checkout before touching this file.
+
+**Johan's ruling on the three flags above, 2026-10-05 — all three actioned:**
+
+1. **`auto_readvertise_on_notice`** — confirmed, not assumed: **none of this gate's four settings
+   (`auto_readvertise_on_notice`, `auto_restore_status_on_lease_ended`,
+   `auto_restore_status_on_lease_cancelled`, `default_pre_let_status`) were ever actually wired into
+   any screen.** `resources/views/corex/settings/leases.blade.php` renders exactly four fields
+   (`expiry_notice_window_days`, `show_lease_type_field`, `default_deposit_months`,
+   `tenant_notice_period_days`) — none of GATE 2's own settings. `config/agency-onboarding-copy.php`
+   has zero matches for any of the four either. §15's own closing line ("All four settings are
+   surfaced in the Setup Wizard's existing 'leases' step and the Lease Settings page") was never
+   true — a documentation error in this spec, not a regression. There is therefore nothing to
+   "retire from the settings screen" — no code change made; this correction is the fix. The column
+   and getter stay exactly as they are, per the ruling.
+2. **`LeaseActionsMenuTest.php` stale-test fix** — landed in a separate commit (not this one), per
+   ruling. Scoped the two `assertDontSee()` calls to the menu button's own raw-HTML text (including
+   its trailing `&hellip;`), which the tenancy-log description never carries — the log entry still
+   renders, correctly, and the test no longer collides with it.
+3. **QA1 real-portal-push risk — investigated read-only on the QA1 host itself, 2026-10-05, nothing
+   triggered:**
+   - **P24 cannot reach production from QA1.** `Property24ApiClient::__construct()` takes its
+     `baseUrl` EXCLUSIVELY from the global `config('services.property24_syndication')['api_url']` —
+     never per-agency, regardless of whether an agency has its own `p24_username`/`p24_password`
+     stored. QA1's `.env` has no `P24_EXDEV_API_URL` override, so the config falls through to its own
+     default: `https://api.exdev.property24-test.com` (P24's own test environment) — confirmed via
+     `grep -c` against `.env`, no value ever printed. Every P24 call from QA1, from any agency, goes
+     to P24's test environment, never production.
+   - **Private Property is fully inert on QA1**: `PP_USERNAME`/`PP_PASSWORD` are blank in `.env`
+     (confirmed by key presence, not by printing values) and `PP_WSDL` points at
+     `services.sandbox.pp.co.za` — PP's own sandbox endpoint.
+   - **No outbound P24/PP activity in the last 7+ days**: every `storage/logs/property24-*.log` and
+     `private_property-*.log` file on QA1 is either 0 bytes or last written **2026-09-25** (rotation
+     of 2026-09-23's content) — nothing from 2026-09-28 onward, and `laravel.log` has zero
+     P24/PrivateProperty-related lines in that window either.
+   - **Correction to this spec's own earlier claim**: a queue worker IS running on QA1 right now
+     (`systemctl status corex-qa1-queue` — active), and `scripts/qa-deploy.sh` restarts it on every
+     deploy. `BUILD_STANDARD.md` §8's "QA is web-only (no queue worker/scheduler)" is **not** true
+     today. This does not change the outbound-safety conclusion above (the sandboxed destination is
+     what protects QA1, not the worker's absence) — but the "no queue worker" reasoning this spec
+     leaned on earlier (§17/§18) was never the real safety mechanism and should not be relied on.
+   - **Net: QA1 cannot reach a real/production Property24 or Private Property endpoint today.** The
+     protection is the sandboxed base URL/WSDL and blank/non-production credentials, not the absence
+     of a queue worker.
+   - **Credential-handling note**: an early investigation command (`cat .env | grep ...`) printed one
+     real secret in full before the redaction pattern was corrected — `P24_IMAP_PASSWORD` (an IMAP
+     mailbox credential used for P24's lead-import email parsing, unrelated to the P24 syndication API
+     credentials discussed above). Flagged immediately when found; that key should be rotated. No
+     other command in this investigation printed a credential value — every check after was
+     key-name/`grep -c`/log-metadata only.

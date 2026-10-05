@@ -372,10 +372,12 @@ class LeaseController extends Controller
             'nextStep' => $hubService->nextStep($lease),
             'openItemCounts' => $hubService->openItemCounts($lease),
             'landlords' => $lease->landlordContacts(),
-            // AT-444 follow-up (conductor, 2026-10-05) — the new "Lease actions"
-            // header menu's notice dialogs default this tick the same way the
-            // renewal screen's own dialogs already do.
-            'autoReadvertiseOnNotice' => \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id),
+            // .ai/specs/rental-renewals.md §19 — the notice dialogs' "Show
+            // available-from date on portals" tick defaults from the
+            // property's own current setting (ticked the first time, same
+            // as the property's own default); the "Change notice outcome"
+            // dialog pre-selects the lease's own current choice.
+            'showAvailableFromOnPortals' => (bool) ($lease->property?->show_available_from_on_portals ?? true),
             'timelineEntries' => $page['entries'],
             'timelineTotal' => $page['total'],
             'timelineTypes' => LeaseTimelineService::TYPES,

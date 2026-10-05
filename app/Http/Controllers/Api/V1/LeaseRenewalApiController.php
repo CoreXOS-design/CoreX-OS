@@ -141,15 +141,36 @@ class LeaseRenewalApiController extends Controller
         $validated = $request->validate([
             'move_out_date' => ['required', 'date'],
             'note' => ['nullable', 'string', 'max:500'],
-            'readvertise' => ['nullable', 'boolean'],
+            // .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05:
+            // the agent picks exactly one of the three, every time; no
+            // default, same contract as the web form.
+            'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
+            'show_available_from_on_portals' => ['nullable', 'boolean'],
         ]);
 
-        $readvertise = $request->has('readvertise')
-            ? $request->boolean('readvertise')
-            : \App\Models\LeaseSetting::autoReadvertiseOnNoticeFor($lease->agency_id);
+        $showAvailableFromOnPortals = $validated['notice_outcome'] === Lease::NOTICE_OUTCOME_READVERTISE && $request->has('show_available_from_on_portals')
+            ? $request->boolean('show_available_from_on_portals')
+            : null;
 
         try {
-            $updated = app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $readvertise);
+            $updated = app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $validated['notice_outcome'], $showAvailableFromOnPortals);
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->errors()], 422);
+        }
+
+        return response()->json(['lease' => $updated]);
+    }
+
+    /** .ai/specs/rental-renewals.md §19 — JSON mirror of the web action. */
+    public function changeNoticeOutcome(Request $request, Lease $lease): JsonResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+        $validated = $request->validate([
+            'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
+        ]);
+
+        try {
+            $updated = app(LeaseRenewalService::class)->changeNoticeOutcome($lease, $validated['notice_outcome'], $request->user());
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         }

@@ -145,34 +145,70 @@ class LeaseRenewalService
      * tenancy log and any future landlord-communication content (§7's own
      * wording — the outcome is identical either way).
      *
-     * §15 (GATE 2) row 2 — $readvertise is the dialog's own tick ("put this
-     * property back on the market"); the CALLER resolves its default from
-     * LeaseSetting::autoReadvertiseOnNoticeFor() before calling this, so the
-     * service itself stays a pure "do what I'm told" orchestrator. Recorded
-     * on the lease (notice_readvertised) so reverseNotice() below knows
-     * whether a property-status change must also be undone.
+     * §19 — Johan's ruling 2026-10-05: $outcome is the agent's explicit,
+     * every-time, nothing-pre-selected choice of what happens to the
+     * PROPERTY — one of Lease::NOTICE_OUTCOME_{READVERTISE,WITHDRAW,LEAVE}.
+     * The caller (controller) validates it is present and one of the three;
+     * this service re-validates it too so no caller can slip an invalid
+     * value through. Recorded on the lease (notice_outcome) so
+     * reverseNotice()/changeNoticeOutcome() below know exactly which
+     * property-side effect (if any) must be undone/replaced.
      */
-    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, bool $readvertise = false): Lease
+    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null): Lease
     {
         if (!in_array($givenBy, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
             throw ValidationException::withMessages(['notice_given_by' => 'Invalid notice source.']);
         }
+        $this->guardNoticeOutcome($outcome);
 
-        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $readvertise) {
+        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals) {
             $lease->update([
                 'notice_date' => now()->toDateString(),
                 'notice_given_by' => $givenBy,
                 'move_out_date' => $moveOutDate,
                 'notice_note' => $note,
-                'notice_readvertised' => $readvertise,
+                'notice_outcome' => $outcome,
             ]);
 
             $who = $givenBy === Lease::NOTICE_BY_TENANT ? 'Tenant gave notice' : 'Landlord not renewing';
-            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_RECORDED, "{$who} — move-out {$moveOutDate}" . ($note ? " — {$note}" : ''), $user, ['given_by' => $givenBy, 'move_out_date' => $moveOutDate, 'note' => $note, 'readvertise' => $readvertise]);
+            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_RECORDED, "{$who} — move-out {$moveOutDate} — {$this->outcomeLabel($outcome)}" . ($note ? " — {$note}" : ''), $user, ['given_by' => $givenBy, 'move_out_date' => $moveOutDate, 'note' => $note, 'outcome' => $outcome]);
 
-            if ($readvertise) {
-                app(PropertyStatusFollowsLeaseService::class)->readvertiseOnNotice($lease, $moveOutDate, $user);
-            }
+            $this->applyOutcome($lease, $outcome, $moveOutDate, $user, $showAvailableFromOnPortals);
+
+            return $lease->fresh();
+        });
+    }
+
+    /**
+     * §19 — "let the agent change the choice later from the Lease actions
+     * menu while the notice is active" (Johan's ruling). Reverses whatever
+     * property-side effect the CURRENT outcome applied, then applies the
+     * new one — the lease's own notice_date/move_out_date/notice_given_by
+     * are untouched, only notice_outcome changes. A no-op (still logged,
+     * for an honest tenancy-log trail) when the new choice matches the
+     * current one.
+     */
+    public function changeNoticeOutcome(Lease $lease, string $newOutcome, User $user): Lease
+    {
+        $this->guardNoticeOutcome($newOutcome);
+        if (!$lease->hasActiveNotice()) {
+            throw ValidationException::withMessages(['notice_outcome' => 'This lease has no active notice to change.']);
+        }
+
+        return DB::transaction(function () use ($lease, $newOutcome, $user) {
+            $previousOutcome = (string) $lease->notice_outcome;
+
+            $this->reverseOutcomeEffect($lease, $previousOutcome, $user);
+            $lease->update(['notice_outcome' => $newOutcome]);
+            $this->applyOutcome($lease, $newOutcome, (string) $lease->move_out_date?->toDateString(), $user, null);
+
+            $this->logEvent(
+                $lease,
+                LeaseEvent::TYPE_NOTICE_OUTCOME_CHANGED,
+                "Notice outcome changed: {$this->outcomeLabel($previousOutcome)} → {$this->outcomeLabel($newOutcome)}",
+                $user,
+                ['from' => $previousOutcome, 'to' => $newOutcome],
+            );
 
             return $lease->fresh();
         });
@@ -181,24 +217,58 @@ class LeaseRenewalService
     public function reverseNotice(Lease $lease, User $user): Lease
     {
         return DB::transaction(function () use ($lease, $user) {
-            $wasReadvertised = (bool) $lease->notice_readvertised;
+            $outcome = (string) $lease->notice_outcome;
 
             $lease->update([
                 'notice_date' => null,
                 'notice_given_by' => null,
                 'move_out_date' => null,
                 'notice_note' => null,
-                'notice_readvertised' => null,
+                'notice_outcome' => null,
             ]);
 
             $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_REVERSED, 'Notice reversed', $user);
 
-            if ($wasReadvertised) {
-                app(PropertyStatusFollowsLeaseService::class)->reverseReadvertise($lease, $user);
-            }
+            $this->reverseOutcomeEffect($lease, $outcome, $user);
 
             return $lease->fresh();
         });
+    }
+
+    private function guardNoticeOutcome(string $outcome): void
+    {
+        if (!in_array($outcome, [Lease::NOTICE_OUTCOME_READVERTISE, Lease::NOTICE_OUTCOME_WITHDRAW, Lease::NOTICE_OUTCOME_LEAVE], true)) {
+            throw ValidationException::withMessages(['notice_outcome' => 'Choose what happens to the property.']);
+        }
+    }
+
+    private function outcomeLabel(string $outcome): string
+    {
+        return match ($outcome) {
+            Lease::NOTICE_OUTCOME_READVERTISE => 'Back on the market',
+            Lease::NOTICE_OUTCOME_WITHDRAW => 'Withdrawn',
+            Lease::NOTICE_OUTCOME_LEAVE => 'Left as is',
+            default => $outcome,
+        };
+    }
+
+    private function applyOutcome(Lease $lease, string $outcome, ?string $moveOutDate, User $user, ?bool $showAvailableFromOnPortals): void
+    {
+        match ($outcome) {
+            Lease::NOTICE_OUTCOME_READVERTISE => app(PropertyStatusFollowsLeaseService::class)->readvertiseOnNotice($lease, (string) $moveOutDate, $user, $showAvailableFromOnPortals),
+            Lease::NOTICE_OUTCOME_WITHDRAW => app(PropertyStatusFollowsLeaseService::class)->withdrawOnNotice($lease, $user),
+            Lease::NOTICE_OUTCOME_LEAVE => null,
+            default => null,
+        };
+    }
+
+    private function reverseOutcomeEffect(Lease $lease, string $outcome, User $user): void
+    {
+        match ($outcome) {
+            Lease::NOTICE_OUTCOME_READVERTISE => app(PropertyStatusFollowsLeaseService::class)->reverseReadvertise($lease, $user),
+            Lease::NOTICE_OUTCOME_WITHDRAW => app(PropertyStatusFollowsLeaseService::class)->reverseWithdraw($lease, $user),
+            default => null,
+        };
     }
 
     private function logEvent(Lease $lease, string $type, string $description, User $user, ?array $metadata = null): void
