@@ -11,7 +11,9 @@ use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TrackedPropertyAddress;
 use App\Models\Prospecting\TrackedPropertyExternalRef;
+use App\Models\Prospecting\TrackedPropertyOwner;
 use App\Models\User;
+use App\Support\OwnerEntityClassifier;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -419,6 +421,197 @@ final class TrackedPropertyMatchOrCreateService
     public function findExistingMatch(int $agencyId, array $facts, array $source = []): ?TrackedProperty
     {
         return $this->resolveMatch($agencyId, $facts, $source);
+    }
+
+    /**
+     * 2026-10-05 (deeds-capture pre-check, .ai/specs/deeds-capture.md §9) —
+     * exposes the SAME strategy label/reason/candidate-label resolveMatch()
+     * already computes (lastMatchStrategy, reasonFor(), candidateLabel()),
+     * for a caller that needs to show it to an agent BEFORE the paid step.
+     * Must be called immediately after findExistingMatch() in the same
+     * request — same synchronous-state contract matchOrCreate() itself
+     * already relies on. Returns null when the last findExistingMatch()
+     * call found nothing (lastMatchStrategy never got set).
+     *
+     * 'confident' is false only for '5_token_overlap_untiebroken' — a tie
+     * resolveMatch() could not break and picked automatically (see its own
+     * comment above) — every other strategy is a real structural identity
+     * match. No new matching logic; this only reads state the resolver
+     * already produces.
+     */
+    public function describeLastMatch(array $facts, TrackedProperty $tp): ?array
+    {
+        if ($this->lastMatchStrategy === null) {
+            return null;
+        }
+
+        return [
+            'strategy'  => $this->lastMatchStrategy,
+            'reason'    => $this->reasonFor($this->lastMatchStrategy, $facts, $tp),
+            'label'     => $this->candidateLabel($tp),
+            'confident' => $this->lastMatchStrategy !== '5_token_overlap_untiebroken',
+        ];
+    }
+
+    /**
+     * Owner-name + address signal (deeds-capture pre-check, Johan 2026-10-05
+     * — ".ai/specs/deeds-capture.md §9 item 2"). Independent of the
+     * structural property-identity strategies in resolveMatch() above: this
+     * cross-checks the incoming owner NAME (free on the cmainfo panel,
+     * before the paid ID reveal) against the names already linked to this
+     * agency's OWN tracked properties, combined with the free property
+     * details (suburb / street / sectional scheme) — never the structural
+     * matcher's job, and never promoted to a confident 'exists' result on
+     * its own; the caller surfaces this as a 'possible match' only.
+     *
+     * Match rule:
+     *   - Natural-person name (OwnerEntityClassifier::isEntity() false):
+     *     every whitespace-token (>=3 chars) of the incoming name must
+     *     appear among the stored owner name's own tokens, or vice versa —
+     *     order-independent because CMA's cell is surname-first and a
+     *     contact record may not be — AND at least 2 tokens must be shared
+     *     (a single common surname alone is not enough to flag "possible").
+     *   - Entity/trust/company name: exact match on the normalised
+     *     (uppercased, punctuation-stripped, whitespace-collapsed) name
+     *     string — a registered name is not reordered the way a person's
+     *     is, so a token-subset test would be too loose.
+     * AND, on the property side, at least one of: same normalised suburb,
+     * same sectional scheme identity (scheme_number, or scheme_name/
+     * complex_name when no scheme_number is known), or same normalised
+     * street name.
+     *
+     * Agency-scoped the same way every other query in this service is —
+     * tracked_property_owners carries no agency_id of its own, so the
+     * boundary is enforced via the tracked_properties join (agency_id +
+     * not-deleted) — a different agency's owner can never be returned.
+     *
+     * @return array<int, array{tracked_property: TrackedProperty, matched_owner_name: string, matched_fields: array<int, string>, reason: string}>
+     */
+    public function findPossibleOwnerMatches(int $agencyId, string $ownerName, array $facts, ?string $idType = null): array
+    {
+        $ownerName = trim($ownerName);
+        if ($ownerName === '') {
+            return [];
+        }
+
+        $isEntity = OwnerEntityClassifier::isEntity($ownerName, $idType, null);
+        $ownerTokens = $this->extractAddressTokens($ownerName);
+        $ownerNormalised = $this->normaliseEntityName($ownerName);
+
+        if (!$isEntity && empty($ownerTokens)) {
+            return [];
+        }
+
+        // Bounded scan of this agency's own captured owners — same safety
+        // ceiling philosophy as Strategy 5's ->limit(50) above; a pre-check
+        // button click, not a background job, so a generous-but-finite cap
+        // is the right trade-off rather than an unbounded table scan.
+        $candidates = TrackedPropertyOwner::query()
+            ->whereNotNull('name')
+            ->whereHas('trackedProperty', function ($q) use ($agencyId) {
+                $q->where('agency_id', $agencyId)->whereNull('deleted_at');
+            })
+            ->with('trackedProperty')
+            ->limit(2000)
+            ->get();
+
+        $suburbWanted = TrackedProperty::normaliseSuburb($facts['suburb'] ?? null);
+        $streetWanted = $this->normaliseStreetName($facts['street_name'] ?? null);
+        $schemeNumberWanted = trim((string) ($facts['scheme_number'] ?? ''));
+        $schemeNameWanted = trim((string) ($facts['complex_name'] ?? $facts['scheme_name'] ?? ''));
+
+        $results = [];
+        $seenTrackedPropertyIds = [];
+        foreach ($candidates as $owner) {
+            $tp = $owner->trackedProperty;
+            if ($tp === null || isset($seenTrackedPropertyIds[$tp->id])) {
+                continue;
+            }
+
+            $nameMatches = $isEntity
+                ? $this->normaliseEntityName((string) $owner->name) === $ownerNormalised && $ownerNormalised !== ''
+                : $this->namesShareEnoughTokens($ownerTokens, $this->extractAddressTokens((string) $owner->name));
+            if (!$nameMatches) {
+                continue;
+            }
+
+            $matchedFields = ['owner_name'];
+            $tpSuburb = TrackedProperty::normaliseSuburb($tp->suburb);
+            if ($suburbWanted !== null && $tpSuburb !== null && $suburbWanted === $tpSuburb) {
+                $matchedFields[] = 'suburb';
+            }
+            $tpScheme = trim((string) $tp->scheme_number);
+            // complex_name OR scheme_name — same two-column precedent as
+            // resolveMatch()'s own Strategy 3b above (every unit in a
+            // scheme is captured with scheme info on one or the other).
+            $tpSchemeName = trim((string) ($tp->complex_name ?: $tp->scheme_name ?: ''));
+            if ($schemeNumberWanted !== '' && $tpScheme !== '' && mb_strtolower($schemeNumberWanted) === mb_strtolower($tpScheme)) {
+                $matchedFields[] = 'scheme_number';
+            } elseif ($schemeNameWanted !== '' && $tpSchemeName !== '' && mb_strtolower($schemeNameWanted) === mb_strtolower($tpSchemeName)) {
+                $matchedFields[] = 'scheme_name';
+            }
+            $tpStreet = $this->normaliseStreetName($tp->street_name);
+            if ($streetWanted !== null && $tpStreet !== null && $streetWanted === $tpStreet) {
+                $matchedFields[] = 'street_name';
+            }
+
+            // Owner name alone is never enough — at least one address-side
+            // signal (suburb, scheme, or street) must also match.
+            if (count($matchedFields) < 2) {
+                continue;
+            }
+
+            $seenTrackedPropertyIds[$tp->id] = true;
+            $results[] = [
+                'tracked_property'   => $tp,
+                'matched_owner_name' => (string) $owner->name,
+                'matched_fields'     => $matchedFields,
+                'reason'             => $this->ownerMatchReason($matchedFields),
+            ];
+
+            if (count($results) >= 20) {
+                break;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Person-name token comparison for findPossibleOwnerMatches() — order-
+     * independent (CMA's cell is surname-first; a contact record may not
+     * be), requires at least 2 shared tokens so a single common surname
+     * alone never flags a match.
+     */
+    private function namesShareEnoughTokens(array $tokensA, array $tokensB): bool
+    {
+        if (empty($tokensA) || empty($tokensB)) {
+            return false;
+        }
+        $shared = array_intersect($tokensA, $tokensB);
+
+        return count($shared) >= 2 || (count($shared) >= 1 && count($tokensA) === 1 && count($tokensB) === 1);
+    }
+
+    /** Uppercased, punctuation-stripped, whitespace-collapsed — for comparing a juristic entity's REGISTERED name, which is never reordered the way a person's name is. */
+    private function normaliseEntityName(string $name): string
+    {
+        $name = preg_replace('/[^\w\s]/u', ' ', $name) ?? $name;
+        $name = preg_replace('/\s+/', ' ', $name) ?? $name;
+
+        return mb_strtoupper(trim($name));
+    }
+
+    private function ownerMatchReason(array $matchedFields): string
+    {
+        $addressPart = match (true) {
+            in_array('scheme_number', $matchedFields, true) || in_array('scheme_name', $matchedFields, true) => 'the same sectional scheme',
+            in_array('street_name', $matchedFields, true) => 'the same street',
+            in_array('suburb', $matchedFields, true) => 'the same suburb',
+            default => 'nearby details',
+        };
+
+        return 'Owner name matches an existing capture, and this is ' . $addressPart . '.';
     }
 
     /**
