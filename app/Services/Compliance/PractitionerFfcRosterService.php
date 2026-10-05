@@ -2,6 +2,7 @@
 
 namespace App\Services\Compliance;
 
+use App\Models\RolePermission;
 use App\Models\User;
 use App\Models\UserDocument;
 use Carbon\Carbon;
@@ -11,8 +12,8 @@ use Illuminate\Support\Collection;
  * PPRA Inspection Pack Phase C/E (v3) — items (c)/(f), .ai/specs/ppra-inspection-pack.md §6.6.
  *
  * v3 replaces Phase B's AgentFfcRosterService for this module: the roster is
- * role-filtered (agent/branch_manager/admin only — Johan's ruling, 2026-09-28)
- * rather than "every non-assistant user", and the FFC certificate/expiry is
+ * role-filtered rather than "every non-assistant user" (Johan's ruling, 2026-09-28 —
+ * which roles qualify became a Role Manager setting on 2026-10-05, see ROSTER_PERMISSION), and the FFC certificate/expiry is
  * sourced from UserDocument (document_type=ffc_certificate), not the legacy
  * users.ffc_certificate_path / AgentApplication.ffc_expiry columns. The FFC
  * NUMBER itself still lives on users.ffc_number — that field is distinct from
@@ -31,7 +32,17 @@ use Illuminate\Support\Collection;
  */
 class PractitionerFfcRosterService
 {
-    /** Active users with role agent/branch_manager/admin — the complete PPRA practitioner list (item f). */
+    /**
+     * Role Manager permission that puts a role's users on the Inspection Pack staff roster (item f).
+     * Per role, per agency — Johan, 2026-10-05: never per user, never a hardcoded role list.
+     */
+    public const ROSTER_PERMISSION = 'ppra_inspection_pack.roster';
+
+    /**
+     * Roles whose holders can hold an FFC, used ONLY by letterCandidatesFor() (the Confirmation of
+     * Employment letter picker, a separate feature). NOT the Inspection Pack roster — that is
+     * ROSTER_PERMISSION above.
+     */
     public const ROLES = ['agent', 'branch_manager', 'admin'];
 
     private const AMBER_WINDOW_DAYS = 60; // matches AgentFfcRosterService's existing window
@@ -43,12 +54,27 @@ class PractitionerFfcRosterService
     {
         $users = User::where('agency_id', $agencyId)
             ->where('is_active', true)
-            ->whereIn('role', self::ROLES)
+            ->whereIn('role', $this->rosterRolesFor($agencyId))
             ->whereNull('deleted_at')
             ->orderBy('name')
             ->get();
 
         return $this->buildRoster($users);
+    }
+
+    /**
+     * The role names this agency has ticked for the staff roster in Role Manager. Reads this
+     * agency's own grant rows directly (soft-deleted = unticked), not userHasPermission(): owner
+     * roles bypass that check and would otherwise appear on every roster.
+     *
+     * @return string[]
+     */
+    public function rosterRolesFor(int $agencyId): array
+    {
+        return RolePermission::where('agency_id', $agencyId)
+            ->where('permission_key', self::ROSTER_PERMISSION)
+            ->pluck('role')
+            ->all();
     }
 
     /**

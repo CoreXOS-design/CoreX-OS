@@ -96,8 +96,8 @@ class PpraInspectionPackChecklistService
     }
 
     /**
-     * Items c/f — the practitioner FFC roster (v3: role-filtered
-     * agent/branch_manager/admin, UserDocument-backed — see
+     * Items c/f — the practitioner FFC roster (v3: role-filtered via the
+     * Role Manager roster permission, UserDocument-backed — see
      * PractitionerFfcRosterService). Aggregate status = worst individual
      * practitioner status; the "why" line names the gaps (capped).
      */
