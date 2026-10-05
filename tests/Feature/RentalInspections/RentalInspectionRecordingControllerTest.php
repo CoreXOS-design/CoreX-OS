@@ -137,7 +137,11 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertSame('Bedroom', $room->type);
 
         $items = RentalInspectionItem::where('property_room_id', $room->id)->pluck('label')->all();
-        $this->assertEqualsCanonicalizing(['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'], $items);
+        // 2026-09-21: Bedroom has its own transcribed-from-Retha's-form checklist
+        // (RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE), which supersedes
+        // the generic 5-item fallback for this type. Asserted against the constant
+        // itself so a future edit to that list can't silently drift this test again.
+        $this->assertEqualsCanonicalizing(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom'], $items);
     }
 
     /**
@@ -177,7 +181,9 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $room = PropertyRoom::where('property_id', $this->property->id)->where('label', $legacy->label)->first();
         $this->assertNotNull($room);
         $this->assertSame('Bedroom', $room->type);
-        $this->assertSame(5, RentalInspectionItem::where('property_room_id', $room->id)->count());
+        // Same 2026-09-21 Bedroom-specific checklist as the manual-add path above —
+        // asserted against the constant so a future edit can't silently drift this.
+        $this->assertSame(count(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom']), RentalInspectionItem::where('property_room_id', $room->id)->count());
     }
 
     public function test_assign_type_is_refused_for_an_item_that_already_has_a_room(): void
@@ -672,6 +678,16 @@ final class RentalInspectionRecordingControllerTest extends TestCase
      */
     public function test_two_different_agents_recording_conflicting_conditions_produce_one_discrepancy(): void
     {
+        // This test's own premise is two different agents collaborating on one
+        // inspection — only reachable at 'branch' scope or wider (both agents
+        // share $this->branch). Without this, RentalInspection::resolveRouteBinding()
+        // ->visibleTo() filters the route-model-binding to 'own' under the
+        // test-suite-only unseeded fallback, and $secondAgent 404s before the
+        // controller is ever reached — same seeding technique the file's own
+        // sign_on_behalf tests already use for a specific-scope need.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'branch']);
+        \App\Services\PermissionService::clearCache();
+
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
         $secondAgent = User::factory()->create([
@@ -837,6 +853,12 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     public function test_a_different_agent_recording_a_real_condition_after_a_photo_does_not_create_a_spurious_discrepancy(): void
     {
+        // Same reachability note as test_two_different_agents_recording_conflicting_
+        // conditions_produce_one_discrepancy() above — collaborative recording by a
+        // second agent needs 'branch' scope or wider to even reach the controller.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'branch']);
+        \App\Services\PermissionService::clearCache();
+
         \Illuminate\Support\Facades\Storage::fake('public');
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
