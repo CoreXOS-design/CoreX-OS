@@ -10,11 +10,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * .ai/specs/rental-work-orders.md §14 (AT-442) — the internal counterpart
- * to "outside supplier" on a rental work order. A job card BUILDS the work
- * order it belongs to (1:1, rental_work_order_id unique) so it appears in
- * the work orders list, on the lease, and in the tenancy log like any
- * other work order — never a second, parallel ticket system.
+ * .ai/specs/rental-work-orders.md §14 (AT-442), rebuilt 2026-10-05 after
+ * Johan rejected the original design on QA1. A job card's source is now
+ * OPTIONAL — rental_work_order_id / rental_fault_report_id are both
+ * nullable, and "no source — created directly" is a normal, permanent
+ * state (a garden-service job has neither). A job card never creates a
+ * work order on its own account any more; it only ever LINKS to one that
+ * already exists (RentalJobCardService::createStandalone()), with exactly
+ * one exception — sendToOwnerAsQuote() lazily creates one the moment the
+ * owner-approval/threshold machinery is actually needed, never at creation
+ * time. Tasks are numbered containers; each task owns its own parts &
+ * labour lines (RentalJobCardLine.rental_job_card_task_id) — a line with no
+ * task sits in the built-in "General" group.
  */
 class RentalJobCard extends Model
 {
@@ -32,6 +39,7 @@ class RentalJobCard extends Model
         'agency_id',
         'branch_id',
         'rental_work_order_id',
+        'rental_fault_report_id',
         'property_id',
         'lease_id',
         'title',
@@ -80,6 +88,17 @@ class RentalJobCard extends Model
     public function workOrder(): BelongsTo
     {
         return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
+    }
+
+    public function rentalFaultReport(): BelongsTo
+    {
+        return $this->belongsTo(RentalFaultReport::class, 'rental_fault_report_id');
+    }
+
+    /** "No source — created directly" when both are null. */
+    public function hasSource(): bool
+    {
+        return $this->rental_work_order_id !== null || $this->rental_fault_report_id !== null;
     }
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -139,6 +158,12 @@ class RentalJobCard extends Model
         return $this->hasMany(RentalJobCardLine::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    /** Lines with no task — the built-in "General" group (e.g. a call-out fee). */
+    public function generalLines(): HasMany
+    {
+        return $this->lines()->whereNull('rental_job_card_task_id');
+    }
+
     public function updates(): HasMany
     {
         return $this->hasMany(RentalJobCardUpdate::class)->orderByDesc('created_at');
@@ -148,6 +173,17 @@ class RentalJobCard extends Model
     public function quotes(): HasMany
     {
         return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('quote_date');
+    }
+
+    /**
+     * This card's own photos (RentalJobCardService::storePhoto()) — set
+     * directly here regardless of whether a work order is linked. A linked
+     * work order's OWN photos (uploaded via the work order screen directly)
+     * are a separate, cross-referenced set — $this->workOrder?->photos.
+     */
+    public function photos(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderPhoto::class, 'rental_job_card_id')->orderByDesc('created_at');
     }
 
     public function isDeletable(): bool
@@ -196,11 +232,13 @@ class RentalJobCard extends Model
                     'crew_assigned' => 'Crew assigned',
                     'scheduled' => 'Scheduled',
                     'task_added' => 'Task added',
+                    'task_renamed' => 'Task renamed',
                     'task_ticked' => 'Task ticked',
                     'task_archived' => 'Task archived',
                     'line_added' => 'Line added',
                     'line_changed' => 'Line changed',
                     'line_archived' => 'Line archived',
+                    'photo_added' => 'Photo added',
                     'quote_sent' => 'Quote sent to owner',
                     'sign_off' => 'Signed off',
                     'archived' => 'Archived',

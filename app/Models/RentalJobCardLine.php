@@ -22,6 +22,7 @@ class RentalJobCardLine extends Model
     protected $fillable = [
         'agency_id',
         'rental_job_card_id',
+        'rental_job_card_task_id',
         'rental_catalogue_item_id',
         'type',
         'description',
@@ -55,6 +56,12 @@ class RentalJobCardLine extends Model
     public function jobCard(): BelongsTo
     {
         return $this->belongsTo(RentalJobCard::class, 'rental_job_card_id');
+    }
+
+    /** Null means this line sits in the built-in "General" group (no task). */
+    public function task(): BelongsTo
+    {
+        return $this->belongsTo(RentalJobCardTask::class, 'rental_job_card_task_id');
     }
 
     public function catalogueItem(): BelongsTo

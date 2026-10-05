@@ -3861,10 +3861,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.restore');
     });
 
-    // .ai/specs/rental-work-orders.md §14 (AT-442) — internal job cards. A
-    // job card BUILDS its own work order (store()/raise-work-order above
-    // with assignment_type=internal) — this group is everything that
-    // happens to a job card once it exists.
+    // .ai/specs/rental-work-orders.md §14 (AT-442), rebuilt 2026-10-05 — ONE
+    // screen for create and edit. store() below links to an existing work
+    // order/fault report when given one; it never creates a new work
+    // order on its own account (RentalJobCardController::create()/store()).
     Route::prefix('rental-job-cards')->middleware('permission:rental_job_cards.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'index'])->name('corex.rental-job-cards.index');
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'printList'])->name('corex.rental-job-cards.print-list');
@@ -3888,6 +3888,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         Route::post('/{rentalJobCard}/tasks', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'storeTask'])
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.store');
+        Route::put('/{rentalJobCard}/tasks/{task}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'updateTask'])
+            ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.update');
         Route::post('/{rentalJobCard}/tasks/{task}/toggle', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'toggleTask'])
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.tasks.toggle');
         Route::post('/{rentalJobCard}/tasks/reorder', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'reorderTasks'])

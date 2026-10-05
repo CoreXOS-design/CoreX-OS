@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueUnit;
 use App\Models\RentalFaultReport;
 use App\Models\RentalJobCard;
 use App\Models\RentalJobCardLine;
@@ -25,10 +26,15 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
- * .ai/specs/rental-work-orders.md §14 (AT-442) — full CRUD + list screen
- * per BUILD_STANDARD §1a-§1d. A job card BUILDS its work order (§14) —
- * store() here always creates (or links to, from a fault report) the
- * underlying rental_work_orders row with assignment_type='internal'.
+ * .ai/specs/rental-work-orders.md §14 (AT-442), rebuilt 2026-10-05 after
+ * Johan rejected the original design on QA1. ONE screen for create and
+ * edit — create() renders the SAME view as show(), with rentalJobCard
+ * null and a draft context (property/lease/fault report/work order/
+ * pre-seeded task descriptions) for the page's own client-side builder;
+ * nothing is persisted until store(), which creates the card and every
+ * task/line it was given in one transaction. store() NEVER creates a
+ * RentalWorkOrder any more — it only links to one that already exists
+ * (RentalJobCardService::createStandalone()).
  *
  * guardRentalRecordScope() (AT-439's AuthorizesRentalRecordScope trait)
  * is called at the top of every action below that receives an existing
@@ -168,8 +174,15 @@ class RentalJobCardController extends Controller
     }
 
     /**
-     * req #1/#4 — reachable from a property, a lease, or (pre-filled) from
-     * an already-approved fault report.
+     * REBUILD, 2026-10-05 — ONE screen. Renders the exact same view
+     * show() does, with jobCard null and a draft context: property, a
+     * searchable picker when nothing names one; lease (tenant+landlord);
+     * the fault report / work order / inspection follow-up observations
+     * this draft started from, each turned into a pre-seeded (but still
+     * editable, nothing saved yet) task description. Reachable from a
+     * property, a lease, an already-approved fault report, an existing
+     * work order, or inspection follow-up observations — any combination,
+     * or none at all ("No source — created directly").
      *
      * AT-442 fix #1 (class of bug) — lease_id WINS and derives the
      * property, same guard as RentalWorkOrderController::create() — a
@@ -183,55 +196,114 @@ class RentalJobCardController extends Controller
 
         $lease = $request->get('lease_id') ? Lease::query()->visibleTo($user, null)->find($request->get('lease_id')) : null;
         $faultReport = $request->get('fault_report_id') ? RentalFaultReport::findOrFail($request->get('fault_report_id')) : null;
-        $lease = $lease ?? $faultReport?->lease;
+        $workOrder = $request->get('rental_work_order_id')
+            ? \App\Models\RentalWorkOrder::query()->visibleTo($user, null)->find($request->get('rental_work_order_id'))
+            : null;
+        $inspection = $request->get('rental_inspection_id')
+            ? \App\Models\RentalInspection::query()->visibleTo($user, null)->find($request->get('rental_inspection_id'))
+            : null;
+        $lease = $lease ?? $faultReport?->lease ?? $workOrder?->lease ?? $inspection?->lease;
 
         $property = $lease
             ? $lease->property
-            : ($faultReport?->property ?? ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null));
+            : ($faultReport?->property ?? $workOrder?->property ?? $inspection?->property
+                ?? ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null));
 
-        return view('corex.rental-job-cards.create', [
+        $observationIds = array_filter((array) $request->get('observation_ids', []));
+        $observations = $observationIds
+            ? \App\Models\RentalInspectionObservation::query()->whereIn('id', $observationIds)->with(['item.room'])->get()
+            : collect();
+
+        $draftTasks = [];
+        if ($faultReport) {
+            $draftTasks[] = $faultReport->title;
+        }
+        if ($workOrder && !$faultReport) {
+            $draftTasks[] = $workOrder->title;
+        }
+        foreach ($observations as $observation) {
+            $room = $observation->item?->room?->label ?? 'General';
+            $item = $observation->item?->label ?? 'Unknown item';
+            $desc = "{$room} — {$item} (" . ucfirst(str_replace('_', ' ', $observation->condition)) . ')';
+            if ($observation->notes) {
+                $desc .= ' — ' . $observation->notes;
+            }
+            $draftTasks[] = $desc;
+        }
+
+        // A job card is always created within the AUTHENTICATED user's own
+        // agency, regardless of which property ends up picked (the
+        // searchable picker resolves client-side, so a fresh /create with
+        // no prefill has no $property yet at all) — resolve pricesOn/VAT
+        // off the user's own agency, not $property?->agency, so the draft
+        // screen's catalogue/VAT controls are correct from the first paint
+        // instead of silently empty until a property happens to be chosen.
+        $agency = $property?->agency ?? $user->agency;
+
+        return view('corex.rental-job-cards.show', [
+            'jobCard' => null,
             'property' => $property,
             'lease' => $lease,
             'faultReport' => $faultReport,
+            'workOrder' => $workOrder,
+            'draftTasks' => $draftTasks,
+            'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
+            'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
+            'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
+            'vatTypes' => $agency?->vat_registered
+                ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get()
+                : collect(),
+            'vatRegistered' => (bool) $agency?->vat_registered,
         ]);
     }
 
     public function store(Request $request, RentalJobCardService $service): RedirectResponse
     {
         $validated = $request->validate([
-            'property_id' => ['required_without:fault_report_id', 'nullable', 'exists:properties,id'],
+            'property_id' => ['required_without_all:fault_report_id,rental_work_order_id', 'nullable', 'exists:properties,id'],
             'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            'rental_work_order_id' => ['nullable', 'exists:rental_work_orders,id'],
             'fault_report_id' => ['nullable', 'exists:rental_fault_reports,id'],
             'title' => ['required', 'string', 'max:191'],
-            'description' => ['nullable', 'string'],
             'access_notes' => ['nullable', 'string'],
+            'tasks' => ['nullable', 'array'],
+            'tasks.*.description' => ['nullable', 'string', 'max:500'],
+            'tasks.*.lines' => ['nullable', 'array'],
+            'tasks.*.lines.*' => ['array'],
+            'general_lines' => ['nullable', 'array'],
+            'general_lines.*' => ['array'],
         ]);
 
         $user = $request->user();
 
-        try {
-            if (!empty($validated['fault_report_id'])) {
-                $faultReport = RentalFaultReport::findOrFail($validated['fault_report_id']);
-                $jobCard = $service->createFromFaultReport($faultReport, $validated, $user);
-            } else {
-                $property = Property::findOrFail($validated['property_id']);
+        // Each line (both under a task and in the General group) is
+        // validated against the SAME shape storeLine() already uses below
+        // — a flat Rule::exists() can't be expressed against a
+        // variable-depth nested array path in the top-level rule set above.
+        foreach ($validated['tasks'] ?? [] as $i => $taskData) {
+            $validated['tasks'][$i]['lines'] = array_map(
+                fn (array $line) => $this->validatedLineAttributes($line),
+                $taskData['lines'] ?? [],
+            );
+        }
+        $validated['general_lines'] = array_map(
+            fn (array $line) => $this->validatedLineAttributes($line),
+            $validated['general_lines'] ?? [],
+        );
 
-                // AT-442 fix #1 (class of bug) — "the lease wins" (Johan's
-                // ruling): never trust a property_id posted alongside a
-                // lease_id without checking they agree. See the identical
-                // guard in RentalWorkOrderController::store().
-                if (!empty($validated['lease_id'])) {
-                    $lease = Lease::findOrFail($validated['lease_id']);
-                    if ($lease->property_id !== $property->id) {
-                        $property = $lease->property;
-                        $validated['property_id'] = $property->id;
-                    }
-                }
-
-                $validated['description'] = $validated['description'] ?? $validated['title'];
-                $jobCard = $service->createForProperty($property, $validated, $user);
+        // AT-442 fix #1 (class of bug) — "the lease wins" (Johan's ruling):
+        // never trust a property_id posted alongside a lease_id without
+        // checking they agree. See the identical guard in
+        // RentalWorkOrderController::store().
+        if (!empty($validated['lease_id']) && !empty($validated['property_id'])) {
+            $lease = Lease::findOrFail($validated['lease_id']);
+            if ($lease->property_id !== (int) $validated['property_id']) {
+                $validated['property_id'] = $lease->property_id;
             }
+        }
+
+        try {
+            $jobCard = $service->createStandalone($validated, $user);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
@@ -245,7 +317,11 @@ class RentalJobCardController extends Controller
 
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
-            'property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem', 'lines.vatType',
+            'property', 'lease.tenants.contact', 'assignedUser',
+            'tasks.lines.catalogueItem', 'tasks.lines.vatType',
+            'lines.catalogueItem', 'lines.vatType', // includes General (task-less) lines
+            'rentalFaultReport',
+            'photos.uploadedBy',
             // §15 (AT-447) — "From inspection <type> <date>" back-link,
             // reached through the linked work order (a job card has no
             // inspection FK of its own — rentals-rebuild.md §15.3).
@@ -256,11 +332,13 @@ class RentalJobCardController extends Controller
 
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
+            'generalLines' => $rentalJobCard->generalLines()->with(['catalogueItem', 'vatType'])->get(),
             'pricesOn' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crew' => User::query()->orderBy('name')->get(['id', 'name']),
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
+            'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
             'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
             // Agency VAT set-up (2026-10-05) — the totals block and per-line
@@ -350,6 +428,17 @@ class RentalJobCardController extends Controller
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task added.');
     }
 
+    /** "add / rename / reorder / archive tasks" — rename, new in the 2026-10-05 rebuild. */
+    public function updateTask(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardTask $task): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
+
+        $validated = $request->validate(['description' => ['required', 'string', 'max:500']]);
+        $service->renameTask($rentalJobCard, $task, $validated['description'], $request->user());
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task renamed.');
+    }
+
     public function toggleTask(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardTask $task): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
@@ -392,6 +481,7 @@ class RentalJobCardController extends Controller
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
         $validated = $request->validate([
+            'rental_job_card_task_id' => ['nullable', Rule::exists('rental_job_card_tasks', 'id')->where('rental_job_card_id', $rentalJobCard->id)],
             'rental_catalogue_item_id' => ['nullable', 'exists:rental_catalogue_items,id'],
             'type' => ['nullable', 'in:labour,part'],
             'description' => ['nullable', 'string', 'max:255'],
@@ -406,7 +496,8 @@ class RentalJobCardController extends Controller
             return back()->withErrors(['rental_job_card' => 'Pick a catalogue item or type a description.']);
         }
 
-        $service->addLine($rentalJobCard, $validated, $request->user());
+        $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
+        $service->addLine($rentalJobCard, $validated, $request->user(), $task);
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line added.');
     }
@@ -588,5 +679,33 @@ class RentalJobCardController extends Controller
         $photo = $service->storePhoto($rentalJobCard, $request->file('photo'), $validated['photo_type'], $request->user(), $validated['client_idempotency_key'] ?? null);
 
         return response()->json($photo, 201);
+    }
+
+    /**
+     * store()'s one-screen Save posts a nested tasks[]/general_lines[]
+     * structure before any job card (and so any agency_id to scope a
+     * Rule::exists() against) exists — validated here per line, against
+     * the AUTHENTICATED USER's own agency, same shape storeLine() already
+     * validates once a card exists. Unknown/malformed line entries are
+     * dropped silently (RentalJobCardService::lineHasContent() then skips
+     * anything left with neither a catalogue item nor a description) —
+     * never a 500 on a stray empty row the client-side builder emitted.
+     */
+    private function validatedLineAttributes(array $line): array
+    {
+        $agencyId = auth()->user()->agency_id;
+
+        $validator = \Illuminate\Support\Facades\Validator::make($line, [
+            'rental_catalogue_item_id' => ['nullable', Rule::exists('rental_catalogue_items', 'id')->where('agency_id', $agencyId)],
+            'type' => ['nullable', 'in:labour,part'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'unit' => ['nullable', 'string', 'max:30'],
+            'quantity' => ['nullable', 'numeric', 'min:0.01'],
+            'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $agencyId)],
+            'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+        ]);
+
+        return $validator->valid();
     }
 }

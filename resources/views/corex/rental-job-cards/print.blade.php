@@ -67,61 +67,40 @@
     <h2>Job</h2>
     <div class="box"><p><strong>{{ $jobCard->title }}</strong></p></div>
 
+    {{-- 2026-10-05 rebuild (req #6) — tasks and their own parts & labour
+         lines, same layout the show screen uses, not two separate sections. --}}
     <h2>Tasks</h2>
+    @forelse($jobCard->tasks as $task)
+        <div class="box">
+            <p class="task-row"><span class="checkbox"></span><strong>{{ $loop->iteration }} - {{ $task->description }}</strong></p>
+            @include('corex.rental-job-cards._pdf-lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat])
+        </div>
+    @empty
+        <div class="box"><p class="muted">No tasks listed.</p></div>
+    @endforelse
+
+    @php $generalLines = $jobCard->lines->whereNull('rental_job_card_task_id'); @endphp
+    <h2>General</h2>
     <div class="box">
-        @forelse($jobCard->tasks as $task)
-            <p class="task-row"><span class="checkbox"></span>{{ $task->description }}</p>
-        @empty
-            <p class="muted">No tasks listed.</p>
-        @endforelse
+        @include('corex.rental-job-cards._pdf-lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat])
     </div>
 
-    <h2>Parts &amp; labour</h2>
+    @if($pricesOn)
     <div class="box">
-        <table class="lines">
-            <tr>
-                <th>Description</th>
-                <th>Type</th>
-                @if($pricesOn)
-                    <th>Qty</th>
-                    <th>Unit price</th>
-                    <th>Line total</th>
-                    @if($vat['registered'])
-                        <th>VAT type</th>
-                    @endif
-                @endif
-            </tr>
-            @forelse($jobCard->lines as $line)
-            <tr>
-                <td>{{ $line->description }}</td>
-                <td>{{ ucfirst($line->type) }}</td>
-                @if($pricesOn)
-                    <td>{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}{{ $line->unit ? ' ' . $line->unit : '' }}</td>
-                    <td>{{ $line->unit_price !== null ? 'R' . number_format((float) $line->unit_price, 2) : '—' }}</td>
-                    <td>{{ $line->line_total !== null ? 'R' . number_format((float) $line->line_total, 2) : '—' }}</td>
-                    @if($vat['registered'])
-                        <td>{{ $line->vat_display_label ?? $line->vat_type_name_snapshot ?? '—' }}</td>
-                    @endif
-                @endif
-            </tr>
-            @empty
-            <tr><td colspan="{{ $pricesOn ? ($vat['registered'] ? 6 : 5) : 2 }}" class="muted">No lines yet.</td></tr>
-            @endforelse
-            @if($pricesOn)
-                @php $cols = $vat['registered'] ? 5 : 4; @endphp
-                @if($vat['registered'])
-                    <tr><td colspan="{{ $cols }}">Subtotal (excl VAT)</td><td>R{{ number_format((float) $vat['subtotalExcl'], 2) }}</td></tr>
-                    @foreach($vat['groups'] as $group)
-                        <tr><td colspan="{{ $cols }}">{{ $group['label'] }}</td><td>R{{ number_format((float) $group['amount'], 2) }}</td></tr>
-                    @endforeach
-                @endif
-                <tr class="total-row">
-                    <td colspan="{{ $cols }}">{{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}</td>
-                    <td>R{{ number_format($vat['registered'] ? (float) $vat['totalIncl'] : (float) ($jobCard->total_amount ?? 0), 2) }}</td>
-                </tr>
+        <table>
+            @if($vat['registered'])
+                <tr><td colspan="2">Subtotal (excl VAT)</td><td>R{{ number_format((float) $vat['subtotalExcl'], 2) }}</td></tr>
+                @foreach($vat['groups'] as $group)
+                    <tr><td colspan="2">{{ $group['label'] }}</td><td>R{{ number_format((float) $group['amount'], 2) }}</td></tr>
+                @endforeach
             @endif
+            <tr class="total-row">
+                <td colspan="2">{{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}</td>
+                <td>R{{ number_format($vat['registered'] ? (float) $vat['totalIncl'] : (float) ($jobCard->total_amount ?? 0), 2) }}</td>
+            </tr>
         </table>
     </div>
+    @endif
 
     <h2>Sign-off</h2>
     <div class="box">
