@@ -195,7 +195,11 @@ class RentalJobCardController extends Controller
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
             'property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem',
-            'workOrder.photos', 'updates.createdByUser', 'createdByUser',
+            // §15 (AT-447) — "From inspection <type> <date>" back-link,
+            // reached through the linked work order (a job card has no
+            // inspection FK of its own — rentals-rebuild.md §15.3).
+            'workOrder.photos', 'workOrder.reportedInspectionObservation.inspection',
+            'updates.createdByUser', 'createdByUser',
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
 

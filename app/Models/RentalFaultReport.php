@@ -29,6 +29,16 @@ class RentalFaultReport extends Model
     public const REPORTED_BY_TENANT = 'tenant';
     public const REPORTED_BY_AGENT_NOTICED = 'agent_noticed';
     public const REPORTED_BY_OWNER_INSTRUCTED = 'owner_instructed';
+    /**
+     * AT-445 follow-up, 2026-10-05 — the landlord's own portal submission
+     * ("Request work / report a problem"), distinct from `owner_instructed`
+     * (an agent recording that the owner asked for something verbally/by
+     * phone): this value means the landlord typed it in themselves, through
+     * their own portal session. Never offered on the agent-side create form
+     * (`rental-fault-reports/create.blade.php`) — only
+     * `ClientLandlordRentalsController::faultReportStore()` ever sets it.
+     */
+    public const REPORTED_BY_LANDLORD = 'landlord';
 
     public const CHANNEL_PHONE = 'phone';
     public const CHANNEL_WHATSAPP = 'whatsapp';
