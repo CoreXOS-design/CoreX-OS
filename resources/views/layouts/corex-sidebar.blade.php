@@ -1956,8 +1956,33 @@
              section flag at all. Visibility is computed the same way
              Payroll/Leave already compute their own: at least one
              permission among everything nested inside.
-             ═══════════════════════════════════════════ --}}
-        @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports', 'ppra_employment_letters.view']))
+
+             `ppra_employment_letters.view` is SCOPE-carrying (own/branch/
+             all), not a plain boolean — every agent is seeded 'own' scope
+             on it so they can see their OWN letter via the SEPARATE
+             My Portal self-service flow (ppra-employment-letters.* —
+             PpraEmploymentLetterController, cc2's concurrent work). The
+             ADMIN register this HR->Documents link opens is a different
+             screen entirely; showing it to an 'own'-scoped agent was a
+             real regression found during this build's own Puppeteer
+             verification (a plain agent saw "HR" in the sidebar) — the
+             PRE-existing sidebar.section.admin wrapper had been masking
+             this by accident (agents never had that section flag either),
+             not by a deliberate scope check. Gate on scope >= branch
+             instead of the bare permission-exists boolean, computed once
+             here and reused by both the outer HR gate and the inner
+             Documents gate below so the two can never disagree (an "HR"
+             button that opens to a Documents-less, Payroll-less empty
+             panel would be its own bug). --}}
+        @php
+            $hrCanSeePayroll = $user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']);
+            $hrCanSeeDocuments = $user && in_array(
+                \App\Services\PermissionService::getDataScope($user, 'ppra_employment_letters'),
+                ['branch', 'all'],
+                true
+            );
+        @endphp
+        @if($hrCanSeePayroll || $hrCanSeeDocuments)
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">HR</div>
 
@@ -1979,7 +2004,7 @@
                 <div class="corex-nav-panel-title">HR</div>
 
                 {{-- Payroll — nested drill-down, items unchanged --}}
-                @if($user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']))
+                @if($hrCanSeePayroll)
                 @feature('payroll')
                 <div>
                     <button type="button" @click="push('payroll')"
@@ -2013,7 +2038,7 @@
                      Employment Contract / Disclosure Letter slot in here once
                      Johan sends those documents — deliberately no dead links
                      for them yet. --}}
-                @permission('ppra_employment_letters.view')
+                @if($hrCanSeeDocuments)
                 <div>
                     <button type="button" @click="push('hr-documents')"
                             class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('hr-documents') ? 'active' : '' }}">
@@ -2031,7 +2056,7 @@
                         <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ppra-employment-letters.*') ? 'active' : '' }}">PPRA FFC Letter</a>
                     </div>
                 </div>
-                @endpermission
+                @endif
             </div>
         </div>
         @endif
