@@ -12,10 +12,17 @@ use Illuminate\Support\Facades\DB;
 /**
  * .ai/specs/rental-takeon-import.md §7 — "Archive batch" soft-archives only
  * what THIS import actually CREATED (never a record it merely matched to
- * an existing one) and only while untouched since creation
- * (updated_at === created_at — the simplest honest "nothing has edited this
- * since" signal). Everything else is left alone and named back to the
- * caller, never silently swept up.
+ * an existing one) and only while untouched SINCE CONFIRM — compared
+ * against the row's own `confirmed_at`, not `created_at`. `created_at`
+ * was tried first and rejected: RentalTakeOnConfirmService's own pipeline
+ * makes at least one further save() AFTER creating a Lease (activation
+ * flips its status, and may also save() the Property) — both part of
+ * confirm's own normal work, not an agent's edit — so comparing
+ * updated_at to created_at can go wrong (either direction) purely on
+ * which second those two writes land in. confirmed_at is stamped LAST,
+ * strictly after every write confirm itself makes, so "untouched" =
+ * updated_at <= confirmed_at is correct regardless of second-boundary
+ * timing; anything an agent touches afterward lands strictly later.
  */
 class RentalTakeOnArchiveService
 {
@@ -80,7 +87,7 @@ class RentalTakeOnArchiveService
             return;
         }
 
-        if ($this->untouchedSinceCreation($lease)) {
+        if ($this->untouchedSinceConfirm($lease, $row)) {
             $lease->delete();
             $counts['archived']['leases']++;
         } else {
@@ -105,12 +112,25 @@ class RentalTakeOnArchiveService
             return;
         }
 
-        if ($this->untouchedSinceCreation($property)) {
-            $property->delete();
-            $counts['archived']['properties']++;
-        } else {
+        // PropertyObserver::deleting() (landed independently of this
+        // feature) refuses to soft-delete a Property with an active
+        // lease — the SAME property-has-active-lease rule archiveLease()
+        // above exists to clear first. It is checked again here,
+        // explicitly, because leaseA.delete() and this call are two
+        // separate statements: if the lease's own OWN archive was itself
+        // skipped (e.g. the lease got touched by something between
+        // creation and now, including this feature's own activation
+        // save landing in a later second than create()), the property
+        // must be left alone too, not crash the whole batch's archive
+        // transaction on an uncaught exception.
+        if (!$this->untouchedSinceConfirm($property, $row) || $property->blockingActiveLease()) {
             $counts['left_alone_edited']['properties']++;
+
+            return;
         }
+
+        $property->delete();
+        $counts['archived']['properties']++;
     }
 
     private function archiveContacts(RentalTakeOnImportRow $row, array $contactIds, string $prefix, array &$counts): void
@@ -131,7 +151,7 @@ class RentalTakeOnArchiveService
                 continue;
             }
 
-            if ($this->untouchedSinceCreation($contact)) {
+            if ($this->untouchedSinceConfirm($contact, $row)) {
                 $contact->delete();
                 $counts['archived']['contacts']++;
             } else {
@@ -152,12 +172,12 @@ class RentalTakeOnArchiveService
         }
     }
 
-    private function untouchedSinceCreation($model): bool
+    private function untouchedSinceConfirm($model, RentalTakeOnImportRow $row): bool
     {
-        if (!$model->created_at || !$model->updated_at) {
+        if (!$model->updated_at || !$row->confirmed_at) {
             return true;
         }
 
-        return $model->created_at->equalTo($model->updated_at);
+        return $model->updated_at->lessThanOrEqualTo($row->confirmed_at);
     }
 }

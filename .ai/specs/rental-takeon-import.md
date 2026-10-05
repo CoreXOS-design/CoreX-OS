@@ -308,16 +308,23 @@ which; for the property specifically this is the REAL confirm-time outcome, re-d
 prediction — `promoteToStock()` runs its own second, independent match against the live `properties`
 table on top of the dry run's TrackedProperty-only check, so a row the preview called "create" can
 still end up reusing an existing Property once confirmed) **that has not been edited since
-creation** — compared via `updated_at === created_at` on each created record, the simplest honest
-signal that nothing has touched it since the import wrote it. **Known limitation, accepted rather
-than engineered around**: these timestamp columns are second-precision, so an edit landing in the
-SAME second as the import's own write is indistinguishable from "never touched" and would be archived
-anyway. In practice nobody edits a freshly-imported lease within the literal same second it was
-created, and the cost of being wrong is small and reversible (Restore brings it straight back) — this
-is a documented trade-off, not an oversight. Anything already edited by an agent (outside that one-
-second window) is left alone, and the "left alone" set is named in the confirmation screen before the
-archive runs ("3 leases have been edited since import and will NOT be archived — archive them
-individually from the Leases list if you want them gone too."). **Restore** reverses exactly the same
+confirm** — compared via `updated_at <= row.confirmed_at`, not `created_at`. `created_at` was tried
+first and rejected during build: `RentalTakeOnConfirmService`'s own pipeline makes at least one
+further `save()` on a Lease AFTER creating it (`LeaseActivationService::activate()` flips its status;
+activation may also `save()` the Property) — both confirm's own normal work, not an agent's edit —
+so `updated_at === created_at` could read a just-imported, untouched lease as "edited" purely because
+those two writes landed in different seconds (second-precision columns), found for real during this
+build's own test run. `row.confirmed_at` is stamped LAST, strictly after every write confirm itself
+makes, so comparing against it instead is correct regardless of where a second boundary falls — only
+a genuinely later edit (an agent's, after confirm finished) can land after it. **A property that
+still has a blocking active lease is also always left alone**, not just one that fails the timing
+check — `PropertyObserver::deleting()` (a guard that landed independently of this feature) refuses to
+soft-delete any Property with an active lease, so this is checked explicitly before attempting the
+delete rather than letting that exception escape and roll back the whole batch's archive. Anything
+already edited by an agent is left alone, and the "left alone" set is named in the confirmation screen
+before the archive runs ("3 leases have been edited since import and will NOT be archived — archive
+them individually from the Leases list if you want them gone too."). **Restore** reverses exactly the
+same
 set this run's own archive action archived (tracked via a `rental_take_on_import_rows.archived_at`
 stamp per row at archive time, so restore doesn't have to re-derive "what did I touch" from scratch
 and risk sweeping up something unrelated that happened to match the same `migrated_from_*` pointer
