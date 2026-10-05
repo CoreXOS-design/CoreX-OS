@@ -348,6 +348,36 @@ property at any time," not "at most one lease record."
   a cancelled lease that already has evidence attached follows the same no-delete-once-evidence-exists
   rule as `rental-inspections.md` §3.3 — it stays, cancelled, permanently visible.
 
+### 3.7 Archive guard — a property with an active lease must never be archived (Johan's ruling, 2026-10-05)
+
+**The rule, reduced to one check**: a property may not be archived (soft-deleted, by any path) while
+it has a lease in `status = 'active'`. No second status is needed to express "month-to-month",
+"under notice", or "signed but not yet started" — all three are, in this schema, simply an *active*
+lease (§3.6): month-to-month leases and leases under notice both stay `status='active'` until they
+actually end; a lease is activated (and therefore `active`) the moment its terms are agreed, even if
+`start_date` is still in the future. One status check covers every case Johan described.
+
+**Blocking**: `status = 'active'` — whatever its `is_month_to_month`/`start_date`/`end_date` shape.
+**Not blocking**: `draft`, `cancelled`, `expired` — including a `draft` renewal chained
+(`previous_lease_id`) onto an already-`expired`/`cancelled` lease; the renewal's own status, not the
+lease it would replace, is what's checked, so a draft renewal never blocks archiving the property it's
+drafted against.
+
+**Enforcement point**: `PropertyObserver::deleting()` — a model-event hook that fires for every
+`Property::delete()`/`forceDelete()` call, throwing `App\Exceptions\PropertyHasActiveLeaseException`
+when `Property::blockingActiveLease()` finds a match. This is the single choke point for every archive
+path (the single archive action, change-listing-type's archive-the-original step, the upload wizard's
+discard-draft, and any future caller) — no call site re-implements the check, so none can bypass it.
+`bootstrap/app.php` renders the exception as a friendly redirect to the lease itself (the "link to the
+lease" the ruling asks for) for web requests, or a 422 JSON body (`lease_id`/`lease_url`) for API/AJAX
+callers — the same pattern already used for `OwnershipLockedException`.
+
+**No bulk-archive route exists for properties today** (confirmed by exhaustive grep of
+`PropertyController`/`routes/web.php`/`routes/api.php` — see the 2026-10-05 build report). The guard
+above already covers a future bulk action for free (it sits under every `delete()` call, not inside any
+one controller method), but the UX this ruling also describes — skip blocked properties, list them,
+archive the rest — has nothing to attach to yet and is not built here.
+
 ---
 
 ## 4. Attachment points — what this spec exists to enable

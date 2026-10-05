@@ -188,6 +188,24 @@ return Application::configure(basePath: dirname(__DIR__))
             return back()->withErrors(['property' => $e->getMessage()])->withInput();
         });
 
+        // Johan's ruling (2026-10-05) — a property with an active lease must never be
+        // archived. PropertyObserver::deleting() throws this for every soft-delete/
+        // force-delete call; land the user on the lease itself (the "link to the
+        // lease" the ruling asks for) rather than a generic back(), since back() from
+        // a bulk-skip context wouldn't point anywhere useful.
+        $exceptions->render(function (\App\Exceptions\PropertyHasActiveLeaseException $e, $request) {
+            $lease = $e->lease();
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok'        => false,
+                    'error'     => $e->getMessage(),
+                    'lease_id'  => $lease->id,
+                    'lease_url' => route('corex.leases.show', $lease),
+                ], 422);
+            }
+            return redirect()->route('corex.leases.show', $lease)->with('error', $e->getMessage());
+        });
+
         // 419 session-expired UX: instead of the bare Laravel 419 page, send
         // the user back to /dashboard with a flash message. The auth middleware
         // on /dashboard will bounce them to login if their session is gone —

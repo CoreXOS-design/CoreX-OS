@@ -26,6 +26,9 @@
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
+    @if(session('warning'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber);">{{ session('warning') }}</div>
+    @endif
     @if($errors->any())
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $errors->first() }}</div>
     @endif
@@ -136,10 +139,23 @@
         <div class="grid grid-cols-2 gap-3 text-sm">
             <div><span style="color: var(--text-muted);">Tenant(s):</span> {{ $inspection->lease?->tenantNames() ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Recorded by:</span> {{ $inspection->createdBy?->name ?? '—' }}</div>
-            <div><span style="color: var(--text-muted);">Scheduled:</span> {{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}</div>
+            <div>
+                <span style="color: var(--text-muted);">Scheduled:</span>
+                {{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}
+                @if($inspection->scheduled_for && $inspection->scheduled_time)
+                    at {{ substr((string) $inspection->scheduled_time, 0, 5) }}
+                @endif
+                @if($inspection->scheduled_duration_minutes)
+                    ({{ $inspection->scheduled_duration_minutes }} min)
+                @endif
+            </div>
+            <div><span style="color: var(--text-muted);">Inspector:</span> {{ $inspection->inspector?->name ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Completed:</span> {{ $inspection->completed_at?->format('Y-m-d H:i') ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Fault-report deadline:</span> {{ $inspection->fault_report_deadline_at?->format('Y-m-d H:i') ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Signing deadline:</span> {{ $inspection->signing_deadline_at?->format('Y-m-d H:i') ?? '—' }}</div>
+            @if($inspection->schedule_note)
+                <div class="col-span-2"><span style="color: var(--text-muted);">Schedule note:</span> {{ $inspection->schedule_note }}</div>
+            @endif
         </div>
 
         @if($inspection->status === 'cancelled')
@@ -148,6 +164,15 @@
 
         <div class="flex gap-2 pt-2">
             @permission('rental_inspections.create')
+                {{-- §43 — "Start" opens the SAME recording tab the original
+                     immediate-Start flow always landed on; a scheduled
+                     inspection that hasn't been opened yet needs an
+                     explicit way in, since nothing redirected here
+                     automatically the way start() does. --}}
+                @if($inspection->scheduled_for && $inspection->isRecordable())
+                    <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-primary text-xs">Start recording</a>
+                    <button type="button" onclick="document.getElementById('reschedule-inspection-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Reschedule</button>
+                @endif
                 @if(!in_array($inspection->status, ['completed', 'cancelled'], true))
                     <button type="button" onclick="document.getElementById('cancel-inspection-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel inspection</button>
                 @endif
@@ -178,6 +203,68 @@
             <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
             <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
         </form>
+
+        {{-- §43 — reschedule: keeps the old date/time/inspector as history
+             (RentalInspectionReschedule), re-syncs the calendar event,
+             re-notifies the parties. Reason optional, unlike cancel. --}}
+        <form id="reschedule-inspection-form" method="POST" action="{{ route('corex.rental-inspections.reschedule', $inspection) }}" class="hidden space-y-2 pt-2">
+            @csrf
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs font-medium">New date</label>
+                    <input type="date" name="scheduled_for" required value="{{ old('scheduled_for', $inspection->scheduled_for?->toDateString()) }}" min="{{ now()->toDateString() }}" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">New time</label>
+                    <input type="time" name="scheduled_time" value="{{ old('scheduled_time', $inspection->scheduled_time ? substr((string) $inspection->scheduled_time, 0, 5) : '') }}" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Duration (minutes)</label>
+                    <input type="number" name="scheduled_duration_minutes" min="5" max="1440" value="{{ old('scheduled_duration_minutes', $inspection->scheduled_duration_minutes) }}" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Inspector</label>
+                    <select name="inspector_user_id" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        @foreach($inspectorOptions as $inspectorOption)
+                            <option value="{{ $inspectorOption->id }}" @selected(old('inspector_user_id', $inspection->inspector_user_id) == $inspectorOption->id)>{{ $inspectorOption->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            </div>
+            <label class="text-xs font-medium">Reason for the change (optional)</label>
+            <textarea name="reason" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+            <button type="submit" class="corex-btn-primary text-xs">Confirm reschedule</button>
+        </form>
+
+        @if($inspection->reschedules->isNotEmpty())
+        <div class="pt-2 text-xs" style="color: var(--text-muted);">
+            <p class="font-semibold mb-1" style="color: var(--text-secondary);">Reschedule history</p>
+            @foreach($inspection->reschedules as $change)
+                <div class="py-1" style="border-top: 1px solid var(--border);">
+                    {{ $change->created_at->format('Y-m-d H:i') }} — {{ $change->changedBy?->name ?? 'Unknown' }} moved it
+                    from {{ $change->old_scheduled_for?->format('Y-m-d') ?? '—' }}{{ $change->old_scheduled_time ? ' '.substr((string) $change->old_scheduled_time, 0, 5) : '' }}
+                    to {{ $change->new_scheduled_for?->format('Y-m-d') ?? '—' }}{{ $change->new_scheduled_time ? ' '.substr((string) $change->new_scheduled_time, 0, 5) : '' }}
+                    @if($change->reason) — {{ $change->reason }} @endif
+                </div>
+            @endforeach
+        </div>
+        @endif
+
+        @if($inspection->notifications->isNotEmpty())
+        <div class="pt-2 text-xs" style="color: var(--text-muted);">
+            <p class="font-semibold mb-1" style="color: var(--text-secondary);">Notifications sent</p>
+            @foreach($inspection->notifications as $notification)
+                <div class="py-1" style="border-top: 1px solid var(--border);">
+                    {{ $notification->created_at->format('Y-m-d H:i') }} —
+                    {{ ucfirst($notification->event) }}: {{ ucfirst($notification->party_role) }}
+                    ({{ $notification->recipientContact?->full_name ?? $notification->recipientUser?->name ?? '—' }})
+                    via {{ ucfirst($notification->channel) }} —
+                    <span style="color: {{ $notification->status === 'sent' ? 'var(--ds-green, #059669)' : ($notification->status === 'failed' ? 'var(--ds-crimson)' : 'var(--text-muted)') }};">{{ ucfirst($notification->status) }}</span>
+                    @if($notification->error) ({{ $notification->error }}) @endif
+                </div>
+            @endforeach
+        </div>
+        @endif
     </div>
 
     @if($inspection->discrepancies->isNotEmpty())

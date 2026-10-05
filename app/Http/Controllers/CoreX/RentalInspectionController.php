@@ -9,6 +9,8 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
+use App\Models\RentalInspectionSetting;
+use App\Models\User;
 use App\Services\Rentals\RentalInspectionFollowUpService;
 use App\Services\Rentals\RentalInspectionFormPdfService;
 use Illuminate\Http\RedirectResponse;
@@ -71,9 +73,28 @@ class RentalInspectionController extends Controller
         return view('corex.rental-inspections.create', [
             'properties' => $properties,
             'selectedPropertyId' => $selectedPropertyId,
+            // §43 — the inspector picker on the Schedule form. Same agency
+            // as the booking user; is_active only — a deactivated agent is
+            // never offered a new booking.
+            'inspectors' => User::where('agency_id', $user->effectiveAgencyId())
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name']),
+            'defaultInspectorId' => $user->id,
+            'minimumNoticeDays' => RentalInspectionSetting::minimumNoticeDaysFor($user->effectiveAgencyId()),
         ]);
     }
 
+    /**
+     * §43 — one endpoint, two intents, same form: `intent=schedule` books a
+     * future inspection via RentalInspection::schedule() and stays on the
+     * list/show screen (nothing has been recorded yet — the agent opens
+     * the tab separately, whenever they're ready); anything else (or no
+     * `intent` at all — every pre-existing caller, including the Lease
+     * Hub's "Start in/out-inspection" links) keeps the ORIGINAL immediate
+     * behaviour byte-for-byte: RentalInspection::start(), redirect straight
+     * into the recording tab. No existing caller's behaviour changes.
+     */
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
@@ -82,6 +103,10 @@ class RentalInspectionController extends Controller
         ]);
 
         $property = Property::findOrFail($validated['property_id']);
+
+        if ($request->input('intent') === 'schedule') {
+            return $this->storeScheduled($request, $property, $validated['type']);
+        }
 
         try {
             $inspection = RentalInspection::start($property, $validated['type'], $request->user());
@@ -97,6 +122,74 @@ class RentalInspectionController extends Controller
         // away from immediately.
         return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
             ->with('success', ucfirst($validated['type']) . '-inspection started.');
+    }
+
+    private function storeScheduled(Request $request, Property $property, string $type): RedirectResponse
+    {
+        $validated = $request->validate([
+            'scheduled_for' => ['required', 'date'],
+            'scheduled_time' => ['nullable', 'date_format:H:i'],
+            'scheduled_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
+            'inspector_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'schedule_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $inspection = RentalInspection::schedule($property, $type, $request->user(), $validated);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+
+        $warning = null;
+        $minimumNoticeDays = RentalInspectionSetting::minimumNoticeDaysFor($property->agency_id);
+        if ($inspection->scheduledForDateTime()?->lt(now()->addDays($minimumNoticeDays))) {
+            $warning = "This is less than the agency's usual {$minimumNoticeDays}-day notice — scheduled anyway, parties are still notified.";
+        }
+
+        $redirect = redirect()->route('corex.rental-inspections.show', $inspection)
+            ->with('success', ucfirst($type) . "-inspection scheduled for {$inspection->scheduled_for->format('d M Y')}.");
+
+        return $warning ? $redirect->with('warning', $warning) : $redirect;
+    }
+
+    /**
+     * §43 — reschedule: keeps the existing date/time/inspector as history
+     * (RentalInspectionReschedule::record(), via the model method), updates
+     * the inspection, re-syncs its calendar event, and re-notifies the
+     * parties. Reason is optional (unlike cancel — a reschedule is a normal
+     * operational adjustment, not something needing a justification on
+     * record the way cancelling an inspection does).
+     */
+    public function reschedule(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        $validated = $request->validate([
+            'scheduled_for' => ['required', 'date'],
+            'scheduled_time' => ['nullable', 'date_format:H:i'],
+            'scheduled_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
+            'inspector_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'schedule_note' => ['nullable', 'string', 'max:1000'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        try {
+            $rentalInspection->reschedule($validated, $request->user(), $validated['reason'] ?? null);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+
+        $warning = null;
+        $minimumNoticeDays = RentalInspectionSetting::minimumNoticeDaysFor($rentalInspection->agency_id);
+        if ($rentalInspection->scheduledForDateTime()?->lt(now()->addDays($minimumNoticeDays))) {
+            $warning = "This is less than the agency's usual {$minimumNoticeDays}-day notice — rescheduled anyway, parties are still notified.";
+        }
+
+        $redirect = redirect()->route('corex.rental-inspections.show', $rentalInspection)
+            ->with('success', 'Inspection rescheduled.');
+
+        return $warning ? $redirect->with('warning', $warning) : $redirect;
     }
 
     /**
@@ -120,7 +213,9 @@ class RentalInspectionController extends Controller
 
         $sort = $request->get('sort', 'scheduled_for');
         $direction = $request->get('direction', 'desc');
-        $allowedSorts = ['scheduled_for', 'property', 'status', 'type'];
+        // §43 — 'inspector' added so the list can be sorted by who is
+        // booked to do the inspection, not just when.
+        $allowedSorts = ['scheduled_for', 'property', 'status', 'type', 'inspector'];
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'scheduled_for';
         }
@@ -134,6 +229,10 @@ class RentalInspectionController extends Controller
         if ($sort === 'property') {
             $query->join('properties', 'properties.id', '=', 'rental_inspections.property_id')
                 ->orderBy('properties.title', $direction)
+                ->select('rental_inspections.*');
+        } elseif ($sort === 'inspector') {
+            $query->leftJoin('users as inspector_users', 'inspector_users.id', '=', 'rental_inspections.inspector_user_id')
+                ->orderBy('inspector_users.name', $direction)
                 ->select('rental_inspections.*');
         } else {
             $query->orderBy("rental_inspections.{$sort}", $direction);
@@ -183,7 +282,8 @@ class RentalInspectionController extends Controller
             'perPageOptions' => self::PER_PAGE_OPTIONS,
             'tileCounts' => $tileCounts,
             'scheduled' => $scheduled,
-            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
+            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id']),
+            'inspectorOptions' => User::where('agency_id', $user->effectiveAgencyId())->where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'resolvedScope' => $resolvedScope,
             'scopeOptions' => $scopeOptions,
         ]);
@@ -200,7 +300,7 @@ class RentalInspectionController extends Controller
         $query = RentalInspection::query()
             ->when($archived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'createdBy', 'archivedBy']);
+            ->with(['property', 'lease.tenants.contact', 'createdBy', 'archivedBy', 'inspector']);
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -210,6 +310,8 @@ class RentalInspectionController extends Controller
                     $c->where('first_name', 'like', "%{$search}%")
                         ->orWhere('last_name', 'like', "%{$search}%");
                 })->orWhereHas('createdBy', function ($u) use ($search) {
+                    $u->where('name', 'like', "%{$search}%");
+                })->orWhereHas('inspector', function ($u) use ($search) {
                     $u->where('name', 'like', "%{$search}%");
                 });
             });
@@ -221,6 +323,14 @@ class RentalInspectionController extends Controller
 
         if ($type = $request->get('type')) {
             $query->where('rental_inspections.type', $type);
+        }
+
+        // §43 — filter by inspector, same own/branch/agency ceiling as
+        // every other scope-sensitive filter on this screen (a request for
+        // an inspector id outside the viewer's own scope simply matches
+        // nothing, since visibleTo() has already narrowed the base query).
+        if ($inspectorId = $request->get('inspector_id')) {
+            $query->where('rental_inspections.inspector_user_id', $inspectorId);
         }
 
         if ($dateFrom = $request->get('date_from')) {
@@ -261,6 +371,9 @@ class RentalInspectionController extends Controller
         }
         if ($request->boolean('has_unresolved_discrepancy')) {
             $out['Unresolved discrepancy'] = 'Yes';
+        }
+        if ($inspectorId = $request->get('inspector_id')) {
+            $out['Inspector'] = User::find($inspectorId)?->name ?? "#{$inspectorId}";
         }
         if ($request->boolean('scheduled')) {
             $out['Scheduled (upcoming)'] = 'Yes';
@@ -328,6 +441,10 @@ class RentalInspectionController extends Controller
             // means there can only ever be at most one).
             'previousInspection.observations.item',
             'nextInChain',
+            // §43 — scheduling: who's booked, the reschedule history, and
+            // the notification log.
+            'inspector', 'reschedules.changedBy', 'reschedules.oldInspector', 'reschedules.newInspector',
+            'notifications.recipientContact', 'notifications.recipientUser',
         ]);
 
         // §15 (AT-447) — the Follow-up block: every marked-faulty/damaged
@@ -351,6 +468,8 @@ class RentalInspectionController extends Controller
             // for the on-demand history popover. Null when this is the
             // first inspection in its chain (§6 — must render gracefully).
             'comparisonRows' => $this->buildComparisonRows($rentalInspection),
+            // §43 — the reschedule form's inspector picker.
+            'inspectorOptions' => User::where('agency_id', $rentalInspection->agency_id)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'followUpObservations' => $followUpObservations,
             'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
             'followUpWorkOrdersByObservation' => $followUpLinked['work_orders'],

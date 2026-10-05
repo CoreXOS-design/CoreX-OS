@@ -2996,6 +2996,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
     Route::post('/settings/rental-inspections/auto-send-report', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoSendReportEnabled'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-send-report');
+    // §43 — schedule/reschedule/cancel notification settings.
+    Route::post('/settings/rental-inspections/schedule-notifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateScheduleNotifications'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.schedule-notifications');
 
     // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
     // (present/short/damaged/missing), agency-configurable. Own settings
@@ -3473,6 +3476,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.destroy');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
+        // §43 — reschedule a booked inspection; keeps the old date/time/
+        // inspector as history (RentalInspectionReschedule), re-syncs the
+        // calendar event, re-notifies the parties.
+        Route::post('/{rentalInspection}/reschedule', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'reschedule'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.reschedule');
         // §15 (AT-447) — the Follow-up block's "Create fault report" action.
         // Gated on rental_fault_reports.create (the same permission the
         // normal "Report a Fault" create form already requires) in ADDITION
@@ -4545,6 +4553,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::patch('/{vatType}/default', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'makeDefault'])->name('admin.vat-types.default');
         Route::delete('/{vatType}', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'archive'])->name('admin.vat-types.archive');
         Route::post('/{vatType}/restore', [\App\Http\Controllers\Admin\RentalVatTypeController::class, 'restore'])->name('admin.vat-types.restore');
+    });
+
+    // Pastel-style enhancement, 2026-10-05 — the catalogue TYPE and UNIT
+    // lists, same Company Settings surface/permission as VAT Types above,
+    // also linked directly from the catalogue screen itself.
+    Route::prefix('admin/company-settings/{agency}/catalogue-item-types')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'store'])->name('admin.catalogue-item-types.store');
+        Route::put('/{catalogueItemType}', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'update'])->name('admin.catalogue-item-types.update');
+        Route::delete('/{catalogueItemType}', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'archive'])->name('admin.catalogue-item-types.archive');
+        Route::post('/{catalogueItemType}/restore', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'restore'])->name('admin.catalogue-item-types.restore');
+        Route::post('/reorder', [\App\Http\Controllers\Admin\RentalCatalogueItemTypeController::class, 'reorder'])->name('admin.catalogue-item-types.reorder');
+    });
+    Route::prefix('admin/company-settings/{agency}/catalogue-units')->middleware('permission:manage_performance_settings')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'store'])->name('admin.catalogue-units.store');
+        Route::put('/{catalogueUnit}', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'update'])->name('admin.catalogue-units.update');
+        Route::delete('/{catalogueUnit}', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'archive'])->name('admin.catalogue-units.archive');
+        Route::post('/{catalogueUnit}/restore', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'restore'])->name('admin.catalogue-units.restore');
+        Route::post('/reorder', [\App\Http\Controllers\Admin\RentalCatalogueUnitController::class, 'reorder'])->name('admin.catalogue-units.reorder');
     });
 
 

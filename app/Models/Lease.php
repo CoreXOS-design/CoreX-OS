@@ -141,10 +141,11 @@ class Lease extends Model
     }
 
     /**
-     * rental-renewals.md — a renewal draft the agent explicitly cancelled
-     * for this term. rentals:prepare-renewal-drafts checks this so a
-     * cancelled draft is never silently re-created on its next run — only
-     * an agent explicitly using "Renew lease" creates another one.
+     * rental-renewals.md §20 — a renewal draft the agent explicitly
+     * cancelled for this term. Kept as its own distinct state from an
+     * active draft so the tenancy log and any future lookup can tell "never
+     * started" apart from "started, then called off" — only an agent
+     * explicitly using "Renew lease" creates another one for this term.
      */
     public function cancelledRenewalDrafts(): HasMany
     {

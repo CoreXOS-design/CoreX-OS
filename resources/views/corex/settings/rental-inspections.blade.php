@@ -475,5 +475,70 @@
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>
     </form>
+
+    {{-- §43 — which parties are notified on schedule/reschedule/cancel,
+         which channel(s), the minimum notice period, and the reminder
+         offset. WhatsApp is logged as queued, not actually sent — see
+         App\Services\Rentals\RentalInspectionNotificationService's own
+         docblock: there is no server-side WhatsApp sending API anywhere
+         in CoreX today. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.schedule-notifications') }}" class="space-y-3">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Schedule notifications</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">Who is notified when an inspection is scheduled, rescheduled, or cancelled.</p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_tenant_enabled" value="0">
+                    <input type="checkbox" name="notify_tenant_enabled" value="1" @checked($notifyTenantEnabled)>
+                    Tenant(s)
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_landlord_enabled" value="0">
+                    <input type="checkbox" name="notify_landlord_enabled" value="1" @checked($notifyLandlordEnabled)>
+                    Landlord
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_inspector_enabled" value="0">
+                    <input type="checkbox" name="notify_inspector_enabled" value="1" @checked($notifyInspectorEnabled)>
+                    Inspector
+                </label>
+
+                <p class="text-xs mt-3" style="color: var(--text-muted);">Which channel(s) to notify through.</p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_via_mail_enabled" value="0">
+                    <input type="checkbox" name="notify_via_mail_enabled" value="1" @checked($notifyViaMailEnabled)>
+                    Email
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_via_whatsapp_enabled" value="0">
+                    <input type="checkbox" name="notify_via_whatsapp_enabled" value="1" @checked($notifyViaWhatsappEnabled)>
+                    WhatsApp
+                </label>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    There is no automated WhatsApp sending in CoreX today — turning this on logs a ready-to-send
+                    message on the inspection for an agent to send by hand, rather than pretending it went out on its own.
+                </p>
+
+                <div class="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                        <label class="text-xs font-medium">Minimum notice (days)</label>
+                        <input type="number" name="minimum_notice_days" min="0" max="90" value="{{ old('minimum_notice_days', $minimumNoticeDays) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Warns the agent when booking inside this window — never blocks.</p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium">Reminder (days before)</label>
+                        <input type="number" name="reminder_days_before" min="0" max="30" value="{{ old('reminder_days_before', $reminderDaysBefore) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">0 turns the reminder off.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
 </div>
 @endsection

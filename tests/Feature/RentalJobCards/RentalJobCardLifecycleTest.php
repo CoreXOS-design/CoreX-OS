@@ -9,6 +9,8 @@ use App\Models\Branch;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
 use App\Models\RentalFaultReport;
 use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
@@ -61,13 +63,21 @@ final class RentalJobCardLifecycleTest extends TestCase
             'first_name' => 'Jane', 'last_name' => 'Landlord', 'email' => 'jane.landlord-' . uniqid() . '@example.test',
         ]);
         ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
+
+        // Agency::create() does not fire AgencyCreated in tests — seed
+        // explicitly, same convention every other per-agency list's tests use.
+        RentalCatalogueItemType::seedDefaultsFor($this->agency->id);
+        RentalCatalogueUnit::seedDefaultsFor($this->agency->id);
     }
 
     private function catalogueItem(array $attrs = []): RentalCatalogueItem
     {
         return RentalCatalogueItem::create(array_merge([
-            'agency_id' => $this->agency->id, 'type' => RentalCatalogueItem::TYPE_PART,
-            'name' => 'Geyser element', 'unit' => 'each', 'default_price' => 450, 'sort_order' => 1,
+            'agency_id' => $this->agency->id,
+            'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
+            'name' => 'Geyser element',
+            'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'default_price' => 450, 'sort_order' => 1,
             'created_by_user_id' => $this->admin->id,
         ], $attrs));
     }
