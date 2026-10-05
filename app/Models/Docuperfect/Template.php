@@ -567,6 +567,16 @@ class Template extends Model
             }
         });
 
+        // A platform template can NEVER carry an agency or the "global/shared" flag, however it
+        // is saved (builder re-save, import, a stray owner-agency assignment). NULL agency_id +
+        // is_global would otherwise mean "shared with every agency".
+        static::saving(function (self $template): void {
+            if ($template->is_platform) {
+                $template->agency_id = null;
+                $template->is_global = false;
+            }
+        });
+
         static::saving(function (self $template): void {
             // Only interesting when someone is trying to turn e-signing ON.
             if (! $template->is_esign) {

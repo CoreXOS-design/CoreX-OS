@@ -22,7 +22,7 @@ class AgencyTimelineItem extends Model
 
     protected $fillable = [
         'timeline_id', 'kind', 'title', 'body', 'sort_order', 'due_date', 'offset_days',
-        'is_public', 'is_go_live', 'auto_complete_trigger', 'status',
+        'is_public', 'agency_can_complete', 'is_go_live', 'auto_complete_trigger', 'status',
         'completed_at', 'completed_by', 'completed_source', 'is_custom', 'source_default_id',
     ];
 
@@ -31,6 +31,7 @@ class AgencyTimelineItem extends Model
         'offset_days'  => 'integer',
         'due_date'     => 'date',
         'is_public'    => 'boolean',
+        'agency_can_complete' => 'boolean',
         'is_go_live'   => 'boolean',
         'is_custom'    => 'boolean',
         'completed_at' => 'datetime',

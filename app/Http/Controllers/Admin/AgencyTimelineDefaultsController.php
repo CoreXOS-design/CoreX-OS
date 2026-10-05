@@ -52,6 +52,7 @@ class AgencyTimelineDefaultsController extends Controller
         $request->validate(['kind' => ['required', Rule::in(['block', 'milestone'])]]);
         $data = $request->validate($this->rules($request));
         $data['is_public'] = $request->boolean('is_public', true);
+        $data['agency_can_complete'] = $data['kind'] === 'milestone' && $request->boolean('agency_can_complete');
         $data['is_go_live'] = $data['kind'] === 'milestone' && $request->boolean('is_go_live');
         if ($data['kind'] === 'block') {
             $data['offset_days'] = null;
@@ -72,6 +73,7 @@ class AgencyTimelineDefaultsController extends Controller
         $data = $request->validate($this->rules($request, $item->kind));
         unset($data['kind']); // a default never changes kind
         $data['is_public'] = $request->boolean('is_public');
+        $data['agency_can_complete'] = $item->kind === 'milestone' && $request->boolean('agency_can_complete');
         $data['is_go_live'] = $item->kind === 'milestone' && $request->boolean('is_go_live');
         if ($item->kind === 'block') {
             $data['offset_days'] = null;

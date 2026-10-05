@@ -70,7 +70,7 @@
                                 </td>
                                 <td class="px-4 py-3 text-right text-xs whitespace-nowrap" style="color: var(--text-muted);">
                                     <span x-text="'start + ' + s.offset + 'd'"></span>
-                                    <button type="button" x-show="s.edited" x-cloak @click="resetStep(s)" class="font-semibold ml-3" style="color: var(--brand-icon);">Reset</button>
+                                    <button type="button" x-show="s.edited" x-cloak @click="resetStep(s)" class="corex-btn-outline corex-btn-xs ml-3">Reset</button>
                                 </td>
                             </tr>
                         </template>
