@@ -125,13 +125,25 @@
         // routeIs() globs the whole name, and this one is prefixed 'corex.'.
         'deals-dr2.*', 'corex.compliance.rcr.*',
         'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
-        'tools.commission', 'tools.cma', 'tools.history.*',
+        // 'tools.cma*' (not the exact 'tools.cma') so the Evaluation
+        // Certificate sub-pages under it — tools.cma.evaluation.mine,
+        // .authorisations, etc. — also open this panel. Their own sidebar
+        // links (Pending Authorisations / My Evaluations) already live here;
+        // before this fix landing on either page directly opened no panel
+        // at all (found by scripts/sidebar-nav-audit.php, GROUP_NEVER_OPENS).
+        'tools.commission', 'tools.cma*', 'tools.history.*',
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
     )) {
         $activeGroup = 'agency-tracker';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
-    } elseif (request()->routeIs('admin.api.catalog', 'admin.backups.*', 'admin.system-health.*', 'corex.diagnostics.photo-uploads')) {
+    } elseif (request()->routeIs(
+        'admin.api.catalog', 'admin.backups.*', 'admin.system-health.*', 'corex.diagnostics.photo-uploads',
+        // Media Encryption's own sidebar link already lives in this panel;
+        // this pattern was missing, so landing on it directly opened no
+        // panel at all (scripts/sidebar-nav-audit.php, GROUP_NEVER_OPENS).
+        'admin.media-encryption.*'
+    )) {
         $activeGroup = 'api-server';
     } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*', 'training-help.*')) {
         // 'training.*' covers the whole LMS — the agent-facing courses AND Training
@@ -221,7 +233,9 @@
         // Rental Fault Types, Rental Fault Reports, Rental Work Orders) had no
         // $activeGroup match at all, so the panel never auto-opened on their own
         // list OR detail pages even though their nav links live in this same panel.
-        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*')
+        // 'corex.rental-notices.*' had the identical gap (sidebar-active-item
+        // audit, 2026-10-05) — its own link already lives in this panel too.
+        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
         || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
         || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
@@ -866,7 +880,11 @@
                             ->count(),
                     ) : 0;
                 @endphp
-                <a href="{{ route('market-intelligence.work') }}" class="corex-nav-subitem {{ (request()->routeIs('market-intelligence.*') && !request()->routeIs('market-intelligence.stale-review*')) || request()->routeIs('prospecting.*') ? 'active' : '' }}">
+                {{-- Suburb Report (2026-08-25) moved into the Reports panel — excluded
+                     here too (not just from the $activeGroup resolver above) so this
+                     link doesn't ALSO light up while the Reports panel's own "Suburb
+                     Report" link is active (sidebar-active-item audit, 2026-10-05). --}}
+                <a href="{{ route('market-intelligence.work') }}" class="corex-nav-subitem {{ (request()->routeIs('market-intelligence.*') && !request()->routeIs('market-intelligence.stale-review*') && !request()->routeIs('market-intelligence.suburb-report*')) || request()->routeIs('prospecting.*') ? 'active' : '' }}">
                     <span>Market intelligence</span>
                     @if($miCount > 0)
                     <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"

@@ -1,0 +1,1634 @@
+{
+  "admin.activity-mappings.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.agent.performance": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.branch-assignments": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.branch.performance": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.dashboard": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.designations.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.importer.p24-locations.status": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('importer') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.importer.pp-locations.status": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('importer') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.importer.row.details": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('importer') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.listing-targets": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.monthly-goals": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.outbound-mail-captures.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.outbound-mail-captures.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.p24-suburbs.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.p24.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.p24.listings": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.performance-settings.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.proforma-settings": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.settings.deal-distribution-rules.index": {
+    "flags": [
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "admin.settings.deal-property-sync.index": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "admin.settings.document-types.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.splitter.doc-types.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.targets.activity.definitions": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.targets.activity.setup": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "admin.user.documents.upload": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.users": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.users.archived": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.users.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.users.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "admin.users.ffc-certificate.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "agency.select": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "agent.daily": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'My Daily Activity' and 'Daily Activity Capture' are two distinct links that both resolve via overlapping patterns to the same route. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+  },
+  "agent.daily.print": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "agent.dashboard": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "agent.portal": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "The root-level 'My Portal' item and the Communications panel's 'Link My WhatsApp' link (which deep-links to agent.portal#tools) both technically match this route name (fragment is not part of routeIs()). Cosmetic, pre-existing; same class as the documented favourites nav_key fragment-collapsing limitation in .ai/specs/sidebar-favourites.md \u00a711a."
+  },
+  "ai.buddy": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "bm.agent.performance": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.agenda-panel": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.check-conflicts": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.day-columns": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.deck": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.events": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.feedback.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.grid-range": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.month-block": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.property-owners": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.search.attendees": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.tile": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.calendar.week-rows": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.notifications": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.overdue": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.settings": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.settings.event-classes": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "command-center.today.cards": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('command-center') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "communications.wa-link.qr": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "communications.wa-link.status": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "company.summary": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "compliance.officer.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "compliance.policy.dashboard.index": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Two sidebar links ('Policies' and 'Policy Register') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
+  },
+  "compliance.policy.dashboard.report": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Two sidebar links ('Policies' and 'Policy Register') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
+  },
+  "compliance.rmcp": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "compliance.rmcp.dashboard.index": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Two sidebar links ('RMCP' and 'RMCP Dashboard') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
+  },
+  "compliance.rmcp.dashboard.report": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Two sidebar links ('RMCP' and 'RMCP Dashboard') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
+  },
+  "compliance.screenings.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "compliance.screenings.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "compliance.screenings.my": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "compliance.screenings.overdue": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "compliance.screenings.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "corex.ad-templates.builder": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.ad-templates.builder.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.admin.rcr.questionnaires.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.admin.rcr.questionnaires.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.agency-setup.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.agency-setup.step": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.agents.article.preview": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.agents.preview": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.api.contact-lookup": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.dashboard.legacy": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.deliveries.whatsapp-redirect": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.documents": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.extension.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.properties.imported-stock": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Properties' (broad corex.properties.* pattern) and 'Imported Stock' (its own specific link) both light up on this one sub-page. Cosmetic double-highlight within the same (correct) Real Estate panel."
+  },
+  "corex.property-take-requests.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-applications.authorisation.documents.highlight-data.first": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
+  },
+  "corex.rental-applications.authorisation.documents.highlight-data.remaining": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
+  },
+  "corex.rental-applications.authorisation.documents.highlighted-file": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
+  },
+  "corex.rental-applications.authorisation.documents.view": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
+  },
+  "corex.rental-applications.authorisation.index": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
+  },
+  "corex.rental-applications.authorisation.show": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
+  },
+  "corex.rental-catalogue-items.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('rental-applications') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "corex.rental-catalogue-items.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('rental-applications') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "corex.rental-catalogue-items.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('rental-applications') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "corex.rental-inventories.comparison": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-inventories.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-inventories.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-inventories.print-for-signature": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-inventories.report": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-inventories.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-lease-templates.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-lease-templates.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-lease-templates.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-notice-templates.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-notice-templates.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.rental-notice-templates.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.social.oauth.callback": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.social.oauth.choose-page": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.social.oauth.redirect": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.supervision": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.tracked-properties.comments.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.tracked-properties.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.tracked-properties.merge": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "corex.tracked-properties.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "dashboard": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "deals-dr2.unfiled-emails.deal-search": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Multiple Deal Register (DR2) sidebar entries share the deals-dr2.* prefix and light up together on this sub-page. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+  },
+  "deals-dr2.unfiled-emails.index": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Multiple Deal Register (DR2) sidebar entries share the deals-dr2.* prefix and light up together on this sub-page. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+  },
+  "deals-dr2.unfiled-emails.suggest": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Multiple Deal Register (DR2) sidebar entries share the deals-dr2.* prefix and light up together on this sub-page. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+  },
+  "deals-v2.create-wizard": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.distribute.plan": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.documents.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.export": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.pipeline.create": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "deals-v2.pipeline.edit": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "deals-v2.pipeline.index": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "deals-v2.pipeline.master": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "deals-v2.search.contacts": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.search.deals": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.search.properties": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.search.property-contacts": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.settings.service-types.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.settlement.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.settlement.payslip": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.settlement.print": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('deals-v2') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "deals-v2.suppliers.index": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "deals-v2.suppliers.search": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+  },
+  "deposit-interest-calculator.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('trust-interest') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.amendments.review": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.api.combinedPdfData": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.api.packInstanceValues": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.attachments.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.cds.builder": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.documents.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.documents.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.documents.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.documents.pageImage": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.api.contacts": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.api.properties": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.api.recipientTemplates": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.api.templatePages": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.downloadDocument": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.downloadDocumentPdf": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.myDocuments": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Documented pre-existing limitation: 'My E-Sign Documents' and 'Authorise Documents' are the same route distinguished only by a query string (?filter=authorisation), which routeIs() cannot see. Already documented in .ai/specs/sidebar-favourites.md \u00a711a (\"Known limitation, stated rather than hidden\")."
+  },
+  "docuperfect.esign.signingComplete": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.step": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.testRender": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.esign.wetInkConfirmation": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.leases.history": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.leases.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.page.image": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.parser-test": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.property.documents": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.renderer-test": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.rental": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "docuperfect.rental.statusCheck": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "docuperfect.rental.uploadAndSend": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "docuperfect.signatures.amendments": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.audit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.authoriseSigning": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.certificate": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.flattenedPage": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.review": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.sectionProgress": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.sendConfirmation": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.setup": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.sign": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.viewLive": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.wetInkFile": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.wetInkReview": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.signatures.zones": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.webPreview.commercialLeaseAgreementV5": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.webPreview.leaseAgreementPopiV8": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.webPreview.lettingMandateV5": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.webPreview.lettingMandatoryDisclosureV7": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.webPreview.lettingMarketingPermissionV7": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "docuperfect.webPreview.rentalApplicationV8": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "evaluation.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('evaluation') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "market-intelligence.stale-review": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition already excludes market-intelligence.stale-review* at runtime; this tool's per-item parser does not evaluate the compound exclusion. Verified by reading the source directly."
+  },
+  "market-intelligence.suburb-report": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition DOES exclude market-intelligence.suburb-report* at runtime (corex-sidebar.blade.php, fixed 2026-10-05), but this tool's per-ITEM pattern parser (unlike its group-chain parser) does not evaluate compound && !routeIs(...) exclusions, so it still reports a textual match. Verified by reading the source directly."
+  },
+  "market-intelligence.suburb-report.index": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition DOES exclude market-intelligence.suburb-report* at runtime (corex-sidebar.blade.php, fixed 2026-10-05), but this tool's per-ITEM pattern parser (unlike its group-chain parser) does not evaluate compound && !routeIs(...) exclusions, so it still reports a textual match. Verified by reading the source directly."
+  },
+  "market-intelligence.suburb-report.pdf": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition DOES exclude market-intelligence.suburb-report* at runtime (corex-sidebar.blade.php, fixed 2026-10-05), but this tool's per-ITEM pattern parser (unlike its group-chain parser) does not evaluate compound && !routeIs(...) exclusions, so it still reports a textual match. Verified by reading the source directly."
+  },
+  "market-intelligence.suburb-report.print": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition DOES exclude market-intelligence.suburb-report* at runtime (corex-sidebar.blade.php, fixed 2026-10-05), but this tool's per-ITEM pattern parser (unlike its group-chain parser) does not evaluate compound && !routeIs(...) exclusions, so it still reports a textual match. Verified by reading the source directly."
+  },
+  "market-intelligence.suburb-report.suburbs": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition DOES exclude market-intelligence.suburb-report* at runtime (corex-sidebar.blade.php, fixed 2026-10-05), but this tool's per-ITEM pattern parser (unlike its group-chain parser) does not evaluate compound && !routeIs(...) exclusions, so it still reports a textual match. Verified by reading the source directly."
+  },
+  "my-portal.leave.apply": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "my-portal.leave.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "my-portal.leave.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "my-portal.payslips": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "my-portal.payslips.pdf": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "my-portal.payslips.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "password.change-required": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "password.confirm": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "policy.ack.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "policy.ack.receipt": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "policy.ack.receipt.pdf": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "policy.ack.sign": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "policy.ack.signature": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "policy.ack.step": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "profile.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "proforma.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('company') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "proforma.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('company') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "prospecting.buyer-matches": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "prospecting.segment.buyers": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "prospecting.segment.listings": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "prospecting.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "prospecting.snapshot": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "prospecting.thumbnail": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "rental.active-leases": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.dashboard": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.expired-leases": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.settings": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.settings.document-types.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.settings.properties.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.settings.properties.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.settings.properties.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.settings.reminders.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rental.signatures": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rentals.create": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rentals.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rentals.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rentals.permissions": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rmcp.ack.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rmcp.ack.receipt": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rmcp.ack.receipt.pdf": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rmcp.ack.sign": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rmcp.ack.signature": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "rmcp.ack.step": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "seller-outreach.composer.sent": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.composer.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.composer.timeline": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.entry.deed-poll-prospecting": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.entry.from-property": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.entry.from-prospecting": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.entry.from-tracked-property": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "seller-outreach.entry.pitch-ready-prospecting": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "settings.outreach-templates.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "settings.prospecting.duplicate-rules.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "settings.prospecting.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "settings.prospecting.stale-rules.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "settings.prospecting.suggestions": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "signature.asset": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "signature.status": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "signatures.supporting.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "signatures.supporting.downloadAll": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "signatures.supporting.stream": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "signatures.supporting.view": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "tools.cma.evaluation.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.cma.evaluation.property-contact": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.cma.evaluation.queue": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.cma.evaluation.search-contacts": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.cma.evaluation.search-properties": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.cma.evaluation.share-meta": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.commission": {
+    "flags": [
+      "MULTI_MATCH"
+    ],
+    "reason": "Documented pre-existing limitation: 'Commission Calculator' and 'History & Logs' are the same route distinguished only by a query string (?section=history). Already documented in .ai/specs/sidebar-favourites.md \u00a711a."
+  },
+  "tools.history.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "tools.history.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "training.lesson-document": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('hidden') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
+  },
+  "user-documents.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "verification.notice": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "verification.verify": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  }
+}
