@@ -9,6 +9,7 @@ use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -2250,6 +2251,41 @@ class Property extends Model
     public function formattedPrice(): string
     {
         return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
+    }
+
+    /**
+     * AT-439 follow-up — Johan's ruling 2026-10-04: "rent and dates live on the
+     * LEASE; the property only links to it." The most recent lease on this
+     * property with status 'active'. Callers that list many properties MUST
+     * eager-load this (`->with('activeLease')`) — see PropertyController::index().
+     */
+    public function activeLease(): HasOne
+    {
+        return $this->hasOne(Lease::class)->where('status', Lease::STATUS_ACTIVE)->orderByDesc('start_date');
+    }
+
+    /**
+     * Display-only rental price. effectivePrice() (above) stays untouched on
+     * purpose — it is also read by syndication (P24/PP), matching, and
+     * notifications, none of which this fix may change behaviour for. This
+     * method exists solely for on-screen display (properties list, property
+     * header/overview, Rental tab): a rental property's active lease carries
+     * the AGREED rent going forward; properties.rental_amount is only the
+     * original ASKING figure and is used here only when no lease is active.
+     * Sale listings are identical to effectivePrice().
+     */
+    public function displayRentalPrice(): float
+    {
+        if (!$this->isRental()) {
+            return $this->effectivePrice();
+        }
+
+        return (float) ($this->activeLease?->rental_amount ?? $this->rental_amount ?? 0);
+    }
+
+    public function formattedDisplayPrice(): string
+    {
+        return 'R ' . number_format((int) $this->displayRentalPrice(), 0, '.', ' ');
     }
 
     /**
