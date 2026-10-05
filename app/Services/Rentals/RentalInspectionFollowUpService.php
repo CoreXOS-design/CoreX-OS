@@ -80,22 +80,24 @@ class RentalInspectionFollowUpService
     }
 
     /**
-     * Every non-baseline, recorded (non-photo-anchor) observation on this
-     * inspection — the rows the Follow-up block lists. "Faulty" is never a
-     * hardcoded condition value: it is "not this agency's own configured
-     * baseline" (RentalInspectionSetting::baselineConditionKeyFor()), the
-     * same agency-configurable vocabulary the rest of rental-inspections.md
-     * already reads everywhere else (multi-agency floor, CLAUDE.md #9).
+     * Every recorded (non-photo-anchor) observation on this inspection
+     * flagged as needing follow-up — the rows the Follow-up block lists.
+     * "Needs follow-up" is never a hardcoded condition value, and never
+     * "not this agency's baseline" (an earlier build of this feature used
+     * that and wrongly surfaced N/A and a stray unmapped condition value as
+     * if they were faults, Johan, 2026-10-05, QA1 property walk): it is
+     * RentalInspectionSetting::conditionNeedsFollowUpFor() — the agency's
+     * own existing condition-severity configuration, the same vocabulary
+     * the rest of rental-inspections.md already reads everywhere else
+     * (multi-agency floor, CLAUDE.md #9).
      *
      * @return Collection<int, RentalInspectionObservation>
      */
     public function followUpObservations(RentalInspection $inspection): Collection
     {
-        $baseline = \App\Models\RentalInspectionSetting::baselineConditionKeyFor($inspection->agency_id);
-
         return $inspection->observations
             ->reject(fn (RentalInspectionObservation $o) => $o->isPending())
-            ->filter(fn (RentalInspectionObservation $o) => $o->condition !== $baseline)
+            ->filter(fn (RentalInspectionObservation $o) => \App\Models\RentalInspectionSetting::conditionNeedsFollowUpFor($inspection->agency_id, $o->condition))
             ->sortBy('id')
             ->values();
     }

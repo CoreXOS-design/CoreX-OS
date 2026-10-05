@@ -308,22 +308,33 @@
         become a fault report, work order, or job card straight from here,
         linked back to this inspection/lease/property. Shown on every
         inspection, whatever its status — a draft being finished can raise
-        follow-up just as well as a completed one. "Faulty" = not this
-        agency's own configured baseline condition (never a hardcoded
-        "good" check — multi-agency floor, CLAUDE.md #9).
+        follow-up just as well as a completed one.
+
+        "Needs follow-up" is the agency's EXISTING condition-severity
+        configuration (RentalInspectionSetting::conditionNeedsFollowUpFor()
+        — red/amber, the same vocabulary the recording screen's own "Needs
+        attention" filter already uses), never a hardcoded condition value
+        and never "not this agency's baseline" (an earlier build of this
+        block used that and wrongly listed N/A and a stray unmapped
+        condition value as if they were faults — Johan, 2026-10-05, QA1
+        property walk). No block at all when nothing qualifies.
 
         Per-row mini-actions are always single-item (no ticking needed,
         idempotent — an already-raised item shows its linked record(s)
-        instead). The shared form below them is for "combine into one" —
-        tick several rows, then one of the three buttons raises ONE record
-        covering all of them (or, if "combine" is left unticked, one record
-        PER ticked item — the stated default).
+        instead). "Select all" + the shared bar below the list are for
+        "combine into one" — tick several rows, then one of the three
+        buttons raises ONE record covering all of them (or, if "combine" is
+        left unticked, one record PER ticked item — the stated default).
     --}}
+    @if($followUpObservations->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Follow-up</h2>
-        @if($followUpObservations->isEmpty())
-            <p class="text-xs" style="color: var(--text-muted);">Nothing marked faulty or damaged on this inspection yet.</p>
-        @else
+        <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">Follow-up ({{ $followUpObservations->count() }})</h2>
+            <label class="text-xs flex items-center gap-1" style="color: var(--text-muted);">
+                <input type="checkbox" onclick="document.querySelectorAll('#follow-up-shared-form input[name=\'observation_ids[]\']').forEach(cb => cb.checked = this.checked);">
+                Select all
+            </label>
+        </div>
             <form method="POST" action="{{ route('corex.rental-inspections.follow-up.fault-reports', $inspection) }}" class="space-y-3">
                 @csrf
                 <input type="hidden" name="rental_inspection_id" value="{{ $inspection->id }}">
@@ -390,8 +401,8 @@
                 <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" class="corex-btn-outline text-xs">Create work order</button>
                 <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" name="assignment_type" value="internal" class="corex-btn-outline text-xs">Create job card (our team)</button>
             </form>
-        @endif
     </div>
+    @endif
 
     </div>
     {{-- Side column: scans, signatures — the paperwork evidence trail. --}}
