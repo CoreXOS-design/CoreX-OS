@@ -261,35 +261,22 @@
                                 </template>
                             </table>
 
-                            <div class="grid grid-cols-5 gap-2 items-end pt-1">
-                                <div>
-                                    <label class="text-xs">Catalogue item</label>
-                                    <select x-ref="catItem" @change="addDraftLine(task, $event.target)" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
-                                        <option value="">— Pick to add —</option>
-                                        <template x-for="ci in catalogueItems" :key="ci.id">
-                                            <option :value="ci.id" x-text="ci.name"></option>
-                                        </template>
-                                    </select>
-                                </div>
-                                <div class="col-span-2">
-                                    <label class="text-xs">Or free text</label>
-                                    <input type="text" x-ref="freeDesc" placeholder="Description" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
-                                </div>
-                                <div>
-                                    <label class="text-xs">Qty</label>
-                                    <input type="number" x-ref="freeQty" step="0.01" min="0.01" value="1" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
-                                </div>
-                                <div>
-                                    <button type="button" @click="addFreeTextLine(task, $refs)" class="corex-btn-outline text-xs">+ line</button>
-                                </div>
-                            </div>
+                            @include('corex.rental-job-cards._add-line-row', [
+                                'mode' => 'draft', 'refPrefix' => 'free', 'taskExpr' => 'task',
+                                'addLineCall' => "addLineFromRow(task, \$refs, 'free')",
+                                'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits,
+                                'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vatRegistered,
+                            ])
                             {{-- The hidden, bracket-indexed inputs Laravel actually parses on submit. --}}
                             <template x-for="(line, li) in task.lines" :key="'f-' + line.key">
                                 <div>
                                     <input type="hidden" :name="`tasks[${ti}][lines][${li}][rental_catalogue_item_id]`" :value="line.catalogueItemId" form="job-card-create-form">
                                     <input type="hidden" :name="`tasks[${ti}][lines][${li}][description]`" :value="line.description" form="job-card-create-form">
+                                    <input type="hidden" :name="`tasks[${ti}][lines][${li}][type]`" :value="line.type" form="job-card-create-form">
                                     <input type="hidden" :name="`tasks[${ti}][lines][${li}][unit]`" :value="line.unit" form="job-card-create-form">
                                     <input type="hidden" :name="`tasks[${ti}][lines][${li}][quantity]`" :value="line.quantity" form="job-card-create-form">
+                                    <input type="hidden" :name="`tasks[${ti}][lines][${li}][unit_price]`" :value="line.unitPrice" form="job-card-create-form">
+                                    <input type="hidden" :name="`tasks[${ti}][lines][${li}][rental_vat_type_id]`" :value="line.vatTypeId" form="job-card-create-form">
                                 </div>
                             </template>
                         </div>
@@ -308,25 +295,21 @@
                                 </tr>
                             </template>
                         </table>
-                        <div class="grid grid-cols-5 gap-2 items-end">
-                            <div class="col-span-2">
-                                <label class="text-xs">Free text (e.g. call-out fee)</label>
-                                <input type="text" x-ref="genDesc" placeholder="Description" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
-                            </div>
-                            <div>
-                                <label class="text-xs">Qty</label>
-                                <input type="number" x-ref="genQty" step="0.01" min="0.01" value="1" class="w-full rounded-md px-2 py-1.5 text-xs mt-1" style="border: 1px solid var(--border);">
-                            </div>
-                            <div>
-                                <button type="button" @click="addFreeTextLine(null, $refs, 'gen')" class="corex-btn-outline text-xs">+ line</button>
-                            </div>
-                        </div>
+                        @include('corex.rental-job-cards._add-line-row', [
+                            'mode' => 'draft', 'refPrefix' => 'gen', 'taskExpr' => 'null',
+                            'addLineCall' => "addLineFromRow(null, \$refs, 'gen')",
+                            'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits,
+                            'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vatRegistered,
+                        ])
                         <template x-for="(line, li) in generalLines" :key="'f-' + line.key">
                             <div>
                                 <input type="hidden" :name="`general_lines[${li}][rental_catalogue_item_id]`" :value="line.catalogueItemId" form="job-card-create-form">
                                 <input type="hidden" :name="`general_lines[${li}][description]`" :value="line.description" form="job-card-create-form">
+                                <input type="hidden" :name="`general_lines[${li}][type]`" :value="line.type" form="job-card-create-form">
                                 <input type="hidden" :name="`general_lines[${li}][unit]`" :value="line.unit" form="job-card-create-form">
                                 <input type="hidden" :name="`general_lines[${li}][quantity]`" :value="line.quantity" form="job-card-create-form">
+                                <input type="hidden" :name="`general_lines[${li}][unit_price]`" :value="line.unitPrice" form="job-card-create-form">
+                                <input type="hidden" :name="`general_lines[${li}][rental_vat_type_id]`" :value="line.vatTypeId" form="job-card-create-form">
                             </div>
                         </template>
                     </div>
@@ -376,7 +359,7 @@
                             @endif
 
                             @permission('rental_job_cards.create')
-                            @include('corex.rental-job-cards._add-line-form', ['action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                            @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
                             @endpermission
                         </div>
                     @empty
@@ -410,7 +393,7 @@
                         <span class="text-sm font-medium">General</span>
                         @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard])
                         @permission('rental_job_cards.create')
-                        @include('corex.rental-job-cards._add-line-form', ['action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                        @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
                         @endpermission
                         @if($archivedLines->isNotEmpty())
                             <button type="button" onclick="document.getElementById('archived-lines').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedLines->count() }} archived line(s)</button>
@@ -639,23 +622,42 @@ function rentalJobCardBuilder({ isDraft, catalogueItems, draftTasks }) {
         removeTask(i) {
             this.tasks.splice(i, 1);
         },
-        addDraftLine(task, selectEl) {
+        // Picking a catalogue item adds the line immediately (its own
+        // name/unit/price/VAT/type win, same rule the server-side
+        // addLine() already enforces) — the Type/Unit/Qty/Unit
+        // price/VAT fields in the row are for the free-text / "+" path
+        // only, left untouched here.
+        addDraftLine(task, selectEl, prefix) {
             const id = selectEl.value;
             if (!id) return;
             const item = this.catalogueItems.find(c => String(c.id) === String(id));
             if (!item) return;
-            task.lines.push({ key: key(), catalogueItemId: item.id, description: item.name, unit: item.unit, quantity: 1 });
+            const line = {
+                key: key(), catalogueItemId: item.id, description: item.name, type: item.kind || 'labour',
+                unit: item.unit || '', quantity: 1, unitPrice: item.price ?? '', vatTypeId: item.vatTypeId ?? '',
+            };
+            if (task) { task.lines.push(line); } else { this.generalLines.push(line); }
             selectEl.value = '';
         },
-        addFreeTextLine(task, refs, prefix = '') {
-            const descRef = prefix === 'gen' ? refs.genDesc : refs.freeDesc;
-            const qtyRef = prefix === 'gen' ? refs.genQty : refs.freeQty;
-            const description = descRef.value.trim();
+        // The "+" button — free text (or a typed override of Type/Unit/
+        // Unit price/VAT alongside a description), per 2026-10-05's
+        // one-line add-line row (_add-line-row.blade.php).
+        addLineFromRow(task, refs, prefix) {
+            const ref = (field) => refs[prefix + field];
+            const description = ref('Desc').value.trim();
             if (!description) return;
-            const line = { key: key(), catalogueItemId: '', description, unit: '', quantity: qtyRef.value || 1 };
+            const line = {
+                key: key(), catalogueItemId: '', description,
+                type: ref('Type')?.value || 'labour',
+                unit: ref('Unit')?.value || '',
+                quantity: ref('Qty')?.value || 1,
+                unitPrice: ref('UnitPrice')?.value || '',
+                vatTypeId: ref('VatType')?.value || '',
+            };
             if (task) { task.lines.push(line); } else { this.generalLines.push(line); }
-            descRef.value = '';
-            qtyRef.value = 1;
+            ref('Desc').value = '';
+            if (ref('Qty')) ref('Qty').value = 1;
+            if (ref('UnitPrice')) ref('UnitPrice').value = '';
         },
     };
 }
