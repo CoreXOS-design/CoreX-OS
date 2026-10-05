@@ -1201,7 +1201,7 @@
                     @if($hasAddressM && $property->title)
                     <div class="text-xs mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
                     @endif
-                    <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
+                    <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedDisplayPrice() }}</div>
                     <div class="flex items-center gap-2 mt-1 flex-wrap">
                         @php
                             $listingTypeLabel2 = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
@@ -1454,7 +1454,7 @@
                                 <div class="text-sm mt-0.5" style="color:var(--text-secondary);">{{ $property->title ?: 'Untitled property' }}</div>
                             </div>
                             <div class="text-right flex-shrink-0">
-                                <div class="text-2xl font-extrabold leading-none" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
+                                <div class="text-2xl font-extrabold leading-none" style="color:var(--brand-default);">{{ $property->formattedDisplayPrice() }}</div>
                                 @if($daysOnMarket !== null)
                                     <div class="text-xs mt-1" style="color:var(--text-muted);">{{ number_format($daysOnMarket) }} days on market</div>
                                 @endif

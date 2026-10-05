@@ -85,7 +85,7 @@
                     @endforeach
                 @endif
                 @if(!$isNew)
-                    <span class="text-sm font-bold ml-1" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</span>
+                    <span class="text-sm font-bold ml-1" style="color:var(--brand-default);">{{ $property->formattedDisplayPrice() }}</span>
                 @endif
             </div>
         </div>

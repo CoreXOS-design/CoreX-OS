@@ -213,3 +213,65 @@ spec §4, Addendum 1). One item surfaced during investigation and flagged, not d
 sequencing of the rental-inspections mobile API gap (audit top gap #4) against this rebuild — not
 blocking Stage 1, but worth Johan naming which stage (if any) in this eight-stage plan should pick it
 up, since none of the eight currently do.
+
+---
+
+## 9. AT-439 follow-up (2026-10-05) — display price reads the active lease; landlord chip dead-end fixed
+
+Two display-only follow-ups, per Johan's 2026-10-04 ruling folded into §1.3 of the master spec
+(`rentals-rebuild.md`): "rent and dates live on the LEASE; the property only links to it."
+
+### 9.1 Item A — `Property::effectivePrice()` never read the active lease
+
+`effectivePrice()`/`formattedPrice()` read `properties.rental_amount` directly for a rental
+listing and never looked at `leases`, so a property with an active lease showing a different
+(renegotiated) rent displayed the stale original asking figure everywhere (confirmed on QA1:
+property 5792 showed R7150 while its active lease #10 carries R8000). `effectivePrice()` and
+`formattedPrice()` are themselves **unchanged** — syndication (P24/PP), matching, and
+notifications all read them and must keep doing so exactly as before.
+
+Added instead: `Property::activeLease()` (hasOne `Lease`, `status='active'`, most recent
+`start_date`) and two new display-only methods, `displayRentalPrice()` /
+`formattedDisplayPrice()` — active lease's `rental_amount` first, `properties.rental_amount`
+only when no active lease exists; identical to `effectivePrice()`/`formattedPrice()` for a sale
+listing. Wired into the four on-screen call sites that actually render a price outside
+syndication/matching/notifications:
+
+| Screen | File:line |
+|---|---|
+| Properties list — grid card, grid card (hero), "owned by other" compact row, table row | `resources/views/corex/properties/index.blade.php` (4 call sites) |
+| Property header/overview | `resources/views/corex/properties/show.blade.php` (2 call sites) |
+| Shared shell-header partial (property show + rental-inventory capture screen) | `resources/views/corex/properties/partials/_property-shell-header.blade.php` |
+
+Eager-loaded (`->with([..., 'activeLease'])`) on `PropertyController::index()`'s list query and
+`PropertyController::show()`'s `$property->load([...])` — no N+1, covered by a query-count test.
+
+**Not touched, found and reported, not fixed (explicitly out of scope per instruction):**
+- `resources/views/corex/properties/ad.blade.php` and `live-preview.blade.php` (public live
+  listing page) still call `formattedPrice()`/`effectivePrice()` — these are marketing/public
+  surfaces, not the four named screens; left exactly as they were.
+- `resources/views/emails/rental-application-approved.blade.php` — same reasoning.
+- Every matching/syndication/notification/AI-toolkit caller of `effectivePrice()` (P24/PP
+  mappers, `MatchingService`, `RentalApplicationPropertyMatcher`, `BuyerIntelligenceService`,
+  Ellie, etc.) — unchanged, as instructed.
+- Rentals Command Centre (`rental-command-centre` views/controller/service) — audited directly;
+  it does not display a rental price anywhere today, so there was nothing to fix there.
+- The property's own Rental tab (`show.blade.php`, the existing-rental branch) already reads the
+  active lease directly for its own "Active lease: ... R.../mo" block (a separate, pre-existing
+  query, not `effectivePrice()`) — confirmed already correct, left untouched.
+- 3 rental properties on QA1 are `withdrawn` while still carrying an active lease (ids 5294,
+  5577, 5792) — reported per instruction, not changed; QA1 is demo data (STANDARDS.md
+  Standard −1q), no status was altered.
+
+### 9.2 Item B — shared `<x-rental-context-bar>` landlord chip no longer dead-ends
+
+The landlord chip rendered a bare "Not linked" with no next step when a property had no
+landlord/lessor contact tagged — every other dead-end case on this shared bar already had one
+(the Lease Hub's own landlord line, `corex/leases/show.blade.php`, already shows "No landlord
+linked" + a "Link landlord" link into the property's Contacts tab). One change, in the shared
+component only (`resources/views/components/rental-context-bar.blade.php`): when the chip's
+already-computed `$landlords` collection is empty, the chip renders "No landlord linked" + a
+"Link landlord" link to `corex.properties.show` with `tab=contacts`, reusing the existing
+`$landlords` variable — no second `Lease::landlordContacts()` implementation. Takes effect on
+every screen that includes the bar (Lease Hub, Property Rental tab, Inspection/Fault
+Report/Work Order show screens) with this one edit.

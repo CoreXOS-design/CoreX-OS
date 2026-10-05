@@ -153,7 +153,7 @@ class PropertyController extends Controller
         // agency scope, matching the pivot's own lookup) so the syndication
         // control on every card/row costs no extra query.
         $query = Property::with([
-            'agent', 'branch', 'secondAgent',
+            'agent', 'branch', 'secondAgent', 'activeLease',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
         ])
             // .ai/specs/other-agency-stock.md §6 — hide Other Agency Stock from
@@ -606,7 +606,7 @@ class PropertyController extends Controller
         // but not edit it. forEdit:false selects view breadth; all write actions keep the default
         // mutation pin to the agent's own listings. Spec §7.2 (AT-267).
         $this->authorizeProperty($property, forEdit: false);
-        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
+        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type', 'activeLease']);
 
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),

@@ -848,7 +848,7 @@
              link into show() (still gated by authorizeProperty() and would 403) — so the
              agent sees it already exists, and who to go to, instead of re-listing it. --}}
         <div class="pcard-v2 relative overflow-hidden flex flex-col p-3.5" style="border:1px dashed color-mix(in srgb, var(--ds-amber) 45%, var(--border));">
-            <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
+            <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedDisplayPrice() }}</div>
             <div class="text-sm font-semibold leading-snug line-clamp-1" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</div>
             @if($property->isImportedStock())
             <span class="mt-2 text-[10px] font-semibold px-1.5 py-0.5 rounded inline-block w-fit whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
@@ -928,7 +928,7 @@
                 @endphp
 
                 {{-- Price — hero (spec §9) --}}
-                <div class="text-[1.375rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
+                <div class="text-[1.375rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedDisplayPrice() }}</div>
 
                 {{-- Address (primary — an agent recognises the address first) --}}
                 <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="text-sm font-semibold leading-snug line-clamp-1 transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
@@ -1102,7 +1102,7 @@
                         <div class="flex items-center justify-between gap-3 flex-wrap">
                             <div class="flex items-center gap-3 min-w-0">
                                 <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</span>
-                                <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedPrice() }}</span>
+                                <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedDisplayPrice() }}</span>
                                 @if($property->isImportedStock())
                                 <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
                                 @endif
@@ -1150,7 +1150,7 @@
                         {{ str_replace('_', ' ', $property->property_type) }}
                     </td>
                     <td class="px-4 py-2.5 text-sm font-semibold text-right whitespace-nowrap tabular-nums" style="color:var(--text-primary);">
-                        {{ $property->formattedPrice() }}
+                        {{ $property->formattedDisplayPrice() }}
                     </td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->beds ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-xs text-center hidden md:table-cell" style="color:var(--text-secondary);">{{ $property->baths ?? '—' }}</td>

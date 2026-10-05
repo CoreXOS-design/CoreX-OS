@@ -40,6 +40,10 @@
         $tenantNames = $lease ? $lease->tenantNames() : 'No active tenant';
         $landlords = $lease ? $lease->landlordContacts() : $property->contactsForRole('landlord')->merge($property->contactsForRole('lessor'))->unique('id');
         $landlordNames = $landlords->isEmpty() ? 'Not linked' : $landlords->map(fn ($c) => $c->full_name)->implode(', ');
+        // AT-439 follow-up — same "no dead end" treatment as the Lease Hub
+        // (corex/leases/show.blade.php): an empty landlord names a concrete
+        // next step instead of just "Not linked".
+        $landlordLinkRoute = route('corex.properties.show', ['property' => $property, 'tab' => 'contacts']);
 
         $chips = [
             'property' => ['label' => 'Property', 'route' => route('corex.properties.show', $property), 'count' => null],
@@ -66,7 +70,12 @@
                 </a>
             @else
                 <span class="rounded-full px-3 py-1" style="background: var(--surface-1, #fff); border: 1px dashed var(--border); color: var(--text-muted);">
-                    {{ $chip['label'] }}
+                    @if($key === 'landlord' && $landlords->isEmpty())
+                        No landlord linked
+                        <a href="{{ $landlordLinkRoute }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Link landlord</a>
+                    @else
+                        {{ $chip['label'] }}
+                    @endif
                 </span>
             @endif
         @endforeach
