@@ -166,6 +166,40 @@ its OWN group, not an outer parent.
 
 ---
 
+## 4a. A real regression this build found and fixed via its own Puppeteer proof
+
+Screenshot 4 ("a plain agent who sees no HR menu") initially FAILED: a plain
+`agent`-role user saw "HR" in their sidebar. Root cause:
+`ppra_employment_letters.view` is not a plain boolean permission — every
+agent is seeded `scope='own'` on it (`role_permissions`), so they can see
+their OWN letter via the separate My Portal self-service flow
+(`ppra-employment-letters.*`, cc2's concurrent work). The ORIGINAL flat
+Admin-section link was never exposed to agents not because of any scope
+check on the item itself, but by ACCIDENT — the whole Admin section was
+wrapped in `sidebar.section.admin`, which agents don't have either. Once
+HR was deliberately built WITHOUT a section wrapper (§2 — it has to serve
+two different audiences that don't share one), that accidental protection
+went with it.
+
+**Fix:** both the outer HR gate and the inner Documents gate now check
+`PermissionService::getDataScope($user, 'ppra_employment_letters')` is
+`branch` or `all` — never `own` — computed once (`$hrCanSeeDocuments`) and
+reused by both so they can never disagree. This is an information-
+architecture fix (HR → Documents is the ADMIN register; an agent's own
+letter lives in My Portal, never here), not a data-security fix — the
+admin controller's own `PpraEmploymentLetter::scopeVisibleTo()` already
+scopes its query results regardless of what the nav shows.
+
+**Flagged, not fixed (PPRA controller/route, explicitly out of scope):**
+`admin.ppra-employment-letters.*`'s own route middleware is
+`permission:ppra_employment_letters.view` — a bare boolean, with no scope
+check at the route/middleware layer. An `own`-scoped agent who knows the
+URL can still reach it directly (the controller's query-level scoping
+limits what they'd SEE there, not whether they can load the page at all).
+BUILD_STANDARD §1c requires direct-URL access to match nav visibility,
+not just rely on the menu being absent — this gap predates this build and
+is cc2's PPRA controller/route to close, not this task's.
+
 ## 5. A pre-existing gap found, NOT fixed (outside this task's scope)
 
 Running the sidebar mapping test against the current `origin/QA1` tip (cc2's
