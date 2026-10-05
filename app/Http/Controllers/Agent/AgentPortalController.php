@@ -63,6 +63,23 @@ class AgentPortalController extends Controller
         // ── Compliance status ──
         $complianceStatus = $this->computeComplianceStatus($user, $documents);
 
+        // ── PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) ──
+        $ppraLetters = \App\Models\Compliance\PpraEmploymentLetter::where('user_id', $user->id)
+            ->orderByDesc('created_at')->limit(10)->get();
+        $ppraLetterCanCreate = $user->hasPermission('ppra_employment_letters.create');
+        $ppraLetterMissing = [];
+        if ($ppraLetterCanCreate && $user->agency) {
+            $ppraLetterMissing = app(\App\Services\Compliance\PpraEmploymentLetterService::class)
+                ->missingFieldsFor($user, $user->agency);
+        }
+        $ppraAwaitingMySignature = collect();
+        if ($user->hasPermission('ppra_employment_letters.sign_as_principal')) {
+            $ppraAwaitingMySignature = \App\Models\Compliance\PpraEmploymentLetter::where('principal_user_id', $user->id)
+                ->where('status', \App\Models\Compliance\PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE)
+                ->where('user_id', '!=', $user->id)
+                ->orderBy('created_at')->get();
+        }
+
         // ── Training status ──
         $requiredCourses = TrainingCourse::where('is_required', true)->published()->get();
         $trainingItems = $requiredCourses->map(function ($course) use ($user) {
@@ -263,7 +280,11 @@ class AgentPortalController extends Controller
             'canSelfAssignBranches',
             'selfAssignAgencyBranches',
             'managedBranchIds',
-            'defaultManagedBranchId'
+            'defaultManagedBranchId',
+            'ppraLetters',
+            'ppraLetterCanCreate',
+            'ppraLetterMissing',
+            'ppraAwaitingMySignature'
         ));
     }
 
