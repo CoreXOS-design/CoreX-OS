@@ -78,6 +78,17 @@ class RentalTakeOnConfirmService
                     'created_by_user_id' => $actingUserId,
                     'migrated_from_table' => 'rental_take_on_import_rows',
                     'migrated_from_id' => $row->id,
+                    // rental-takeon-import.md §6 — captured AND shown now
+                    // (read-only, lease detail screen), never posted to a
+                    // ledger (none exists) and never fed into any
+                    // calculation (escalation_percent here is a historical
+                    // fact about the arrangement the agency inherited, not
+                    // a scheduled-escalation feature — see leases.md §3.4
+                    // for why that's a materially different, unbuilt thing).
+                    'migrated_escalation_percent' => $payload['escalation_percent'] ?? null,
+                    'migrated_next_escalation_date' => $payload['next_escalation_date'] ?? null,
+                    'migrated_opening_arrears' => $payload['arrears_opening_balance'] ?? null,
+                    'migrated_last_inspection_date' => $payload['last_inspection_date'] ?? null,
                 ]);
 
                 foreach ($tenantContactIds as $i => $contactId) {

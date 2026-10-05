@@ -62,6 +62,48 @@ final class RentalTakeOnConfirmServiceTest extends TestCase
         ]);
     }
 
+    /**
+     * rental-takeon-import.md §6 — escalation %/next date, opening arrears,
+     * and last inspection date are captured on confirm (read-only facts
+     * shown on the lease screen, never posted to a ledger, never fed into
+     * any scheduled-escalation calculation).
+     */
+    public function test_confirming_a_row_with_takeon_facts_populates_the_migrated_fields_on_the_lease(): void
+    {
+        [, $run, , $admin] = $this->makeAgencyAndRun();
+        $row = $this->dryRunRow($run, array_merge($this->basePayload(), [
+            'escalation_percent' => 8.0,
+            'next_escalation_date' => now()->addMonths(6)->toDateString(),
+            'arrears_opening_balance' => 1500.50,
+            'last_inspection_date' => now()->subMonths(3)->toDateString(),
+        ]));
+
+        $result = $this->confirmService()->confirmRow($row, $admin->id);
+        self::assertTrue($result['ok'], $result['message'] ?? '');
+
+        $lease = Lease::withoutGlobalScopes()->find($row->fresh()->target_lease_id);
+        self::assertSame(8.0, (float) $lease->migrated_escalation_percent);
+        self::assertSame(now()->addMonths(6)->toDateString(), $lease->migrated_next_escalation_date->toDateString());
+        self::assertSame(1500.50, (float) $lease->migrated_opening_arrears);
+        self::assertSame(now()->subMonths(3)->toDateString(), $lease->migrated_last_inspection_date->toDateString());
+    }
+
+    /** The lazy-but-valid shortcut row (none of these optional facts given) must leave all four null, not a crash or a fabricated zero. */
+    public function test_confirming_a_row_with_no_takeon_facts_leaves_the_migrated_fields_null(): void
+    {
+        [, $run, , $admin] = $this->makeAgencyAndRun();
+        $row = $this->dryRunRow($run, $this->basePayload());
+
+        $result = $this->confirmService()->confirmRow($row, $admin->id);
+        self::assertTrue($result['ok'], $result['message'] ?? '');
+
+        $lease = Lease::withoutGlobalScopes()->find($row->fresh()->target_lease_id);
+        self::assertNull($lease->migrated_escalation_percent);
+        self::assertNull($lease->migrated_next_escalation_date);
+        self::assertNull($lease->migrated_opening_arrears);
+        self::assertNull($lease->migrated_last_inspection_date);
+    }
+
     public function test_two_rows_resolving_to_the_same_property_the_second_stays_draft_not_lost(): void
     {
         [, $run, , $admin] = $this->makeAgencyAndRun();

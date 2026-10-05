@@ -192,7 +192,7 @@ CREATE TABLE `agencies` (
   `vat_settings_updated_by_user_id` bigint unsigned DEFAULT NULL,
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `ppra_employment_letter_address_block` text COLLATE utf8mb4_unicode_ci,
+  `ppra_employment_letter_address_block` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `ppra_employment_letter_reminder_days` smallint unsigned NOT NULL DEFAULT '2',
   `ncc_registration_number` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_contact` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -7748,6 +7748,10 @@ CREATE TABLE `leases` (
   `source_document_id` bigint unsigned DEFAULT NULL,
   `migrated_from_table` varchar(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `migrated_from_id` bigint unsigned DEFAULT NULL,
+  `migrated_escalation_percent` decimal(6,2) DEFAULT NULL,
+  `migrated_next_escalation_date` date DEFAULT NULL,
+  `migrated_opening_arrears` decimal(12,2) DEFAULT NULL,
+  `migrated_last_inspection_date` date DEFAULT NULL,
   `previous_lease_id` bigint unsigned DEFAULT NULL,
   `renewed_lease_id` bigint unsigned DEFAULT NULL,
   `renewal_draft_flow_id` bigint unsigned DEFAULT NULL,
@@ -9899,14 +9903,14 @@ CREATE TABLE `ppra_employment_letters` (
   `principal_user_id` bigint unsigned DEFAULT NULL,
   `branch_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned NOT NULL,
-  `status` enum('draft','awaiting_agent_signature','awaiting_principal_signature','signed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'awaiting_agent_signature',
-  `agent_signature_image` text COLLATE utf8mb4_unicode_ci,
-  `principal_signature_image` text COLLATE utf8mb4_unicode_ci,
+  `status` enum('draft','awaiting_agent_signature','awaiting_principal_signature','signed') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'awaiting_agent_signature',
+  `agent_signature_image` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `principal_signature_image` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `agent_signed_at` timestamp NULL DEFAULT NULL,
-  `agent_signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `agent_signed_ip` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `principal_signed_at` timestamp NULL DEFAULT NULL,
-  `principal_signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `signed_pdf_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `principal_signed_ip` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_pdf_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `reminder_last_sent_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13134,8 +13138,8 @@ CREATE TABLE `rental_catalogue_items` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `rental_catalogue_item_type_id` bigint unsigned DEFAULT NULL,
-  `code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `rental_catalogue_unit_id` bigint unsigned DEFAULT NULL,
   `default_price` decimal(10,2) DEFAULT NULL,
   `default_rental_vat_type_id` bigint unsigned DEFAULT NULL,
@@ -13237,6 +13241,50 @@ CREATE TABLE `rental_command_centre_user_preferences` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `rental_command_centre_user_preferences_user_id_unique` (`user_id`),
   CONSTRAINT `rental_command_centre_user_preferences_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_crew_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_crew_members` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rental_crew_id` bigint unsigned NOT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `phone` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `role` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rcm_crew_fk` (`rental_crew_id`),
+  KEY `rental_crew_members_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `rcm_agency_crew_idx` (`agency_id`,`rental_crew_id`),
+  CONSTRAINT `rcm_crew_fk` FOREIGN KEY (`rental_crew_id`) REFERENCES `rental_crews` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_crew_members_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_crew_members_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_crews`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_crews` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_crews_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `rc_agency_name_idx` (`agency_id`,`name`),
+  KEY `rc_agency_active_idx` (`agency_id`,`is_active`),
+  CONSTRAINT `rental_crews_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_crews_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_document_types`;
@@ -14270,7 +14318,7 @@ CREATE TABLE `rental_job_card_lines` (
   `rental_job_card_id` bigint unsigned NOT NULL,
   `rental_job_card_task_id` bigint unsigned DEFAULT NULL,
   `rental_catalogue_item_id` bigint unsigned DEFAULT NULL,
-  `code` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `rental_vat_type_id` bigint unsigned DEFAULT NULL,
   `custom_vat_rate` decimal(5,2) DEFAULT NULL,
   `type` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -14367,6 +14415,7 @@ CREATE TABLE `rental_job_cards` (
   `title` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `assigned_user_id` bigint unsigned DEFAULT NULL,
+  `rental_crew_id` bigint unsigned DEFAULT NULL,
   `scheduled_at` timestamp NULL DEFAULT NULL,
   `due_at` timestamp NULL DEFAULT NULL,
   `access_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -14376,6 +14425,7 @@ CREATE TABLE `rental_job_cards` (
   `vat_snapshotted_at` timestamp NULL DEFAULT NULL,
   `worker_signed_off_at` timestamp NULL DEFAULT NULL,
   `worker_signed_off_by_user_id` bigint unsigned DEFAULT NULL,
+  `worker_sign_off_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `agent_signed_off_at` timestamp NULL DEFAULT NULL,
   `agent_signed_off_by_user_id` bigint unsigned DEFAULT NULL,
   `tenant_confirmed_at` timestamp NULL DEFAULT NULL,
@@ -14408,6 +14458,7 @@ CREATE TABLE `rental_job_cards` (
   KEY `rjc_agency_due_idx` (`agency_id`,`due_at`),
   KEY `rjc_tenant_confirmed_contact_fk` (`tenant_confirmed_by_contact_id`),
   KEY `rjc_fault_report_fk` (`rental_fault_report_id`),
+  KEY `rjc_crew_fk` (`rental_crew_id`),
   CONSTRAINT `rental_job_cards_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_job_cards_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_job_cards_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -14416,6 +14467,7 @@ CREATE TABLE `rental_job_cards` (
   CONSTRAINT `rjc_agent_signoff_fk` FOREIGN KEY (`agent_signed_off_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rjc_assigned_user_fk` FOREIGN KEY (`assigned_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rjc_cancelled_by_fk` FOREIGN KEY (`cancelled_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rjc_crew_fk` FOREIGN KEY (`rental_crew_id`) REFERENCES `rental_crews` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rjc_fault_report_fk` FOREIGN KEY (`rental_fault_report_id`) REFERENCES `rental_fault_reports` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rjc_tenant_confirm_fk` FOREIGN KEY (`tenant_confirmed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rjc_tenant_confirmed_contact_fk` FOREIGN KEY (`tenant_confirmed_by_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
@@ -19186,3 +19238,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1556,'2026_10_05_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1557,'2026_10_05_270300_add_code_to_rental_job_card_lines_table',263);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1558,'2026_10_08_090000_create_ppra_employment_letters_table',263);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1559,'2026_10_08_090100_add_ppra_employment_letter_settings_to_agencies_table',263);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1560,'2026_10_05_270000_create_rental_crews_table',264);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1561,'2026_10_05_270100_create_rental_crew_members_table',264);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1562,'2026_10_05_270200_add_crew_to_rental_job_cards_table',264);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1563,'2026_10_08_100000_add_takeon_fields_to_leases_table',264);
