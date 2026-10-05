@@ -187,6 +187,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Deeds-capture PRE-CHECK (.ai/specs/deeds-capture.md §9) — called by
+  // content-cmainfo.js BEFORE revealOwnerIdIfNeeded() fires, so the agent
+  // sees "already in CoreX" / "possible match" before CMA Info's paid
+  // per-ID reveal. Same no-popup-step shape as captureDeed above.
+  if (msg.action === 'checkDeedsDuplicate') {
+    handleCheckDeedsDuplicate(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // Logs the agent's "Pull anyway" / "Cancel" decision after the pre-check
+  // banner — best-effort only; content-cmainfo.js already treats a failure
+  // here as non-fatal (it never awaits this one for the capture flow).
+  if (msg.action === 'logDeedsPrecheckDecision') {
+    handleLogDeedsPrecheckDecision(msg.payload)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
   // TVA contact capture (2026-08-12) — same no-popup-step shape as
   // captureDeed above; apiUrl/apiToken read from chrome.storage.local here.
   if (msg.action === 'captureTvaContacts') {
@@ -1232,6 +1253,79 @@ async function handleCaptureDeed(payload) {
   } catch (e) { /* ignore */ }
 
   return result;
+}
+
+// ── Deeds-capture pre-check (.ai/specs/deeds-capture.md §9) ─────────────
+// Same transport shape as handleCaptureDeed() above — no popup step, reads
+// apiUrl/apiToken from chrome.storage.local, /api/v1/ prefix. Read-only on
+// CoreX's side (no tracked_properties write). Response shape:
+// { status: 'exists'|'possible_match'|'not_found', matches: [...] }.
+async function handleCheckDeedsDuplicate(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    throw new Error('Not connected — add your API token in the CoreX extension Settings.');
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/deeds-capture/check-duplicate';
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    throw new Error('CoreX unreachable');
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    if (response.status === 401 || response.status === 419) {
+      throw new Error('Invalid API token. Check your extension Settings.');
+    }
+    throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
+  }
+
+  return await response.json();
+}
+
+// Best-effort decision log — "Pull anyway" / "Cancel" after the pre-check
+// banner. Never surfaces an error to the capture flow itself; the caller
+// (content-cmainfo.js) treats any failure here as non-fatal.
+async function handleLogDeedsPrecheckDecision(payload) {
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['apiUrl', 'apiToken'], resolve);
+  });
+
+  if (!settings.apiToken) {
+    return { ok: false };
+  }
+
+  const apiUrl = (settings.apiUrl || 'https://www.corexos.co.za').replace(/\/+$/, '');
+  const url = apiUrl + '/api/v1/deeds-capture/check-duplicate/decision';
+
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + settings.apiToken,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) { /* best-effort only */ }
+
+  return { ok: true };
 }
 
 // ── TVA (The Virtual Agent) contact capture — send to CoreX ────────────

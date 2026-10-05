@@ -29,7 +29,11 @@
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Work Orders</h1>
         @permission('rental_work_orders.create')
-        <a href="{{ route('corex.rental-work-orders.create') }}" class="corex-btn-primary text-xs">New Work Order</a>
+        {{-- AT-442 fix #3 — forward the active lease_id/property_id filter
+             (e.g. arrived here via the rental context bar's "Work orders"
+             chip) into the create screen, same as every other "New X"
+             button that respects an already-applied context filter. --}}
+        <a href="{{ route('corex.rental-work-orders.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs">New Work Order</a>
         @endpermission
     </div>
 

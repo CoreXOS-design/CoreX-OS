@@ -3466,6 +3466,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.destroy');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
+        // §15 (AT-447) — the Follow-up block's "Create fault report" action.
+        // Gated on rental_fault_reports.create (the same permission the
+        // normal "Report a Fault" create form already requires) in ADDITION
+        // to this group's own rental_inspections.view, per Johan's
+        // instruction to reuse the existing fault-report/work-order create
+        // permissions rather than invent a new one.
+        Route::post('/{rentalInspection}/follow-up/fault-reports', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'storeFollowUpFaultReports'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-inspections.follow-up.fault-reports');
         Route::delete('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'destroy'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.destroy');
         Route::post('/{rentalInspection}/restore', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'restore'])
@@ -3728,6 +3736,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'index'])->name('corex.rental-work-orders.index');
         Route::get('/create', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'create'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.create');
+        // AT-442 fix #2 — the create screen's searchable property picker.
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchProperties'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.search-properties');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
         // AT-439 Part 3 — shared rental list standard: print-list/export, same
