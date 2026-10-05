@@ -67,7 +67,7 @@ final class RentalJobCardRebuildTest extends TestCase
         return RentalCatalogueItem::create(array_merge([
             'agency_id' => $this->agency->id,
             'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
-            'name' => 'Paint, 5L', 'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
+            'code' => 'PAINT-5L', 'description' => 'Paint, 5L', 'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
             'default_price' => 750, 'sort_order' => 1, 'created_by_user_id' => $this->admin->id,
         ], $attrs));
     }
@@ -388,7 +388,7 @@ final class RentalJobCardRebuildTest extends TestCase
             'agency_id' => $otherAgency->id,
             'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $otherAgency->id)->where('kind', 'part')->firstOrFail()->id,
             'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $otherAgency->id)->where('name', 'Each')->firstOrFail()->id,
-            'name' => 'Other agency item', 'default_price' => 100, 'sort_order' => 1,
+            'code' => 'OTHER-AG', 'description' => 'Other agency item', 'default_price' => 100, 'sort_order' => 1,
         ]);
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.store'), [

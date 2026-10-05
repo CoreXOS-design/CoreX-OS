@@ -13,6 +13,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * this line (Pastel-style, per CLAUDE.md agency-VAT ruling); the
  * `vat_*_snapshot` columns are null until frozen once, at "send to owner as
  * quote" or job-card completion (RentalJobCardVatService::snapshotLines()).
+ *
+ * `code` (2026-10-05) — the catalogue item's own code, copied at add-time,
+ * same discipline as `type`/`description`/`unit`: null for a free-text
+ * line, never re-derived from the catalogue item after the line is saved.
  */
 class RentalJobCardLine extends Model
 {
@@ -24,6 +28,7 @@ class RentalJobCardLine extends Model
         'rental_job_card_id',
         'rental_job_card_task_id',
         'rental_catalogue_item_id',
+        'code',
         'type',
         'description',
         'unit',

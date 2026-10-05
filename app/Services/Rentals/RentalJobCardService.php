@@ -313,11 +313,20 @@ class RentalJobCardService
             'agency_id' => $jobCard->agency_id,
             'rental_job_card_task_id' => $task?->id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
-            // AT-442 fix #5 — a catalogue item keeps its OWN type (now its
-            // type's underlying kind — Pastel-style enhancement, 2026-10-05);
-            // the posted 'type' only applies to a free-text line (no catalogue item).
-            'type' => $catalogueItem?->kind() ?? $attributes['type'] ?? RentalCatalogueItem::TYPE_LABOUR,
-            'description' => $attributes['description'] ?? $catalogueItem?->name ?? '',
+            'code' => $catalogueItem?->code,
+            // 2026-10-05 QA1 finding (Johan) — reversed from the AT-442
+            // original: the Type select used to be disabled the moment a
+            // catalogue item was picked, and its value silently ignored
+            // ("the disabled <select> must never win over the catalogue
+            // item"). Johan's own instruction this round: "the Type select
+            // must be changeable" — picking an item now PRE-FILLS type from
+            // the item's own kind (still happens client-side AND here, as
+            // the fallback for any caller that doesn't post one), but an
+            // explicitly posted type wins, same as description/unit/price
+            // already work. See RentalJobCardAt442FollowUpTest's renamed
+            // assertion for the behaviour this replaces.
+            'type' => $attributes['type'] ?? $catalogueItem?->kind() ?? RentalCatalogueItem::TYPE_LABOUR,
+            'description' => $attributes['description'] ?? $catalogueItem?->description ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->catalogueUnit?->name,
             'quantity' => $quantity,
             'unit_price' => $unitPrice,

@@ -247,7 +247,7 @@ final class RentalJobCardVatTest extends TestCase
 
         $catalogueItem = RentalCatalogueItem::create([
             'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
-            'name' => 'Geyser element', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 450, 'sort_order' => 1,
+            'code' => 'GEYSER-EL', 'description' => 'Geyser element', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 450, 'sort_order' => 1,
             'default_rental_vat_type_id' => $this->standardType()->id, 'created_by_user_id' => $this->admin->id,
         ]);
         $jobCard = $this->makeJobCard();
@@ -281,7 +281,7 @@ final class RentalJobCardVatTest extends TestCase
         $this->agency->update(['vat_registered' => true]);
         $item = RentalCatalogueItem::create([
             'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
-            'name' => 'Tap washer', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 20,
+            'code' => 'TAP-WASH', 'description' => 'Tap washer', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 20,
             'default_rental_vat_type_id' => $this->noVatType()->id, 'created_by_user_id' => $this->admin->id,
         ]);
 
@@ -302,7 +302,7 @@ final class RentalJobCardVatTest extends TestCase
         \App\Models\PerformanceSetting::set('vat_rate', '15', $this->agency->id);
         $item = RentalCatalogueItem::create([
             'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
-            'name' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100,
+            'code' => 'BALLCOCK', 'description' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100,
             'default_rental_vat_type_id' => $this->standardType()->id, 'created_by_user_id' => $this->admin->id,
         ]);
 
@@ -320,7 +320,7 @@ final class RentalJobCardVatTest extends TestCase
         \App\Models\PerformanceSetting::set('vat_rate', '15', $this->agency->id);
         $item = RentalCatalogueItem::create([
             'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
-            'name' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100,
+            'code' => 'BALLCOCK', 'description' => 'Ballcock valve', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100,
             'default_rental_vat_type_id' => $this->standardType()->id, 'created_by_user_id' => $this->admin->id,
         ]);
 
@@ -334,7 +334,7 @@ final class RentalJobCardVatTest extends TestCase
     {
         $item = RentalCatalogueItem::create([
             'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
-            'name' => 'Screws (box)', 'rental_catalogue_unit_id' => \App\Models\RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Box')->firstOrFail()->id,
+            'code' => 'SCREWS-BOX', 'description' => 'Screws (box)', 'rental_catalogue_unit_id' => \App\Models\RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Box')->firstOrFail()->id,
             'default_price' => 50, 'created_by_user_id' => $this->admin->id,
         ]);
 
