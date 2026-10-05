@@ -70,7 +70,7 @@ class AgentPortalController extends Controller
         $ppraLetterMissing = [];
         if ($ppraLetterCanCreate && $user->agency) {
             $ppraLetterMissing = app(\App\Services\Compliance\PpraEmploymentLetterService::class)
-                ->missingFieldsFor($user, $user->agency);
+                ->missingFieldsFor($user, $user->agency, $user);
         }
         $ppraAwaitingMySignature = collect();
         if ($user->hasPermission('ppra_employment_letters.sign_as_principal')) {

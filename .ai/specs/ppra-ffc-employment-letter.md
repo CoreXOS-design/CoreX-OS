@@ -337,3 +337,62 @@ that role regardless. Fixed with `PpraEmploymentLetterController::assertAdminSco
 requires scope `branch` or `all`, matching cc1's own sidebar-visibility
 logic exactly. Covered by
 `test_own_scoped_agent_cannot_reach_admin_register_by_direct_url`.
+
+## 16. QA1 round 2 (2026-10-05 evening, conductor's browser check)
+
+Branch `cc1-ppra-letter-fixes-2026-10-05`. Four faults, root cause first.
+
+**1. Agent missing from the Admin → New letter picker (Angelique Venter).**
+Root cause: the picker's candidate list came from
+`PractitionerFfcRosterService::rosterFor()`, which hard-filters
+`users.role IN ('agent','branch_manager','admin')`. Angelique's role on QA1 is
+`office_admin` (designation "Candidate Property Practitioner", FFC number
+1275207, active, agency 1) — the one role the whitelist never named — so she was
+dropped before the search box was ever involved. Scope was NOT the cause
+(Johan resolves to `all`), and neither was her My Portal tab: she already holds
+`ppra_employment_letters.view/create/sign_as_principal` on QA1 (the §15 bug 2
+grant fix), so her own Documents → PPRA Employment Letter sub-tab shows from
+`$ppraLetterCanCreate`. What she actually hit on that tab is fault 4 (the
+firm-number blocker).
+Bug class: a role name is a poor proxy for "can hold an FFC" — any agency-defined
+custom role would be dropped the same way. Fix: new
+`PractitionerFfcRosterService::letterCandidatesFor()` — active, non-deleted,
+same agency, never an assistant (AT-267 §10), and EITHER role in
+agent/branch_manager/admin (unchanged behaviour) OR an FFC number on file (adds
+office_admin and any custom role). `Admin\PpraEmploymentLetterController::scopedRoster()`
+now uses it, with the own/branch/all narrowing and the store-time
+"in your scope" re-check unchanged, so direct-POST by id still 403s outside scope.
+`rosterFor()` is untouched (Inspection Pack's role ruling, 2026-09-28).
+
+**2. Empty search.** The agent search only toggled each row's `x-show`, so a
+no-match left a blank box. Added a "No agents match" row shown when the search
+text matches nobody. Same edit also fixed a latent defect: the row filter
+interpolated the name into an inline JS string, so a name containing an
+apostrophe (O'Brien) broke the whole Alpine expression; names now go through
+`@js()`.
+
+**3. Helper text removed, no replacement.** (a) My Portal → Documents → PPRA
+Employment Letter: the "Confirmation of Employment letter for your FFC renewal —
+signed by you and the agency's principal." line. (b) Create page subtitle "Pick
+the agent this letter is for…".
+
+**4. Firm-number blocker is now a link.** The check is unchanged
+(`agencies.ppra_number`, falling back to the agent's branch `ppra_number`). The
+message "The agency's PPRA firm number is not set" now links to **Admin → Company
+Settings → Company tab → "PPRA Registration Number"** (`route('admin.company-settings')#company`;
+a branch-specific number is under the Branches tab). Previously it linked to
+`corex.settings`, which has no such field. The link is rendered only for a viewer
+holding `manage_performance_settings` (what Company Settings itself requires);
+everyone else sees the message as plain text. `missingFieldsFor()` takes an
+optional `$viewer` for this; `fix_url` is now nullable. QA1 state (read-only
+check, not changed): agency 1 "Home Finders Coastal" has `ppra_number` NULL, so
+every agent on QA1 currently sees the blocker until an admin sets it.
+
+**Files:** `app/Services/Compliance/PractitionerFfcRosterService.php`,
+`app/Services/Compliance/PpraEmploymentLetterService.php`,
+`app/Http/Controllers/Admin/PpraEmploymentLetterController.php`,
+`app/Http/Controllers/Agent/AgentPortalController.php`,
+`resources/views/admin/ppra-employment-letters/create.blade.php`,
+`resources/views/agent/portal.blade.php`,
+`tests/Feature/Compliance/PpraEmploymentLetterTest.php`, this spec.
+No migration, no new setting (nothing to add to the Setup Wizard).

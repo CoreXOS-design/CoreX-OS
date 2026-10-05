@@ -482,4 +482,129 @@ final class PpraEmploymentLetterTest extends TestCase
 
         $this->assertDatabaseCount('ppra_employment_letters', 0);
     }
+
+    // ── cc1 round 2 (2026-10-05 evening): picker eligibility, empty match, helper text, blocker link ──
+
+    public function test_picker_lists_every_ffc_holder_whatever_their_role_and_never_assistants_or_inactive(): void
+    {
+        $this->principal();
+        $admin = $this->user(['role' => 'admin']);
+
+        // Angelique's shape: office_admin, Candidate Property Practitioner, own FFC number.
+        $officeAdmin = $this->user(['role' => 'office_admin', 'name' => 'Angelique Venter', 'designation' => 'Candidate Property Practitioner']);
+        // An agency-defined custom role holding an FFC.
+        $custom = $this->user(['role' => 'sales_manager', 'name' => 'Custom Role Holder']);
+        // Not practitioners / not eligible.
+        $assistant = $this->user(['role' => 'assistant', 'name' => 'An Assistant', 'ffc_number' => '5555555']);
+        $inactive  = $this->user(['role' => 'agent', 'name' => 'Gone Agent', 'is_active' => false]);
+        $noFfcCustom = $this->user(['role' => 'receptionist', 'name' => 'Front Desk', 'ffc_number' => null]);
+        $otherAgency = Agency::create(['name' => 'Cape Peninsula Properties', 'slug' => 'cape-peninsula-3']);
+        $foreign = User::factory()->create(['agency_id' => $otherAgency->id, 'role' => 'office_admin', 'name' => 'Foreign Office', 'is_active' => true, 'ffc_number' => '7777777']);
+
+        $ids = app(\App\Services\Compliance\PractitionerFfcRosterService::class)
+            ->letterCandidatesFor($this->agency->id)->pluck('id')->all();
+
+        $this->assertContains($officeAdmin->id, $ids);
+        $this->assertContains($custom->id, $ids);
+        $this->assertNotContains($assistant->id, $ids);
+        $this->assertNotContains($inactive->id, $ids);
+        $this->assertNotContains($noFfcCustom->id, $ids);
+        $this->assertNotContains($foreign->id, $ids);
+
+        // And the real screen shows her.
+        $shown = $this->actingAs($admin)
+            ->get(route('admin.ppra-employment-letters.create'))
+            ->assertOk()
+            ->assertSee('Angelique Venter')
+            ->viewData('agents')->pluck('id')->all();
+        $this->assertContains($officeAdmin->id, $shown);
+        $this->assertNotContains($assistant->id, $shown);
+
+        // Admin can start her letter (scope 'all'); store accepts her id.
+        $this->actingAs($admin)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $officeAdmin->id])
+            ->assertRedirect();
+        $this->assertDatabaseHas('ppra_employment_letters', ['user_id' => $officeAdmin->id]);
+    }
+
+    public function test_picker_keeps_branch_scope_for_non_practitioner_roles(): void
+    {
+        $branchB = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Stanford']);
+        $otherBranchOfficeAdmin = $this->user(['role' => 'office_admin', 'branch_id' => $branchB->id, 'name' => 'Other Branch Office']);
+        $sameBranchOfficeAdmin  = $this->user(['role' => 'office_admin', 'name' => 'Same Branch Office']);
+        $this->principal();
+        $bm = $this->user(['role' => 'branch_manager']); // unseeded fallback scope = 'branch'
+
+        $shown = $this->actingAs($bm)
+            ->get(route('admin.ppra-employment-letters.create'))
+            ->assertOk()
+            ->assertSee('Same Branch Office')
+            ->viewData('agents')->pluck('id')->all();
+        $this->assertContains($sameBranchOfficeAdmin->id, $shown);
+        $this->assertNotContains($otherBranchOfficeAdmin->id, $shown);
+
+        $this->actingAs($bm)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $otherBranchOfficeAdmin->id])
+            ->assertStatus(403);
+    }
+
+    public function test_create_page_has_no_subtitle_and_renders_a_safe_no_match_row_even_with_an_apostrophe_name(): void
+    {
+        $this->principal();
+        $this->user(['name' => "Sean O'Brien"]);
+        $admin = $this->user(['role' => 'admin']);
+
+        $html = $this->actingAs($admin)
+            ->get(route('admin.ppra-employment-letters.create'))
+            ->assertOk()
+            ->assertDontSee('Pick the agent this letter is for', false)
+            ->assertDontSee('this only starts it on their behalf', false)
+            ->assertSee('No agents match')
+            ->assertSee('data-testid="no-agents-match"', false)
+            ->getContent();
+
+        // The apostrophe must never reach an inline JS string raw (it would break Alpine's expression).
+        $this->assertStringNotContainsString("'sean o'brien'", $html);
+        $this->assertStringNotContainsString("sean o&#039;brien'.includes", $html);
+    }
+
+    public function test_portal_tab_has_no_helper_line_and_firm_number_blocker_links_to_company_settings_only_for_admins(): void
+    {
+        $this->agency->update(['ppra_number' => null]);
+
+        // Explicit grants (table no longer "unseeded", so no fail-open): both roles may use the
+        // letter, only admin may open Company Settings where the firm number lives.
+        foreach (['admin', 'agent'] as $role) {
+            foreach (['access_my_portal', 'ppra_employment_letters.view', 'ppra_employment_letters.create'] as $key) {
+                RolePermission::create(['role' => $role, 'permission_key' => $key, 'scope' => 'own', 'agency_id' => $this->agency->id]);
+            }
+        }
+        RolePermission::create(['role' => 'admin', 'permission_key' => 'manage_performance_settings', 'scope' => 'all', 'agency_id' => $this->agency->id]);
+        PermissionService::clearCache();
+
+        $this->principal();
+        $admin = $this->user(['role' => 'admin', 'name' => 'Portal Admin']);
+        $plainAgent = $this->user(['role' => 'agent', 'name' => 'Portal Agent']);
+
+        $service = app(PpraEmploymentLetterService::class);
+
+        $adminMissing = collect($service->missingFieldsFor($admin, $this->agency, $admin))
+            ->firstWhere('label', "The agency's PPRA firm number is not set");
+        $this->assertNotNull($adminMissing);
+        $this->assertSame(route('admin.company-settings') . '#company', $adminMissing['fix_url']);
+
+        $agentMissing = collect($service->missingFieldsFor($plainAgent, $this->agency, $plainAgent))
+            ->firstWhere('label', "The agency's PPRA firm number is not set");
+        $this->assertNotNull($agentMissing);
+        $this->assertNull($agentMissing['fix_url']);
+
+        $page = $this->actingAs($admin)->get(route('agent.portal'))->assertOk();
+        $page->assertDontSee('Confirmation of Employment letter for your FFC renewal', false);
+        $page->assertSee("The agency's PPRA firm number is not set");
+        $page->assertSee(route('admin.company-settings') . '#company', false);
+
+        $agentPage = $this->actingAs($plainAgent)->get(route('agent.portal'))->assertOk();
+        $agentPage->assertSee("The agency's PPRA firm number is not set");
+        $agentPage->assertDontSee(route('admin.company-settings') . '#company', false);
+    }
 }
