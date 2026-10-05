@@ -34,5 +34,15 @@
         @endif
     </tr>
     @endforeach
+    {{-- 2026-10-05 overnight re-verification — Johan's own task-subtotal
+         ask: a group's own lines total, distinct from the single grand
+         subtotal/VAT/total already shown once at the bottom of the whole
+         document. --}}
+    @if($pricesOn)
+    <tr class="total-row">
+        <td colspan="{{ $vat['registered'] ? 4 : 3 }}">Subtotal</td>
+        <td>R{{ number_format((float) $lines->sum('line_total'), 2) }}</td>
+    </tr>
+    @endif
 </table>
 @endif

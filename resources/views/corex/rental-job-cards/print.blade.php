@@ -70,6 +70,8 @@
     <h2>Job</h2>
     <div class="box"><p><strong>{{ $jobCard->title }}</strong></p></div>
 
+    @include('corex.rental-job-cards._pdf-source')
+
     {{-- 2026-10-05 rebuild (req #6) — tasks and their own parts & labour
          lines, same layout the show screen uses, not two separate sections. --}}
     <h2>Tasks</h2>

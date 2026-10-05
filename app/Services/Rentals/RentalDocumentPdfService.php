@@ -102,7 +102,11 @@ class RentalDocumentPdfService
     /** AT-442 req #5 — the quote PDF generated from a job card and sent to the owner. */
     public function jobCardQuotePdf(RentalJobCard $jobCard)
     {
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'workOrder.agency', 'workOrder.branch']);
+        // 2026-10-05 overnight re-verification — crew.members and
+        // rentalFaultReport were missing from this eager load, so the quote
+        // PDF could never show the crew or the fault-report/work-order
+        // source reference the printable job card already shows.
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         $pdf = Pdf::loadView('corex.rental-job-cards.quote-pdf', [
@@ -125,7 +129,10 @@ class RentalDocumentPdfService
     /** Req #6 — the printable job card: address, access notes, tenant contact, tasks, lines, sign-off lines. */
     public function jobCardPrintPdf(RentalJobCard $jobCard)
     {
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
+        // 2026-10-05 overnight re-verification — rentalFaultReport was
+        // missing, so the printable job card could never show which fault
+        // report (if any) it came from, only the work order.
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         // AT-442 follow-up, conductor's ruling — the worker's printed copy

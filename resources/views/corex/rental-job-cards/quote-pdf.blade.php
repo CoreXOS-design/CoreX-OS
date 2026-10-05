@@ -50,6 +50,10 @@
         <table>
             <tr><td class="label">Property</td><td>{{ $jobCard->property?->buildDisplayAddress() ?? '—' }}</td></tr>
             <tr><td class="label">Tenancy</td><td>{{ $jobCard->lease?->tenantNames() ?? '—' }}</td></tr>
+            <tr><td class="label">Crew</td><td>{{ $jobCard->crew?->name ?? ($jobCard->assigned_user_id ? 'Previously assigned: ' . ($jobCard->assignedUser?->name ?? '—') : '—') }}</td></tr>
+            @if($jobCard->crew && $jobCard->crew->members->isNotEmpty())
+            <tr><td class="label">Crew members</td><td>{{ $jobCard->crew->members->pluck('name')->implode(', ') }}</td></tr>
+            @endif
             @if($vat['registered'] && $vatNumber)
             <tr><td class="label">VAT No</td><td>{{ $vatNumber }}</td></tr>
             @endif
@@ -60,6 +64,8 @@
     <div class="box">
         <p><strong>{{ $jobCard->title }}</strong></p>
     </div>
+
+    @include('corex.rental-job-cards._pdf-source')
 
     {{-- 2026-10-05 rebuild (req #6) — same task → lines layout as the show
          screen and the printed job card, not a separate flat list. --}}
