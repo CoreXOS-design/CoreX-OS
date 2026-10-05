@@ -13,16 +13,26 @@ use App\Models\RentalWorkOrderPhoto;
 use App\Models\User;
 use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * .ai/specs/rental-work-orders.md §14 (AT-442) — a job card BUILDS its work
- * order: creating one creates the linked rental_work_orders row (or links
- * to an already-existing one, when raised from a fault report) with
- * assignment_type='internal'. Mirrors RentalWorkOrderService's own split —
- * creation + cross-cutting actions (quote PDF, photos) live here; per-record
- * lifecycle transitions that need no I/O live on the model, matching
- * RentalJobCard's own established pattern.
+ * .ai/specs/rental-work-orders.md §14 (AT-442). Rebuilt 2026-10-05 — Johan
+ * rejected the original "a job card always builds its own work order"
+ * design after testing /rental-job-cards/create and /2 on QA1: "today
+ * creating a job card silently made a second work order."
+ *
+ * createStandalone() below is the ONLY creation path
+ * RentalJobCardController::store() calls now — it never creates a work
+ * order, only ever links to one that already exists, and builds every
+ * task + its lines in one transaction (one screen, one Save).
+ *
+ * createForProperty()/createFromFaultReport()/createJobCard() below are
+ * UNCHANGED and still deliberately build a work order — they are called
+ * by RentalWorkOrderController::store()'s own assignment_type='internal'
+ * path and RentalFaultReportController@raiseWorkOrder, a different,
+ * already-tested feature ("an internal work order gets its own job card
+ * automatically") this rebuild does not touch.
  */
 class RentalJobCardService
 {
@@ -31,9 +41,109 @@ class RentalJobCardService
     }
 
     /**
+     * REBUILD, 2026-10-05 — the create/store path for /rental-job-cards
+     * itself. Never creates a RentalWorkOrder: links to one only when
+     * $attributes['rental_work_order_id'] (an existing work order this
+     * card is being built for) or $attributes['fault_report_id'] (whose
+     * OWN already-raised work order, if any, is inherited — never a new
+     * one) names one explicitly. "No source — created directly" (both
+     * null) is a normal, permanent outcome, e.g. a garden-service job.
+     *
+     * Builds every task + its own lines, and every General (task-less)
+     * line, in the SAME transaction as the card — nothing is saved until
+     * this one call, no stray records on a failed submit.
+     *
+     * @param array{
+     *   property_id?: int, lease_id?: int, rental_work_order_id?: int,
+     *   fault_report_id?: int, title: string, access_notes?: string,
+     *   tasks?: array<int, array{description?: string, lines?: array<int, array>}>,
+     *   general_lines?: array<int, array>,
+     * } $attributes
+     */
+    public function createStandalone(array $attributes, User $by): RentalJobCard
+    {
+        return DB::transaction(function () use ($attributes, $by) {
+            $workOrder = null;
+            $faultReport = null;
+            $property = null;
+            $leaseId = $attributes['lease_id'] ?? null;
+
+            if (!empty($attributes['rental_work_order_id'])) {
+                $workOrder = RentalWorkOrder::findOrFail($attributes['rental_work_order_id']);
+                $property = $workOrder->property;
+                $leaseId = $leaseId ?? $workOrder->lease_id;
+            }
+
+            if (!empty($attributes['fault_report_id'])) {
+                $faultReport = RentalFaultReport::findOrFail($attributes['fault_report_id']);
+                $property = $property ?? $faultReport->property;
+                $leaseId = $leaseId ?? $faultReport->lease_id;
+                // A fault report that already has a work order raised
+                // against it carries that link straight through — never a
+                // second one created here.
+                if (!$workOrder && $faultReport->rental_work_order_id) {
+                    $workOrder = $faultReport->workOrder;
+                }
+            }
+
+            if (!$property) {
+                $property = Property::findOrFail($attributes['property_id']);
+            }
+
+            $jobCard = RentalJobCard::create([
+                'agency_id' => $property->agency_id,
+                'branch_id' => $property->branch_id,
+                'rental_work_order_id' => $workOrder?->id,
+                'rental_fault_report_id' => $faultReport?->id,
+                'property_id' => $property->id,
+                'lease_id' => $leaseId,
+                'title' => $attributes['title'],
+                'status' => RentalJobCard::STATUS_DRAFT,
+                'access_notes' => $attributes['access_notes'] ?? null,
+                'created_by_user_id' => $by->id,
+            ]);
+
+            foreach ($attributes['tasks'] ?? [] as $i => $taskData) {
+                $description = trim((string) ($taskData['description'] ?? ''));
+                if ($description === '') {
+                    continue;
+                }
+                $task = $jobCard->tasks()->create([
+                    'agency_id' => $jobCard->agency_id,
+                    'description' => $description,
+                    'sort_order' => $i + 1,
+                    'created_by_user_id' => $by->id,
+                ]);
+                foreach ($taskData['lines'] ?? [] as $lineData) {
+                    if ($this->lineHasContent($lineData)) {
+                        $this->addLine($jobCard, $lineData, $by, $task, false);
+                    }
+                }
+            }
+            foreach ($attributes['general_lines'] ?? [] as $lineData) {
+                if ($this->lineHasContent($lineData)) {
+                    $this->addLine($jobCard, $lineData, $by, null, false);
+                }
+            }
+
+            $jobCard->recalcTotal();
+
+            return $jobCard->fresh(['tasks.lines', 'lines']);
+        });
+    }
+
+    private function lineHasContent(array $lineData): bool
+    {
+        return !empty($lineData['rental_catalogue_item_id']) || trim((string) ($lineData['description'] ?? '')) !== '';
+    }
+
+    /**
      * A job card raised directly from the property (no upstream fault
      * report) — req #1/#4. Creates the work order and the job card
-     * together, atomically.
+     * together, atomically. UNCHANGED by the 2026-10-05 rebuild — called
+     * by RentalWorkOrderController::store()'s internal-assignment path,
+     * not by RentalJobCardController any more (see createStandalone()
+     * above).
      */
     public function createForProperty(Property $property, array $attributes, User $by): RentalJobCard
     {
@@ -121,6 +231,14 @@ class RentalJobCardService
         return $task;
     }
 
+    public function renameTask(RentalJobCard $jobCard, RentalJobCardTask $task, string $description, User $by): void
+    {
+        abort_unless($task->rental_job_card_id === $jobCard->id, 404);
+        $old = $task->description;
+        $task->forceFill(['description' => $description])->save();
+        $jobCard->logUpdate('task_renamed', $by, "{$old} \u{2192} {$description}");
+    }
+
     public function toggleTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by): void
     {
         abort_unless($task->rental_job_card_id === $jobCard->id, 404);
@@ -164,8 +282,13 @@ class RentalJobCardService
      * on (rental_work_order_settings) — with it off, unit_price/line_total
      * always save null regardless of what's posted, never silently kept
      * from a stale catalogue default.
+     *
+     * $task — the task this line sits under; null puts it in the built-in
+     * "General" group. $log — false during createStandalone()'s own bulk
+     * build, so a single Save doesn't write one history row per line; true
+     * for every line added one at a time after the card already exists.
      */
-    public function addLine(RentalJobCard $jobCard, array $attributes, User $by): RentalJobCardLine
+    public function addLine(RentalJobCard $jobCard, array $attributes, User $by, ?RentalJobCardTask $task = null, bool $log = true): RentalJobCardLine
     {
         $catalogueItem = isset($attributes['rental_catalogue_item_id'])
             ? RentalCatalogueItem::find($attributes['rental_catalogue_item_id'])
@@ -188,6 +311,7 @@ class RentalJobCardService
 
         $line = $jobCard->lines()->create([
             'agency_id' => $jobCard->agency_id,
+            'rental_job_card_task_id' => $task?->id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
             // AT-442 fix #5 — a catalogue item keeps its OWN type (now its
             // type's underlying kind — Pastel-style enhancement, 2026-10-05);
@@ -205,7 +329,9 @@ class RentalJobCardService
         ]);
 
         $jobCard->recalcTotal();
-        $jobCard->logUpdate('line_added', $by, $line->description);
+        if ($log) {
+            $jobCard->logUpdate('line_added', $by, $line->description);
+        }
 
         return $line;
     }
@@ -251,6 +377,44 @@ class RentalJobCardService
     }
 
     /**
+     * REBUILD, 2026-10-05 — a job card created with no source (the normal
+     * case now) has no work order to ride the threshold/approval gate
+     * against. Creating one HERE, lazily, the moment a quote is actually
+     * sent, is the one place this feature still creates a work order after
+     * the initial Save — deliberate and visible (the agent just clicked
+     * "Send to owner as quote"), never a side effect of merely saving the
+     * card. A card already linked to a work order (an explicit source)
+     * reuses it unchanged.
+     */
+    private function ensureWorkOrderForQuote(RentalJobCard $jobCard, User $by): RentalWorkOrder
+    {
+        if ($jobCard->workOrder) {
+            return $jobCard->workOrder;
+        }
+
+        $workOrder = RentalWorkOrder::create([
+            'agency_id' => $jobCard->agency_id,
+            'branch_id' => $jobCard->branch_id,
+            'property_id' => $jobCard->property_id,
+            'lease_id' => $jobCard->lease_id,
+            'reported_fault_report_id' => $jobCard->rental_fault_report_id,
+            'assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL,
+            'title' => $jobCard->title,
+            'description' => $jobCard->title,
+            'status' => RentalWorkOrder::STATUS_REPORTED,
+            'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
+            'reported_by_user_id' => $by->id,
+            'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
+            'reported_at' => now(),
+            'created_by_user_id' => $by->id,
+        ]);
+
+        $jobCard->forceFill(['rental_work_order_id' => $workOrder->id])->save();
+
+        return $workOrder;
+    }
+
+    /**
      * Req #5 — "Send to owner as quote." Generates the PDF, records it on
      * the linked work order via the EXISTING recordQuote()/selectQuote()
      * mechanism (rental-work-orders.md §3.4c) — the property's landlord
@@ -289,7 +453,7 @@ class RentalJobCardService
         // quote amount AND the figure the no-approval spend threshold
         // compares against (RentalWorkOrder::selectQuote()) — identical to
         // total_amount when the agency isn't VAT registered.
-        $workOrder = $jobCard->workOrder;
+        $workOrder = $this->ensureWorkOrderForQuote($jobCard, $by);
         $quote = $workOrder->recordQuote([
             'rental_job_card_id' => $jobCard->id,
             'agency_service_provider_id' => null,
@@ -312,10 +476,32 @@ class RentalJobCardService
         return $quote;
     }
 
-    /** Job card photos ARE the linked work order's photos — one photo pipeline, not two. */
+    /**
+     * REBUILD, 2026-10-05 — a job card now very often has no linked work
+     * order at all, so its photos can no longer ride on
+     * RentalWorkOrderService::storePhoto() (which requires one). Stored
+     * directly against the card (rental_work_order_photos.rental_job_card_id);
+     * also cross-referenced onto a linked work order's own
+     * rental_work_order_id when one exists, same evidence pipeline either way.
+     */
     public function storePhoto(RentalJobCard $jobCard, UploadedFile $file, string $photoType, User $uploadedBy, ?string $clientKey = null): RentalWorkOrderPhoto
     {
-        return app(RentalWorkOrderService::class)->storePhoto($jobCard->workOrder, $file, $photoType, $uploadedBy, $clientKey);
+        $url = app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
+
+        $photo = RentalWorkOrderPhoto::create([
+            'agency_id' => $jobCard->agency_id,
+            'rental_work_order_id' => $jobCard->rental_work_order_id,
+            'rental_job_card_id' => $jobCard->id,
+            'photo_type' => $photoType,
+            'storage_path' => $url,
+            'uploaded_by_user_id' => $uploadedBy->id,
+            'client_idempotency_key' => $clientKey,
+            'file_size_bytes' => $file->getSize(),
+        ]);
+
+        $jobCard->logUpdate('photo_added', $uploadedBy, ucfirst(str_replace('_', ' ', $photoType)) . ' photo uploaded');
+
+        return $photo;
     }
 
     /**
