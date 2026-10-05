@@ -1,4 +1,22 @@
 {
+  "ppra-employment-letters.download": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
+  },
+  "ppra-employment-letters.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
+  },
+  "ppra-employment-letters.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
+  },
   "admin.activity-mappings.index": {
     "flags": [
       "NO_ITEM"
