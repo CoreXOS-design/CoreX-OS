@@ -12,7 +12,6 @@ use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\PortalCapture;
 use App\Models\Presentation;
-use App\Models\Rental;
 use App\Models\Role;
 use App\Models\TrainingCourse;
 use App\Models\TrainingLesson;
@@ -67,62 +66,14 @@ final class AgencyScanFixesTest extends TestCase
         ]));
     }
 
-    private function rentalFor(Agency $agency, Branch $branch, string $address): Rental
-    {
-        return Rental::withoutAgencyStamping(fn () => Rental::create([
-            'agency_id' => $agency->id, 'branch_id' => $branch->id,
-            'lease_address' => $address, 'lease_start_date' => '2026-01-01', 'is_active' => true,
-        ]));
-    }
-
-    // ── 1. Rentals ────────────────────────────────────────────────────────
-
-    public function test_rentals_register_hides_another_agencys_rentals(): void
-    {
-        $this->rentalFor($this->agencyA, $this->branchA, '1 Agency A Street');
-        $this->rentalFor($this->agencyB, $this->branchB, '9 Agency B Road');
-
-        $this->actingAs($this->adminB)->get('/rentals')
-            ->assertOk()
-            ->assertSee('9 Agency B Road')
-            ->assertDontSee('1 Agency A Street');
-    }
-
-    public function test_another_agencys_rental_cannot_be_opened_or_saved_by_id(): void
-    {
-        $rentalA = $this->rentalFor($this->agencyA, $this->branchA, '1 Agency A Street');
-
-        $this->actingAs($this->adminB)->get(route('rentals.edit', $rentalA->id))->assertNotFound();
-        $this->actingAs($this->adminB)->post(route('rentals.update', $rentalA->id), [
-            'branch_id' => $this->branchB->id, 'lease_address' => 'hijacked', 'lease_start_date' => '2026-01-01',
-        ])->assertNotFound();
-
-        $this->assertSame('1 Agency A Street', DB::table('rentals')->where('id', $rentalA->id)->value('lease_address'));
-    }
-
-    public function test_a_rental_cannot_be_created_in_another_agencys_branch(): void
-    {
-        $this->actingAs($this->adminB)->post(route('rentals.store'), [
-            'branch_id' => $this->branchA->id, 'lease_address' => 'Planted', 'lease_start_date' => '2026-01-01',
-            'effective_from' => '2026-01-01', 'rent_incl' => 1, 'rent_excl' => 1, 'commission_incl' => 1, 'commission_excl' => 1,
-        ])->assertForbidden();
-
-        $this->assertDatabaseMissing('rentals', ['lease_address' => 'Planted']);
-    }
-
-    public function test_a_new_rental_is_stamped_with_its_branchs_agency(): void
-    {
-        $this->actingAs($this->adminB)->post(route('rentals.store'), [
-            'branch_id' => $this->branchB->id, 'lease_address' => 'Own rental', 'lease_start_date' => '2026-01-01',
-            'rental_agents' => [$this->adminA->id],
-            'effective_from' => '2026-01-01', 'rent_incl' => 1, 'rent_excl' => 1, 'commission_incl' => 1, 'commission_excl' => 1,
-        ])->assertRedirect(route('rentals.index'));
-
-        $rental = Rental::withoutGlobalScopes()->where('lease_address', 'Own rental')->firstOrFail();
-        $this->assertSame($this->agencyB->id, (int) $rental->agency_id);
-        $this->assertSame(0, DB::table('rental_agents')->where('rental_id', $rental->id)->where('user_id', $this->adminA->id)->count(),
-            'another agency\'s agent must not be linkable to a rental');
-    }
+    // ── 1. Rentals — REMOVED, AT-439 (2026-10-05) ───────────────────────────
+    // This section pinned cross-agency isolation on RentalsController's CRUD
+    // surface (rentals.store/.update/.edit/.index rendering the legacy
+    // register). That controller and its write routes are retired — nothing
+    // in the live app can create/edit a `rentals` row any more, so the
+    // attack surface these 4 tests guarded no longer exists to attack.
+    // rentals.index/.create/.edit now redirect to the Leases screen, which
+    // has its own tenant-isolation coverage.
 
     // ── 2. Dashboard training card ────────────────────────────────────────
 

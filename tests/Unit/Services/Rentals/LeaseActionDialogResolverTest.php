@@ -103,6 +103,40 @@ final class LeaseActionDialogResolverTest extends TestCase
         self::assertNull(LeaseActionDialogResolver::resolve($lease, null, false, null));
     }
 
+    /**
+     * .ai/specs/rental-renewals.md §19 — "change-notice-outcome" is
+     * menu-only (like reverse-notice/cancel), but a failed submission must
+     * still reopen it with the entered values.
+     */
+    public function test_change_notice_outcome_reopens_on_error_when_notice_is_active(): void
+    {
+        $lease = $this->makeLease([
+            'status' => Lease::STATUS_ACTIVE,
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+        ]);
+
+        self::assertSame('change-notice-outcome', LeaseActionDialogResolver::resolve($lease, null, true, 'change-notice-outcome'));
+    }
+
+    public function test_change_notice_outcome_is_never_url_triggerable(): void
+    {
+        $lease = $this->makeLease([
+            'status' => Lease::STATUS_ACTIVE,
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+        ]);
+
+        self::assertNull(LeaseActionDialogResolver::resolve($lease, 'change-notice-outcome', false, null));
+    }
+
+    public function test_change_notice_outcome_reopen_is_invalid_without_an_active_notice(): void
+    {
+        $lease = $this->makeLease(['status' => Lease::STATUS_ACTIVE]);
+
+        self::assertNull(LeaseActionDialogResolver::resolve($lease, null, true, 'change-notice-outcome'));
+    }
+
     private function makeLease(array $overrides = []): Lease
     {
         $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);

@@ -230,6 +230,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
             Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
+            // §15 (AT-447 follow-up) — "Request work / report a problem."
+            Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->name('fault-reports.store');
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
@@ -477,6 +479,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
             Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
         });
 
         // Session-authed "who am I" — fired automatically on every page
@@ -575,6 +578,12 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
 
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
         Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+
+        // Pre-check (.ai/specs/deeds-capture.md §9) — called BEFORE the extension
+        // reveals an owner ID (CMA Info's paid, R3-per-ID step). Read-only; mirrors
+        // the check-search precedent above.
+        Route::post('/deeds-capture/check-duplicate', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'checkDuplicate'])->name('v1.deeds-capture.check-duplicate');
+        Route::post('/deeds-capture/check-duplicate/decision', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'logPrecheckDecision'])->name('v1.deeds-capture.check-duplicate.decision');
 
         // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
         Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');

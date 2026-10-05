@@ -19,12 +19,13 @@ class LeaseActionDialogResolver
     public const MONTH_TO_MONTH = 'month-to-month';
     public const TENANT_NOTICE = 'tenant-notice';
     public const LANDLORD_NOTICE = 'landlord-notice';
+    public const CHANGE_NOTICE_OUTCOME = 'change-notice-outcome';
 
     /**
      * The only actions a URL ?action= param (or the hidden _lease_action
      * reopen marker) is ever allowed to open. Reverse-notice, reverse-
-     * month-to-month, and cancel are reachable only from the menu itself —
-     * deliberately not URL-triggerable.
+     * month-to-month, cancel, and change-notice-outcome are reachable only
+     * from the menu itself — deliberately not URL-triggerable.
      */
     public const URL_ACTIONS = [self::RENEW, self::MONTH_TO_MONTH, self::TENANT_NOTICE, self::LANDLORD_NOTICE];
 
@@ -51,6 +52,11 @@ class LeaseActionDialogResolver
         if (!$lease->hasActiveNotice()) {
             $valid[self::TENANT_NOTICE] = true;
             $valid[self::LANDLORD_NOTICE] = true;
+        } else {
+            // Menu-only (see URL_ACTIONS) — but still a valid REOPEN target
+            // so a failed "Change notice outcome" submission reopens with
+            // the entered values instead of silently closing.
+            $valid[self::CHANGE_NOTICE_OUTCOME] = true;
         }
 
         return $valid;

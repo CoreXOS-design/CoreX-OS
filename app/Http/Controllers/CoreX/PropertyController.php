@@ -2875,6 +2875,8 @@ class PropertyController extends Controller
         $data['water_included']      = $request->boolean('water_included');
         $data['electricity_included'] = $request->boolean('electricity_included');
         $data['levies_included']     = $request->boolean('levies_included');
+        // .ai/specs/rental-renewals.md §19 — same unchecked-checkbox rule as above.
+        $data['show_available_from_on_portals'] = $request->boolean('show_available_from_on_portals');
 
         // FIX, 2026-09-22 (Johan) — see applyDepositDefault()'s own docblock.
         $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);

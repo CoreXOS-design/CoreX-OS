@@ -684,3 +684,166 @@ comment explaining why. No new setting → nothing for the Setup Wizard (CLAUDE.
       is still there), never at the top.
 - [x] `tests/Feature/Prospecting/DeedsCaptureDismissTest.php` green (renders both a property row and
       a standalone TVA row, then asserts they vanish after dismiss).
+
+---
+
+## 9. Pre-check before the paid ID reveal (2026-10-05, Johan — built)
+
+**Status:** Built, QA1-pending Johan's go-ahead. Branch
+`cma-deeds-precheck-2026-10-05`. Prior investigation:
+`/tmp/cma-extension-precheck-investigation-2026-10-05.md`.
+
+### 9.0 The problem and the fact that shaped the fix
+
+Agencies pay CMA Info **R3 per owner ID, at the moment that ID is revealed** on the
+property panel (clicking the "eye" icon that unmasks `560728*******`). Everything else
+on the panel — Property Information (LPI Code, Erf no, Scheme no/Section number,
+Address, Suburb, Municipality, GPS, extents, Type) and the non-ID parts of Sale
+Information (Owner **name**, Title Deed **number**, Sale Price/Date, Bond Holder/Amount)
+— is free.
+
+Before this build, `content-cmainfo.js`'s `extractSaleInformation()` called
+`revealOwnerIdIfNeeded()` — the function that synthetically clicks every visible
+`i.fa.fa-eye` icon — **unconditionally**, as its first line, every time the agent
+pressed the single "Capture to CoreX" button. The agent never touched the reveal
+themselves; the extension did it automatically, with no gate, before CoreX's own
+duplicate check (which only ran AFTER the paid POST had already landed) ever had a
+chance to say "we already have this."
+
+### 9.1 What changed
+
+`content-cmainfo.js`'s `onCaptureClick()` now runs in two phases:
+
+1. **Free phase** — `ensureSectionExpanded` + `extractPropertyInformation()` (unchanged,
+   already free) + a **new** `extractFreeSaleFields()` that reads Owner (name) and Title
+   Deed from the Sale Information panel **without** calling `revealOwnerIdIfNeeded()`.
+   `buildPreCheckPayload()` (new) maps these into the same `property`/`owners` shape
+   `buildDeedsCapturePayload()` already uses, plus `source_ref` (via the existing,
+   unchanged `buildSourceRef()`).
+2. **Gate** — `POST /api/v1/deeds-capture/check-duplicate` (new). Response `status`:
+   - `not_found` → proceeds straight into the existing `extractDeed()` →
+     `revealOwnerIdIfNeeded()` → `buildDeedsCapturePayload()` → `POST /api/v1/deeds-capture`
+     path, byte-for-byte unchanged from before this build.
+   - `exists` / `possible_match` → a new on-page banner (mirrors the P24/PP popup's
+     `duplicateWarning` Confirm/Cancel pattern) shows what matched, who captured it and
+     when, and three actions: **Open in CoreX** / **Pull anyway** / **Cancel**. The
+     reveal only ever happens after "Pull anyway".
+   - Request fails/times out → "Could not check CoreX — Try again / Pull anyway". Never
+     reveals on a failure either; "Try again" re-sends the same pre-check payload
+     (no re-extraction needed — the free phase already ran once).
+
+Multi-owner properties: ONE pre-check call per property (all free owner names sent
+together in the `owners[]` array), before any ID anywhere on that property is opened.
+
+### 9.2 New endpoint — `POST /api/v1/deeds-capture/check-duplicate`
+
+`App\Http\Controllers\Api\DeedsCaptureController::checkDuplicate()` — Sanctum-authed,
+same `effectiveAgencyId()` resolution as `store()`. Side-effect-free: wraps
+`TrackedPropertyMatchOrCreateService::findExistingMatch()` (already existed, already
+read-only) via a private `buildFreePropertyFacts()` mapping — a deliberate, separate
+duplicate of `ingestOne()`'s own `$facts` mapping (property-only subset) so this new
+endpoint can never change `store()`'s existing, audited behaviour. No new matching
+*strategy* was added to the resolver.
+
+Request: `source_ref` (optional, built client-side exactly like a real capture's would
+be), `property.*` (the free Property Information fields), `owners[]` (name + optional
+`id_type` hint — no ID, since none exists yet at this point).
+
+Response:
+```
+{ "status": "exists" | "possible_match" | "not_found",
+  "matches": [ { tracked_property_id, address, captured_by, captured_at, captured_at_human,
+                 reason, match_type: "structural"|"owner_name", confident, matched_fields, deeplink } ] }
+```
+`status` is `exists` only when a *confident* structural match is found (every
+`resolveMatch()` strategy except the untiebroken Strategy-5 tie); otherwise
+`possible_match` when anything (structural-but-uncertain, or the owner-name signal below)
+was found; `not_found` when nothing was.
+
+**Cross-agency:** never revealed — `$agencyId` comes from the authenticated token exactly
+like `store()`, and every query inside the matcher is filtered to that one agency; there
+is no broader lookup to opt out of (proven by test, §9.5).
+
+### 9.3 New matching signal — owner name + address (Johan's addition, item 2)
+
+`TrackedPropertyMatchOrCreateService::findPossibleOwnerMatches()` (new, public) — NOT
+part of `resolveMatch()`'s structural chain; a separate, independent signal that never
+promotes to a confident `exists`, only ever `possible_match`. Agency-scoped the same way
+every other query in the service is (join through `tracked_properties`, since
+`tracked_property_owners` carries no `agency_id` of its own).
+
+Rule: a natural-person name matches on **order-independent, >=2-shared-token** overlap
+(CMA's cell is surname-first; a stored Contact's name may not be); a juristic
+entity/trust/company name (`OwnerEntityClassifier::isEntity()`) matches on **exact
+normalised registered name** instead, never token-reordered. Either way, owner-name
+alone is never enough — at least one property-side signal must ALSO match: same
+suburb, same sectional scheme (`scheme_number`, or `complex_name`/`scheme_name` when no
+number is known), or same street name. `matched_fields` on the response names exactly
+which ones fired.
+
+### 9.4 Deep link — "Open in CoreX"
+
+`resources/views/corex/deeds-capture/index.blade.php`'s selection Alpine component now
+reads `?open=tp-<id>` on `init()` (new), winning over the remembered `sessionStorage`
+row. The pre-check's `deeplink` field is built as
+`route('corex.deeds-capture.index', ['scope' => 'all', 'open' => 'tp-<id>'])` — `scope=all`
+asks for the broadest view the clamped Own/Branch/All ceiling actually grants (never
+wider than the viewer's real permission).
+
+**Known limit, not solved here:** the queue's `ids` are whatever the current
+page/filter/pagination already rendered — a match on a different page, a different
+filter, or outside the viewer's own scope ceiling simply won't be in `ids`, and the link
+silently falls back to the first row instead. Fine for "open the thing I was just warned
+about" (same session, same agency); not a general-purpose record finder.
+
+### 9.5 Logging — `agent_activity_events`
+
+No new table. `AgentActivityEvent` (existing, append-only, `agency_id`+`user_id`+
+`event_type`+`subject_type/id`+`payload` — built for exactly this kind of thing, see
+its own docblock) gets one row per outcome:
+`deeds_capture.precheck.{not_found,possible_match,exists,pulled_anyway,cancelled}`. The
+first three are logged inside `checkDuplicate()` itself; the last two are logged by a
+second new endpoint, `POST /api/v1/deeds-capture/check-duplicate/decision`
+(`logPrecheckDecision()`) — the agent's banner decision, which `checkDuplicate()` cannot
+know since it happens in the browser after the response. This is what lets "avoided
+reveals" (and therefore avoided R3 charges) be reported later: `pulled_anyway` + `exists`/
+`possible_match` without `pulled_anyway` tells you how many warnings led to a skip.
+
+### 9.6 Extension version
+
+`manifest.json` bumped **3.7.7 → 3.8.0** — a real behaviour change (gates the paid
+reveal), not a patch, same convention as the 3.6.5 → 3.7.0 bump for the `scripting`
+permission addition. **No new permission, no new host** — the pre-check calls the same
+`corexos.co.za` host the extension already talks to. Publish steps (not done as part of
+this build):
+1. `scripts/package-chrome-extension.sh` (rebuild the zip at
+   `public/downloads/portal-capture-extension.zip`).
+2. Chrome Web Store dashboard → upload the new zip → since no permission/host changed,
+   this should route through Chrome's abbreviated review (no new permissions requested),
+   not a full review.
+3. Existing installs auto-update on Chrome's normal cadence; nothing forces an
+   immediate update — an agent on the old 3.7.7 build keeps the unconditional reveal
+   until Chrome updates them.
+
+### 9.7 Deliberately unchanged
+`extractDeed()`, `extractSaleInformation()`, `revealOwnerIdIfNeeded()`,
+`buildDeedsCapturePayload()`, `DeedsCaptureController::store()`/`ingestOne()` — all
+byte-for-byte unchanged. The gate sits entirely in front of them in
+`onCaptureClick()`; the existing, audited capture path itself was never touched.
+
+### 9.8 Files touched
+| File | Change |
+|---|---|
+| `app/Services/Prospecting/TrackedPropertyMatchOrCreateService.php` | + `describeLastMatch()`, `findPossibleOwnerMatches()` (new, additive methods only) |
+| `app/Http/Controllers/Api/DeedsCaptureController.php` | + `checkDuplicate()`, `logPrecheckDecision()`, `buildFreePropertyFacts()`, `formatMatch()` (new methods only; `store()`/`ingestOne()` untouched) |
+| `routes/api.php` | + 2 routes next to the existing `/deeds-capture` route |
+| `resources/views/corex/deeds-capture/index.blade.php` | `init()` reads `?open=` (§9.4) |
+| `public/chrome-extension/portal-capture/content-cmainfo.js` | `onCaptureClick()` restructured; + `extractFreeSaleFields()`, `buildPreCheckPayload()`, banner functions, `logPrecheckDecision()` |
+| `public/chrome-extension/portal-capture/background.js` | + `handleCheckDeedsDuplicate()`, `handleLogDeedsPrecheckDecision()`, message routing |
+| `public/chrome-extension/portal-capture/manifest.json` | version 3.7.7 → 3.8.0 |
+| `tests/Feature/Prospecting/DeedsCapturePrecheckTest.php` | new |
+| `public/chrome-extension/portal-capture/tests/deeds-cleanslate.test.cjs` | + pre-check gate test section |
+
+### 9.9 Deliberately NOT in the wizard
+No new agency setting — the pre-check is unconditional behaviour, not a configurable
+toggle. CLAUDE.md #10a does not apply.

@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Api\V1\Concerns\ResolvesPortalContact;
+use App\Models\Lease;
 use App\Models\RentalFaultReport;
 use App\Models\RentalWorkOrder;
+use App\Services\Images\PropertyImageStorer;
+use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalPortalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,12 +22,27 @@ use Illuminate\Http\Request;
  * Decisions drive the EXISTING owner-approval mechanism
  * (RentalFaultReport::recordApproval()/RentalWorkOrder::recordApproval(),
  * widened this ticket to accept a Contact) — no second approval system.
+ *
+ * §15 (AT-447 follow-up, 2026-10-05) — faultReportStore() adds the
+ * landlord's own "Request work / report a problem," mirroring
+ * ClientTenantRentalsController::faultReportStore() but with no
+ * first-aid/resolution step (a landlord isn't asked "did that fix it" the
+ * way a tenant is) and `reported_by_type = REPORTED_BY_LANDLORD`. The
+ * landlord never picks a supplier and never creates a work order
+ * directly — this only ever produces a rental_fault_reports row, which
+ * lands in the agency's normal Fault Reports list / Command Centre
+ * needs-action exactly like any other (both already query by status, not
+ * reported_by_type); an agent raises the work order from it via the
+ * EXISTING raise-work-order action.
  */
 class ClientLandlordRentalsController extends Controller
 {
     use ResolvesPortalContact;
 
-    public function __construct(private readonly RentalPortalScopeService $scope) {}
+    public function __construct(
+        private readonly RentalPortalScopeService $scope,
+        private readonly RentalFaultReportService $faultReportService,
+    ) {}
 
     public function properties(Request $request): JsonResponse
     {
@@ -81,6 +99,70 @@ class ClientLandlordRentalsController extends Controller
                 'status' => $l->status,
             ])->values(),
         ]]);
+    }
+
+    /**
+     * §15 (AT-447 follow-up) — "Request work / report a problem," the
+     * landlord's own counterpart to ClientTenantRentalsController::
+     * faultReportStore(). Attached to the active lease if one exists, else
+     * the property alone (vacancy-period fault, same as the agent-side
+     * create form already allows). Isolation: landlordProperty() 404s for
+     * any property this contact isn't a landlord/lessor on — including a
+     * property belonging to a different agency — same as every other
+     * landlord-portal lookup in this controller.
+     */
+    public function faultReportStore(Request $request, int $property): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $propertyModel = $this->scope->landlordProperty($contact, $property);
+        if (!$propertyModel) {
+            return response()->json(['message' => 'Property not found.'], 404);
+        }
+
+        $data = $request->validate([
+            'title' => 'required|string|max:191',
+            'description' => 'nullable|string|max:5000',
+            'photos' => 'nullable|array|max:10',
+            'photos.*' => 'file|image|max:15360',
+        ]);
+
+        $leaseId = Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->where('property_id', $propertyModel->id)
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->value('id');
+
+        $attributes = [
+            'lease_id' => $leaseId,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_LANDLORD,
+            'reported_by_contact_id' => $contact->id,
+            'reported_channel' => RentalFaultReport::CHANNEL_APP,
+            'title' => $data['title'],
+            'description' => $data['description'] ?? '',
+        ];
+
+        $faultReport = $this->faultReportService->report($propertyModel, $attributes);
+
+        foreach ($request->file('photos', []) as $photo) {
+            $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);
+            $faultReport->photos()->create([
+                'agency_id' => $contact->agency_id,
+                'storage_path' => $path,
+                'client_idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+                'file_size_bytes' => $photo->getSize(),
+            ]);
+        }
+
+        return response()->json(['fault_report' => [
+            'id' => $faultReport->id,
+            'title' => $faultReport->title,
+            'status' => $faultReport->status,
+            'reported_at' => $faultReport->reported_at?->toIso8601String(),
+        ]], 201);
     }
 
     public function faultReports(Request $request): JsonResponse

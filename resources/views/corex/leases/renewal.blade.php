@@ -83,38 +83,30 @@
 
         @if($lease->hasActiveNotice())
             <div class="flex items-center justify-between text-sm rounded px-3 py-2" style="background: var(--surface-2);">
-                <span>{{ $lease->notice_given_by === 'tenant' ? 'Tenant gave notice' : 'Landlord not renewing' }} — move-out {{ optional($lease->move_out_date)->format('d M Y') }}{{ $lease->notice_readvertised ? ' — back on the market' : '' }}</span>
+                <span>{{ $lease->notice_given_by === 'tenant' ? 'Tenant gave notice' : 'Landlord not renewing' }} — move-out {{ optional($lease->move_out_date)->format('d M Y') }} — {{ match($lease->notice_outcome) { 'readvertise' => 'back on the market', 'withdraw' => 'withdrawn', default => 'left as is' } }}</span>
                 <form method="POST" action="{{ route('corex.leases.renewal.notice.reverse', $lease) }}">
                     @csrf
                     <button type="submit" class="text-xs" style="color: var(--ds-crimson);">Reverse</button>
                 </form>
             </div>
         @else
-            {{-- .ai/specs/rental-renewals.md §15 (GATE 2) row 2 — the same dialog offers one tick, default from the agency setting. --}}
-            <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" class="flex flex-wrap items-end gap-2">
+            {{-- .ai/specs/rental-renewals.md §19 — three-way choice, nothing pre-selected, required. --}}
+            <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" class="space-y-2">
                 @csrf
                 <div>
                     <label class="text-xs font-medium">Move-out date</label>
                     <input type="date" name="move_out_date" required class="rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
-                <label class="flex items-center gap-1 text-xs">
-                    <input type="hidden" name="readvertise" value="0">
-                    <input type="checkbox" name="readvertise" value="1" @checked($autoReadvertiseOnNotice)>
-                    Put back on the market
-                </label>
+                @include('corex.leases._notice-outcome-fields', ['showAvailableFromOnPortals' => $showAvailableFromOnPortals])
                 <button type="submit" class="corex-btn-secondary text-xs">Tenant gave notice</button>
             </form>
-            <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" class="flex flex-wrap items-end gap-2">
+            <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" class="space-y-2 pt-3" style="border-top: 1px solid var(--border);">
                 @csrf
                 <div>
                     <label class="text-xs font-medium">End date</label>
                     <input type="date" name="move_out_date" required class="rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
-                <label class="flex items-center gap-1 text-xs">
-                    <input type="hidden" name="readvertise" value="0">
-                    <input type="checkbox" name="readvertise" value="1" @checked($autoReadvertiseOnNotice)>
-                    Put back on the market
-                </label>
+                @include('corex.leases._notice-outcome-fields', ['showAvailableFromOnPortals' => $showAvailableFromOnPortals])
                 <button type="submit" class="corex-btn-secondary text-xs">Landlord not renewing</button>
             </form>
         @endif

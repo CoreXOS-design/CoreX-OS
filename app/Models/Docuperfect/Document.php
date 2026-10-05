@@ -70,9 +70,15 @@ class Document extends Model
         return $this->hasOne(SignatureTemplate::class, 'document_id');
     }
 
+    /**
+     * AT-439 — repointed from the retired legacy App\Models\Rental\RentalProperty to the real
+     * Property pillar. property_id only ever resolves against `properties` now (the one write
+     * path that could set a rental_properties id, DocumentController::sendToRentals(), was
+     * repointed in the same commit).
+     */
     public function property()
     {
-        return $this->belongsTo(\App\Models\Rental\RentalProperty::class, 'property_id');
+        return $this->belongsTo(\App\Models\Property::class, 'property_id');
     }
 
     public function contacts()

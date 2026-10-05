@@ -4620,6 +4620,15 @@
                             <label class="prop-label">Lease End Date</label>
                             <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
                         </div>
+                        {{-- .ai/specs/rental-renewals.md §19 — whether Lease Start
+                             Date (reused as "available from") reaches Property24/
+                             Private Property. Also offered as a one-off tick on the
+                             Lease Hub's notice dialogs, which persists onto this
+                             same setting. --}}
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="show_available_from_on_portals" name="show_available_from_on_portals" value="1" {{ old('show_available_from_on_portals', $property->show_available_from_on_portals) ? 'checked' : '' }} class="rounded">
+                            <label for="show_available_from_on_portals" class="prop-label !mb-0">Show available-from date on portals</label>
+                        </div>
                         {{-- AT-402 Part 2 — moved from the old Pricing Details popup,
                              which showed these to every property, sale included. --}}
                         <div>

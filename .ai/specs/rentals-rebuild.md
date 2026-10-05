@@ -170,9 +170,9 @@ its own decision:
    `rentals-foundation-at439.md` Open Questions for Johan to sequence.
 5. Breach notices / notice-to-vacate do not exist, not even as a spec — Stage 7 builds this.
 6. **Multi-agency violation**: `RentalsController.php` hardcodes two real HFC employees' names into
-   commission-bucket logic — reported per CLAUDE.md non-negotiable #2, fixed as a side-effect of
-   Stage 1's legacy-table retirement (the controller is retired, not patched) — see
-   `rentals-foundation-at439.md` §3.
+   commission-bucket logic — **CLOSED, landed 2026-10-05**: the controller (and the whole worksheet
+   commission block that called into it, deleted outright per Johan's ruling rather than repointed)
+   is retired, not patched — see `rentals-foundation-at439.md` §10.
 7. Property's Rental tab shows no current tenant/landlord/lease info — Stage 2 (Lease Hub) fixes
    this via the occupancy-history addition to the Rental tab, `leases.md` §12.6.
 8. Two agency-configurable work-order settings missing from the onboarding wizard with no recorded
@@ -180,8 +180,8 @@ its own decision:
    CLAUDE.md non-negotiable #10a.
 9. `Docuperfect\LeaseRecord` has no structural agency isolation (query-layer patch only) — moot once
    Stage 1 retires every live write path into it (Addendum 1A); confirmed in `rentals-foundation-at439.md` §2.2.
-10. Legacy `RentalsController` has no search/sort/filter/pagination/archive — moot once retired
-    (Addendum 1B).
+10. Legacy `RentalsController` has no search/sort/filter/pagination/archive — moot, **landed
+    2026-10-05**: the controller is deleted (Addendum 1B).
 
 ---
 

@@ -11,6 +11,8 @@ use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderSetting;
 use App\Services\Rentals\RentalDocumentPdfService;
+use App\Services\Rentals\RentalInspectionFollowUpService;
+use App\Services\Rentals\RentalJobCardService;
 use App\Services\Rentals\RentalWorkOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -280,6 +282,17 @@ class RentalWorkOrderController extends Controller
      * (QA1 walk, 2026-10-05). Resolved only inside the user's own scope —
      * a lease/property outside it silently falls back to no pre-selection
      * (BUILD_STANDARD §3, absorb) rather than a 403/500.
+     *
+     * §15 (AT-447) — ALSO reachable from an inspection's Follow-up block,
+     * carrying rental_inspection_id + observation_ids[] (+ combine)
+     * instead: $followUp then resolves property/lease/title/description
+     * from the marked item(s) rather than the query string (applied AFTER
+     * the lease-wins resolution above, so the same guard covers both
+     * entry points), and the create view switches to a prefilled
+     * single-record form or a batch (one work order per item) form
+     * accordingly. assignment_type (?='internal' for the "Create job card"
+     * shortcut) only ever pre-selects the existing "Who does the work?"
+     * radio — it never skips that choice.
      */
     public function create(Request $request): View
     {
@@ -294,9 +307,26 @@ class RentalWorkOrderController extends Controller
             ? $lease->property
             : ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null);
 
+        $followUp = null;
+        $observationIds = array_filter((array) $request->get('observation_ids', []));
+        if ($request->filled('rental_inspection_id') && !empty($observationIds)) {
+            $inspection = \App\Models\RentalInspection::find($request->get('rental_inspection_id'));
+            if ($inspection) {
+                $followUp = app(RentalInspectionFollowUpService::class)->buildWorkOrderPrefill(
+                    $inspection,
+                    array_map('intval', $observationIds),
+                    $request->boolean('combine')
+                );
+                $property = $followUp['property'] ?? $property;
+                $lease = $followUp['lease'] ?? $lease;
+            }
+        }
+
         return view('corex.rental-work-orders.create', [
             'property' => $property,
             'lease' => $lease,
+            'followUp' => $followUp,
+            'presetAssignmentType' => $request->get('assignment_type'),
         ]);
     }
 
@@ -331,6 +361,16 @@ class RentalWorkOrderController extends Controller
      */
     public function store(Request $request, RentalWorkOrderService $service): RedirectResponse
     {
+        // §15 (AT-447) — the Follow-up block's batch path: several marked
+        // items, "combine into one" NOT ticked, so each becomes its own
+        // work order (or job card), sharing only the fields a human must
+        // still decide (who does the work, trade type) rather than one
+        // free-text title/description per item. Short-circuits before the
+        // single-item validation below — storeBatch() has its own.
+        if ($request->has('batch_items')) {
+            return $this->storeBatch($request);
+        }
+
         $agencyId = $request->user()->effectiveAgencyId();
         $propertyId = $request->input('property_id');
 
@@ -402,6 +442,86 @@ class RentalWorkOrderController extends Controller
         return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order logged.');
     }
 
+    /**
+     * §15 (AT-447) — one work order (or job card, when assignment_type is
+     * internal) per batch_items row, reusing the EXACT SAME creation calls
+     * store() above uses for a single record — no second lifecycle/
+     * notification path. Idempotent: an observation that already has a
+     * work order by the time this runs (a resubmit, or two tabs) is simply
+     * skipped, never duplicated.
+     */
+    private function storeBatch(Request $request): RedirectResponse
+    {
+        $propertyId = $request->input('property_id');
+
+        $validated = $request->validate([
+            'property_id' => ['required', 'exists:properties,id'],
+            // Same audit L2 cross-contamination guard the single-item path
+            // above just gained (AT-442 QA1-walk follow-up) — the lease and
+            // every batch item's inspection item must belong to THIS
+            // property, never a same-agency one left over from elsewhere.
+            'lease_id' => ['nullable', Rule::exists('leases', 'id')->where('property_id', $propertyId)],
+            'rental_inspection_id' => ['nullable', 'exists:rental_inspections,id'],
+            'assignment_type' => ['required', 'in:' . implode(',', [
+                RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+                RentalWorkOrder::ASSIGNMENT_INTERNAL,
+            ])],
+            'trade_type' => ['nullable', 'string', 'max:60'],
+            'batch_items' => ['required', 'array', 'min:1'],
+            'batch_items.*.observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
+            'batch_items.*.title' => ['required', 'string', 'max:191'],
+            'batch_items.*.description' => ['nullable', 'string'],
+            'batch_items.*.rental_inspection_item_id' => ['nullable', 'integer', Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
+        ]);
+
+        $property = Property::findOrFail($validated['property_id']);
+        // Same own/branch/agency visibility check as the single-item path.
+        abort_unless(
+            Property::query()->visibleTo($request->user())->whereKey($property->id)->exists(),
+            404
+        );
+        $user = $request->user();
+        $created = [];
+
+        foreach ($validated['batch_items'] as $item) {
+            // Idempotent — same skip-not-duplicate rule as
+            // RentalInspectionFollowUpService::buildWorkOrderPrefill()'s own
+            // already-raised filter, re-checked here against a possible
+            // race/resubmit between rendering the form and this submit.
+            if (RentalWorkOrder::where('reported_inspection_observation_id', $item['observation_id'])->exists()) {
+                continue;
+            }
+
+            $attributes = [
+                'lease_id' => $validated['lease_id'] ?? null,
+                'rental_inspection_item_id' => $item['rental_inspection_item_id'] ?? null,
+                'reported_inspection_observation_id' => $item['observation_id'],
+                'reported_by_type' => RentalWorkOrder::REPORTED_BY_INSPECTION,
+                'trade_type' => $validated['trade_type'] ?? null,
+                'title' => $item['title'],
+                'description' => $item['description'] ?: $item['title'],
+                'created_by_user_id' => $user->id,
+            ];
+
+            $created[] = $validated['assignment_type'] === RentalWorkOrder::ASSIGNMENT_INTERNAL
+                ? app(RentalJobCardService::class)->createForProperty($property, $attributes, $user)
+                : app(RentalWorkOrderService::class)->report($property, $attributes);
+        }
+
+        if (empty($created)) {
+            return redirect()->back()->with('error', 'Nothing to create — every selected item already has a work order.');
+        }
+
+        $noun = $validated['assignment_type'] === RentalWorkOrder::ASSIGNMENT_INTERNAL ? 'job card(s)' : 'work order(s)';
+        $message = count($created) . " {$noun} created.";
+
+        if (!empty($validated['rental_inspection_id'])) {
+            return redirect()->route('corex.rental-inspections.show', $validated['rental_inspection_id'])->with('success', $message);
+        }
+
+        return redirect()->route('corex.rental-work-orders.index')->with('success', $message);
+    }
+
     public function show(Request $request, RentalWorkOrder $rentalWorkOrder): View
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
@@ -409,6 +529,8 @@ class RentalWorkOrderController extends Controller
         $rentalWorkOrder->load([
             'property', 'lease.tenants.contact', 'inspectionItem', 'supplier',
             'reportedByContact', 'reportedByUser', 'reportedFaultReport', 'cancelledByUser',
+            // §15 (AT-447) — "From inspection <type> <date>" back-link.
+            'reportedInspectionObservation.inspection',
             'createdByUser', 'photos.uploadedBy', 'updates.createdByUser', 'approvals.recordedByUser',
             'quotes.supplier', 'quotes.capturedByUser',
         ]);

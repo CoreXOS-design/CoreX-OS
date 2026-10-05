@@ -43,6 +43,12 @@ class RentalJobCardService
             'property_id' => $property->id,
             'lease_id' => $attributes['lease_id'] ?? null,
             'rental_inspection_item_id' => $attributes['rental_inspection_item_id'] ?? null,
+            // §15 (AT-447) — the "Create job card" shortcut from an
+            // inspection's Follow-up block carries this through so the job
+            // card's own "From inspection <type> <date>" back-link (reached
+            // via workOrder.reportedInspectionObservation.inspection) works
+            // exactly like a directly-raised work order's.
+            'reported_inspection_observation_id' => $attributes['reported_inspection_observation_id'] ?? null,
             'assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL,
             'title' => $attributes['title'],
             // rental_work_orders.description is NOT NULL — BUILD_STANDARD §2:

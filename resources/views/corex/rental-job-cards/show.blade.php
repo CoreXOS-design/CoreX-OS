@@ -47,6 +47,10 @@
                 <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
                     <div><span style="color: var(--text-muted);">Tenancy:</span> {{ $jobCard->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
                     <div><span style="color: var(--text-muted);">Access notes:</span> {{ $jobCard->access_notes ?? '—' }}</div>
+                    {{-- §15 (AT-447) — "From inspection <type> <date>" back-link, reached via the linked work order (a job card has no inspection FK of its own). --}}
+                    @if($jobCard->workOrder?->reportedInspectionObservation?->inspection)
+                        <div><span style="color: var(--text-muted);">From inspection:</span> <a href="{{ route('corex.rental-inspections.show', $jobCard->workOrder->reportedInspectionObservation->inspection) }}" class="underline">{{ ucfirst(str_replace('_', '-', $jobCard->workOrder->reportedInspectionObservation->inspection->type)) }}-inspection {{ $jobCard->workOrder->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $jobCard->workOrder->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }}</a></div>
+                    @endif
                 </div>
                 @permission('rental_job_cards.create')
                 @if($jobCard->status === \App\Models\RentalJobCard::STATUS_DRAFT)

@@ -69,9 +69,11 @@ class PropertyCalendarSource implements CalendarSourceContract
     }
 
     /**
-     * Lease expiry fallback: properties with lease_end_date but NO
-     * matching lease_records row. Canonical lease_expiry is emitted by
-     * RentalCalendarSource from lease_records.
+     * Lease expiry fallback: properties with lease_end_date but NO matching
+     * active lease. Canonical lease_expiry is emitted by RentalCalendarSource
+     * from `leases` (AT-439 — was `lease_records`; the exists-check below
+     * moved with it, or this fallback would double up every property that
+     * now DOES have a canonical source via the real lease).
      */
     private function leaseExpiryFallback(): Collection
     {
@@ -80,9 +82,11 @@ class PropertyCalendarSource implements CalendarSourceContract
             ->whereNotNull('lease_end_date')
             ->whereNotExists(function ($q) {
                 $q->selectRaw('1')
-                  ->from('lease_records')
-                  ->whereColumn('lease_records.property_id', 'properties.id')
-                  ->whereNull('lease_records.deleted_at');
+                  ->from('leases')
+                  ->whereColumn('leases.property_id', 'properties.id')
+                  ->where('leases.status', \App\Models\Lease::STATUS_ACTIVE)
+                  ->whereNotNull('leases.end_date')
+                  ->whereNull('leases.deleted_at');
             })
             ->select('id', 'lease_end_date', 'agent_id', 'agency_id', 'branch_id', 'address', 'suburb')
             ->get()
