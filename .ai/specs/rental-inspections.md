@@ -6747,3 +6747,22 @@ landlord through a public link.
 - `app/Http/Controllers/CoreX/RentalInspectionScanController.php` — 5 guarded routes
 - `app/Http/Controllers/CoreX/RentalInspectionPhotoNoteController.php` — 4 guarded routes
 - `resources/views/corex/rental-inspections/index.blade.php` — "Showing:" control
+
+---
+
+## 42. Inspection Follow-up — fault reports / work orders / job cards straight from a marked item (AT-447, 2026-10-05)
+
+**Cross-reference only — the full design lives in `.ai/specs/rental-work-orders.md` §15**, since the
+feature creates `rental_fault_reports`/`rental_work_orders`/`rental_job_cards` rows (that spec's own
+tables), not a new inspection-side data model. What changed on THIS spec's own screen:
+`resources/views/corex/rental-inspections/show.blade.php` gained a "Follow-up" block, rendered after
+the Observations block, listing every observation whose `condition` is not the agency's configured
+baseline (`RentalInspectionSetting::baselineConditionKeyFor()`) with a tick box and, per row, a create
+action (or the already-linked record, idempotent) for each of the three target types.
+`RentalInspectionController::show()` now also loads `observations.item.room` (previously just
+`observations.item`) so the Follow-up block's own title format (`"<Room> — <Item>: <Condition>"`)
+needs no extra per-row query, and a new `POST .../follow-up/fault-reports` route/action
+(`storeFollowUpFaultReports()`) handles the direct fault-report creation path. See
+`rental-work-orders.md` §15 for the lease/property resolution rule, the combine/batch behaviour, the
+photo-linking mechanism, and the back-links this same build added to the fault report/work order/job
+card show pages.

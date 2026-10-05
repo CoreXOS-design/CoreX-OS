@@ -92,6 +92,10 @@
             @permission('rental_fault_reports.create')
                 <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
             @endpermission
+            {{-- AT-442 fix #3 — the Lease Hub had no direct work-order action at all (only "Report a fault"); pass lease_id so it wins and derives the property. --}}
+            @permission('rental_work_orders.create')
+                <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+            @endpermission
             @permission('leases.create')
                 <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')">Edit</button>
             @endpermission

@@ -49,7 +49,8 @@ return [
         ['key' => 'access_import_listings',   'label' => 'Access Import Listings',          'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 6],
         ['key' => 'access_worksheet_market',  'label' => 'Access Worksheet Market',         'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 7],
         ['key' => 'access_branch_assignments','label' => 'Access Branch Assignments',       'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 8],
-        ['key' => 'access_rental_signatures', 'label' => 'Access Rental Signatures',        'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 9],
+        // AT-439 (2026-10-05) — 'access_rental_signatures' retired: its only
+        // gated route (rental.signatures, RentalDivisionController) is gone.
 
         // ── Agency Tracker — Legacy granular ──
         ['key' => 'view_worksheet',          'label' => 'View Worksheet',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 10],
@@ -79,7 +80,11 @@ return [
         ['key' => 'view_buyers_report',      'label' => 'View Buyers Report',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 40],
         ['key' => 'buyers_report.view',      'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'buyers_report',    'sort_order' => 41],
         ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 18],
-        ['key' => 'view_rentals',            'label' => 'View Rentals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 19],
+        // AT-439 (2026-10-05) — 'view_rentals' retired: every route/tour step it
+        // gated (RentalsController, RentalDivisionController, the rent-* tour
+        // pack) is gone. 'manage_rentals' is KEPT — RentalPermissionsController
+        // (an unrelated, still-live, unflagged screen toggling the per-user
+        // can_capture_rentals flag) still requires it; not part of this scope.
         ['key' => 'manage_rentals',          'label' => 'Create & Edit Rentals',           'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 20],
         ['key' => 'view_daily_activity',     'label' => 'View Daily Activity',             'section' => 'agency-tracker',   'type' => 'access',  'module' => 'daily_activity',   'sort_order' => 21],
         ['key' => 'manage_tv_messages',      'label' => 'Manage TV Messages',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'tv_messages',      'sort_order' => 22],
@@ -965,14 +970,13 @@ return [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
-                'access_rental_signatures',
                 'communication_mailboxes.view', // AT-395 — branch scope (scope_defaults)
                 // AT-283 (Johan's ruling): settlement is admin-only — "not even bm can
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
-                'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
+                'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
                 'rentals.view', 'rentals.create', 'rentals.edit',
@@ -1125,11 +1129,11 @@ return [
         'agent' => [
             'include' => [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
-                'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
+                'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
                 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
-                'view_rentals', 'manage_rentals', 'view_daily_activity',
+                'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
                 'listings.view',
@@ -1257,7 +1261,7 @@ return [
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
-                'view_rentals', 'view_daily_activity',
+                'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all
                 // should have access but agencies can set who can use inventory" —

@@ -53,6 +53,10 @@
             @if($workOrder->reportedFaultReport)
                 <div><span style="color: var(--text-muted);">From fault report:</span> <a href="{{ route('corex.rental-fault-reports.show', $workOrder->reported_fault_report_id) }}" class="underline">#{{ $workOrder->reported_fault_report_id }}</a></div>
             @endif
+            {{-- §15 (AT-447) — "From inspection <type> <date>" back-link. --}}
+            @if($workOrder->reportedInspectionObservation?->inspection)
+                <div><span style="color: var(--text-muted);">From inspection:</span> <a href="{{ route('corex.rental-inspections.show', $workOrder->reportedInspectionObservation->inspection) }}" class="underline">{{ ucfirst(str_replace('_', '-', $workOrder->reportedInspectionObservation->inspection->type)) }}-inspection {{ $workOrder->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $workOrder->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }}</a></div>
+            @endif
             <div><span style="color: var(--text-muted);">Reported at:</span> {{ $workOrder->reported_at?->format('Y-m-d H:i') }}</div>
             @if($workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_NOT_REQUIRED)
                 <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($workOrder->owner_approval_status) }}</div>

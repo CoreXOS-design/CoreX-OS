@@ -39,6 +39,12 @@ class RentalJobCardService
             'property_id' => $property->id,
             'lease_id' => $attributes['lease_id'] ?? null,
             'rental_inspection_item_id' => $attributes['rental_inspection_item_id'] ?? null,
+            // §15 (AT-447) — the "Create job card" shortcut from an
+            // inspection's Follow-up block carries this through so the job
+            // card's own "From inspection <type> <date>" back-link (reached
+            // via workOrder.reportedInspectionObservation.inspection) works
+            // exactly like a directly-raised work order's.
+            'reported_inspection_observation_id' => $attributes['reported_inspection_observation_id'] ?? null,
             'assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL,
             'title' => $attributes['title'],
             // rental_work_orders.description is NOT NULL — BUILD_STANDARD §2:
@@ -168,7 +174,9 @@ class RentalJobCardService
         $line = $jobCard->lines()->create([
             'agency_id' => $jobCard->agency_id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
-            'type' => $attributes['type'] ?? $catalogueItem?->type ?? RentalCatalogueItem::TYPE_LABOUR,
+            // AT-442 fix #5 — a catalogue item keeps its OWN type; the posted
+            // 'type' only applies to a free-text line (no catalogue item).
+            'type' => $catalogueItem?->type ?? $attributes['type'] ?? RentalCatalogueItem::TYPE_LABOUR,
             'description' => $attributes['description'] ?? $catalogueItem?->name ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->unit,
             'quantity' => $quantity,
@@ -232,6 +240,14 @@ class RentalJobCardService
     {
         if ($jobCard->lines()->doesntExist()) {
             throw new \LogicException('Add at least one line before sending this job card to the owner as a quote.');
+        }
+
+        // AT-442 follow-up (item 8) — an owner quote must NEVER be addressed
+        // to a tenant. landlordContact() (unlike sellerOwnerContact()) has no
+        // sole-contact fallback, so a property with only a tenant linked
+        // resolves null here — block the whole send, not just the mail.
+        if (!$jobCard->property?->landlordContact()) {
+            throw new \LogicException('No landlord linked — link a landlord before sending the quote.');
         }
 
         $jobCard->recalcTotal();

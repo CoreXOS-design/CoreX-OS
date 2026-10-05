@@ -1237,6 +1237,30 @@ class Property extends Model
     }
 
     /**
+     * AT-442 follow-up (item 8) — a STRICT landlord-side lookup for anything
+     * that SENDS MAIL to "the owner": no sole-contact fallback. The sole-
+     * contact fallback in sellerOwnerContact() above is correct for its own
+     * callers (PDF Splitter filing, FICA pre-fill — a low-risk guess for
+     * where to FILE a document) but is exactly how a rental property with
+     * ONLY a tenant linked (the tenant's role doesn't match the seller-side
+     * list, so it falls through to "the one contact on file") got a real
+     * tenant addressed as "the owner" on a quote email — confirmed on QA1,
+     * property 5792. Only a contact whose pivot role is explicitly
+     * seller/owner/landlord/lessor is ever returned; null otherwise, never
+     * a guess. Narrowly scoped to mail — do NOT use this for filing/display
+     * callers that already rely on sellerOwnerContact()'s own fallback.
+     */
+    public function landlordContact(): ?Contact
+    {
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+
+        return $this->contacts()->get()->first(function ($c) use ($sellerSide) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $sellerSide, true);
+        });
+    }
+
+    /**
      * AT-105 enhancement — the canonical pivot-role SET a routing contact_role
      * resolves across. 'seller_owner' deliberately spans BOTH seller and owner
      * (esign auto-link writes 'owner' for sellers — investigation §3). Returns

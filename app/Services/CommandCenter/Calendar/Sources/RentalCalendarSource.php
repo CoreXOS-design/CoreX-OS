@@ -8,17 +8,28 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Lights up 4 rental-domain event classes:
- *   lease_expiry             — lease_records.lease_end_date (canonical, from
- *                              e-sign) + rentals.lease_end_date (rental mgmt
- *                              fallback for rentals without a lease_record)
- *   rent_escalation          — rental_amount_versions.effective_from (future)
- *   rent_due                 — computed: next 1st-of-month per active rental
- *   commercial_lease_expiry  — commercial_evaluation_units.lease_end
+ * Lights up 3 rental-domain event classes off the single lease store:
+ *   lease_expiry             — leases.end_date, active leases only
+ *   rent_escalation          — lease_escalations.effective_date (future)
+ *   rent_due                 — computed: next 1st-of-month per active lease
+ * Plus commercial_lease_expiry (own, unrelated table — unchanged).
+ *
+ * AT-439 — repointed from the legacy `lease_records` (canonical) /
+ * `rentals` (fallback) / `rental_amount_versions` tables to the single
+ * `leases` store + its `lease_escalations` child, per Johan's 2026-10-05
+ * ruling: repoint the calendar, don't delete it. `leases` carries
+ * agency_id/branch_id directly (no branches/properties join needed to
+ * resolve them, unlike the legacy tables) — Own/Branch/All scoping
+ * downstream (CalendarEvent::scopeVisibleTo()) is unaffected, same fields,
+ * simpler resolution. The two legacy lease_expiry sources collapse into
+ * one, since `leases` is the only lease store now. Rows previously upserted
+ * under the retired source_types (Docuperfect\LeaseRecord, Rental) are
+ * soft-deleted by ReconcileCalendarEvents' own cleanup step — upsertEvent()
+ * never deletes what a source stops producing on its own.
  *
  * Schema notes:
- *   - lease_records has property_id but no agency/branch — resolve via properties
- *   - rentals has branch_id but no agency/property — resolve via branches
+ *   - leases has agency_id/branch_id/created_by_user_id/property_id directly
+ *   - lease_escalations has lease_id only — agency/branch resolved via leases
  *   - commercial_evaluations has branch_id but no agency — resolve via branches
  */
 class RentalCalendarSource implements CalendarSourceContract
@@ -31,43 +42,45 @@ class RentalCalendarSource implements CalendarSourceContract
     public function syncAll(): Collection
     {
         return collect()
-            ->merge($this->leaseExpiryFromLeaseRecords())
-            ->merge($this->leaseExpiryFromRentals())
+            ->merge($this->leaseExpiryFromLeases())
             ->merge($this->rentEscalation())
             ->merge($this->rentDue())
             ->merge($this->commercialLeaseExpiry());
     }
 
     /**
-     * Canonical lease_expiry from lease_records (e-sign generated).
-     * Agency/branch resolved via properties join.
+     * Canonical lease_expiry from the single lease store — active leases
+     * only (a draft/expired/cancelled lease has nothing upcoming to flag).
+     * Window matches the legacy sources' own grace: from 30 days ago
+     * onward, so a lease that expired just before the nightly run doesn't
+     * silently vanish from the board.
      */
-    private function leaseExpiryFromLeaseRecords(): Collection
+    private function leaseExpiryFromLeases(): Collection
     {
-        return DB::table('lease_records as lr')
-            ->whereNull('lr.deleted_at')
-            ->whereNotNull('lr.lease_end_date')
-            ->where('lr.lease_end_date', '>=', now()->subDays(30))
-            ->leftJoin('properties as p', 'p.id', '=', 'lr.property_id')
+        return DB::table('leases as l')
+            ->whereNull('l.deleted_at')
+            ->where('l.status', \App\Models\Lease::STATUS_ACTIVE)
+            ->whereNotNull('l.end_date')
+            ->where('l.end_date', '>=', now()->subDays(30))
+            ->leftJoin('properties as p', 'p.id', '=', 'l.property_id')
             ->select(
-                'lr.id',
-                'lr.lease_end_date',
-                'lr.property_id',
-                'lr.tenant_name',
-                'p.agent_id',
-                'p.agency_id',
-                'p.branch_id',
+                'l.id',
+                'l.end_date',
+                'l.property_id',
+                'l.agency_id',
+                'l.branch_id',
+                'l.created_by_user_id',
                 'p.address',
             )
             ->get()
             ->map(fn ($r) => [
                 'event_type'  => 'lease',
                 'category'    => 'lease_expiry',
-                'title'       => 'Lease expires — ' . ($r->address ?: ($r->tenant_name ?: "lease #{$r->id}")),
-                'event_date'  => Carbon::parse($r->lease_end_date)->startOfDay(),
-                'source_type' => \App\Models\Docuperfect\LeaseRecord::class,
+                'title'       => 'Lease expires — ' . ($r->address ?: "lease #{$r->id}"),
+                'event_date'  => Carbon::parse($r->end_date)->startOfDay(),
+                'source_type' => \App\Models\Lease::class,
                 'source_id'   => $r->id,
-                'user_id'     => $r->agent_id,
+                'user_id'     => $r->created_by_user_id,
                 'agency_id'   => $r->agency_id,
                 'branch_id'   => $r->branch_id,
                 'property_id' => $r->property_id,
@@ -75,114 +88,82 @@ class RentalCalendarSource implements CalendarSourceContract
     }
 
     /**
-     * Fallback lease_expiry from rentals table (rental management module).
-     * Uses a different source_type (Rental vs LeaseRecord) so reconciliation
-     * keys don't collide with leaseExpiryFromLeaseRecords.
-     * Agency resolved via branches.agency_id.
-     */
-    private function leaseExpiryFromRentals(): Collection
-    {
-        return DB::table('rentals as r')
-            ->whereNull('r.deleted_at')
-            ->whereNotNull('r.lease_end_date')
-            ->where('r.lease_end_date', '>=', now()->subDays(30))
-            ->where('r.is_active', true)
-            ->leftJoin('branches as b', 'b.id', '=', 'r.branch_id')
-            ->select(
-                'r.id',
-                'r.lease_end_date',
-                'r.lease_address',
-                'r.branch_id',
-                'r.created_by_user_id',
-                'b.agency_id',
-            )
-            ->get()
-            ->map(fn ($r) => [
-                'event_type'  => 'lease',
-                'category'    => 'lease_expiry',
-                'title'       => 'Lease expires — ' . ($r->lease_address ?: "rental #{$r->id}"),
-                'event_date'  => Carbon::parse($r->lease_end_date)->startOfDay(),
-                'source_type' => \App\Models\Rental::class,
-                'source_id'   => $r->id,
-                'user_id'     => $r->created_by_user_id,
-                'agency_id'   => $r->agency_id,
-                'branch_id'   => $r->branch_id,
-                'property_id' => null,
-            ]);
-    }
-
-    /**
-     * Future rent escalation effective dates.
-     * rental_amount_versions has rent_incl (not amount).
+     * Future rent escalation effective dates, from the real lease_escalations
+     * record (a rate + the new amount it produces) — no more rental_amount_versions.
      */
     private function rentEscalation(): Collection
     {
-        return DB::table('rental_amount_versions as rav')
-            ->whereNull('rav.deleted_at')
-            ->whereNotNull('rav.effective_from')
-            ->where('rav.effective_from', '>=', now()->startOfDay())
-            ->where('rav.effective_from', '<=', now()->addDays(30))
-            ->leftJoin('rentals as r', 'r.id', '=', 'rav.rental_id')
-            ->leftJoin('branches as b', 'b.id', '=', 'r.branch_id')
+        return DB::table('lease_escalations as le')
+            ->whereNotNull('le.effective_date')
+            ->where('le.effective_date', '>=', now()->startOfDay())
+            ->where('le.effective_date', '<=', now()->addDays(30))
+            ->join('leases as l', 'l.id', '=', 'le.lease_id')
+            ->whereNull('l.deleted_at')
+            ->leftJoin('properties as p', 'p.id', '=', 'l.property_id')
             ->select(
-                'rav.id',
-                'rav.effective_from',
-                'rav.rent_incl',
-                'rav.rental_id',
-                'r.lease_address',
-                'r.branch_id',
-                'r.created_by_user_id',
-                'b.agency_id',
+                'le.id',
+                'le.effective_date',
+                'le.new_rental_amount',
+                'le.lease_id',
+                'l.agency_id',
+                'l.branch_id',
+                'l.created_by_user_id',
+                'l.property_id',
+                'p.address',
             )
             ->get()
             ->map(fn ($r) => [
                 'event_type'  => 'lease',
                 'category'    => 'rent_escalation',
-                'title'       => 'Rent escalation — ' . ($r->lease_address ?: "rental #{$r->rental_id}"),
-                'event_date'  => Carbon::parse($r->effective_from)->startOfDay(),
-                'source_type' => \App\Models\RentalAmountVersion::class,
+                'title'       => 'Rent escalation — ' . ($r->address ?: "lease #{$r->lease_id}"),
+                'event_date'  => Carbon::parse($r->effective_date)->startOfDay(),
+                'source_type' => \App\Models\LeaseEscalation::class,
                 'source_id'   => $r->id,
                 'user_id'     => $r->created_by_user_id,
                 'agency_id'   => $r->agency_id,
                 'branch_id'   => $r->branch_id,
-                'property_id' => null,
-                'metadata'    => ['new_rent_incl' => $r->rent_incl],
+                'property_id' => $r->property_id,
+                'metadata'    => ['new_rental_amount' => $r->new_rental_amount],
             ]);
     }
 
     /**
-     * Rent due — one event per active rental, dated next upcoming 1st.
-     * Rolls forward each month as reconciliation runs nightly.
+     * Rent due — one event per active lease with a defined end date, dated
+     * next upcoming 1st. Rolls forward each month as reconciliation runs
+     * nightly. Same "active + end_date in the future" gate the legacy
+     * `rentals` source used — a month-to-month lease with no end_date is
+     * unchanged behaviour (never got a rent_due event before either).
      */
     private function rentDue(): Collection
     {
         $nextFirst = $this->nextFirstOfMonth();
 
-        return DB::table('rentals as r')
-            ->whereNull('r.deleted_at')
-            ->where('r.is_active', true)
-            ->whereNotNull('r.lease_end_date')
-            ->where('r.lease_end_date', '>=', now())
-            ->leftJoin('branches as b', 'b.id', '=', 'r.branch_id')
+        return DB::table('leases as l')
+            ->whereNull('l.deleted_at')
+            ->where('l.status', \App\Models\Lease::STATUS_ACTIVE)
+            ->whereNotNull('l.end_date')
+            ->where('l.end_date', '>=', now())
+            ->leftJoin('properties as p', 'p.id', '=', 'l.property_id')
             ->select(
-                'r.id',
-                'r.lease_address',
-                'r.branch_id',
-                'r.created_by_user_id',
-                'b.agency_id',
+                'l.id',
+                'l.agency_id',
+                'l.branch_id',
+                'l.created_by_user_id',
+                'l.property_id',
+                'p.address',
             )
             ->get()
             ->map(fn ($r) => [
                 'event_type'  => 'lease',
                 'category'    => 'rent_due',
-                'title'       => 'Rent due — ' . ($r->lease_address ?: "rental #{$r->id}"),
+                'title'       => 'Rent due — ' . ($r->address ?: "lease #{$r->id}"),
                 'event_date'  => $nextFirst,
-                'source_type' => \App\Models\Rental::class,
+                'source_type' => \App\Models\Lease::class,
                 'source_id'   => $r->id,
                 'user_id'     => $r->created_by_user_id,
                 'agency_id'   => $r->agency_id,
                 'branch_id'   => $r->branch_id,
-                'property_id' => null,
+                'property_id' => $r->property_id,
             ]);
     }
 

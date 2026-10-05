@@ -362,6 +362,8 @@ class RentalFaultReportController extends Controller
             // exists (see RentalFaultReport::workOrder()'s own note).
             'reportedByContact', 'reportedByUser', 'capturedByUser', 'cancelledByUser',
             'createdByUser', 'photos.uploadedBy', 'approvals.recordedByUser', 'updates.createdByUser',
+            // §15 (AT-447) — "From inspection <type> <date>" back-link.
+            'reportedInspectionObservation.inspection',
         ]);
 
         return view('corex.rental-fault-reports.show', ['faultReport' => $rentalFaultReport]);
