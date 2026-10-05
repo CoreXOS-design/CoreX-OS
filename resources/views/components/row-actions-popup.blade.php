@@ -20,7 +20,7 @@
     what makes it correct inside an independently-scrolling panel too),
     resize, Escape, and outside click; only one instance is ever open.
 
-    One shared script block for the whole page (@once) handles every
+    One shared, once-per-page script block handles every
     instance via event delegation — no per-row JS wiring needed, so this
     scales to any number of table rows with zero extra listeners.
 --}}

@@ -353,11 +353,11 @@ function corexRccSetQueueCollapsed(collapsed) {
 // button) was still painted BEHIND later rows' sticky Actions cells — a
 // position:fixed descendant of a sticky table cell does not reliably
 // out-rank siblings elsewhere in the tree by z-index alone. Replaced with
-// <x-row-actions-popup> (resources/views/components/row-actions-popup.blade.php),
-// which physically teleports the open panel to a direct child of <body> —
+// the row-actions-popup component (resources/views/components/row-actions-popup.blade.php),
+// which physically teleports the open panel to a direct child of document.body —
 // removing it from the table's DOM subtree entirely, not just its paint
 // layer, so there is no ancestor stacking context left to be trapped in.
-// That component's own @once script (loaded once per page) now drives
+// That component's own shared, once-per-page script now drives
 // every one of this table's row-action menus.
 
 // Round 4 (2026-10-05) — fill the remaining viewport height with the two
