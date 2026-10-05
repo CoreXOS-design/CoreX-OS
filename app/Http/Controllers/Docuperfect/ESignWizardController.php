@@ -17,7 +17,6 @@ use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template;
 use App\Models\Property;
-use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\SignatureSurfaceNormalizer;
@@ -444,11 +443,11 @@ class ESignWizardController extends Controller
             $propertySource = $stepData['property']['_property_source'] ?? null;
             $propDefaults = [];
             if ($propertyId) {
-                if ($propertySource === 'properties') {
-                    $propRecord = Property::find($propertyId);
-                } else {
-                    $propRecord = RentalProperty::find($propertyId);
-                }
+                // AT-439 — the legacy RentalProperty fallback is retired; property_id
+                // only ever resolves against the real Property pillar now (see
+                // DocumentController::sendToRentals(), the one write path that used
+                // to be able to set a rental_properties id here).
+                $propRecord = $propertySource === 'properties' ? Property::find($propertyId) : null;
                 if ($propRecord) {
                     // Sales: price field
                     $price = $propRecord->price ?? null;
@@ -1122,8 +1121,10 @@ class ESignWizardController extends Controller
     /**
      * API: search properties for autocomplete.
      *
-     * Searches both `properties` (main pillar) and `rental_properties` tables.
-     * Returns unified results with source indicator.
+     * AT-439 — searched both `properties` and the legacy `rental_properties`
+     * table; the latter is retired (2 demo rows, no contacts/tenant data —
+     * `properties` already returns everything it did, and more, via the
+     * `contact_property` pivot). `properties` only, now.
      */
     public function searchProperties(Request $request)
     {
@@ -1199,44 +1200,6 @@ class ESignWizardController extends Controller
             ];
         }
 
-        // 2. Search rental_properties table
-        $rentalProps = RentalProperty::where(function ($query) use ($q) {
-            $query->where('address_line_1', 'like', "%{$q}%")
-                ->orWhere('full_address', 'like', "%{$q}%")
-                ->orWhere('suburb', 'like', "%{$q}%");
-        })
-            ->active()
-            ->limit(10)
-            ->get();
-
-        foreach ($rentalProps as $rp) {
-            $rpAddr = $rp->full_address ?: $rp->address_line_1;
-            if (!empty($rp->suburb) && $rpAddr && !str_contains($rpAddr, $rp->suburb)) {
-                $rpAddr .= ', ' . $rp->suburb;
-            }
-
-            $results[] = [
-                'id'                => $rp->id,
-                'source'            => 'rental_properties',
-                'address'           => $rpAddr,
-                'suburb'            => $rp->suburb ?? '',
-                'erf_no'            => '',
-                'complex_name'      => '',
-                'unit_number'       => '',
-                'property_type'     => $rp->property_type ?? '',
-                'rental_amount'     => $rp->monthly_rental,
-                'deposit_amount'    => null,
-                'commission_percent'=> null,
-                'marketing_fee'     => null,
-                'lease_start_date'  => null,
-                'lease_end_date'    => null,
-                'lessor_name'       => $rp->landlord_name,
-                'lessor_id'         => null,
-                'beds'              => null,
-                'baths'             => null,
-                'display'           => $rpAddr,
-            ];
-        }
 
         return response()->json(array_slice($results, 0, 10));
     }
@@ -4305,44 +4268,13 @@ class ESignWizardController extends Controller
                     }
                 }
             }
-            // BL-3: rental/letting docs select a rental_properties row, which
-            // has NO contact_property pivot and NO contacts relationship —
-            // only the denormalised landlord_name/landlord_email/landlord_phone
-            // scalars (no tenant data exists on that table). Before this branch
-            // the block above was gated on source==='properties', so letting
-            // e-sign started with zero recipients. Synthesise the landlord
-            // recipient from those scalars, gated by the template's allowed
-            // esign roles, in the same shape as the sales branch. Tenant cannot
-            // be auto-resolved from rental_properties — manual-add covers it.
-            elseif ($propertyId && $propertySource === 'rental_properties') {
-                $rentalProp = RentalProperty::find($propertyId);
-                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
-                    $signingParties = $template->signing_parties ?? [];
-                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
-                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
-                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
-
-                    // The landlord maps to esign_role 'lessor'. Skip only if the
-                    // template explicitly restricts roles and excludes lessor.
-                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
-                    if ($landlordAllowed) {
-                        $name = trim($rentalProp->landlord_name ?? '');
-                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
-                        $recipients[] = [
-                            'order'       => count($recipients) + 1,
-                            'role'        => $defaultOwnerRole,
-                            'name'        => $name,
-                            'first_name'  => $nameParts[0] ?? '',
-                            'last_name'   => $nameParts[1] ?? '',
-                            'id_number'   => '',
-                            'email'       => $rentalProp->landlord_email ?? '',
-                            'cell'        => $rentalProp->landlord_phone ?? '',
-                            'address'     => $rentalProp->full_address ?? '',
-                            '_contact_id' => null,
-                        ];
-                    }
-                }
-            }
+            // AT-439 — the legacy "BL-3" rental_properties branch (synthesising a
+            // landlord-only recipient from denormalised scalars, no tenant
+            // support) is retired. property_id no longer resolves against
+            // rental_properties, so the 'properties' branch above — which reads
+            // the real contact_property pivot and already resolves BOTH
+            // landlord/lessor AND tenant/lessee roles, entities included — is the
+            // only path now, for sales and rental documents alike.
         }
 
         // Deliberately NO entity expansion here — see expandRecipientsForMerge().
