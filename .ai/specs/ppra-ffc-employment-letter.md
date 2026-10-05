@@ -140,6 +140,11 @@ download/print streams that exact file.
   resolved `principal_user_id` (checked server-side every time).
 - `ppra_employment_letters.manage` — Admin archive/restore, and gates the
   agency settings save.
+- `ppra_employment_letters.receive` — "Can receive PPRA employment letter"
+  (§17). Eligibility, per role per agency: who is listed in the admin New-letter
+  picker AND who sees the PPRA Employment Letter tab in their own My Portal.
+  Shown in Role Manager beside `ppra_inspection_pack.roster` (module
+  `ppra_inspection_pack`, Johan's instruction) but keeps this feature's key prefix.
 
 ## 10. Search / sort / filter / scoping (BUILD_STANDARD §1b/§1c, decided up front)
 
@@ -396,3 +401,36 @@ every agent on QA1 currently sees the blocker until an admin sets it.
 `resources/views/agent/portal.blade.php`,
 `tests/Feature/Compliance/PpraEmploymentLetterTest.php`, this spec.
 No migration, no new setting (nothing to add to the Setup Wizard).
+
+## 17. Eligibility is a Role Manager setting (2026-10-05 late evening, Johan's ruling)
+
+Branch `cc1-ppra-letter-role-manager-2026-10-05`. **Supersedes the §16 item 1 candidate rule**
+("practitioner role OR an FFC number on file"): no hardcoded role list and no FFC-number rule remain in code.
+
+**The setting.** `ppra_employment_letters.receive` ("Can receive PPRA employment letter"), Role Manager →
+Admin → PPRA Inspection Pack group (beside "Appears on inspection pack staff roster"). Per role, per agency;
+ticking autosaves. It is a membership permission — same rules as the roster key (roles-permissions.md
+appendix): read the agency's own live `role_permissions` rows, never `userHasPermission()` for list
+membership; an un-tick soft-deletes the row and survives every deploy.
+
+**Where it applies (both, same setting):**
+1. Admin → New letter picker — `PractitionerFfcRosterService::letterCandidatesFor()` is now
+   `users.role IN (agency's ticked roles)` plus the unchanged filters: active, non-deleted, same agency,
+   never an assistant. own/branch/all narrowing, the store-time "in your scope" re-check and "No agents
+   match" are unchanged (a direct POST for an unticked role's user 403s).
+2. My Portal → Documents → PPRA Employment Letter tab (`AgentPortalController`, `agent/portal.blade.php`) —
+   the tab shows when the user holds `.receive` (standard `hasPermission`: owner roles bypass, so the
+   platform owner still sees it) or has a letter awaiting their principal signature. The "Start new letter"
+   button needs `.receive` AND `.create`; the self-service `store` aborts 403 without `.receive`. Having an
+   old letter on record no longer keeps the tab visible on its own.
+
+**Backfill** (`2026_10_08_130000_grant_ppra_employment_letter_receive_permission`, idempotent via
+`withTrashed()->firstOrNew()` + restore, `down()` removes exactly the key). Nobody who sees the letter today
+loses it: every agency gets agent/branch_manager/admin; plus every role with at least one active,
+non-assistant member who appeared in the old picker (e.g. office_admin); plus every role of a user who
+already has a letter. Global template rows get only agent/branch_manager/admin (neutral default for new
+agencies). `role_defaults` (agent, branch_manager; admin via all-minus-exclude) updated so provisioned
+agencies inherit it.
+
+**Not in the Setup Wizard (rule 10a):** the defaults already work for any new agency; whether it should be
+walked through there is Johan's call (raised in the lane report, same as the roster key).

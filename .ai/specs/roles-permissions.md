@@ -297,3 +297,10 @@ Rules for this kind of key:
 - Defaults live in `role_defaults` (agent, branch_manager; admin via all-minus-exclude) so new agencies
   provisioned from the template inherit them; a dated backfill migration grants the same roles to every
   existing agency and the global template (idempotent via `withTrashed()->firstOrNew()` + restore).
+
+Second instance (2026-10-05): `ppra_employment_letters.receive` ("Can receive PPRA employment letter",
+shown beside the roster key) — which roles can be given a PPRA Employment Letter, both in the admin
+New-letter picker (`letterCandidatesFor()`, direct role-row read) and in the user's own My Portal tab
+(`hasPermission`, so owner roles keep it). Backfill = agent/branch_manager/admin everywhere + roles of
+everyone in the old picker + roles of everyone with a letter on record; template rows get only the three
+practitioner roles. Spec: ppra-ffc-employment-letter.md §17.

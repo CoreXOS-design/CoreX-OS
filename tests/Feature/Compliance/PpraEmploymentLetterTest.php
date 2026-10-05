@@ -14,6 +14,7 @@ use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\AgentSignatureService;
 use App\Services\Compliance\PpraEmploymentLetterService;
+use App\Services\Compliance\PractitionerFfcRosterService;
 use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
@@ -69,6 +70,29 @@ final class PpraEmploymentLetterTest extends TestCase
             'designation'               => 'Principal',
             'is_principal_practitioner' => true,
         ], $attrs));
+    }
+
+    /**
+     * Seeds an explicit grant set (the table is no longer "unseeded", so no fail-open): every letter key for
+     * agent/branch_manager/admin/office_admin, with `ppra_employment_letters.receive` ticked ONLY for $receiveRoles
+     * (the Role Manager setting under test). Scopes mirror scope_defaults: agent own, branch_manager branch, admin all.
+     */
+    private function seedLetterGrants(array $receiveRoles): void
+    {
+        $scopes = ['agent' => 'own', 'branch_manager' => 'branch', 'admin' => 'all', 'office_admin' => 'own'];
+        foreach ($scopes as $role => $scope) {
+            foreach (['access_my_portal', 'ppra_employment_letters.view', 'ppra_employment_letters.create',
+                      'ppra_employment_letters.sign_as_principal'] as $key) {
+                RolePermission::create(['role' => $role, 'permission_key' => $key, 'scope' => $scope, 'agency_id' => $this->agency->id]);
+            }
+        }
+        foreach (['admin', 'branch_manager'] as $role) {
+            RolePermission::create(['role' => $role, 'permission_key' => 'ppra_employment_letters.manage', 'scope' => null, 'agency_id' => $this->agency->id]);
+        }
+        foreach ($receiveRoles as $role) {
+            RolePermission::create(['role' => $role, 'permission_key' => PractitionerFfcRosterService::LETTER_PERMISSION, 'scope' => null, 'agency_id' => $this->agency->id]);
+        }
+        PermissionService::clearCache();
     }
 
     private function withSavedSignature(User $user, string $pin): void
@@ -411,6 +435,7 @@ final class PpraEmploymentLetterTest extends TestCase
 
     public function test_admin_creates_letter_on_behalf_and_agent_signs_with_own_pin(): void
     {
+        $this->seedLetterGrants(['agent', 'admin']);
         $agent = $this->user();
         $this->withSavedSignature($agent, '4444');
         $principal = $this->principal();
@@ -438,6 +463,7 @@ final class PpraEmploymentLetterTest extends TestCase
 
     public function test_admin_create_on_behalf_blocks_missing_merge_data(): void
     {
+        $this->seedLetterGrants(['agent', 'admin']);
         $agent = $this->user(['id_number' => null]);
         $this->principal();
         $admin = $this->user(['role' => 'admin']);
@@ -451,6 +477,7 @@ final class PpraEmploymentLetterTest extends TestCase
 
     public function test_admin_create_on_behalf_respects_branch_scope(): void
     {
+        $this->seedLetterGrants(['agent', 'branch_manager', 'admin']);
         $branchB = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Stanford']);
         $agentOtherBranch = $this->user(['branch_id' => $branchB->id]);
         $this->principal();
@@ -467,6 +494,7 @@ final class PpraEmploymentLetterTest extends TestCase
 
     public function test_admin_create_on_behalf_cannot_target_another_agency(): void
     {
+        $this->seedLetterGrants(['agent', 'admin']);
         $otherAgency = Agency::create(['name' => 'Cape Peninsula Properties', 'slug' => 'cape-peninsula-2']);
         $otherAgent = User::factory()->create([
             'agency_id' => $otherAgency->id, 'role' => 'agent', 'is_active' => true,
@@ -485,30 +513,31 @@ final class PpraEmploymentLetterTest extends TestCase
 
     // ── cc1 round 2 (2026-10-05 evening): picker eligibility, empty match, helper text, blocker link ──
 
-    public function test_picker_lists_every_ffc_holder_whatever_their_role_and_never_assistants_or_inactive(): void
+    public function test_picker_lists_exactly_the_roles_ticked_in_role_manager_and_never_assistants_or_inactive(): void
     {
+        // office_admin and the custom role are ticked; the practitioner-by-FFC-number rule is gone.
+        $this->seedLetterGrants(['agent', 'admin', 'office_admin', 'sales_manager']);
         $this->principal();
         $admin = $this->user(['role' => 'admin']);
 
         // Angelique's shape: office_admin, Candidate Property Practitioner, own FFC number.
         $officeAdmin = $this->user(['role' => 'office_admin', 'name' => 'Angelique Venter', 'designation' => 'Candidate Property Practitioner']);
-        // An agency-defined custom role holding an FFC.
-        $custom = $this->user(['role' => 'sales_manager', 'name' => 'Custom Role Holder']);
-        // Not practitioners / not eligible.
+        // An agency-defined custom role, ticked.
+        $custom = $this->user(['role' => 'sales_manager', 'name' => 'Custom Role Holder', 'ffc_number' => null]);
+        // Not eligible.
         $assistant = $this->user(['role' => 'assistant', 'name' => 'An Assistant', 'ffc_number' => '5555555']);
         $inactive  = $this->user(['role' => 'agent', 'name' => 'Gone Agent', 'is_active' => false]);
-        $noFfcCustom = $this->user(['role' => 'receptionist', 'name' => 'Front Desk', 'ffc_number' => null]);
+        $unticked  = $this->user(['role' => 'receptionist', 'name' => 'Front Desk', 'ffc_number' => '8888888']);
         $otherAgency = Agency::create(['name' => 'Cape Peninsula Properties', 'slug' => 'cape-peninsula-3']);
         $foreign = User::factory()->create(['agency_id' => $otherAgency->id, 'role' => 'office_admin', 'name' => 'Foreign Office', 'is_active' => true, 'ffc_number' => '7777777']);
 
-        $ids = app(\App\Services\Compliance\PractitionerFfcRosterService::class)
-            ->letterCandidatesFor($this->agency->id)->pluck('id')->all();
+        $ids = app(PractitionerFfcRosterService::class)->letterCandidatesFor($this->agency->id)->pluck('id')->all();
 
         $this->assertContains($officeAdmin->id, $ids);
-        $this->assertContains($custom->id, $ids);
+        $this->assertContains($custom->id, $ids, 'a ticked role needs no FFC number to be listed');
         $this->assertNotContains($assistant->id, $ids);
         $this->assertNotContains($inactive->id, $ids);
-        $this->assertNotContains($noFfcCustom->id, $ids);
+        $this->assertNotContains($unticked->id, $ids, 'an FFC number alone no longer qualifies — the role must be ticked');
         $this->assertNotContains($foreign->id, $ids);
 
         // And the real screen shows her.
@@ -525,10 +554,81 @@ final class PpraEmploymentLetterTest extends TestCase
             ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $officeAdmin->id])
             ->assertRedirect();
         $this->assertDatabaseHas('ppra_employment_letters', ['user_id' => $officeAdmin->id]);
+
+        // A role that is not ticked is blocked on a direct POST too, not merely unlisted.
+        $this->actingAs($admin)
+            ->post(route('admin.ppra-employment-letters.store'), ['user_id' => $unticked->id])
+            ->assertStatus(403);
+    }
+
+    public function test_unticking_the_role_removes_her_from_the_picker_and_her_portal_tab_and_reticking_restores_both(): void
+    {
+        $this->seedLetterGrants(['agent', 'admin', 'office_admin']);
+        $this->principal();
+        $admin = $this->user(['role' => 'admin']);
+        $angelique = $this->user(['role' => 'office_admin', 'name' => 'Angelique Venter', 'designation' => 'Candidate Property Practitioner']);
+
+        $pickerIds = fn () => $this->actingAs($admin)->get(route('admin.ppra-employment-letters.create'))
+            ->assertOk()->viewData('agents')->pluck('id')->all();
+        $portalHasTab = fn () => str_contains($this->actingAs($angelique)->get(route('agent.portal'))->assertOk()->getContent(), "sub.documents = 'ppra_employment_letter'");
+
+        $this->assertContains($angelique->id, $pickerIds());
+        $this->assertTrue($portalHasTab());
+
+        // Untick, exactly as Role Manager's savePermissions does (soft-delete the row).
+        RolePermission::where('agency_id', $this->agency->id)->where('role', 'office_admin')
+            ->where('permission_key', PractitionerFfcRosterService::LETTER_PERMISSION)->delete();
+        PermissionService::clearCache();
+
+        $this->assertNotContains($angelique->id, $pickerIds());
+        $this->assertFalse($portalHasTab());
+        // Direct self-service POST is blocked as well, not just unlinked.
+        $this->actingAs($angelique)->post(route('ppra-employment-letters.store'))->assertStatus(403);
+        $this->assertDatabaseCount('ppra_employment_letters', 0);
+
+        // Re-tick.
+        RolePermission::withTrashed()->where('agency_id', $this->agency->id)->where('role', 'office_admin')
+            ->where('permission_key', PractitionerFfcRosterService::LETTER_PERMISSION)->restore();
+        PermissionService::clearCache();
+
+        $this->assertContains($angelique->id, $pickerIds());
+        $this->assertTrue($portalHasTab());
+    }
+
+    public function test_backfill_migration_grants_picker_roles_and_letter_holders_idempotently_and_reverses_cleanly(): void
+    {
+        $this->principal();                                                      // agent role, in today's picker
+        $this->user(['role' => 'office_admin']);                                 // FFC holder -> today's picker
+        $this->user(['role' => 'receptionist', 'ffc_number' => null]);           // not in picker, no letter
+        $this->user(['role' => 'assistant', 'ffc_number' => '5555555']);         // never
+        $this->user(['role' => 'sales_manager', 'is_active' => false]);          // inactive -> not in picker
+        $letterHolder = $this->user(['role' => 'viewer', 'ffc_number' => null]); // not in picker but has a letter
+        PpraEmploymentLetter::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'user_id' => $letterHolder->id,
+            'principal_user_id' => $letterHolder->id, 'status' => PpraEmploymentLetter::STATUS_SIGNED,
+            'created_by_user_id' => $letterHolder->id,
+        ]);
+        Role::create(['name' => 'admin', 'label' => 'Admin', 'agency_id' => $this->agency->id]);
+
+        $migration = require base_path('database/migrations/2026_10_08_130000_grant_ppra_employment_letter_receive_permission.php');
+        $migration->up();
+        $migration->up(); // idempotent
+
+        $roles = fn () => RolePermission::where('agency_id', $this->agency->id)
+            ->where('permission_key', PractitionerFfcRosterService::LETTER_PERMISSION)->pluck('role')->sort()->values()->all();
+        $this->assertSame(['admin', 'agent', 'office_admin', 'viewer'], $roles());
+        $this->assertSame(1, RolePermission::where('agency_id', $this->agency->id)->where('role', 'office_admin')
+            ->where('permission_key', PractitionerFfcRosterService::LETTER_PERMISSION)->count());
+
+        // A role an admin has since unticked is NOT resurrected by anything but a re-run of up() on a fresh key.
+        $migration->down();
+        $this->assertSame([], $roles());
+        $this->assertSame(0, RolePermission::withTrashed()->where('permission_key', PractitionerFfcRosterService::LETTER_PERMISSION)->count());
     }
 
     public function test_picker_keeps_branch_scope_for_non_practitioner_roles(): void
     {
+        $this->seedLetterGrants(['agent', 'branch_manager', 'office_admin']);
         $branchB = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Stanford']);
         $otherBranchOfficeAdmin = $this->user(['role' => 'office_admin', 'branch_id' => $branchB->id, 'name' => 'Other Branch Office']);
         $sameBranchOfficeAdmin  = $this->user(['role' => 'office_admin', 'name' => 'Same Branch Office']);
@@ -550,6 +650,7 @@ final class PpraEmploymentLetterTest extends TestCase
 
     public function test_create_page_has_no_subtitle_and_renders_a_safe_no_match_row_even_with_an_apostrophe_name(): void
     {
+        $this->seedLetterGrants(['agent', 'admin']);
         $this->principal();
         $this->user(['name' => "Sean O'Brien"]);
         $admin = $this->user(['role' => 'admin']);
@@ -580,6 +681,9 @@ final class PpraEmploymentLetterTest extends TestCase
             }
         }
         RolePermission::create(['role' => 'admin', 'permission_key' => 'manage_performance_settings', 'scope' => 'all', 'agency_id' => $this->agency->id]);
+        foreach (['admin', 'agent'] as $role) {
+            RolePermission::create(['role' => $role, 'permission_key' => PractitionerFfcRosterService::LETTER_PERMISSION, 'scope' => null, 'agency_id' => $this->agency->id]);
+        }
         PermissionService::clearCache();
 
         $this->principal();

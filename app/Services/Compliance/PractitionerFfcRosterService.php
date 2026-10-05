@@ -39,11 +39,11 @@ class PractitionerFfcRosterService
     public const ROSTER_PERMISSION = 'ppra_inspection_pack.roster';
 
     /**
-     * Roles whose holders can hold an FFC, used ONLY by letterCandidatesFor() (the Confirmation of
-     * Employment letter picker, a separate feature). NOT the Inspection Pack roster — that is
-     * ROSTER_PERMISSION above.
+     * Role Manager permission that makes a role's users eligible for a PPRA Employment Letter — listed in
+     * the admin New-letter picker and shown the letter tab in their own My Portal. Per role, per agency —
+     * Johan, 2026-10-05: never a hardcoded role list or FFC-number rule.
      */
-    public const ROLES = ['agent', 'branch_manager', 'admin'];
+    public const LETTER_PERMISSION = 'ppra_employment_letters.receive';
 
     private const AMBER_WINDOW_DAYS = 60; // matches AgentFfcRosterService's existing window
 
@@ -78,17 +78,26 @@ class PractitionerFfcRosterService
     }
 
     /**
-     * Everyone who can hold an FFC, for the Confirmation of Employment letter's
-     * agent picker (.ai/specs/ppra-ffc-employment-letter.md §16).
+     * The role names this agency has ticked for "Can receive PPRA employment letter" in Role Manager.
+     * Same direct-row read as rosterRolesFor() (soft-deleted = unticked; no owner bypass).
      *
-     * rosterFor()'s role whitelist is Johan's 2026-09-28 ruling for the
-     * Inspection Pack and is deliberately left alone. For the letter it
-     * silently dropped any practitioner whose role is not agent/BM/admin —
-     * e.g. an office_admin who is a Candidate Property Practitioner with her
-     * own FFC number. A role is a poor proxy for "holds an FFC", so a user
-     * qualifies here by EITHER being in a practitioner role OR having an FFC
-     * number on file (covers office_admin and any agency-defined custom role).
-     * Assistants are never practitioners (AT-267 §10) and are always excluded.
+     * @return string[]
+     */
+    public function letterRolesFor(int $agencyId): array
+    {
+        return RolePermission::where('agency_id', $agencyId)
+            ->where('permission_key', self::LETTER_PERMISSION)
+            ->pluck('role')
+            ->all();
+    }
+
+    /**
+     * Everyone who can receive a Confirmation of Employment letter, for the admin agent picker
+     * (.ai/specs/ppra-ffc-employment-letter.md §16/§17).
+     *
+     * Eligibility is the agency's own Role Manager setting (LETTER_PERMISSION), not a role list or an
+     * FFC-number rule. Still never an assistant (AT-267 §10), never inactive/deleted, same agency.
+     * rosterFor()'s Inspection Pack roster is a separate permission and is not touched here.
      */
     public function letterCandidatesFor(int $agencyId): Collection
     {
@@ -97,10 +106,7 @@ class PractitionerFfcRosterService
             ->where('is_assistant', false)
             ->where('role', '!=', 'assistant')
             ->whereNull('deleted_at')
-            ->where(function ($q) {
-                $q->whereIn('role', self::ROLES)
-                    ->orWhere(fn ($has) => $has->whereNotNull('ffc_number')->where('ffc_number', '!=', ''));
-            })
+            ->whereIn('role', $this->letterRolesFor($agencyId))
             ->orderBy('name')
             ->get();
 
