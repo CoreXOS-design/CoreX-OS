@@ -91,6 +91,15 @@ do not cite it as a verification gate, do not tell Johan or the conductor
 it ran, and do not wait for it. The two scripts above are its replacement
 in this environment.**
 
+**Every PHPUnit run on this box goes through `scripts/lane-test.sh <files>`
+— never `php8.2 artisan test` or `vendor/bin/phpunit` directly.** Six+
+lanes share one MySQL instance; this script takes the shared
+`/tmp/corex-lane-test.lock`, shows who's holding it and for how long while
+you wait, and self-heals your worktree's `TEST_DB_DATABASE` schema if it's
+been dropped (recreates + bootstraps from `database/schema/mysql-schema.sql`).
+`scripts/lane-test.sh --status` checks the queue without joining it. See
+`.ai/STANDARDS.md` Standard −1x.
+
 ---
 
 ## 0. The governing principle
