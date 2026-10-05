@@ -305,6 +305,24 @@ class AdvancedGuidingTest extends TestCase
         $this->assertNull($svc->bestSection('how do i capture a listing', $tour), 'A whole-job question picks no section');
     }
 
+    /**
+     * Real tours, real questions. The tour's own subject word ("property",
+     * "contact", "buyer") also appears in section names; it used to win the
+     * section for whichever came first — "add spaces to a property" offered
+     * Spot Help: Property details.
+     */
+    public function test_best_section_ignores_the_tours_own_subject_word(): void
+    {
+        $svc = app(TourKnowledgeService::class);
+        $section = fn (string $key, string $q) => $svc->bestSection($q, TourRegistry::find($key));
+
+        $this->assertSame('Adding spaces', $section('re-property-page', 'how do I add spaces to a property'));
+        $this->assertSame('Property features', $section('re-property-page', 'how do I add property features'), 'The subject word still breaks a tie');
+        $this->assertSame('Finding a buyer', $section('buyer-pipeline', 'how do I search the buyer pipeline'));
+        $this->assertSame('Sending online FICA', $section('fica-capture', 'how do I send online FICA'));
+        $this->assertNull($section('contact-capture', 'how do I capture a new contact'), 'The whole job, not one part');
+    }
+
     public function test_guide_buttons_are_permission_filtered(): void
     {
         $this->featureSwitch(true);

@@ -10,7 +10,7 @@
     // on; the controller passes that route's own name.
     $indexRoute = $indexRouteName ?? 'corex.properties.index';
 @endphp
-<div class="w-full h-full flex flex-col corex-props-v2"
+<div class="w-full h-full flex flex-col corex-props-v2" data-list-collapse
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
 
@@ -57,12 +57,18 @@
      }"
      x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
+    {{-- Header, tiles and filters fold into the slim bar below while the list is
+         scrolled (spec: list-collapse-on-scroll.md). The wrapper carries the header's
+         break-out-of-<main> negative margins so nothing is clipped while it folds. --}}
+    <div data-list-collapse-top class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6">
+    <div class="lc-top__inner px-4 lg:px-6">
+
     {{-- Header — flat bar at the top of the page (AT-336 Fix 1). NOT sticky: it
          sits in normal flow and scrolls away with the content. Negative margins
          break it out of <main>'s padding so the bottom border spans the full width
          and it sits flush at the top. No card fill, no rounded corners, no shadow,
          no brand block — neutral chrome only. --}}
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0"
+    <div class="-mx-4 lg:-mx-6 px-6 py-3.5 flex-shrink-0"
          style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-properties-intro">
@@ -233,13 +239,19 @@
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
+        ] : (($isAuctionEntry ?? false) ? [
+            // AT-432 — Auctions lens: the statuses that matter for auction stock.
+            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
+            ['label' => 'On Auction',  'value' => $stats['onAuction'],   'filter' => \App\Models\Property::STATUS_ON_AUCTION],
+            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
+            ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
         ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
-        ];
+        ]);
         $currentStatus = $status ?? '';
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
@@ -371,7 +383,12 @@
                  mislabelled — no rental-equivalent status exists for either today. --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
-                @if($isRentalEntry ?? false)
+                @if($isAuctionEntry ?? false)
+                <option value="{{ \App\Models\Property::STATUS_ON_AUCTION }}" {{ $status === \App\Models\Property::STATUS_ON_AUCTION ? 'selected' : '' }}>On Auction</option>
+                <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
+                <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
+                <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @elseif($isRentalEntry ?? false)
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>Available</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -396,7 +413,27 @@
                  server-side whenever isRentalEntry is true, regardless of
                  what this control (or a hand-edited URL) says, so a static
                  label here is honest, not merely decorative. --}}
-            @if($isRentalEntry ?? false)
+            @if($isAuctionEntry ?? false)
+                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows auction properties only" data-tour="au-prop-lens">Auctions only</span>
+                {{-- AT-432 (§8.2) — lens-only filters: which auction, lot status, reserve met. --}}
+                <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction" data-tour="au-prop-auction">
+                    <option value="">All auctions</option>
+                    @foreach($auctionOptions as $ao)
+                    <option value="{{ $ao->id }}" {{ $auctionFilters['auctionId'] === (string) $ao->id ? 'selected' : '' }}>{{ $ao->reference }} — {{ $ao->title }} ({{ $ao->starts_at?->format('d M Y') }})</option>
+                    @endforeach
+                </select>
+                <select name="lot_status" onchange="this.form.submit()" class="list-header-filter" title="Lot status" data-tour="au-prop-lotstatus">
+                    <option value="">Any lot status</option>
+                    @foreach($lotStatusLabels as $slug => $label)
+                    <option value="{{ $slug }}" {{ $auctionFilters['lotStatus'] === (string) $slug ? 'selected' : '' }}>{{ $label }}</option>
+                    @endforeach
+                </select>
+                <select name="reserve_met" onchange="this.form.submit()" class="list-header-filter" title="Reserve" data-tour="au-prop-reserve">
+                    <option value="">Reserve: any</option>
+                    <option value="1" {{ $auctionFilters['reserveMet'] === '1' ? 'selected' : '' }}>Reserve met</option>
+                    <option value="0" {{ $auctionFilters['reserveMet'] === '0' ? 'selected' : '' }}>Reserve not met</option>
+                </select>
+            @elseif($isRentalEntry ?? false)
                 <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
             @else
                 <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
@@ -416,6 +453,10 @@
                 <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
                 <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
                 <option value="title"      {{ ($filters['sort'] ?? '') === 'title'      ? 'selected' : '' }}>Title (A–Z)</option>
+                @if($isAuctionEntry ?? false)
+                <option value="lot_number" {{ ($filters['sort'] ?? '') === 'lot_number' ? 'selected' : '' }}>Lot number</option>
+                <option value="auction_date" {{ ($filters['sort'] ?? '') === 'auction_date' ? 'selected' : '' }}>Auction date</option>
+                @endif
             </select>
 
             {{-- More filters toggle --}}
@@ -733,8 +774,25 @@
 
     </div>
 
+    </div>{{-- /.lc-top__inner --}}
+    </div>{{-- /[data-list-collapse-top] --}}
+
+    @php
+        $barChips = [];
+        foreach ($chips as $chip) {
+            if (isset($chip['url'])) { $chipHref = $chip['url']; }
+            else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRoute, $params); }
+            $barChips[] = ['label' => $chip['label'], 'url' => $chipHref];
+        }
+        $barTotal = $properties->total();
+    @endphp
+    <x-list-collapse-bar
+        :title="($importedStock ?? false) ? 'Imported Stock' : 'Properties'"
+        :summary="number_format($barTotal) . ' ' . ($barTotal === 1 ? 'property' : 'properties')"
+        :chips="$barChips" />
+
     {{-- Scroll region — everything from here down scrolls; header, tiles and filters stay put. --}}
-    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5" data-list-collapse-scroll>
 
     {{-- Flash --}}
     @if(session('success'))
@@ -928,6 +986,8 @@
                     {{ $property->title }}
                 </div>
                 @endif
+
+                @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
 
                 {{-- Property type + features row --}}
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs" style="color:var(--text-secondary);">
@@ -1131,6 +1191,7 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
                         {{ $property->buildDisplayAddress() }}
+                        @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
                         {{ str_replace('_', ' ', $property->property_type) }}

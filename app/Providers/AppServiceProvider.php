@@ -381,6 +381,8 @@ class AppServiceProvider extends ServiceProvider
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\DocumentCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\PeopleCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\RecurringCalendarSource::class);
+        // AT-432 — .ai/specs/auctions.md §16.
+        $registry->register(\App\Services\CommandCenter\Calendar\Sources\AuctionCalendarSource::class);
 
         // Domain events: every concrete DomainEvent is recorded to
         // domain_event_log by RecordDomainEvent. Spec:
@@ -418,6 +420,11 @@ class AppServiceProvider extends ServiceProvider
         //     commission_engine_spec.md §13's unbuilt integration point
         //     (.ai/atlas/deals-commission.md §8.1 "System C ... orphaned").
         Event::listen(\App\Events\Deal\DealCommissionFinalised::class, \App\Listeners\Deal\GenerateCommissionLedgerEntries::class);
+
+        // AT-432 Phase 3 (.ai/specs/auctions.md §17) — AuctionLotSold → open the
+        // Deal (App\Services\Auctions\AuctionDealFactory). Sync, never queued —
+        // see that service's own docblock for why (readonly $eventId).
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);
 
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to
@@ -1182,6 +1189,20 @@ class AppServiceProvider extends ServiceProvider
                         'agentPhone' => $application?->createdBy?->cell ?: $application?->createdBy?->phone,
                     ], 429);
                 });
+        });
+
+        // AT-432 Phase 5 — .ai/specs/auctions.md §10.1 public bidder
+        // registration. No per-applicant token (this is a fresh public
+        // form anyone reaches from the auction's public listing, not a
+        // prefilled per-recipient link) — keyed by IP, matching a plain
+        // spam/abuse throttle rather than the token-keyed rental-application
+        // limiters above.
+        \Illuminate\Support\Facades\RateLimiter::for('auction-registration-submit', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, 5)
+                ->by('auction-registration-submit:' . $request->ip())
+                ->response(fn () => response()->json([
+                    'message' => "You've submitted a few registrations in a short time, so submitting is paused for a moment. Please wait and try again.",
+                ], 429));
         });
     }
 }

@@ -63,6 +63,18 @@ class CalendarEventClassSeeder extends Seeder implements SyncableReferenceSeeder
         'leave_annual'               => "Approved annual leave placed on the calendar. Written when leave is approved. Agents see their own; BM + admin see all. e.g. Annual leave 12–16 Aug — R. Clerk → BM + admin.",
         'leave_sick'                 => "Approved sick leave placed on the calendar. Written when leave is approved. Same visibility as annual leave. e.g. Sick leave 3 Aug — R. Clerk → BM + admin.",
         'manual'                     => "The default class for a manually created event when no specific class is chosen. Visible to its creator. e.g. Ad-hoc event with no class → falls to Manual, creator only.",
+
+        // AT-432 (.ai/specs/auctions.md §16). auction_date/registration_closes/
+        // confirmation_deadline are emitted now (AuctionCalendarSource); viewing/
+        // deposit_refund_due/balance_due are registered for the settings screen
+        // and wizard but have no emitter until Phase 2/3 build the tables they
+        // read from (auction_lot_viewings, auction_bidders, the resulting Deal).
+        'auction_date'                => "An auction's sale date and time. Fires from the auction's own start date/time. Routes to the auctioneer (internal) → BM → admin. e.g. Auction: Spring Coastal Portfolio in 3 days → auctioneer + BM.",
+        'auction_registration_closes' => "The deadline for bidders to register for an auction. Fires from the auction's registration-closes date/time. Routes auctioneer → agent. e.g. Registration closes in 2 days — AUC-2026-014 → auctioneer.",
+        'auction_viewing'              => "A scheduled viewing window before an auction lot's sale. NOTE: no emitter yet — deferred to Phase 2 (auction_lot_viewings); currently inactive. Would route to the listing agent.",
+        'auction_confirmation_deadline'=> "The deadline for a seller to confirm or decline a below-reserve hammer. Fires from the lot's confirmation deadline while still awaiting a decision. Routes to the listing agent → BM. e.g. Seller confirmation due tomorrow — Lot 3 (12 Beach Rd) → agent + BM.",
+        'auction_deposit_refund_due'   => "The SLA to refund an unsuccessful bidder's registration deposit. NOTE: no emitter yet — deferred to Phase 2 (auction_bidders); currently inactive. Would route to the auctioneer/admin.",
+        'auction_balance_due'          => "The balance/guarantees deadline on a deal opened from an auction sale. NOTE: no emitter yet — deferred to Phase 3 (the resulting Deal); currently inactive. Would route to the agent → BM.",
     ];
 
     public function run(): void
@@ -1152,6 +1164,131 @@ class CalendarEventClassSeeder extends Seeder implements SyncableReferenceSeeder
                 'red_notifications'   => [],
                 'daily_digest_enabled'=> true,
                 'daily_digest_roles'  => ['bm'],
+            ],
+
+            // AT-432 (.ai/specs/auctions.md §16) — #47-49 emitted by
+            // AuctionCalendarSource now; #50-52 registered, is_active=false,
+            // no emitter until Phase 2/3 (same office_closure pattern).
+
+            // #47 auction_date
+            [
+                'event_class'         => 'auction_date',
+                'label'               => 'Auction Date',
+                'description'         => "An auction's sale date and time. Source: auctions.starts_at.",
+                'is_active'           => true,
+                'green_days'          => 14,
+                'amber_days'          => 7,
+                'red_days'            => 2,
+                'show_days'           => 30,
+                'green_visibility'    => ['agent'],
+                'amber_visibility'    => ['agent', 'bm'],
+                'red_visibility'      => ['agent', 'bm', 'admin'],
+                'green_notifications' => [],
+                'amber_notifications' => ['agent' => ['in_app']],
+                'red_notifications'   => ['agent' => ['in_app', 'email'], 'bm' => ['in_app']],
+                'daily_digest_enabled'=> true,
+                'daily_digest_roles'  => ['bm'],
+            ],
+
+            // #48 auction_registration_closes
+            [
+                'event_class'         => 'auction_registration_closes',
+                'label'               => 'Auction Registration Closes',
+                'description'         => 'Bidder registration deadline. Source: auctions.registration_closes_at.',
+                'is_active'           => true,
+                'green_days'          => 7,
+                'amber_days'          => 3,
+                'red_days'            => 1,
+                'show_days'           => 14,
+                'green_visibility'    => ['agent'],
+                'amber_visibility'    => ['agent', 'bm'],
+                'red_visibility'      => ['agent', 'bm'],
+                'green_notifications' => [],
+                'amber_notifications' => ['agent' => ['in_app']],
+                'red_notifications'   => ['agent' => ['in_app', 'email']],
+                'daily_digest_enabled'=> false,
+                'daily_digest_roles'  => [],
+            ],
+
+            // #49 auction_confirmation_deadline
+            [
+                'event_class'         => 'auction_confirmation_deadline',
+                'event_nature'        => 'actionable',
+                'label'               => 'Seller Confirmation Due',
+                'description'         => 'Below-reserve hammer awaiting seller confirmation/decline. Source: auction_lots.confirmation_deadline.',
+                'is_active'           => true,
+                'green_days'          => 3,
+                'amber_days'          => 1,
+                'red_days'            => 0,
+                'show_days'           => 14,
+                'green_visibility'    => ['agent'],
+                'amber_visibility'    => ['agent', 'bm'],
+                'red_visibility'      => ['agent', 'bm', 'admin'],
+                'green_notifications' => [],
+                'amber_notifications' => ['agent' => ['in_app']],
+                'red_notifications'   => ['agent' => ['in_app', 'email'], 'bm' => ['in_app']],
+                'daily_digest_enabled'=> true,
+                'daily_digest_roles'  => ['bm'],
+            ],
+
+            // #50 auction_viewing — no emitter yet (needs auction_lot_viewings, Phase 2).
+            [
+                'event_class'         => 'auction_viewing',
+                'label'               => 'Auction Lot Viewing',
+                'description'         => 'Scheduled viewing before an auction lot sale. No emitter yet — Phase 2 (auction_lot_viewings).',
+                'is_active'           => false,
+                'green_days'          => 7,
+                'amber_days'          => 3,
+                'red_days'            => 0,
+                'show_days'           => 14,
+                'green_visibility'    => ['agent'],
+                'amber_visibility'    => ['agent', 'bm'],
+                'red_visibility'      => ['agent', 'bm'],
+                'green_notifications' => [],
+                'amber_notifications' => [],
+                'red_notifications'   => [],
+                'daily_digest_enabled'=> false,
+                'daily_digest_roles'  => [],
+            ],
+
+            // #51 auction_deposit_refund_due — no emitter yet (needs auction_bidders, Phase 2).
+            [
+                'event_class'         => 'auction_deposit_refund_due',
+                'label'               => 'Bidder Deposit Refund Due',
+                'description'         => 'Registration-deposit refund SLA for an unsuccessful bidder. No emitter yet — Phase 2 (auction_bidders).',
+                'is_active'           => false,
+                'green_days'          => 7,
+                'amber_days'          => 3,
+                'red_days'            => 0,
+                'show_days'           => 14,
+                'green_visibility'    => ['admin'],
+                'amber_visibility'    => ['admin'],
+                'red_visibility'      => ['admin', 'bm'],
+                'green_notifications' => [],
+                'amber_notifications' => [],
+                'red_notifications'   => [],
+                'daily_digest_enabled'=> false,
+                'daily_digest_roles'  => [],
+            ],
+
+            // #52 auction_balance_due — no emitter yet (needs the resulting Deal, Phase 3).
+            [
+                'event_class'         => 'auction_balance_due',
+                'label'               => 'Auction Deal Balance Due',
+                'description'         => 'Balance/guarantees deadline on a deal opened from an auction sale. No emitter yet — Phase 3.',
+                'is_active'           => false,
+                'green_days'          => 14,
+                'amber_days'          => 7,
+                'red_days'            => 2,
+                'show_days'           => 30,
+                'green_visibility'    => ['agent'],
+                'amber_visibility'    => ['agent', 'bm'],
+                'red_visibility'      => ['agent', 'bm', 'admin'],
+                'green_notifications' => [],
+                'amber_notifications' => [],
+                'red_notifications'   => [],
+                'daily_digest_enabled'=> false,
+                'daily_digest_roles'  => [],
             ],
         ];
     }

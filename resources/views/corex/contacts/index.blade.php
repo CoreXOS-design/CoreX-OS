@@ -2,8 +2,13 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full h-full flex flex-col" data-tour-root="contacts"
+<div class="w-full h-full flex flex-col" data-tour-root="contacts" data-list-collapse
      x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
+
+    {{-- Header + filters fold into the slim bar below while the list is scrolled
+         (spec: list-collapse-on-scroll.md). --}}
+    <div data-list-collapse-top>
+    <div class="lc-top__inner">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
@@ -377,8 +382,44 @@
 
     </div>
 
+    </div>{{-- /.lc-top__inner --}}
+    </div>{{-- /[data-list-collapse-top] --}}
+
+    @php
+        // Active filters for the folded bar. Removing one keeps the agent scope, the
+        // same way the filter bar's own Clear link does.
+        $barCarry = fn (string $drop) => array_merge(
+            request()->except([$drop, 'page']),
+            $canPickAgent ? ['agent_id' => $filterAgentId] : []
+        );
+        $barChips = [];
+        if (request('search', '') !== '') {
+            $barChips[] = ['label' => 'Search: "'.request('search').'"', 'url' => route($contactsRoute, $barCarry('search'))];
+        }
+        if (request('type', '') !== '' && ($barType = $typeFilterOptions->firstWhere('id', (int) request('type')))) {
+            $barChips[] = ['label' => 'Type: '.$barType->name, 'url' => route($contactsRoute, $barCarry('type'))];
+        }
+        if ($canPickAgent) {
+            $barAll = array_merge(request()->except(['agent_id', 'page']), ['agent_id' => '']);
+            if ($filterAgentId === 'branch') {
+                $barChips[] = ['label' => 'Branch', 'url' => null];
+            } elseif ($filterAgentId === 'unassigned') {
+                $barChips[] = ['label' => 'Unassigned', 'url' => route($contactsRoute, $barAll)];
+            } elseif ($selectedAgent && (string) $selectedAgent->id === (string) auth()->id()) {
+                $barChips[] = ['label' => 'My Contacts', 'url' => null];
+            } elseif ($selectedAgent) {
+                $barChips[] = ['label' => 'Agent: '.$selectedAgent->name, 'url' => route($contactsRoute, $barAll)];
+            }
+        }
+        $barTotal = $contacts->total();
+    @endphp
+    <x-list-collapse-bar
+        :title="$isRentalEntry ? 'Rental Contacts' : 'Contacts'"
+        :summary="number_format($barTotal) . ' ' . ($barTotal === 1 ? 'contact' : 'contacts')"
+        :chips="$barChips" />
+
     {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
-    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5" data-list-collapse-scroll>
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"

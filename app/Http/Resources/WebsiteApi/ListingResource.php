@@ -159,9 +159,64 @@ class ListingResource extends JsonResource
             // Each entry adds `is_primary` so the site can label the lead agent.
             'agents' => $this->buildAgents(),
 
+            // AT-432 Phase 5 — .ai/specs/auctions.md §14.3. Only for an
+            // on-auction listing with a live (not-yet-concluded) lot — a
+            // sold/withdrawn lot's auction detail is no longer this
+            // listing's current story. `registration_url` points at the
+            // one real, catalogued registration entry point (see
+            // Public\AuctionRegistrationController) — never a phone number.
+            'auction' => $this->buildAuction(),
+
             'published_at' => optional($this->published_at)->toIso8601String(),
             'updated_at'   => optional($this->updated_at)->toIso8601String(),
         ];
+    }
+
+    private function buildAuction(): ?array
+    {
+        if (! $this->resource->isAuction()) {
+            return null;
+        }
+        $lot = $this->resource->currentAuctionLot();
+        if (! $lot || ! $lot->auction) {
+            return null;
+        }
+        $auction = $lot->auction;
+        $agencyId = (int) $this->resource->agency_id;
+
+        $out = [
+            'mode' => $auction->bidding_mode,
+            'starts_at' => optional($auction->starts_at)->toIso8601String(),
+            'ends_at' => optional($auction->ends_at)->toIso8601String(),
+            'venue' => $auction->venue_name,
+            'registration_opens_at' => optional($auction->registration_opens_at)->toIso8601String(),
+            'registration_closes_at' => optional($auction->registration_closes_at)->toIso8601String(),
+            'registration_url' => $auction->external_registration_url
+                ?: (\App\Models\AgencyAuctionSettings::advertisingOnlyFor((int) $auction->agency_id)
+                    ? route('public.auctions.show', $auction->id)
+                    : route('public.auctions.register.show', $auction->id)),
+            'auctioneer' => [
+                'company' => $auction->isInternal() ? null : $auction->auctioneer_company,
+                'licence_no' => $auction->isInternal() ? null : $auction->auctioneer_licence_no,
+                'phone' => $auction->auctioneer_phone,
+                'email' => $auction->auctioneer_email,
+            ],
+            'public_url' => route('public.auctions.show', $auction->id),
+            'registration_open' => $auction->isRegistrationOpen(),
+            'guide_price_min' => $lot->guide_price_min !== null ? (float) $lot->guide_price_min : null,
+            'guide_price_max' => $lot->guide_price_max !== null ? (float) $lot->guide_price_max : null,
+            'viewings' => $lot->upcomingViewings()->get()->map(fn ($v) => [
+                'starts_at' => optional($v->starts_at)->toIso8601String(),
+                'ends_at' => optional($v->ends_at)->toIso8601String(),
+                'is_by_appointment' => (bool) $v->is_by_appointment,
+            ])->values(),
+        ];
+
+        if (\App\Models\AgencyAuctionSettings::reserveVisibilityFor($agencyId) === 'published') {
+            $out['reserve_price'] = $lot->reserve_price !== null ? (float) $lot->reserve_price : null;
+        }
+
+        return $out;
     }
 
     /**

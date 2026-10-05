@@ -221,6 +221,15 @@ class TourKnowledgeService
      * The section of a tour the question is really about, or null when it's
      * about the whole job. A section-name hit is worth far more than a mention
      * in one of its steps; a single stray step-body word never picks a section.
+     *
+     * Words that name the tour's own subject only break ties here. "How do I
+     * add spaces to a property?" matched "Working on a property", and
+     * "property" then also hit the section name "Property details" — which,
+     * listed first, won the tie and offered the wrong Spot Help. The subject
+     * word already picked the tour; on its own it says nothing about which
+     * part. A question naming every word of a section gets a small bonus, and
+     * a tie at the top is ambiguous, so it picks no section rather than
+     * whichever is listed first.
      */
     public function bestSection(string $query, array $tour): ?string
     {
@@ -229,37 +238,57 @@ class TourKnowledgeService
             return null;
         }
 
+        $titles = [];
         $text = [];
         foreach (TourRegistry::resolvedSteps($tour) as $step) {
             $name = $step['section'] ?? null;
             if ($name === null) {
                 continue;
             }
+            $titles[$name] = ($titles[$name] ?? '') . ' ' . mb_strtolower((string) ($step['title'] ?? ''));
             $text[$name] = ($text[$name] ?? '') . ' ' . mb_strtolower(
-                ($step['title'] ?? '') . ' ' . ($step['body'] ?? '') . ' ' . ($step['do']['say'] ?? '')
+                ($step['body'] ?? '') . ' ' . ($step['do']['say'] ?? '')
             );
         }
 
+        $tourTitle = mb_strtolower((string) ($tour['title'] ?? ''));
         $best = null;
         $bestScore = 0.0;
+        $tied = false;
         foreach ($text as $name => $body) {
             $nameText = mb_strtolower($name);
             $score = 0.0;
             foreach ($words as $word) {
                 $stem = rtrim($word, 's');
-                if ($this->mentions($nameText, $stem)) {
+                if ($this->mentions($tourTitle, $stem)) {
+                    $score += $this->mentions($nameText, $stem) ? 0.25 : 0.0;
+                } elseif ($this->mentions($nameText, $stem)) {
                     $score += 2.0;
+                } elseif ($this->mentions($titles[$name], $stem)) {
+                    // A step headed "Search your buyers" is about searching.
+                    $score += 1.5;
                 } elseif ($this->mentions($body, $stem)) {
                     $score += 0.5;
                 }
             }
+            $nameWords = $this->tokenize($name);
+            $named = $nameWords !== [] && ! array_filter(
+                $nameWords,
+                fn ($n) => ! array_filter($words, fn ($w) => $this->mentions($n, rtrim($w, 's')) || $this->mentions($w, rtrim($n, 's')))
+            );
+            if ($named) {
+                $score += 0.5;
+            }
             if ($score > $bestScore) {
                 $bestScore = $score;
                 $best = $name;
+                $tied = false;
+            } elseif ($score > 0 && $score === $bestScore) {
+                $tied = true;
             }
         }
 
-        return $bestScore >= 1.5 ? $best : null;
+        return $bestScore >= 1.5 && ! $tied ? $best : null;
     }
 
     /**

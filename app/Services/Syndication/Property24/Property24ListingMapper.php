@@ -156,6 +156,25 @@ class Property24ListingMapper
             $listing['showDays'] = $showdays;
         }
 
+        // AT-432 Phase 5 — .ai/specs/auctions.md §14.1a. `auctionInfo` is what
+        // actually drives P24's AUCTION badge (confirmed live) — `status` has
+        // no Auction member and correctly stays 'Active' above; without this
+        // block an on-auction property syndicates with the POA tag (isPOA,
+        // already wired) but no auction badge/date/venue at all. `date` is the
+        // one required field on P24's AuctionInfo schema; `venue`/`description`
+        // are optional and only sent when CoreX actually holds the data —
+        // `description` is deliberately omitted: there is no free-text auction
+        // description field on auction_lots/auctions to source it from (§14.1a),
+        // and inventing marketing copy for a portal payload is not this
+        // mapper's job.
+        if ($property->isAuction() && ($lot = $property->currentAuctionLot()) && $lot->auction?->starts_at) {
+            $auctionInfo = ['date' => $lot->auction->starts_at->format('Y-m-d\TH:i:s')];
+            if ($lot->auction->venue_name) {
+                $auctionInfo['venue'] = $lot->auction->venue_name;
+            }
+            $listing['auctionInfo'] = $auctionInfo;
+        }
+
         if ($includePhotos) {
             // AT-P24: only (re)upload photos when the gallery actually changed
             // since the last successful sync. P24 keeps the existing photos when

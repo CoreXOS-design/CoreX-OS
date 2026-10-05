@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
 use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
+use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
@@ -319,6 +320,48 @@ return [
              'label' => 'Bank details',
              'explain' => 'The account details a client pays into — bank name, account name, account number, branch code.',
              'affects' => 'Printed on every proforma invoice CoreX generates, so a client knows exactly where to pay.'],
+        ],
+    ],
+
+    // AT-432 — Auctions. Gated on the `auctions` feature (AgencyOnboardingSetup::
+    // stepGates), so an agency that does not auction never sees it. Posts a
+    // SUBSET of the settings page, so its saver (updateWizard) guards every write
+    // with $request->has() — spec §6.1. The deeper auction settings (fees,
+    // bidding rules, deposits) stay on Settings → Auctions: see the spec's
+    // "Deliberately NOT in the wizard" list.
+    'auctions' => [
+        'title' => 'Auctions',
+        'intro' => 'Tell CoreX how your agency uses Auctions — most agencies only need to advertise their auction properties.',
+        'what' => [
+            'title' => 'What Auctions is',
+            'body'  => 'Auctions is where you advertise properties that are being sold at auction. Each auction gets its own '
+                . 'public page showing the date, venue, who is running the sale, the guide price, viewing times and the '
+                . 'Rules of Auction, plus an "I\'m interested" form that sends the enquiry straight to the listing agent. '
+                . 'After the sale you record the result and the advert shows Sold or Passed in. If you also want CoreX to run '
+                . 'the sale itself — register bidders, take bids, bang the hammer — you can switch that on below.',
+        ],
+        'savers' => [
+            ['controller' => AuctionSettingsController::class, 'method' => 'updateWizard'],
+        ],
+        'controls' => [
+            ['key' => 'auction_advertising_only', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Advertising only',
+             'explain' => 'On means CoreX is used to advertise auction properties, and the auction itself is run somewhere else — by an outside auction house or on the day without CoreX. Off means CoreX also runs the sale: bidder registration, the Sale Room and recording bids.',
+             'affects' => 'What this changes: when on, the Sale Room and Bidder Register disappear and "Register to bid" sends buyers to the auctioneer\'s own link; when off, they appear and buyers can register on CoreX.'],
+            ['key' => 'auction_auctioneer_mode', 'source' => 'auction', 'type' => 'select', 'default' => 'both',
+             'options' => ['internal' => 'Our own auctioneer', 'external' => 'An outside auction house', 'both' => 'Either — ask each time'],
+             'label' => 'Who conducts your auctions',
+             'explain' => 'Whether the auctioneer is someone at your agency or an outside auction house. An outside auction house\'s name and licence number are printed on the public advert.',
+             'affects' => 'What the New Auction form asks for, and what buyers see under "Conducted by" on the public page. An agency auctioneer must hold a valid Fidelity Fund Certificate before the auction can be published.'],
+            ['key' => 'auction_reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'private',
+             'options' => ['private' => 'Never show the reserve amount', 'disclosed_on_the_day' => 'Reveal on the day', 'published' => 'Show it on the advert'],
+             'label' => 'Reserve price on the advert',
+             'explain' => 'Every advert must say whether a lot is subject to a reserve — that is the law. This only decides whether the reserve AMOUNT is shown too.',
+             'affects' => 'Whether buyers see the actual reserve figure on the public lot page, or only "Subject to a reserve price".'],
+            ['key' => 'auction_guide_price_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show a guide price',
+             'explain' => 'A guide price is the range you expect the lot to sell for. It is shown to buyers as an indication, not a promise.',
+             'affects' => 'Whether the public advert and the portal listings show a guide price on each lot.'],
         ],
     ],
 
