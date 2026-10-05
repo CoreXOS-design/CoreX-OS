@@ -22,7 +22,7 @@
     </tr>
     @foreach($lines as $line)
     <tr>
-        <td>{{ $line->description }}</td>
+        <td>{{ $line->code ? $line->code . ' — ' . $line->description : $line->description }}</td>
         <td>{{ ucfirst($line->type) }}</td>
         @if($pricesOn)
             <td>{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}{{ $line->unit ? ' ' . $line->unit : '' }}</td>

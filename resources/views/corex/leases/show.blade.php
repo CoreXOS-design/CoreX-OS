@@ -423,6 +423,26 @@
                     <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
                 @endif
                 <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
+                {{-- rental-takeon-import.md §6 — facts captured on take-on,
+                     read-only, never fed into any calculation (no scheduled-
+                     escalation feature, no rental ledger — neither exists).
+                     Shown only when at least one was actually captured. --}}
+                @if($lease->migrated_escalation_percent !== null || $lease->migrated_next_escalation_date || $lease->migrated_opening_arrears !== null || $lease->migrated_last_inspection_date)
+                <div class="pt-1 mt-1" style="border-top: 1px dashed var(--border);">
+                    <div class="text-xs font-semibold" style="color: var(--text-muted);">As captured at take-on</div>
+                    @if($lease->migrated_escalation_percent !== null)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Escalation:</span> {{ number_format((float) $lease->migrated_escalation_percent, 2) }}%@if($lease->migrated_next_escalation_date) &middot; next due {{ $lease->migrated_next_escalation_date->format('Y-m-d') }}@endif</div>
+                    @elseif($lease->migrated_next_escalation_date)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Next escalation due:</span> {{ $lease->migrated_next_escalation_date->format('Y-m-d') }}</div>
+                    @endif
+                    @if($lease->migrated_opening_arrears !== null)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Opening balance at take-on:</span> R{{ number_format((float) $lease->migrated_opening_arrears, 2) }} <span style="color: var(--text-muted);">(note only — not posted to any ledger)</span></div>
+                    @endif
+                    @if($lease->migrated_last_inspection_date)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Last inspection before take-on:</span> {{ $lease->migrated_last_inspection_date->format('Y-m-d') }}</div>
+                    @endif
+                </div>
+                @endif
                 @if($lease->property)
                     <div>
                         <span style="color: var(--text-muted);">No-approval spend limit:</span>

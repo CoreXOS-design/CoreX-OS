@@ -135,7 +135,7 @@
         @if($jobCard = $workOrder->jobCard)
             <div class="grid grid-cols-2 gap-3 text-sm">
                 <div><span style="color: var(--text-muted);">Status:</span> {{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}</div>
-                <div><span style="color: var(--text-muted);">Assigned to:</span> {{ $jobCard->assignedUser?->name ?? '—' }}</div>
+                <div><span style="color: var(--text-muted);">Crew:</span> {{ $jobCard->crew?->name ?? ($jobCard->assigned_user_id ? 'Previously assigned: ' . ($jobCard->assignedUser?->name ?? '—') : '—') }}</div>
                 <div><span style="color: var(--text-muted);">Scheduled:</span> {{ $jobCard->scheduled_at?->format('Y-m-d H:i') ?? '—' }}</div>
                 <div><span style="color: var(--text-muted);">Total:</span> {{ $jobCard->total_amount !== null ? 'R' . number_format((float) $jobCard->total_amount, 2) : '—' }}</div>
             </div>

@@ -816,6 +816,17 @@
                 </form>
             </div>
 
+            {{-- ── Rental Crews — 2026-10-05, Johan's ruling: agents/staff
+                 are never maintenance crew. Full CRUD lives on its own
+                 screen (search/sort/pagination, unlike the small inline
+                 lists above) — this is a link out to it, not an inline
+                 editor. --}}
+            <div class="rounded-md p-4 space-y-2 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Rental Crews</div>
+                <p class="text-xs" style="color:var(--text-muted);">The people (or named teams) picked on a job card's Assign dropdown — set up here, never a CoreX login.</p>
+                <a href="{{ route('corex.rental-crews.index') }}" class="corex-btn-secondary text-xs px-3 py-1.5 inline-block">Manage crews</a>
+            </div>
+
             {{-- ── Proforma Invoice — Banking & Numbering (Accounting pillar) ── --}}
             {{-- The agency being SHOWN ($agency — the controller already applied the owner
                  rules), never the login's effective agency: an owner who has not switched

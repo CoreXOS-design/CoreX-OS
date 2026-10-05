@@ -260,29 +260,47 @@ shape as P24's `confirmBulk()`) both exist; bulk confirm processes rows synchron
 
 ---
 
-## 6. What this import deliberately does NOT write anywhere yet
+## 6. What this import writes, shows, and still deliberately does NOT build
 
-- **Arrears / opening balance** — stored in the row's `payload_json` only (visible in the batch's
-  per-row detail and error report). Rental money / trust-ledger accounting is not built in CoreX yet
-  (per the instruction) — there is no table to post this to, so none is invented here.
-- **Escalation % / next escalation date** — `lease_escalations` is an append-only record of escalation
-  events that have ALREADY happened (`previous_rental_amount`/`new_rental_amount` both required,
-  computed at entry time — leases.md §3.4). A take-on row's "next escalation" is a future, not-yet-
-  happened event; writing it into that table would mean fabricating a previous/new amount pair that
-  never actually occurred — a false historical record. There is also no "scheduled escalation clause"
-  field on `leases` itself (out of scope for this spec to add — that is a `leases.md` schema change,
-  not an import-feature change, and risks colliding with the several other lanes actively adding
-  columns to `leases` this week). Stored in `payload_json` only. **Flagged for Johan, plain language:**
-  the escalation % and next-due date you type in is saved and visible on the import batch, but will
-  not yet show on the lease screen itself — if you want it there, that's a small separate follow-up
-  to `leases.md`, not part of this import.
-- **Last inspection date** — `rental_inspections.lease_id` is a required FK (leases.md §9.1); it
-  cannot exist before the `Lease` row does, and building a historical-inspection-record importer was
-  not asked for here. Stored in `payload_json` only.
+**Amended 2026-10-08 (Johan, overnight queue item 1) — escalation %/next date, opening arrears, and
+last inspection date are now stored on the `Lease` AND shown, read-only, on the Lease Hub screen.**
+Originally these three were left stranded in the row's own `payload_json` (see the superseded
+reasoning kept below) — Johan's ruling closes that gap without building either of the two heavier
+features this spec always said were genuinely out of scope (a scheduled-escalation feature, a rental
+ledger):
 
-None of these three are silently dropped — every one survives in the row's own stored data and in the
-downloadable error/detail report, satisfying "captured and stored" exactly as instructed, without
-inventing a destination that doesn't exist or isn't this ticket's to build.
+- **New columns on `leases`** (migration `2026_10_08_100000_add_takeon_fields_to_leases_table`):
+  `migrated_escalation_percent` (decimal 6,2, nullable), `migrated_next_escalation_date` (date,
+  nullable), `migrated_opening_arrears` (decimal 12,2, nullable), `migrated_last_inspection_date`
+  (date, nullable). Named with the SAME `migrated_` prefix as the pre-existing
+  `migrated_from_table`/`migrated_from_id` — these are historical facts about one migrated-in
+  tenancy, not a general capability every lease gets, and are never written by any other flow (no
+  edit form exposes them, no calculation reads them).
+- **`RentalTakeOnConfirmService::confirmRow()`** now copies `escalation_percent`/
+  `next_escalation_date`/`arrears_opening_balance`/`last_inspection_date` from the row's own payload
+  straight onto these four columns at `Lease::create()` time — the data was already being parsed and
+  validated (§5.2); this is wiring, not new capture.
+- **`resources/views/corex/leases/show.blade.php`** (the Lease Hub's "Lease terms" card) shows an "As
+  captured at take-on" block — read-only text, no edit control anywhere — **only when at least one of
+  the four was actually captured** (BUILD_STANDARD §2, optional-and-empty never renders a bare label).
+  The arrears figure is captioned "(note only — not posted to any ledger)" directly in the UI, so an
+  agent reading the screen never mistakes it for a real trust-account balance — there is still no
+  ledger to post it to, and none is built here.
+- **Still correctly out of scope, unchanged from the original reasoning**: `lease_escalations`
+  (append-only record of escalation events that have ALREADY happened,
+  `previous_rental_amount`/`new_rental_amount` both required — leases.md §3.4) is never written from
+  these four columns — a take-on's "next escalation" is a future, not-yet-happened event, and writing
+  it there would mean fabricating a previous/new amount pair that never occurred. These four columns
+  are a narrower, honest answer: display-only facts, not a scheduled-escalation feature. Likewise no
+  `rental_inspections` row is created from `migrated_last_inspection_date` (`rental_inspections.lease_id`
+  is a required FK, leases.md §9.1 — it cannot exist before the Lease row does, and a historical-
+  inspection-record importer was never asked for).
+
+**Superseded reasoning, kept for the record (why these were originally payload-only):** `payload_json`
+-only storage satisfied "captured and stored" literally, but the original build correctly flagged
+this as half-finished — a fact typed into a spreadsheet and never surfaced again is not useful to the
+agent who has to act on it. Johan's ruling (above) is the completion of that flagged gap, not a reversal
+of the reasoning that originally kept the heavier features out of scope.
 
 ---
 

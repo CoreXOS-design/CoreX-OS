@@ -23,6 +23,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * excl before saving (RentalCatalogueItemController); when a job card line
  * pre-fills from this item, RentalJobCardVatService converts back up to
  * whatever the agency currently captures on lines.
+ *
+ * `code`/`description` (2026-10-05, Johan QA1 finding) replace the old
+ * single `name` column — a short, agency-unique-among-active CODE an agent
+ * recognises/searches by, and a full DESCRIPTION that prints on the job
+ * card/quote. Every existing row's old `name` was migrated to BOTH on
+ * 2026_10_05_270100 (nothing lost); `name` itself no longer exists
+ * (dropped 2026_10_05_270200).
  */
 class RentalCatalogueItem extends Model
 {
@@ -36,7 +43,8 @@ class RentalCatalogueItem extends Model
     protected $fillable = [
         'agency_id',
         'rental_catalogue_item_type_id',
-        'name',
+        'code',
+        'description',
         'rental_catalogue_unit_id',
         'default_price',
         'default_rental_vat_type_id',
@@ -72,6 +80,12 @@ class RentalCatalogueItem extends Model
     public function kind(): ?string
     {
         return $this->catalogueItemType?->kind;
+    }
+
+    /** "CODE — Description" — the picker/search display label everywhere this item is chosen from. */
+    public function label(): string
+    {
+        return $this->code.' — '.$this->description;
     }
 
     public function scopeActive(Builder $query): Builder

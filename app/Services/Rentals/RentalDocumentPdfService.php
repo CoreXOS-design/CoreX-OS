@@ -125,7 +125,7 @@ class RentalDocumentPdfService
     /** Req #6 — the printable job card: address, access notes, tenant contact, tasks, lines, sign-off lines. */
     public function jobCardPrintPdf(RentalJobCard $jobCard)
     {
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         // AT-442 follow-up, conductor's ruling — the worker's printed copy

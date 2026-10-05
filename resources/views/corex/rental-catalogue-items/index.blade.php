@@ -3,9 +3,14 @@
 {{--
     AT-442 — the agency's own parts & labour catalogue consumed by internal
     job cards. CRUD/list-screen floor (BUILD_STANDARD §1a-§1d): search
-    (name), sort (sort_order default; name, default_price), filter (type,
-    active/archived), pagination, real empty state, agency scoping via
-    BelongsToAgency + AgencyScope on the model.
+    (code, description), sort (sort_order default; code, description,
+    default_price), filter (type, active/archived), pagination, real empty
+    state, agency scoping via BelongsToAgency + AgencyScope on the model.
+
+    2026-10-05 (Johan QA1 finding) — split the old single `name` column
+    into `code` (short, agency-unique among active items) + `description`
+    (full text) so picking an item on a job card no longer leaves the
+    description still to be typed by hand.
 
     Pastel-style enhancement, 2026-10-05: type/unit are now agency-
     configurable lists; the price column splits into excl/VAT type/incl
@@ -37,7 +42,7 @@
     <form method="GET" action="{{ route('corex.rental-catalogue-items.index') }}" class="flex flex-wrap items-end gap-3">
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Code or description" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Type</label><br>
@@ -63,7 +68,8 @@
         <table class="w-full text-sm">
             <thead>
                 <tr style="background: var(--surface-2); color: var(--text-muted);">
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'name'])) }}">Name</a></th>
+                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'code'])) }}">Code</a></th>
+                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'description'])) }}">Description</a></th>
                     <th class="text-left px-4 py-2 font-medium">Type</th>
                     <th class="text-left px-4 py-2 font-medium">Unit</th>
                     <th class="text-right px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">Excl VAT</a></th>
@@ -78,7 +84,8 @@
                 @forelse($items as $item)
                     @php $prices = $vat->catalogueItemPrices($item, $agency); @endphp
                     <tr style="border-top: 1px solid var(--border);">
-                        <td class="px-4 py-2">{{ $item->name }}</td>
+                        <td class="px-4 py-2" style="font-family: monospace;">{{ $item->code }}</td>
+                        <td class="px-4 py-2">{{ $item->description }}</td>
                         <td class="px-4 py-2"><span class="ds-badge {{ $item->kind() === 'labour' ? 'ds-badge-info' : 'ds-badge-muted' }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
                         <td class="px-4 py-2">{{ $item->catalogueUnit->name ?? '—' }}</td>
                         <td class="px-4 py-2 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
@@ -105,7 +112,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $agency?->vat_registered ? 7 : 5 }}" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="{{ $agency?->vat_registered ? 8 : 6 }}" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q') || request('type'))
                                 No catalogue items match this filter.
                             @else

@@ -41,10 +41,13 @@
     } : null;
     $isOpen = $jobCard && !in_array($jobCard->status, ['completed', 'cancelled'], true);
 
+    $jcAgency = $jobCard?->agency ?? ($property?->agency ?? auth()->user()->agency);
     $catalogueItemsJson = $catalogueItems->map(fn ($ci) => [
-        'id' => $ci->id, 'name' => $ci->name, 'kind' => $ci->kind(),
-        'unit' => $ci->catalogueUnit?->name, 'price' => $ci->default_price !== null ? (float) $ci->default_price : null,
+        'id' => $ci->id, 'code' => $ci->code, 'description' => $ci->description, 'label' => $ci->label(),
+        'kind' => $ci->kind(), 'unit' => $ci->catalogueUnit?->name,
+        'priceForLine' => $jcAgency ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultPriceForLine($ci, $jcAgency) : ($ci->default_price !== null ? (float) $ci->default_price : null),
         'vatTypeId' => $ci->default_rental_vat_type_id,
+        'customVatRate' => $ci->default_custom_vat_rate !== null ? (float) $ci->default_custom_vat_rate : null,
     ])->values();
     $draftTasksJson = collect($draftTasks ?? [])->map(fn ($d) => ['description' => $d, 'lines' => []])->values();
 @endphp
@@ -96,7 +99,6 @@
     --}}
     <div x-data="rentalJobCardBuilder({
             isDraft: {{ $isDraft ? 'true' : 'false' }},
-            catalogueItems: {{ $catalogueItemsJson->toJson() }},
             draftTasks: {{ $draftTasksJson->toJson() }},
         })" id="jc-layout" class="flex flex-col lg:flex-row gap-4 items-stretch" style="min-height:0;">
         <div id="jc-left-col" class="w-full lg:flex-1 min-w-0 space-y-4 lg:overflow-y-auto" style="min-height:0;">
@@ -280,7 +282,7 @@
                             @include('corex.rental-job-cards._add-line-row', [
                                 'mode' => 'draft', 'refPrefix' => 'free', 'taskExpr' => 'task',
                                 'addLineCall' => "addLineFromRow(task, \$refs, 'free')",
-                                'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits,
+                                'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits,
                                 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vatRegistered,
                             ])
                             {{-- The hidden, bracket-indexed inputs Laravel actually parses on submit. --}}
@@ -314,7 +316,7 @@
                         @include('corex.rental-job-cards._add-line-row', [
                             'mode' => 'draft', 'refPrefix' => 'gen', 'taskExpr' => 'null',
                             'addLineCall' => "addLineFromRow(null, \$refs, 'gen')",
-                            'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits,
+                            'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits,
                             'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vatRegistered,
                         ])
                         <template x-for="(line, li) in generalLines" :key="'f-' + line.key">
@@ -368,6 +370,7 @@
                             </form>
                             @endpermission
 
+                            @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
                             @include('corex.rental-job-cards._lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard])
 
                             @if($pricesOn)
@@ -375,7 +378,7 @@
                             @endif
 
                             @permission('rental_job_cards.create')
-                            @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                            @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
                             @endpermission
                         </div>
                     @empty
@@ -407,9 +410,10 @@
                     {{-- General — lines with no task (e.g. a call-out fee). --}}
                     <div class="rounded-md p-3 space-y-2" style="border: 1px dashed var(--border);">
                         <span class="text-sm font-medium">General</span>
+                        @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
                         @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard])
                         @permission('rental_job_cards.create')
-                        @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItems' => $catalogueItems, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                        @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
                         @endpermission
                         @if($archivedLines->isNotEmpty())
                             <button type="button" onclick="document.getElementById('archived-lines').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedLines->count() }} archived line(s)</button>
@@ -510,22 +514,35 @@
             {{-- 3. WHO & WHEN, one line --}}
             <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-sm flex flex-wrap gap-3">
-                    <span><span style="color: var(--text-muted);">Crew:</span> {{ $jobCard->assignedUser?->name ?? '—' }}</span>
+                    @if($jobCard->crew)
+                        <span><span style="color: var(--text-muted);">Crew:</span> {{ $jobCard->crew->name }}@if($jobCard->crew->trashed()) <span style="color: var(--text-muted);">(archived)</span>@endif</span>
+                    @elseif($jobCard->assigned_user_id)
+                        {{-- 2026-10-05 — legacy only: a card assigned before crews existed. Read-only — never re-selectable, never written to again. --}}
+                        <span style="color: var(--text-muted);">Previously assigned: {{ $jobCard->assignedUser?->name ?? '—' }}</span>
+                    @else
+                        <span><span style="color: var(--text-muted);">Crew:</span> —</span>
+                    @endif
                     <span><span style="color: var(--text-muted);">Scheduled:</span> {{ $jobCard->scheduled_at?->format('Y-m-d H:i') ?? '—' }}</span>
                     <span><span style="color: var(--text-muted);">Due:</span> {{ $jobCard->due_at?->format('Y-m-d H:i') ?? '—' }}</span>
                 </div>
+                @if($jobCard->crew && $jobCard->crew->members->isNotEmpty())
+                    <div class="text-xs" style="color: var(--text-muted);">{{ $jobCard->crew->members->pluck('name')->implode(', ') }}</div>
+                @endif
                 @permission('rental_job_cards.create')
                 @if($isOpen)
                 <form method="POST" action="{{ route('corex.rental-job-cards.assign-crew', $jobCard) }}" class="flex gap-2">
                     @csrf
-                    <select name="assigned_user_id" required class="flex-1 rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">Select crew member…</option>
-                        @foreach($crew as $c)
-                            <option value="{{ $c->id }}" @selected($jobCard->assigned_user_id === $c->id)>{{ $c->name }}</option>
+                    <select name="rental_crew_id" required class="flex-1 rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                        <option value="">Select crew…</option>
+                        @foreach($crews as $c)
+                            <option value="{{ $c->id }}" @selected($jobCard->rental_crew_id === $c->id)>{{ $c->name }}</option>
                         @endforeach
                     </select>
                     <button type="submit" class="corex-btn-outline text-xs">Assign</button>
                 </form>
+                @permission('rental_catalogue.manage')
+                <a href="{{ route('corex.rental-crews.index') }}" class="text-xs underline" style="color: var(--text-muted);">Manage crews</a>
+                @endpermission
                 <form method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
                     @csrf
                     <input type="datetime-local" name="scheduled_at" aria-label="Scheduled" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
@@ -576,9 +593,22 @@
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @permission('rental_job_cards.sign_off')
                 @unless($jobCard->worker_signed_off_at)
-                <form method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}">@csrf<button type="submit" class="corex-btn-outline text-xs w-full">Worker sign-off</button></form>
+                {{-- 2026-10-05 — crew have no CoreX login to sign off themselves; the agent
+                     records it, naming who on the (already-assigned) crew actually did the
+                     work — free text, with that crew's own member names offered via the
+                     native datalist below as a convenience, not a constraint. --}}
+                <form method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-2">
+                    @csrf
+                    <input type="text" name="worker_sign_off_name" list="worker-sign-off-names" maxlength="191" placeholder="Who did the work (optional)" aria-label="Who did the work" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <datalist id="worker-sign-off-names">
+                        @foreach($jobCard->crew?->members ?? [] as $member)
+                            <option value="{{ $member->name }}">
+                        @endforeach
+                    </datalist>
+                    <button type="submit" class="corex-btn-outline text-xs w-full">Worker sign-off</button>
+                </form>
                 @else
-                <div class="text-xs" style="color: var(--text-muted);">Worker — done: {{ $jobCard->workerSignedOffByUser?->name }} ({{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }})</div>
+                <div class="text-xs" style="color: var(--text-muted);">Worker — done: {{ $jobCard->workerSignedOffByUser?->name }} ({{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }})@if($jobCard->worker_sign_off_name) — {{ $jobCard->worker_sign_off_name }}@endif</div>
                 @endunless
 
                 @unless($jobCard->agent_signed_off_at)
@@ -623,13 +653,12 @@
 
 @push('scripts')
 <script>
-function rentalJobCardBuilder({ isDraft, catalogueItems, draftTasks }) {
+function rentalJobCardBuilder({ isDraft, draftTasks }) {
     let seq = 0;
     const key = () => ++seq;
 
     return {
         isDraft,
-        catalogueItems,
         tasks: (draftTasks || []).map(t => ({ key: key(), description: t.description, lines: [] })),
         generalLines: [],
         addTask() {
@@ -638,32 +667,19 @@ function rentalJobCardBuilder({ isDraft, catalogueItems, draftTasks }) {
         removeTask(i) {
             this.tasks.splice(i, 1);
         },
-        // Picking a catalogue item adds the line immediately (its own
-        // name/unit/price/VAT/type win, same rule the server-side
-        // addLine() already enforces) — the Type/Unit/Qty/Unit
-        // price/VAT fields in the row are for the free-text / "+" path
-        // only, left untouched here.
-        addDraftLine(task, selectEl, prefix) {
-            const id = selectEl.value;
-            if (!id) return;
-            const item = this.catalogueItems.find(c => String(c.id) === String(id));
-            if (!item) return;
-            const line = {
-                key: key(), catalogueItemId: item.id, description: item.name, type: item.kind || 'labour',
-                unit: item.unit || '', quantity: 1, unitPrice: item.price ?? '', vatTypeId: item.vatTypeId ?? '',
-            };
-            if (task) { task.lines.push(line); } else { this.generalLines.push(line); }
-            selectEl.value = '';
-        },
-        // The "+" button — free text (or a typed override of Type/Unit/
-        // Unit price/VAT alongside a description), per 2026-10-05's
-        // one-line add-line row (_add-line-row.blade.php).
+        // The "+" button — reads whatever is CURRENTLY in the row's own
+        // fields, whether that came from picking a catalogue item (which
+        // pre-fills them, via catalogueLinePicker() below) or free typing/
+        // editing afterward. 2026-10-05 round 3 (Johan QA1 findings A/B):
+        // catalogueItemId now actually read (was hardcoded '' — a picked
+        // item was never linked on the draft-mode path at all), and every
+        // field it pre-filled stays live/editable, nothing disabled.
         addLineFromRow(task, refs, prefix) {
             const ref = (field) => refs[prefix + field];
             const description = ref('Desc').value.trim();
             if (!description) return;
             const line = {
-                key: key(), catalogueItemId: '', description,
+                key: key(), catalogueItemId: ref('CatalogueItem')?.value || '', description,
                 type: ref('Type')?.value || 'labour',
                 unit: ref('Unit')?.value || '',
                 quantity: ref('Qty')?.value || 1,
@@ -672,8 +688,74 @@ function rentalJobCardBuilder({ isDraft, catalogueItems, draftTasks }) {
             };
             if (task) { task.lines.push(line); } else { this.generalLines.push(line); }
             ref('Desc').value = '';
+            if (ref('CatalogueItem')) ref('CatalogueItem').value = '';
             if (ref('Qty')) ref('Qty').value = 1;
             if (ref('UnitPrice')) ref('UnitPrice').value = '';
+        },
+    };
+}
+
+// 2026-10-05 round 3 (Johan QA1 findings A/B) — the catalogue item picker
+// shared by every add-line row, form AND draft mode alike. A searchable
+// combobox (filters the agency's own active items by code OR description
+// client-side — small lists, no search endpoint needed) that, on pick,
+// fills description/type/unit/unit price/VAT type directly via plain DOM
+// lookups relative to its OWN row (`$el`) rather than Alpine's $refs — this
+// component is scoped locally to EACH row, so it never needs to know that
+// row's refPrefix/namespace at all, and never collides with the OUTER
+// page-level rentalJobCardBuilder()'s own $refs. Every field it fills
+// stays fully editable afterward — nothing here ever disables anything,
+// which is the root fix for "selecting a Parts item showed Labour and the
+// type couldn't be changed" (the OLD onchange handler only ever disabled
+// Type/Unit, never actually set their value, and disabled fields are never
+// submitted at all, so the server never even saw a type to disagree with).
+function catalogueLinePicker(items) {
+    return {
+        items, query: '', open: false, selectedId: '', highlighted: -1, rootEl: null,
+        // $el inside a method called from an x-for child's @click (e.g. pick(it))
+        // resolves to the CLICKED child element, not this component's root — Alpine
+        // binds magics per evaluation context, not per component. field() needs the
+        // row's root to find sibling inputs, so init() captures it once, here, while
+        // $el still means "the element x-data is declared on".
+        init() {
+            this.rootEl = this.$el;
+        },
+        filtered() {
+            const q = this.query.trim().toLowerCase();
+            if (!q) return this.items;
+            return this.items.filter(it => it.code.toLowerCase().includes(q) || it.description.toLowerCase().includes(q));
+        },
+        moveSelection(dir) {
+            const list = this.filtered();
+            if (!list.length) return;
+            this.highlighted = (this.highlighted + dir + list.length) % list.length;
+            this.open = true;
+        },
+        pickHighlighted() {
+            const list = this.filtered();
+            if (this.highlighted >= 0 && list[this.highlighted]) this.pick(list[this.highlighted]);
+        },
+        field(selector) {
+            return this.rootEl.querySelector(selector);
+        },
+        pick(item) {
+            this.selectedId = item.id;
+            this.query = item.label;
+            this.open = false;
+            this.highlighted = -1;
+            const d = this.field('[name="description"], [x-ref$="Desc"]'); if (d) d.value = item.description;
+            const t = this.field('[name="type"], [x-ref$="Type"]'); if (t) t.value = item.kind || 'labour';
+            const u = this.field('[name="unit"], [x-ref$="Unit"]'); if (u && item.unit) u.value = item.unit;
+            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p && item.priceForLine !== null && item.priceForLine !== undefined) p.value = item.priceForLine;
+            const v = this.field('[name="rental_vat_type_id"], [x-ref$="VatType"]');
+            if (v && item.vatTypeId) { v.value = item.vatTypeId; v.dispatchEvent(new Event('change')); }
+            const c = this.field('[name="custom_vat_rate"]'); if (c && item.customVatRate !== null && item.customVatRate !== undefined) c.value = item.customVatRate;
+        },
+        clear() {
+            this.selectedId = '';
+            this.query = '';
+            this.open = false;
+            this.highlighted = -1;
         },
     };
 }

@@ -44,7 +44,13 @@ class RentalJobCard extends Model
         'lease_id',
         'title',
         'status',
+        // assigned_user_id is INTENTIONALLY still fillable (never dropped,
+        // never written again by new code — see rental_crew_id below and
+        // the migration's own docblock) so a mass-assignment on an OLD row
+        // that already has it set never silently clears it on an unrelated
+        // ->update() call elsewhere. New code sets rental_crew_id only.
         'assigned_user_id',
+        'rental_crew_id',
         'scheduled_at',
         'due_at',
         'access_notes',
@@ -54,6 +60,7 @@ class RentalJobCard extends Model
         'vat_snapshotted_at',
         'worker_signed_off_at',
         'worker_signed_off_by_user_id',
+        'worker_sign_off_name',
         'agent_signed_off_at',
         'agent_signed_off_by_user_id',
         'tenant_confirmed_at',
@@ -118,9 +125,21 @@ class RentalJobCard extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /**
+     * 2026-10-05 — LEGACY ONLY. Agents/staff are never crew (Johan's
+     * ruling); new code never writes assigned_user_id again — see
+     * crew() below, the only thing assignCrew() sets now. Kept, readable,
+     * for "Previously assigned: <name>" on a card that predates crews.
+     */
     public function assignedUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    /** withTrashed() — an archived crew still displays on the old job cards it was assigned to; it just can't be newly picked (the Assign dropdown only lists active crews). */
+    public function crew(): BelongsTo
+    {
+        return $this->belongsTo(RentalCrew::class, 'rental_crew_id')->withTrashed();
     }
 
     public function workerSignedOffByUser(): BelongsTo
@@ -279,11 +298,16 @@ class RentalJobCard extends Model
         }
     }
 
-    public function assignCrew(User $crewMember, User $by): void
+    /**
+     * 2026-10-05 — re-pointed at RentalCrew (Johan: "agents and staff are
+     * never maintenance crew"). Never writes assigned_user_id — that
+     * column is frozen, legacy-only, see assignedUser()'s own docblock.
+     */
+    public function assignCrew(RentalCrew $crew, User $by): void
     {
         $this->assertOpen();
-        $this->update(['assigned_user_id' => $crewMember->id]);
-        $this->logUpdate('crew_assigned', $by, $crewMember->name);
+        $this->update(['rental_crew_id' => $crew->id]);
+        $this->logUpdate('crew_assigned', $by, $crew->name);
     }
 
     /**
@@ -322,14 +346,21 @@ class RentalJobCard extends Model
         $this->logUpdate('status_change', $by, null, $fromStatus, self::STATUS_IN_PROGRESS);
     }
 
-    public function workerSignOff(User $by): void
+    /**
+     * 2026-10-05 — $by is always the AGENT recording this (crew have no
+     * CoreX login to sign off themselves, same as before); $workerName is
+     * who on the crew actually did the work, free text, optional — Johan:
+     * "record the signing-off name/crew member as text/selection."
+     */
+    public function workerSignOff(User $by, ?string $workerName = null): void
     {
         $this->assertOpen();
         $this->forceFill([
             'worker_signed_off_at' => now(),
             'worker_signed_off_by_user_id' => $by->id,
+            'worker_sign_off_name' => $workerName,
         ])->save();
-        $this->logUpdate('sign_off', $by, 'Worker — done');
+        $this->logUpdate('sign_off', $by, $workerName ? "Worker — done ({$workerName})" : 'Worker — done');
     }
 
     public function agentSignOff(User $by): void

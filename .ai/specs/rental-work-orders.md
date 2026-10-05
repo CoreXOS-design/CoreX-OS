@@ -2490,6 +2490,97 @@ archive/restore, agency isolation).
 **Finance stage dependency:** this is the single source of truth `.ai/specs/rental-money.md` §6 will
 read from when a completed job card's lines become charges — see that spec's own note.
 
+### 14.18 Catalogue code/description split + job-card line picker fix (AT-442 QA1 findings, 2026-10-05 round 3)
+
+Johan's three QA1 findings, each with a root cause and fix:
+
+**A — "picking a catalogue item still required typing the description."** The catalogue item had
+only one `name` field (code and description combined into one string), so there was nothing to
+pick that was both short enough to scan in a list AND descriptive enough to use as the line's
+description. Fixed by splitting `rental_catalogue_items.name` into two required columns: `code`
+(string 50, unique per agency among non-archived rows) and `description` (string 500).
+`2026_10_05_270000`/`270100`/`270200` add the columns, backfill every existing row (`code` derived
+from the old `name` — uppercased, non-alphanumeric collapsed to `-`, truncated to 20 chars, deduped
+per agency with a numeric suffix; `description` copied verbatim from the old `name`), then drop
+`name`. `RentalCatalogueItem::label()` returns `"{code} — {description}"` — the one display string
+used everywhere an item is picked from (catalogue list, job-card picker, print/quote).
+
+**B — "an item marked Parts showed as Labour on the line, and Type couldn't be changed."** Two
+separate bugs, both in `RentalJobCardService::addLine()`: (1) the picked catalogue item's `kind()`
+always won over an explicitly posted `type`, even when the agent had deliberately changed the
+dropdown — reversed so an explicit posted `type` now wins, falling back to the catalogue item's
+kind only when none was posted; (2) the OLD add-line row's Type/Unit `<select>` elements were
+`disabled` once a catalogue item was picked — a disabled field is never submitted at all, so the
+server never even saw a `type` to disagree with, and the Alpine `onchange` handler that was
+supposed to apply the picked item's kind never actually wrote a value into the select. The
+rebuilt add-line row (`_add-line-row.blade.php`) never disables anything; every field stays
+editable after a pick.
+
+**C — "no column headers above the add-line row."** `App\Support\RentalJobCardLineGrid` is the one
+source of truth for the row's `grid-template-columns` track list, shared by a new
+`_line-columns-header.blade.php` partial, the existing-lines table, and the add-line row, so all
+three can never drift apart. Header labels: Item, Description, Type, [Unit, Qty, Unit price, [VAT]
+— only when prices/VAT apply], blank (archive/+ action). Rendered once per task block and once for
+the General block (`show.blade.php`), immediately above that block's lines table.
+
+**The picker itself — searchable, pre-fills everything, still fully editable.** The add-line row's
+Item field is a type-to-search box (`catalogueLinePicker()` Alpine component, one instance per
+row) matching on code or description, showing `"CODE — Description"` in the dropdown. Picking an
+item sets description, type, unit, unit price, and VAT type on the SAME row — every one of those
+fields stays a normal editable control afterward (nothing disabled, per the bug-B fix above); the
+hidden hard-fail-safe is "no match → Free text" is always offered as an explicit dropdown option.
+
+**Root-cause bug found only by a real browser click, not the PHPUnit suite:** the picker's `pick()`
+method originally read `this.$el.querySelector(...)` to find its row's sibling fields. `pick(it)`
+is invoked via `@click="pick(it)"` from inside an `x-for`-rendered dropdown item — Alpine binds
+`$el` to the element whose directive triggered the CURRENT evaluation chain, not to the
+component's root, so inside that call chain `$el` resolved to the tiny clicked `<div>` (the
+dropdown option itself), not the row. `querySelector` on that element found nothing, so
+description/type/unit/price silently stayed blank while the plain reactive write
+(`this.selectedId = item.id`) still succeeded — which is exactly why the PHPUnit `addLine()` tests
+all passed (they call the service directly, never touching Alpine) while the live control did
+nothing visible. Fixed by capturing the row's root element once, in `init()`
+(`this.rootEl = this.$el`), and reading `this.rootEl.querySelector(...)` from `field()` instead.
+Confirmed via a real Puppeteer click (not a synthetic `element.click()` call) reading back the
+resulting field values — this is the "a passing server-contract test does not prove a UI control
+works for a real click" case `BUILD_STANDARD.md` warns about, caught only by browser verification.
+
+**A second, independent bug found the same way:** `RentalJobCardLineGrid::columns()`'s Description
+track was `minmax(0,1fr)` — no floor — while Type/Unit/Qty/Unit price/VAT held a combined ~460px of
+fixed-width tracks. At 1366px the row only has ~604px available next to the crew/sign-off right
+panel, so the grid's own auto-sizing starved Description down to ~18px (Item also went below its
+cap) — present in the DOM, invisible and unusable on screen, which a pure "does it wrap to a
+second line" check would not catch. Fixed by giving Description a 70px floor
+(`minmax(70px,1fr)`) and trimming the other tracks (Item 130→100px, Type 110→90px, Unit 70→64px,
+Qty 56→50px, Unit price 92→84px, VAT 96→84px) to fit the real 1366px budget — confirmed via
+`getBoundingClientRect()` computed widths at both 1366 and 1536, not a screenshot alone.
+
+**Saved lines snapshot, unchanged by this round:** `rental_job_card_lines.code` (added
+`2026_10_05_270300`) joins the existing `type`/`description`/`unit` snapshot columns (§14.2) — a
+line copies the picked item's code at add-time and never re-reads the catalogue item again, so a
+later rename/archive/price-change on the catalogue item never retroactively changes an existing
+job card. Print/quote (`_pdf-lines-table.blade.php`, shared by `print.blade.php` and
+`quote-pdf.blade.php`) shows `"code — description"` when a code is present, description alone for
+a free-text line.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalCatalogueItemTest.php` (code required/unique per
+agency among non-archived rows, archived codes may be reused, codes are agency-isolated, search
+matches code or description) and `tests/Feature/RentalJobCards/RentalJobCardAt442FollowUpTest.php`
+(picking a catalogue item pre-fills description/unit/price; an explicit posted description/type
+still overrides the catalogue item's own; a free-text line has no code; a line's code survives a
+later rename/archive of the catalogue item it came from).
+
+**Files:** `database/migrations/2026_10_05_270000..270300_*`, `app/Models/RentalCatalogueItem.php`,
+`app/Models/RentalJobCardLine.php`, `app/Services/Rentals/RentalJobCardService.php`,
+`app/Http/Controllers/CoreX/RentalCatalogueItemController.php`,
+`app/Http/Controllers/CoreX/RentalJobCardController.php`, `app/Support/RentalJobCardLineGrid.php`
+(new), `resources/views/corex/rental-job-cards/_line-columns-header.blade.php` (new),
+`resources/views/corex/rental-job-cards/_lines-table.blade.php`,
+`resources/views/corex/rental-job-cards/_add-line-row.blade.php`,
+`resources/views/corex/rental-job-cards/show.blade.php`,
+`resources/views/corex/rental-job-cards/_pdf-lines-table.blade.php`,
+`resources/views/corex/rental-catalogue-items/{index,create,edit}.blade.php`.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
@@ -2709,3 +2800,110 @@ use now renders on `corex/rental-fault-reports/index.blade.php` and
 - `resources/views/corex/rental-fault-reports/index.blade.php` — "Showing:" control
 - `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — scope control + 12 guarded routes
 - `resources/views/corex/rental-work-orders/index.blade.php` — "Showing:" control
+
+---
+
+## 16. Rental Crews (built 2026-10-05) — agents/staff are never maintenance crew
+
+**Johan's ruling, verbatim:** *"Agents and staff are never maintenance crew. The crew dropdown on
+job cards must NOT list CoreX users. Crew are people with NO CoreX access, set up by the agency
+admin, and pickable on job cards. A crew can be several people or just a named team ('Team 1') —
+the admin decides. Reporting on which crew did what comes later; build so that is possible, but do
+not build reports now."*
+
+**Investigation finding, before this build:** §14's "Crew & schedule" block (`RentalJobCard
+::assignCrew()`, `rental_job_cards.assigned_user_id`) listed every `User` in the agency —
+agents and admin staff included — in the job card's Assign dropdown. Read at: the show screen's
+Assign form, the list screen's filter/search/column, `print.blade.php`/`print-list.blade.php`,
+the embedded job-card summary on `rental-work-orders/show.blade.php`, the mobile API payload, and
+`RentalReportService`'s existing crew-productivity report fields. Worker sign-off
+(`RentalJobCard::workerSignOff()`) already only ever recorded the AUTHENTICATED (CoreX) user who
+clicked the button — never literally "the crew member logs in and signs off" — so no change was
+needed there beyond capturing which crew member the agent is confirming did the work.
+
+### 16.1 Data model
+
+```
+rental_crews            -- agency-scoped, soft-delete only
+  id, agency_id, name, notes, is_active, created_by_user_id, timestamps, deleted_at
+  -- "unique per agency among ACTIVE" (Johan) is application-layer only
+  -- (RentalCrewController::validated(), Rule::unique()->whereNull('deleted_at'))
+  -- — a DB-level composite unique(agency_id,name) would also block
+  -- reusing an ARCHIVED crew's name, which Johan's wording allows.
+
+rental_crew_members      -- agency-scoped, soft-delete only
+  id, agency_id, rental_crew_id, name, phone, role, created_by_user_id, timestamps, deleted_at
+  -- role is free text (e.g. "Plumber") — not a catalogue vocabulary.
+  -- A crew with zero members is valid (a plain named team).
+
+rental_job_cards
+  + rental_crew_id        -- nullable FK rental_crews, nullOnDelete. The ONLY thing
+                           --   RentalJobCard::assignCrew() writes from 2026-10-05 on.
+  + worker_sign_off_name   -- nullable string(191) — "record the signing-off name/crew
+                           --   member as text/selection" (Johan). Free text; the show
+                           --   screen offers the assigned crew's own member names via a
+                           --   native <datalist> as a convenience, not a constraint.
+  assigned_user_id         -- UNCHANGED, FROZEN. Never dropped, never written to again
+                           --   by any new code — same decoupling precedent as
+                           --   rental_work_order_id in §14's own 2026-10-05 rebuild.
+                           --   Read-only, for "Previously assigned: <name>" on any card
+                           --   that predates crews. No migration invents crews from it.
+```
+
+### 16.2 Where it's read, and how the legacy column displays
+
+Every screen that showed `assignedUser?->name` now shows, in order: the assigned `RentalCrew`'s
+name (with its members listed alongside, where the layout allows) if `rental_crew_id` is set;
+else, if the legacy `assigned_user_id` is set, "Previously assigned: &lt;name&gt;" — read-only,
+never re-selectable, never touched by `assignCrew()` again; else "—". Updated: job card show/
+index/print/print-list, the work-order's own embedded job-card summary, the mobile API payload
+(`MobileRentalJobCardController::payload()` — `crew` key added alongside the now-legacy-only
+`assigned_user`).
+
+An **archived** crew still displays wherever it's already assigned (`RentalJobCard::crew()` is
+`withTrashed()`) but cannot be newly picked — the Assign dropdown and its own server-side
+validation both query `is_active=true AND deleted_at IS NULL` (a real bug caught and fixed during
+this build: `Rule::exists()` queries the table directly, not through Eloquent, so SoftDeletes
+scoping is never automatic — an archived crew has `is_active` still `true`, only `deleted_at` set,
+so `whereNull('deleted_at')` had to be explicit).
+
+**Reported, not fixed (explicitly out of scope — "reporting comes later"):**
+`RentalReportService`'s existing crew-productivity report (`'crew' => fn ($c) =>
+$c->assignedUser?->name`, filters on `assigned_user_id`) still reads the legacy column only — it
+was not rewired to `rental_crew_id` in this build. It will keep reporting correctly against
+pre-crew historical data but will show nothing for any job card assigned a crew from 2026-10-05
+onward, until that report is rebuilt against the new model.
+
+### 16.3 Screens
+
+- **`corex.rental-crews.*`** — full CRUD (index/create/edit, archive/restore), search (name), sort
+  (name default, created_at), filter (active/archived), pagination, real empty state, agency
+  scoping at the query layer. Members managed inline on the crew's own edit screen (add/archive/
+  restore), same "parent owns its children" pattern job card tasks/lines already use.
+- **Sidebar**: "Rental Crews", directly under "Parts & Labour Catalogue" (Rentals menu).
+- **Company Settings**: a "Rental Crews" panel next to Catalogue Item Types/Catalogue Units, linking
+  out to the full screen above (not an inline editor — crews can grow to many rows, unlike the
+  small catalogue vocabulary lists Company Settings manages inline).
+- **Permission**: `rental_catalogue.view` / `rental_catalogue.manage` — same keys as managing the
+  catalogue (Johan's own instruction) — no new permission key introduced.
+
+### 16.4 Worker sign-off
+
+`RentalJobCard::workerSignOff(User $by, ?string $workerName = null)` — `$by` is still always the
+AGENT recording the sign-off (a crew member has no CoreX login to click anything themselves,
+unchanged from before this build); `$workerName` is who on the crew actually did the work,
+optional free text, offered via the assigned crew's own member names as `<datalist>` suggestions.
+Both the CoreX user who recorded it (`worker_signed_off_by_user_id`) and the named crew member
+(`worker_sign_off_name`) are kept — different facts, both evidence.
+
+### 16.5 Tests
+
+`tests/Feature/RentalCrews/RentalCrewTest.php` — full CRUD, members CRUD, agency isolation,
+unique-among-active (not among archived), no hard deletes.
+`tests/Feature/RentalCrews/RentalJobCardCrewAssignmentTest.php` — assigning sets `rental_crew_id`
+never `assigned_user_id`; the Assign dropdown lists crews only, never users (scoped assertion —
+the shared layout's own unrelated "Switch User" admin widget legitimately lists every agency user
+elsewhere on the page, so a whole-page text search would false-fail); an archived crew cannot be
+newly picked but still displays where already assigned; cross-agency crew rejected; a legacy
+`assigned_user_id` card shows "Previously assigned" and is never touched again once a crew is
+later assigned; worker sign-off records an optional crew member name.

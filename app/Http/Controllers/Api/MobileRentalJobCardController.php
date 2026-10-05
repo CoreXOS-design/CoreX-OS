@@ -31,7 +31,7 @@ class MobileRentalJobCardController extends Controller
     public function show(Request $request, RentalJobCard $rentalJobCard): JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
-        $rentalJobCard->load(['property', 'lease.tenants.contact', 'assignedUser', 'tasks', 'lines.catalogueItem', 'workOrder.photos']);
+        $rentalJobCard->load(['property', 'lease.tenants.contact', 'crew.members', 'assignedUser', 'tasks', 'lines.catalogueItem', 'workOrder.photos']);
 
         return response()->json($this->payload($rentalJobCard));
     }
@@ -80,6 +80,13 @@ class MobileRentalJobCardController extends Controller
             'property_address' => $jobCard->property?->buildDisplayAddress(),
             'tenant_names' => $jobCard->lease?->tenantNames(),
             'access_notes' => $jobCard->access_notes,
+            // 2026-10-05 — crew is the current assignment; assigned_user is
+            // LEGACY ONLY (a card from before crews existed, never written
+            // again) and null on every job card created from now on.
+            'crew' => $jobCard->crew ? [
+                'id' => $jobCard->crew->id, 'name' => $jobCard->crew->name,
+                'members' => $jobCard->crew->members->map(fn ($m) => ['id' => $m->id, 'name' => $m->name])->values(),
+            ] : null,
             'assigned_user' => $jobCard->assignedUser?->only(['id', 'name']),
             'scheduled_at' => $jobCard->scheduled_at?->toIso8601String(),
             'due_at' => $jobCard->due_at?->toIso8601String(),

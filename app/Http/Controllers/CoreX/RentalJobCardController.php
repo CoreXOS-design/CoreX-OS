@@ -8,7 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
 use App\Models\RentalCatalogueUnit;
+use App\Models\RentalCrew;
 use App\Models\RentalFaultReport;
 use App\Models\RentalJobCard;
 use App\Models\RentalJobCardLine;
@@ -84,7 +86,7 @@ class RentalJobCardController extends Controller
 
         $base = fn () => RentalJobCard::query()->visibleTo($user, $request->get('scope'));
 
-        $query = $base()->with(['property', 'lease.tenants.contact', 'assignedUser']);
+        $query = $base()->with(['property', 'lease.tenants.contact', 'crew', 'assignedUser']);
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -92,7 +94,8 @@ class RentalJobCardController extends Controller
                     ->orWhereHas('lease.tenants.contact', function ($c) use ($search) {
                         $c->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%");
                     })
-                    ->orWhereHas('assignedUser', fn ($u) => $u->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('crew', fn ($c) => $c->where('name', 'like', "%{$search}%"))
+                    ->orWhereHas('assignedUser', fn ($u) => $u->where('name', 'like', "%{$search}%")) // legacy rows only
                     ->orWhere('rental_job_cards.title', 'like', "%{$search}%");
             });
         }
@@ -103,8 +106,8 @@ class RentalJobCardController extends Controller
         if ($propertyId = $request->get('property_id')) {
             $query->where('rental_job_cards.property_id', $propertyId);
         }
-        if ($crewId = $request->get('assigned_user_id')) {
-            $query->where('rental_job_cards.assigned_user_id', $crewId);
+        if ($crewId = $request->get('rental_crew_id')) {
+            $query->where('rental_job_cards.rental_crew_id', $crewId);
         }
         if ($dateFrom = $request->get('date_from')) {
             $query->where('rental_job_cards.due_at', '>=', $dateFrom);
@@ -142,7 +145,7 @@ class RentalJobCardController extends Controller
             'completed' => $base()->where('rental_job_cards.status', RentalJobCard::STATUS_COMPLETED)->count(),
         ];
 
-        $crew = User::query()->orderBy('name')->get(['id', 'name']);
+        $crews = RentalCrew::query()->active()->orderBy('name')->get(['id', 'name']);
 
         $filteredProperty = $propertyId ? Property::find($propertyId) : null;
 
@@ -152,8 +155,8 @@ class RentalJobCardController extends Controller
             'direction' => $direction,
             'hasAny' => $hasAny,
             'showArchived' => $showArchived,
-            'crew' => $crew,
-            'filters' => $request->only(['q', 'status', 'assigned_user_id', 'property_id', 'date_from', 'date_to', 'overdue']),
+            'crews' => $crews,
+            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue']),
             'filteredProperty' => $filteredProperty,
             'tileCounts' => $tileCounts,
             'resolvedScope' => $resolvedScope,
@@ -248,6 +251,7 @@ class RentalJobCardController extends Controller
             'workOrder' => $workOrder,
             'draftTasks' => $draftTasks,
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
+            'catalogueItemTypes' => $agency ? RentalCatalogueItemType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
             'vatTypes' => $agency?->vat_registered
@@ -317,7 +321,7 @@ class RentalJobCardController extends Controller
 
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
-            'property', 'lease.tenants.contact', 'assignedUser',
+            'property', 'lease.tenants.contact', 'crew.members', 'assignedUser',
             'tasks.lines.catalogueItem', 'tasks.lines.vatType',
             'lines.catalogueItem', 'lines.vatType', // includes General (task-less) lines
             'rentalFaultReport',
@@ -336,8 +340,9 @@ class RentalJobCardController extends Controller
             'pricesOn' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
-            'crew' => User::query()->orderBy('name')->get(['id', 'name']),
+            'crews' => RentalCrew::query()->active()->orderBy('name')->get(),
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
+            'catalogueItemTypes' => RentalCatalogueItemType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
             'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
@@ -367,20 +372,28 @@ class RentalJobCardController extends Controller
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card updated.');
     }
 
+    /** 2026-10-05 — assigns a RentalCrew, never a User (Johan's ruling). Only ACTIVE crews of this job card's own agency may be newly picked. */
     public function assignCrew(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $validated = $request->validate(['assigned_user_id' => ['required', 'exists:users,id']]);
-        $crewMember = User::findOrFail($validated['assigned_user_id']);
+        $validated = $request->validate([
+            // Rule::exists() queries the table directly, NOT through Eloquent
+            // — SoftDeletes scoping is never automatic here. An archived
+            // (soft-deleted) crew still has is_active=true (archive() only
+            // sets deleted_at), so whereNull('deleted_at') is the only thing
+            // actually excluding it from being newly picked.
+            'rental_crew_id' => ['required', Rule::exists('rental_crews', 'id')->where('agency_id', $rentalJobCard->agency_id)->where('is_active', true)->whereNull('deleted_at')],
+        ]);
+        $crew = RentalCrew::findOrFail($validated['rental_crew_id']);
 
         try {
-            $rentalJobCard->assignCrew($crewMember, $request->user());
+            $rentalJobCard->assignCrew($crew, $request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Crew member assigned.');
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Crew assigned.');
     }
 
     public function schedule(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
@@ -556,8 +569,10 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
+        $validated = $request->validate(['worker_sign_off_name' => ['nullable', 'string', 'max:191']]);
+
         try {
-            $rentalJobCard->workerSignOff($request->user());
+            $rentalJobCard->workerSignOff($request->user(), $validated['worker_sign_off_name'] ?? null);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
@@ -658,7 +673,7 @@ class RentalJobCardController extends Controller
     {
         $user = $request->user();
         $jobCards = RentalJobCard::query()->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'assignedUser'])
+            ->with(['property', 'lease.tenants.contact', 'crew', 'assignedUser'])
             ->orderBy('due_at')
             ->get();
 
