@@ -3712,6 +3712,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'index'])->name('corex.rental-work-orders.index');
         Route::get('/create', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'create'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.create');
+        // AT-442 fix #2 — the create screen's searchable property picker.
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchProperties'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.search-properties');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
         // AT-439 Part 3 — shared rental list standard: print-list/export, same

@@ -266,16 +266,54 @@ class RentalWorkOrderController extends Controller
             : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
-    /** §6 — "Work Order" button, reachable from the property tab (pre-filled property_id/lease_id). */
+    /**
+     * §6 — "Work Order" button, reachable from the property tab (pre-filled
+     * property_id/lease_id).
+     *
+     * AT-442 fix #1/#3 — lease_id WINS and derives the property, same
+     * pattern as RentalInspectionController::create(): a lease and a
+     * property passed independently (one stale, one freshly picked) is
+     * exactly how job card #1 ended up pointed at another property's lease
+     * (QA1 walk, 2026-10-05). Resolved only inside the user's own scope —
+     * a lease/property outside it silently falls back to no pre-selection
+     * (BUILD_STANDARD §3, absorb) rather than a 403/500.
+     */
     public function create(Request $request): View
     {
-        $property = $request->get('property_id') ? Property::findOrFail($request->get('property_id')) : null;
-        $lease = $request->get('lease_id') ? Lease::findOrFail($request->get('lease_id')) : null;
+        $user = $request->user();
+
+        $lease = null;
+        if ($leaseId = $request->get('lease_id')) {
+            $lease = Lease::query()->visibleTo($user, null)->find($leaseId);
+        }
+
+        $property = $lease
+            ? $lease->property
+            : ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null);
 
         return view('corex.rental-work-orders.create', [
             'property' => $property,
             'lease' => $lease,
         ]);
+    }
+
+    /** AT-442 fix #2 — searchable property picker, same pattern as RentalApplicationController::searchProperties(). */
+    public function searchProperties(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+
+        $properties = Property::query()
+            ->where('listing_type', 'rental')
+            ->visibleTo($request->user())
+            ->searchAddress($q)
+            ->with('agent')
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+
+        return response()->json($properties->map(fn (Property $p) => $p->toSearchResult([
+            'ref' => $p->property_number,
+        ])));
     }
 
     /**
@@ -314,6 +352,22 @@ class RentalWorkOrderController extends Controller
 
         $property = Property::findOrFail($validated['property_id']);
         $user = $request->user();
+
+        // AT-442 fix #1 — "the lease wins" (Johan's ruling): never trust a
+        // property_id posted alongside a lease_id without checking they
+        // agree. A stale/independently-resolved lease_id (e.g. left over
+        // from a different property's link) must never attach to whatever
+        // property happens to be selected — the lease's OWN property is
+        // authoritative. Same class of guard belongs wherever a lease_id
+        // and a property_id can arrive independently (RentalJobCardController
+        // carries the identical fix).
+        if (!empty($validated['lease_id'])) {
+            $lease = Lease::findOrFail($validated['lease_id']);
+            if ($lease->property_id !== $property->id) {
+                $property = $lease->property;
+                $validated['property_id'] = $property->id;
+            }
+        }
 
         if (($validated['assignment_type'] ?? RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
             $jobCard = app(\App\Services\Rentals\RentalJobCardService::class)->createForProperty($property, $validated, $user);

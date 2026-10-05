@@ -168,7 +168,9 @@ class RentalJobCardService
         $line = $jobCard->lines()->create([
             'agency_id' => $jobCard->agency_id,
             'rental_catalogue_item_id' => $catalogueItem?->id,
-            'type' => $attributes['type'] ?? $catalogueItem?->type ?? RentalCatalogueItem::TYPE_LABOUR,
+            // AT-442 fix #5 — a catalogue item keeps its OWN type; the posted
+            // 'type' only applies to a free-text line (no catalogue item).
+            'type' => $catalogueItem?->type ?? $attributes['type'] ?? RentalCatalogueItem::TYPE_LABOUR,
             'description' => $attributes['description'] ?? $catalogueItem?->name ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->unit,
             'quantity' => $quantity,
