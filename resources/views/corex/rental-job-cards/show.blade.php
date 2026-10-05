@@ -711,7 +711,15 @@ function rentalJobCardBuilder({ isDraft, draftTasks }) {
 // submitted at all, so the server never even saw a type to disagree with).
 function catalogueLinePicker(items) {
     return {
-        items, query: '', open: false, selectedId: '', highlighted: -1,
+        items, query: '', open: false, selectedId: '', highlighted: -1, rootEl: null,
+        // $el inside a method called from an x-for child's @click (e.g. pick(it))
+        // resolves to the CLICKED child element, not this component's root — Alpine
+        // binds magics per evaluation context, not per component. field() needs the
+        // row's root to find sibling inputs, so init() captures it once, here, while
+        // $el still means "the element x-data is declared on".
+        init() {
+            this.rootEl = this.$el;
+        },
         filtered() {
             const q = this.query.trim().toLowerCase();
             if (!q) return this.items;
@@ -728,7 +736,7 @@ function catalogueLinePicker(items) {
             if (this.highlighted >= 0 && list[this.highlighted]) this.pick(list[this.highlighted]);
         },
         field(selector) {
-            return this.$el.querySelector(selector);
+            return this.rootEl.querySelector(selector);
         },
         pick(item) {
             this.selectedId = item.id;
