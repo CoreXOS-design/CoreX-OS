@@ -46,12 +46,18 @@
         </p>
         <div class="flex items-center gap-3">
             <a href="{{ route('corex.rentals.take-on-import.template') }}" class="corex-btn-secondary text-xs">Download template</a>
+            <a href="{{ route('corex.rentals.take-on-import.mappings.index') }}" class="corex-btn-secondary text-xs">Saved column mappings</a>
         </div>
         <form method="POST" action="{{ route('corex.rentals.take-on-import.upload') }}" enctype="multipart/form-data" class="flex items-center gap-3">
             @csrf
             <input type="file" name="file" accept=".xlsx,.csv" required class="text-xs">
             <button type="submit" class="corex-btn-primary text-xs">Upload &amp; preview</button>
         </form>
+        <p class="text-xs text-muted">
+            Uploading a file from another CRM? Upload it directly — if its columns don't match our
+            template exactly, you'll be asked to map them on the next screen (and can save that mapping
+            for next time).
+        </p>
     </div>
     @endunless
 
@@ -66,7 +72,7 @@
                 <label class="block text-xs text-muted">Status</label>
                 <select name="status" class="prop-select text-xs">
                     <option value="">All</option>
-                    @foreach (['parsing', 'pending_confirm', 'importing', 'completed', 'failed', 'cancelled'] as $s)
+                    @foreach (['parsing', 'mapping_pending', 'pending_confirm', 'importing', 'completed', 'failed', 'cancelled'] as $s)
                         <option value="{{ $s }}" @selected(request('status') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
                     @endforeach
                 </select>
@@ -125,7 +131,9 @@
                                     </form>
                                     @endpermission
                                 @else
-                                    @if ($run->status === 'pending_confirm')
+                                    @if ($run->status === 'mapping_pending')
+                                        <a href="{{ route('corex.rentals.take-on-import.map-columns', $run) }}" class="corex-btn-secondary text-xs">Map columns</a>
+                                    @elseif ($run->status === 'pending_confirm')
                                         <a href="{{ route('corex.rentals.take-on-import.preview', $run) }}" class="corex-btn-secondary text-xs">Review</a>
                                     @else
                                         <a href="{{ route('corex.rentals.take-on-import.show', $run) }}" class="corex-btn-secondary text-xs">View</a>

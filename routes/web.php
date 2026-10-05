@@ -1256,14 +1256,17 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
 // ===== PPRA FFC EMPLOYMENT LETTER — Admin register =====
 // .ai/specs/ppra-ffc-employment-letter.md — a genuinely separate feature
 // from PPRA Inspection Pack above (distinct permission namespace,
-// deliberately NOT nested under admin/ppra-inspection-pack). Creation is
-// never exposed here — a letter is always self-service from My Portal.
+// deliberately NOT nested under admin/ppra-inspection-pack). Create-on-behalf
+// (2026-10-05, Johan) — an admin/principal may start a letter FOR an agent in
+// their own scope; the agent still signs with their own PIN afterward.
 Route::prefix('admin/ppra-employment-letters')->middleware(['auth', 'agency.required', 'permission:ppra_employment_letters.view'])->name('admin.ppra-employment-letters.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'index'])->name('index');
     Route::get('/{letter}', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'show'])->whereNumber('letter')->name('show');
     Route::get('/{letter}/download', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'download'])->whereNumber('letter')->middleware('deny_assistant_download')->name('download');
 
     Route::middleware('permission:ppra_employment_letters.manage')->group(function () {
+        Route::get('/create', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'store'])->name('store');
         Route::post('/{letter}/archive', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'archive'])->whereNumber('letter')->name('archive');
         Route::post('/{letter}/restore', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'restore'])->whereNumber('letter')->name('restore');
     });
@@ -3444,6 +3447,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.template');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'upload'])
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.upload');
+        // Landing 2 (.ai/specs/rental-takeon-import.md §11) — saved column
+        // mappings. Must sit before /{run} so 'mappings' never binds as a
+        // run id, same reasoning as P24's own search-properties route.
+        Route::get('/mappings', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingsIndex'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.index');
+        Route::post('/mappings/{mapping}/archive', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingArchive'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.archive');
+        Route::post('/mappings/{mappingId}/restore', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingRestore'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.restore');
+        Route::post('/mappings/{mapping}/rename', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mappingRename'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.mappings.rename');
+        Route::get('/{run}/map-columns', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'mapColumns'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.map-columns');
+        Route::post('/{run}/map-columns', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'confirmMapping'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.confirm-mapping');
         Route::get('/{run}/preview', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'preview'])->name('corex.rentals.take-on-import.preview');
         Route::get('/{run}', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'show'])->name('corex.rentals.take-on-import.show');
         Route::get('/{run}/issues.csv', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'errorsCsv'])->name('corex.rentals.take-on-import.issues');

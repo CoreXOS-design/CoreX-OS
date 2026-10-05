@@ -4,9 +4,11 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\RentalTakeOnColumnMapping;
 use App\Models\RentalTakeOnImportRow;
 use App\Models\RentalTakeOnImportRun;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnArchiveService;
+use App\Services\Rentals\TakeOnImport\RentalTakeOnColumnMappingSuggester;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnConfirmService;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnDryRunResolver;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnFieldSchema;
@@ -78,7 +80,7 @@ class RentalTakeOnImportController extends Controller
         return response()->download($tmp, 'rental-take-on-template.xlsx')->deleteFileAfterSend(true);
     }
 
-    public function upload(Request $request, RentalTakeOnRowParser $parser, RentalTakeOnDryRunResolver $resolver)
+    public function upload(Request $request, RentalTakeOnRowParser $parser)
     {
         $request->validate([
             'file' => 'required|file|mimes:xlsx,csv,txt|max:51200',
@@ -103,9 +105,158 @@ class RentalTakeOnImportController extends Controller
         ]);
 
         try {
+            $headers = $parser->readHeaderRow(Storage::path($path), $extension);
+        } catch (\Throwable $e) {
+            report($e);
+            $run->update(['status' => RentalTakeOnImportRun::STATUS_FAILED, 'error_message' => $e->getMessage()]);
+
+            return back()->withErrors(['file' => 'Could not read the spreadsheet: ' . $e->getMessage()]);
+        }
+
+        if (empty($headers)) {
+            $run->update(['status' => RentalTakeOnImportRun::STATUS_FAILED, 'error_message' => 'No header row found in the uploaded file.']);
+
+            return back()->withErrors(['file' => 'The uploaded file has no header row.']);
+        }
+
+        // Landing 1 fast path: the upload IS our own generated template,
+        // column-for-column, unmodified — skip the mapping screen entirely,
+        // same behaviour as before Landing 2 existed.
+        if ($this->headersMatchTemplateExactly($headers)) {
+            // column index === schema array index for an unmodified template.
+            $mapping = RentalTakeOnFieldSchema::keys();
+
+            return $this->parseAndRedirect($run, $parser, Storage::path($path), $extension, $mapping, null);
+        }
+
+        // Landing 2 — an arbitrary CRM export. Needs a human to confirm (or
+        // load a saved) column mapping before any data row is parsed.
+        $run->update(['status' => RentalTakeOnImportRun::STATUS_MAPPING_PENDING]);
+
+        return redirect()->route('corex.rentals.take-on-import.map-columns', $run);
+    }
+
+    public function mapColumns(Request $request, RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser, RentalTakeOnColumnMappingSuggester $suggester)
+    {
+        $headers = $parser->readHeaderRow(Storage::path($run->source_file_path), $this->extensionFor($run));
+
+        $loadMappingId = $request->get('load_mapping');
+        $savedMappings = RentalTakeOnColumnMapping::where('agency_id', $run->agency_id)->orderBy('name')->get();
+
+        if ($loadMappingId && ($loaded = $savedMappings->firstWhere('id', (int) $loadMappingId))) {
+            $suggested = $suggester->resolveSavedMapping($loaded->mapping_json, $headers);
+            $loadedMappingName = $loaded->name;
+        } else {
+            $suggested = $suggester->suggest($headers);
+            $loadedMappingName = null;
+        }
+
+        $fields = RentalTakeOnFieldSchema::fields();
+
+        return view('corex.rentals.take-on-import.map-columns', compact('run', 'headers', 'suggested', 'fields', 'savedMappings', 'loadedMappingName'));
+    }
+
+    public function confirmMapping(Request $request, RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser)
+    {
+        $headers = $parser->readHeaderRow(Storage::path($run->source_file_path), $this->extensionFor($run));
+        $validKeys = RentalTakeOnFieldSchema::keys();
+
+        // $request->input('column') is field_key => uploaded-file column
+        // index (string from the <select>, '' means "not mapped" — a
+        // legitimate choice for an optional field).
+        $columns = (array) $request->input('column', []);
+        $mapping = []; // column_index => field_key, the shape the parser needs
+        $mappedFieldKeyToHeaderText = []; // field_key => header text, the shape a saved mapping stores
+        foreach ($columns as $key => $columnIndex) {
+            if (!in_array($key, $validKeys, true) || $columnIndex === '' || $columnIndex === null) {
+                continue;
+            }
+            $columnIndex = (int) $columnIndex;
+            if (!isset($headers[$columnIndex])) {
+                continue;
+            }
+            $mapping[$columnIndex] = $key;
+            $mappedFieldKeyToHeaderText[$key] = $headers[$columnIndex];
+        }
+
+        $missingRequired = array_diff(RentalTakeOnFieldSchema::requiredKeys(), array_keys($mappedFieldKeyToHeaderText));
+        if ($missingRequired !== []) {
+            $labels = collect(RentalTakeOnFieldSchema::fields())->whereIn('key', $missingRequired)->pluck('label');
+
+            return back()->withErrors(['mapping' => 'These required fields must be mapped to a column: ' . $labels->implode(', ')]);
+        }
+
+        $columnMappingId = null;
+        if ($request->boolean('save_mapping')) {
+            $name = trim((string) $request->input('mapping_name', ''));
+            if ($name === '') {
+                return back()->withErrors(['mapping_name' => 'Give this mapping a name to save it for reuse.']);
+            }
+            $saved = RentalTakeOnColumnMapping::create([
+                'agency_id' => $run->agency_id,
+                'name' => $name,
+                'mapping_json' => $mappedFieldKeyToHeaderText,
+                'created_by_user_id' => $request->user()->id,
+            ]);
+            $columnMappingId = $saved->id;
+        }
+
+        return $this->parseAndRedirect($run, $parser, Storage::path($run->source_file_path), $this->extensionFor($run), $mapping, $columnMappingId, $mappedFieldKeyToHeaderText);
+    }
+
+    /** Saved column mappings — list/archive/restore. (BUILD_STANDARD §1a CRUD floor.) */
+    public function mappingsIndex(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $showArchived = $request->boolean('archived');
+
+        $query = RentalTakeOnColumnMapping::where('agency_id', $agencyId);
+        $query = $showArchived ? $query->onlyTrashed() : $query;
+
+        if ($search = trim((string) $request->get('q', ''))) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        $mappings = $query->orderBy('name')->paginate(20)->withQueryString();
+
+        return view('corex.rentals.take-on-import.mappings', compact('mappings', 'showArchived'));
+    }
+
+    public function mappingArchive(RentalTakeOnColumnMapping $mapping)
+    {
+        $mapping->delete();
+
+        return back()->with('status', "Mapping \"{$mapping->name}\" archived.");
+    }
+
+    public function mappingRestore(string $mappingId)
+    {
+        $mapping = RentalTakeOnColumnMapping::withTrashed()->findOrFail($mappingId);
+        $mapping->restore();
+
+        return back()->with('status', "Mapping \"{$mapping->name}\" restored.");
+    }
+
+    public function mappingRename(Request $request, RentalTakeOnColumnMapping $mapping)
+    {
+        $data = $request->validate(['name' => 'required|string|max:255']);
+        $mapping->update(['name' => $data['name']]);
+
+        return back()->with('status', 'Mapping renamed.');
+    }
+
+    /**
+     * @param array<int, string> $mapping  column_index => field_key
+     * @param array<string, string>|null $mappedFieldKeyToHeaderText  for the run's own audit snapshot
+     */
+    private function parseAndRedirect(RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser, string $absolutePath, string $extension, array $mapping, ?int $columnMappingId, ?array $mappedFieldKeyToHeaderText = null)
+    {
+        $resolver = app(RentalTakeOnDryRunResolver::class);
+
+        try {
             $counts = ['total' => 0, 'will_create_property' => 0, 'will_match_property' => 0, 'complete' => 0, 'draft' => 0, 'errors' => 0];
 
-            foreach ($parser->parse(Storage::path($path), $extension) as $parsed) {
+            foreach ($parser->parseWithMapping($absolutePath, $extension, $mapping) as $parsed) {
                 $row = RentalTakeOnImportRow::create([
                     'run_id' => $run->id,
                     'row_number' => $parsed['row_number'],
@@ -127,18 +278,47 @@ class RentalTakeOnImportController extends Controller
             if ($counts['total'] === 0) {
                 $run->update(['status' => RentalTakeOnImportRun::STATUS_FAILED, 'error_message' => 'No data rows found in the uploaded file.']);
 
-                return back()->withErrors(['file' => 'No data rows found in the uploaded file.']);
+                return redirect()->route('corex.rentals.take-on-import.index')->withErrors(['file' => 'No data rows found in the uploaded file.']);
             }
 
-            $run->update(['status' => RentalTakeOnImportRun::STATUS_PENDING_CONFIRM, 'counts_json' => $counts]);
+            $run->update([
+                'status' => RentalTakeOnImportRun::STATUS_PENDING_CONFIRM,
+                'counts_json' => $counts,
+                'column_mapping_id' => $columnMappingId,
+                'column_mapping_json' => $mappedFieldKeyToHeaderText,
+            ]);
         } catch (\Throwable $e) {
             report($e);
             $run->update(['status' => RentalTakeOnImportRun::STATUS_FAILED, 'error_message' => $e->getMessage()]);
 
-            return back()->withErrors(['file' => 'Could not read the spreadsheet: ' . $e->getMessage()]);
+            return redirect()->route('corex.rentals.take-on-import.index')->withErrors(['file' => 'Could not read the spreadsheet: ' . $e->getMessage()]);
         }
 
         return redirect()->route('corex.rentals.take-on-import.preview', $run);
+    }
+
+    /** Normalised, order-sensitive comparison against our own template's header labels (the leading '*' on a required field is stripped before comparing). */
+    private function headersMatchTemplateExactly(array $headers): bool
+    {
+        $fields = RentalTakeOnFieldSchema::fields();
+        if (count($headers) !== count($fields)) {
+            return false;
+        }
+
+        foreach ($fields as $i => $field) {
+            $uploadedNormalised = RentalTakeOnColumnMappingSuggester::normalise(ltrim((string) ($headers[$i] ?? ''), '*'));
+            $templateNormalised = RentalTakeOnColumnMappingSuggester::normalise($field['label']);
+            if ($uploadedNormalised !== $templateNormalised) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function extensionFor(RentalTakeOnImportRun $run): string
+    {
+        return strtolower(pathinfo($run->source_filename ?? '', PATHINFO_EXTENSION)) === 'csv' ? 'csv' : 'xlsx';
     }
 
     public function preview(RentalTakeOnImportRun $run)
