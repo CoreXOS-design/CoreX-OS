@@ -279,3 +279,21 @@ case this fix now surfaces from the `SyncPermissions` side — a deeper fix
 inside the shared resolver itself would need to consider `reconcile-role-grants`
 too, which is outside this command's own responsibility per the scope
 given for this task.
+
+---
+
+## Appendix — Role-driven membership permissions (2026-10-05)
+
+Some permissions do not gate an action; they decide **whether a role's users are included in a list**.
+First instance: `ppra_inspection_pack.roster` ("Appears on inspection pack staff roster", Role Manager →
+Admin → PPRA Inspection Pack) — Johan's ruling: who is on the Inspection Pack staff roster is a
+per-role, per-agency setting, never a hardcoded role list.
+
+Rules for this kind of key:
+- Query the agency's own live `role_permissions` rows for the key and `whereIn('role', …)` — do **not**
+  call `userHasPermission()`: owner roles bypass it and would be included everywhere.
+- Un-ticking in Role Manager soft-deletes the row (`savePermissions`), and `corex:sync-permissions
+  --merge-defaults` sees trashed rows, so an un-tick survives every deploy.
+- Defaults live in `role_defaults` (agent, branch_manager; admin via all-minus-exclude) so new agencies
+  provisioned from the template inherit them; a dated backfill migration grants the same roles to every
+  existing agency and the global template (idempotent via `withTrashed()->firstOrNew()` + restore).

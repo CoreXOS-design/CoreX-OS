@@ -42,9 +42,9 @@
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Role</label>
             <select name="role" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <option value="">All</option>
-                <option value="agent" @selected(request('role')==='agent')>Agent</option>
-                <option value="branch_manager" @selected(request('role')==='branch_manager')>Branch Manager</option>
-                <option value="admin" @selected(request('role')==='admin')>Admin</option>
+                @foreach($roleOptions as $roleOption)
+                    <option value="{{ $roleOption }}" @selected(request('role')===$roleOption)>{{ ucwords(str_replace('_', ' ', $roleOption)) }}</option>
+                @endforeach
             </select>
         </div>
         @endunless
