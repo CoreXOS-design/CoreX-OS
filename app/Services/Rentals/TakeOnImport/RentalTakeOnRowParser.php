@@ -8,9 +8,13 @@ use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 
 /**
- * .ai/specs/rental-takeon-import.md §5.1 — reads the fixed take-on template
- * BY COLUMN POSITION (Landing 1 has no user-configurable column mapping —
- * that is Landing 2). Streaming read pattern copied from
+ * .ai/specs/rental-takeon-import.md §5.1/§11 (Landing 2) — reads the take-on
+ * template. `parse()` reads BY COLUMN POSITION — the Landing 1 fast path for
+ * an upload that is literally our own generated template, unmodified.
+ * `parseWithMapping()` (Landing 2) reads BY HEADER-DERIVED COLUMN INDEX, for
+ * an arbitrary CRM export whose columns a human has mapped to our field keys
+ * on screen (RentalTakeOnColumnMappingSuggester + the map-columns screen).
+ * Streaming read pattern copied from
  * App\Http\Controllers\CoreX\ContactImportController::streamRows().
  */
 class RentalTakeOnRowParser
@@ -41,6 +45,57 @@ class RentalTakeOnRowParser
             $payload = [];
             foreach ($keys as $i => $key) {
                 $raw = $cells[$i] ?? null;
+                $payload[$key] = $this->normaliseCell($key, $raw);
+            }
+
+            yield ['row_number' => $rowNumber, 'payload' => $payload];
+        }
+    }
+
+    /**
+     * The uploaded file's own header row, as plain trimmed strings — read
+     * for the map-columns screen (and for deciding whether the Landing-1
+     * fast path even applies). Never advances past row 1.
+     */
+    public function readHeaderRow(string $absolutePath, string $extension): array
+    {
+        foreach ($this->streamRows($absolutePath, $extension) as $cells) {
+            return array_map(fn ($c) => is_string($c) ? trim($c) : (string) ($c ?? ''), $cells);
+        }
+
+        return [];
+    }
+
+    /**
+     * Landing 2 — reads an arbitrary file using a human-confirmed mapping of
+     * field key => the UPLOADED FILE's own column index (0-based), rather
+     * than assuming our template's fixed column order. A field key absent
+     * from $fieldKeyByColumnIndex's values is simply never populated on the
+     * payload (same as a template column the agent left blank).
+     *
+     * @param array<int, string> $fieldKeyByColumnIndex  column index => field key
+     * @return \Generator<int, array{row_number: int, payload: array<string, mixed>}>
+     */
+    public function parseWithMapping(string $absolutePath, string $extension, array $fieldKeyByColumnIndex): \Generator
+    {
+        $rowNumber = 0;
+        $isFirstRow = true;
+
+        foreach ($this->streamRows($absolutePath, $extension) as $cells) {
+            $rowNumber++;
+
+            if ($isFirstRow) {
+                $isFirstRow = false;
+                continue;
+            }
+
+            if ($this->isBlankRow($cells)) {
+                continue;
+            }
+
+            $payload = [];
+            foreach ($fieldKeyByColumnIndex as $columnIndex => $key) {
+                $raw = $cells[$columnIndex] ?? null;
                 $payload[$key] = $this->normaliseCell($key, $raw);
             }
 

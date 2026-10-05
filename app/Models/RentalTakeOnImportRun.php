@@ -17,6 +17,10 @@ class RentalTakeOnImportRun extends Model
     use BelongsToAgency, SoftDeletes;
 
     public const STATUS_PARSING = 'parsing';
+    // Landing 2 — the upload's own headers didn't match the template
+    // exactly; waiting on the admin to confirm (or load a saved) column
+    // mapping before any data row is parsed.
+    public const STATUS_MAPPING_PENDING = 'mapping_pending';
     public const STATUS_PENDING_CONFIRM = 'pending_confirm';
     public const STATUS_IMPORTING = 'importing';
     public const STATUS_COMPLETED = 'completed';
@@ -30,6 +34,8 @@ class RentalTakeOnImportRun extends Model
         'status',
         'source_filename',
         'source_file_path',
+        'column_mapping_id',
+        'column_mapping_json',
         'counts_json',
         'error_message',
         'confirmed_at',
@@ -38,6 +44,7 @@ class RentalTakeOnImportRun extends Model
 
     protected $casts = [
         'counts_json' => 'array',
+        'column_mapping_json' => 'array',
         'confirmed_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
@@ -45,6 +52,11 @@ class RentalTakeOnImportRun extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function columnMapping(): BelongsTo
+    {
+        return $this->belongsTo(RentalTakeOnColumnMapping::class);
     }
 
     public function branch(): BelongsTo
