@@ -26,7 +26,7 @@ use Illuminate\Support\Collection;
  */
 class LeaseTimelineService
 {
-    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice'];
+    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice', 'rental_notice'];
 
     /**
      * @return array{entries: Collection, total: int}
@@ -76,7 +76,8 @@ class LeaseTimelineService
             ->merge($this->inspectionEntries($lease))
             ->merge($this->faultEntries($lease))
             ->merge($this->workOrderEntries($lease))
-            ->merge($this->noticeEntries($lease));
+            ->merge($this->noticeEntries($lease))
+            ->merge($this->renewalEventEntries($lease));
 
         return $entries->sortByDesc('occurred_at')->values();
     }
@@ -215,7 +216,15 @@ class LeaseTimelineService
         })->all();
     }
 
-    /** AT-445 — .ai/specs/rental-portal-access.md §8/§10. */
+    /**
+     * AT-445 — .ai/specs/rental-portal-access.md §8/§10. Entry type is
+     * 'rental_notice', NOT 'notice' — origin/QA1's own renewalEventEntries()
+     * below already uses 'notice' for a lease-renewal INTENT event (tenant/
+     * landlord notice to vacate, recorded with no document at all). Those
+     * are a different kind of tenancy-log entry from this one (an actual
+     * breach/vacate DOCUMENT sent by email) and must not collide on the
+     * same filter/type key.
+     */
     private function noticeEntries(Lease $lease): array
     {
         return $lease->notices()->get()->map(function ($notice) {
@@ -225,13 +234,39 @@ class LeaseTimelineService
             ]);
 
             return $this->entry(
-                'notice',
+                'rental_notice',
                 (string) ($notice->sent_at ?? $notice->created_at),
                 ucfirst(str_replace('_', ' ', $notice->notice_type)) . ' notice sent to ' . (implode(' and ', $recipients) ?: 'nobody'),
                 $notice->sentByUser?->name,
                 'sent',
                 'corex.rental-notices.show',
                 $notice->id,
+            );
+        })->all();
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §8 — renewal draft/activation and the
+     * one-click outcomes (month-to-month, notice given/reversed). Reads
+     * the append-only LeaseEvent log, NOT the lease's own live columns —
+     * a reversal clears notice_date/is_month_to_month but must not erase
+     * the fact that the event happened (unlike escalations/cancellation
+     * above, which are safe to derive live because nothing ever un-sets
+     * them).
+     */
+    private function renewalEventEntries(Lease $lease): array
+    {
+        $noticeTypes = [\App\Models\LeaseEvent::TYPE_NOTICE_RECORDED, \App\Models\LeaseEvent::TYPE_NOTICE_REVERSED];
+
+        return $lease->events->map(function (\App\Models\LeaseEvent $event) use ($noticeTypes, $lease) {
+            return $this->entry(
+                in_array($event->event_type, $noticeTypes, true) ? 'notice' : 'lease',
+                (string) $event->occurred_at,
+                $event->description,
+                $event->actorUser?->name,
+                $event->event_type,
+                'corex.leases.show',
+                $lease->id,
             );
         })->all();
     }

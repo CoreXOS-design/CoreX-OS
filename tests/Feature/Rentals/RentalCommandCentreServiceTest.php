@@ -215,7 +215,11 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertNotSame(2, $tiles['open_faults']);
     }
 
-    public function test_notice_given_tile_is_zero_no_field_exists_yet(): void
+    /**
+     * AT-444 follow-up (2026-10-05) — leases.notice_date now exists, so
+     * this tile is wired for real instead of the old hardcoded 0.
+     */
+    public function test_notice_given_tile_is_zero_when_no_lease_has_notice(): void
     {
         [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
         $property = $this->makeRentalProperty($agency, $branch, $agent);
@@ -225,6 +229,87 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->actingAs($agent);
 
         self::assertSame(0, $this->service->tileCounts($agent, 'all')['notice_given']);
+    }
+
+    public function test_notice_given_tile_counts_active_leases_with_active_notice_and_matches_the_table_filter(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $withNotice = $this->makeRentalProperty($agency, $branch, $agent);
+        $withoutNotice = $this->makeRentalProperty($agency, $branch, $agent);
+
+        $leaseWithNotice = $this->makeActiveLease($agency, $branch, $withNotice, [
+            'notice_date' => now()->addDays(20)->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+        ]);
+        $this->makeActiveLease($agency, $branch, $withoutNotice);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        // Mirrors Lease::hasActiveNotice()'s own definition exactly.
+        self::assertTrue($leaseWithNotice->fresh()->hasActiveNotice());
+
+        $tiles = $this->service->tileCounts($agent, 'all');
+        $filtered = $this->service->tableQuery($agent, 'all', ['tile' => 'notice_given'])->get();
+
+        self::assertSame(1, $tiles['notice_given']);
+        self::assertSame($tiles['notice_given'], $filtered->count());
+        self::assertSame($withNotice->id, $filtered->first()->id);
+    }
+
+    /**
+     * AT-444 follow-up (2026-10-05) — "Renewals in progress" is the ONE
+     * definition Lease::hasPendingRenewalDraft() mirrors; this proves the
+     * Command Centre's SQL-level count agrees with that model method, not
+     * just with itself.
+     */
+    public function test_renewals_in_progress_tile_matches_lease_has_pending_renewal_draft_and_the_table_filter(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $renewing = $this->makeRentalProperty($agency, $branch, $agent);
+        $notRenewing = $this->makeRentalProperty($agency, $branch, $agent);
+
+        $activeBeingRenewed = $this->makeActiveLease($agency, $branch, $renewing);
+        Lease::create([
+            'agency_id' => $agency->id,
+            'branch_id' => $branch->id,
+            'property_id' => $renewing->id,
+            'previous_lease_id' => $activeBeingRenewed->id,
+            'status' => Lease::STATUS_DRAFT,
+            'rental_amount' => 9500,
+            'start_date' => now()->addMonth()->toDateString(),
+            'source' => 'manual',
+        ]);
+        $activeNotRenewing = $this->makeActiveLease($agency, $branch, $notRenewing);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        self::assertTrue($activeBeingRenewed->fresh()->hasPendingRenewalDraft());
+        self::assertFalse($activeNotRenewing->fresh()->hasPendingRenewalDraft());
+
+        $tiles = $this->service->tileCounts($agent, 'all');
+        $filtered = $this->service->tableQuery($agent, 'all', ['tile' => 'renewals_in_progress'])->get();
+
+        self::assertSame(1, $tiles['renewals_in_progress']);
+        self::assertSame($tiles['renewals_in_progress'], $filtered->count());
+        self::assertSame($renewing->id, $filtered->first()->id);
+    }
+
+    public function test_review_renewal_queue_item_links_to_the_renew_dialog(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $lease = $this->makeActiveLease($agency, $branch, $property, ['end_date' => now()->addDays(10)->toDateString()]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $item = $this->service->queueItems($agent, 'all')->first(fn ($i) => $i['type'] === 'review_renewal');
+
+        self::assertNotNull($item);
+        self::assertSame($lease->id, $item['route_params']['lease']);
+        self::assertSame('renew', $item['route_params']['action']);
     }
 
     public function test_queue_review_renewal_rule_fires_for_lease_expiring_in_window(): void

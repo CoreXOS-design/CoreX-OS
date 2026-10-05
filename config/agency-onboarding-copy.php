@@ -429,6 +429,12 @@ return [
              'label' => 'Warn me this many days before a lease expires',
              'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
              'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
+            // .ai/specs/rental-renewals.md §2 — AT-444. Same saver (LeaseSettingsController::update,
+            // already registered above) — one more has()-guarded field on the same step.
+            ['key' => 'tenant_notice_period_days', 'source' => 'leases', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days\' notice a tenant is expected to give',
+             'explain' => 'A sensible South African convention for how much notice a tenant gives before moving out — not a legal minimum CoreX enforces.',
+             'affects' => 'The notice-window figure shown on the Lease Hub and used when recording a tenant\'s notice to vacate. 30 days suits most agencies — change it to match your own lease wording.'],
             ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'label' => 'Days a tenant has to report a fault after moving in',
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
@@ -466,7 +472,7 @@ return [
              'explain' => 'The moment an inventory completes (every required party has signed or been dispositioned), CoreX emails the signed report to the seller/landlord (and tenant(s), when the inventory has a lease) from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inventory and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
-             'label' => 'No-approval spend threshold (R)',
+             'label' => 'No-approval spend limit (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
              'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
             // AT-442 — whether prices are used at all on internal job cards.

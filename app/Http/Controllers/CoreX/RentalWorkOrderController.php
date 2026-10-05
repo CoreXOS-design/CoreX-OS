@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\ExportsRentalList;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalWorkOrder;
@@ -25,6 +26,9 @@ use Illuminate\View\View;
 class RentalWorkOrderController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use ExportsRentalList;
+
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
     /**
      * Search: property address, tenant name, supplier name, title/description.
@@ -53,7 +57,86 @@ class RentalWorkOrderController extends Controller
         }
         $direction = $direction === 'asc' ? 'asc' : 'desc';
 
+        $showArchived = $request->boolean('archived');
+        $query = $this->filteredWorkOrdersQuery($request, $showArchived);
+
+        $propertyId = $request->get('property_id');
+        $leaseId = $request->get('lease_id');
+
+        if ($sort === 'property') {
+            $query->join('properties', 'properties.id', '=', 'rental_work_orders.property_id')
+                ->orderBy('properties.title', $direction)
+                ->select('rental_work_orders.*');
+        } else {
+            $query->orderBy("rental_work_orders.{$sort}", $direction);
+        }
+
+        $hasAnyWorkOrders = RentalWorkOrder::query()
+            ->when($showArchived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'))->exists();
+
+        $perPage = (int) $request->get('per_page', 25);
+        if (!in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $workOrders = $query->paginate($perPage)->withQueryString();
+
+        // §"List screen gaps" — property_id/lease_id are reached via a link
+        // from that record's own page (property tab, lease detail), never
+        // picked from a dropdown of every property/lease in the agency;
+        // the active filter is surfaced as a named, clearable chip instead.
+        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
+        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
+
+        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
+        // applications pattern (§39 note on RentalInspectionController).
+        // Status tiles are the real enum (RentalWorkOrder::STATUS_*).
+        // Exception tile: "Overdue" — reuses the SAME overdue() scope +
+        // RentalWorkOrderSetting::overdueReminderDaysFor() the ?overdue=1
+        // filter above already wires in; a spend-threshold tile was the
+        // other option Johan named, but overdue is the one this list
+        // already has a real, working query-param filter for.
+        $woTileBase = fn () => RentalWorkOrder::query()
+            ->when($showArchived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'total' => $woTileBase()->count(),
+            'reported' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_REPORTED)->count(),
+            'ordered' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_ORDERED)->count(),
+            'in_progress' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_IN_PROGRESS)->count(),
+            'completed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_COMPLETED)->count(),
+            'cancelled' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_CANCELLED)->count(),
+            'overdue' => $woTileBase()->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()))->count(),
+        ];
+
+        return view('corex.rental-work-orders.index', [
+            'workOrders' => $workOrders,
+            'sort' => $sort,
+            'direction' => $direction,
+            'hasAnyWorkOrders' => $hasAnyWorkOrders,
+            'showArchived' => $showArchived,
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue']),
+            'filteredProperty' => $filteredProperty,
+            'filteredLease' => $filteredLease,
+            'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
+        ]);
+    }
+
+    /**
+     * Shared scoped+filtered query, reused by index()/printList()/export().
+     * Returns an UNSORTED, UNPAGINATED builder.
+     */
+    private function filteredWorkOrdersQuery(Request $request, bool $onlyArchived = false)
+    {
+        $user = $request->user();
+
         $query = RentalWorkOrder::query()
+            ->when($onlyArchived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
             ->with(['property', 'lease.tenants.contact', 'supplier', 'createdByUser']);
 
@@ -82,15 +165,9 @@ class RentalWorkOrderController extends Controller
         if ($propertyId = $request->get('property_id')) {
             $query->where('rental_work_orders.property_id', $propertyId);
         }
-        // Navigation, 2026-09-22 — reached from a lease's own detail page
-        // (Johan: "every feature needs a navigation link where the work
-        // happens"), same query-parameter shape as property_id above.
         if ($leaseId = $request->get('lease_id')) {
             $query->where('rental_work_orders.lease_id', $leaseId);
         }
-        // Reached from a contact's own detail page — a contact can be a
-        // tenant (via lease_tenants) or a landlord (via contact_property);
-        // matches either, since the link doesn't know or care which.
         if ($contactId = $request->get('contact_id')) {
             $query->where(function ($q) use ($contactId) {
                 $q->whereHas('lease.tenants', fn ($t) => $t->where('contact_id', $contactId))
@@ -110,55 +187,83 @@ class RentalWorkOrderController extends Controller
             $query->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()));
         }
 
-        if ($sort === 'property') {
-            $query->join('properties', 'properties.id', '=', 'rental_work_orders.property_id')
-                ->orderBy('properties.title', $direction)
-                ->select('rental_work_orders.*');
-        } else {
-            $query->orderBy("rental_work_orders.{$sort}", $direction);
+        return $query;
+    }
+
+    private function activeWorkOrderFiltersSummary(Request $request): array
+    {
+        $out = [];
+        if ($q = $request->get('q')) {
+            $out['Search'] = $q;
         }
+        if ($status = $request->get('status')) {
+            $out['Status'] = ucfirst(str_replace('_', ' ', $status));
+        }
+        if ($tradeType = $request->get('trade_type')) {
+            $out['Trade type'] = $tradeType;
+        }
+        if ($priority = $request->get('priority')) {
+            $out['Priority'] = ucfirst($priority);
+        }
+        if ($paidBy = $request->get('paid_by')) {
+            $out['Paid by'] = ucfirst(str_replace('_', ' ', $paidBy));
+        }
+        if ($request->boolean('overdue')) {
+            $out['Overdue'] = 'Yes';
+        }
+        if ($df = $request->get('date_from')) {
+            $out['Reported from'] = $df;
+        }
+        if ($dt = $request->get('date_to')) {
+            $out['Reported to'] = $dt;
+        }
+        if ($request->boolean('archived')) {
+            $out['Archived'] = 'Yes';
+        }
+        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
+            $request->get('scope'),
+            \App\Services\PermissionService::getDataScope($request->user(), 'rental_work_orders')
+        ));
 
-        $hasAnyWorkOrders = RentalWorkOrder::query()->visibleTo($user, $request->get('scope'))->exists();
+        return $out;
+    }
 
-        $workOrders = $query->paginate(25)->withQueryString();
+    /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
+    public function printList(Request $request): View
+    {
+        $workOrders = $this->filteredWorkOrdersQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_work_orders.reported_at', 'desc')
+            ->get();
 
-        // §"List screen gaps" — property_id/lease_id are reached via a link
-        // from that record's own page (property tab, lease detail), never
-        // picked from a dropdown of every property/lease in the agency;
-        // the active filter is surfaced as a named, clearable chip instead.
-        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
-        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
-
-        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
-        // applications pattern (§39 note on RentalInspectionController).
-        // Status tiles are the real enum (RentalWorkOrder::STATUS_*).
-        // Exception tile: "Overdue" — reuses the SAME overdue() scope +
-        // RentalWorkOrderSetting::overdueReminderDaysFor() the ?overdue=1
-        // filter above already wires in; a spend-threshold tile was the
-        // other option Johan named, but overdue is the one this list
-        // already has a real, working query-param filter for.
-        $woTileBase = fn () => RentalWorkOrder::query()->visibleTo($user, $request->get('scope'));
-        $tileCounts = [
-            'reported' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_REPORTED)->count(),
-            'ordered' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_ORDERED)->count(),
-            'in_progress' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_IN_PROGRESS)->count(),
-            'completed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_COMPLETED)->count(),
-            'cancelled' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_CANCELLED)->count(),
-            'overdue' => $woTileBase()->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()))->count(),
-        ];
-
-        return view('corex.rental-work-orders.index', [
+        return view('corex.rental-work-orders.print-list', [
             'workOrders' => $workOrders,
-            'sort' => $sort,
-            'direction' => $direction,
-            'hasAnyWorkOrders' => $hasAnyWorkOrders,
-            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue']),
-            'filteredProperty' => $filteredProperty,
-            'filteredLease' => $filteredLease,
-            'tileCounts' => $tileCounts,
-            'resolvedScope' => $resolvedScope,
-            'scopeOptions' => $scopeOptions,
+            'printFilters' => $this->activeWorkOrderFiltersSummary($request),
         ]);
+    }
+
+    /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
+    public function export(Request $request)
+    {
+        $workOrders = $this->filteredWorkOrdersQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_work_orders.reported_at', 'desc')
+            ->get();
+
+        $headers = ['Property', 'Title', 'Status', 'Priority', 'Supplier', 'Paid by', 'Reported'];
+        $rows = $workOrders->map(fn (RentalWorkOrder $wo) => [
+            $wo->property?->buildDisplayAddress() ?? 'Unknown property',
+            $wo->title,
+            ucfirst(str_replace('_', ' ', $wo->status)),
+            $wo->priority ? ucfirst($wo->priority) : '',
+            $wo->supplier?->name ?? '',
+            $wo->paid_by ? ucfirst(str_replace('_', ' ', $wo->paid_by)) : '',
+            $wo->reported_at?->format('Y-m-d') ?? '',
+        ]);
+
+        $filename = 'rental-work-orders-' . now()->format('Y-m-d');
+
+        return $request->get('format') === 'csv'
+            ? $this->streamRentalListCsv($filename . '.csv', $headers, $rows)
+            : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
     /** §6 — "Work Order" button, reachable from the property tab (pre-filled property_id/lease_id). */

@@ -117,7 +117,7 @@ final class RentalWorkOrderSettingTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))
             ->assertOk()
-            ->assertSee('No-approval spend threshold')
+            ->assertSee('No-approval spend limit')
             ->assertSee('1,750.00');
     }
 }

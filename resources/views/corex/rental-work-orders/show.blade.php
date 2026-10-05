@@ -33,6 +33,11 @@
         </div>
     </div>
 
+    {{-- AT-439 Part 3, item 2 — the shared rental context bar, handed to
+         this screen by the AT-440 build that created it (its own docblock
+         names this exact include). --}}
+    <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />
+
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
             <div class="col-span-2"><span style="color: var(--text-muted);">Description:</span> {{ $workOrder->description }}</div>
@@ -143,7 +148,7 @@
          internal job card's own quote-to-owner lives on its own screen. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Quotes</h2>
-        <p class="text-xs" style="color: var(--text-muted);">No-approval threshold for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
+        <p class="text-xs" style="color: var(--text-muted);">No-approval spend limit for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
         @if($workOrder->quotes->isEmpty())
             <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
         @else

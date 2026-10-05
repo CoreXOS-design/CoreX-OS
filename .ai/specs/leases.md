@@ -914,6 +914,71 @@ first write; one (`lease hub show renders for a brand new lease`) initially fail
 removing that entry (§12.3's own "a brand-new lease has a genuinely empty log" wording was the
 correct spec; the implementation was wrong, not the acceptance criterion) — then passed.
 
+### 12.10 Built, 2026-10-04 (AT-444) — §12.5.3's `notice_date`/`notice_given_by` columns now real
+
+`leases.notice_date`/`notice_given_by`/`notice_note`/`move_out_date` (§12.5.3's row 2 cites these as
+"new" — they now exist, migration `2026_10_04_220000`, `rental-renewals.md` §2/§7). Written by the
+new one-click "Tenant gave notice"/"Landlord not renewing" outcomes
+(`App\Services\Rentals\LeaseRenewalService::recordNotice()`), reversible, with history kept in a new
+append-only `lease_events` table (not on the lease row itself, so a reversal never erases that the
+event happened — see `rental-renewals.md` §14 for the full reasoning).
+
+**§12.5.3's property-status side effects (the "Advertise? Yes" column, the re-advertise-with-
+availability-date behaviour) are now built too**, under GATE 2 (approved by the conductor 2026-10-04,
+same day), WITH one change from this section's original wording: no new "Notice Given" property
+status is introduced. Notice is a fact about the LEASE only. The existing status mechanism is driven
+directly (`Property::isAllowedStatus()` / `isOnMarket()`) — the notice dialog's "put this property
+back on the market" tick always uses the agency's configured on-market rental status (a setting, never
+`status_before_letting` directly), while a lease ending or being cancelled restores the property's own
+captured pre-let status (`properties.status_before_letting`, captured once at lease activation),
+falling back to that same on-market setting only if nothing was ever captured — two genuinely
+different rules, not one shared expression. See `rental-renewals.md` §15 for the full as-built
+transition table, the three agency settings, and the portal-syndication findings (including a real
+pre-existing gap found in both portal mappers' own availability-date handling, reported not fixed).
+
+`LeaseHubService::nextStep()`'s "Review renewal"/"Record outcome" now link to the real renewal screen
+(`corex.leases.renewal.create`) instead of AT-440's own lease-edit placeholder, and are suppressed once
+`Lease::hasActiveNotice()` or `renewed_lease_id` is set — nothing left to "review" until reversed.
+
+### 12.11 Built, 2026-10-05 (AT-444/AT-441 follow-up) — "Lease actions" menu items open as dialogs
+
+**Root cause fixed:** every item in the header's "Lease actions ▾" menu (Renew lease, Goes
+month-to-month, Tenant gave notice, Landlord not renewing, Reverse notice, Reverse month-to-month,
+Cancel lease) toggled visibility of a plain `<div>`/hidden `<form>` sitting in the right-hand column,
+below "Open items" — on a normal screen the agent clicked the menu item and the result was off-screen,
+with no visible feedback. Each item now opens the EXACT same form (same routes, same field names — no
+behaviour change in what gets submitted) inside `<x-modal>` (the app's existing Breeze-style modal
+component, `resources/views/components/modal.blade.php`), with focus landing on the first field
+(`focusable` attribute) and Escape/backdrop-click/Cancel all closing it (the component's existing
+mechanism). "Renew lease…" and the two "Reverse …" items had no confirmation UI at all before (Renew
+navigated away immediately; Reverse submitted a hidden form with zero feedback) — they now open a
+lightweight confirm dialog too, for the same "something visibly happens on click" reason.
+
+**`?action=renew|month-to-month|tenant-notice|landlord-notice`** on the Lease Hub URL opens the
+matching dialog on page load — the mechanism the Command Centre (`rental-command-centre.md` §3.2/§3.3)
+uses to deep-link an agent straight into the right dialog instead of landing them on the hub with one
+more click still needed. An action not valid for the lease's CURRENT state (e.g. `?action=renew` on a
+lease that is not active, or `?action=month-to-month` on a lease already month-to-month) is silently
+ignored — never force-opened. `reverse-notice`/`reverse-month-to-month`/`cancel` are deliberately NOT
+URL-triggerable (reachable only from the menu itself).
+
+**New, pure-logic service:** `App\Services\Rentals\LeaseActionDialogResolver` — `validActionsFor(Lease)`
+mirrors the EXACT conditions the menu itself uses to decide which items to render, and `resolve()`
+decides which dialog (if any) opens: a just-failed submission (identified by a hidden `_lease_action`
+field each dialog's form carries, echoed back via `old('_lease_action')`) always wins over `?action=`,
+so the agent sees their own mistake corrected, not a different dialog. The hidden field exists because
+Tenant-gave-notice and Landlord-not-renewing post the SAME field names (`move_out_date`, `note`) through
+`LeaseRenewalController::recordNotice()` — without it, Laravel's single default error bag can't tell
+which of the two actually failed, and `old()` would leak one form's entered values into the other's
+same-named field.
+
+Tests: `tests/Unit/Services/Rentals/LeaseActionDialogResolverTest.php` (pure logic — validity per
+state, URL-action-wins vs reopen-wins, invalid-for-state is ignored either way) and
+`tests/Feature/Leases/LeaseActionDialogsTest.php` (HTTP — `?action=` opens the right dialog and is
+ignored when invalid; a failed tenant-notice/landlord-notice/cancel submission reopens the SAME dialog
+with the entered values; the shared-field-name leak between tenant-notice and landlord-notice is
+proven absent).
+
 ---
 
 ## 13. AT-439 (Rentals rebuild 1/7, "Foundation") — Part 1 fixes, 2026-10-04

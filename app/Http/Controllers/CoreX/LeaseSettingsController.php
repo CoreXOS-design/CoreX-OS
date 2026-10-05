@@ -28,6 +28,9 @@ class LeaseSettingsController extends Controller
             // configurable with a sensible default."
             'defaultDepositMonths' => LeaseSetting::defaultDepositMonthsFor($agencyId),
             'defaultDepositMonthsDefault' => LeaseSetting::DEFAULT_DEPOSIT_MONTHS,
+            // .ai/specs/rental-renewals.md §2 — tenant notice period.
+            'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
+            'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
         ]);
     }
 
@@ -49,6 +52,11 @@ class LeaseSettingsController extends Controller
             // dedicated settings page (corex.settings.leases) always
             // renders and submits it, so the guard is a no-op there.
             'default_deposit_months' => ['nullable', 'numeric', 'min:0.1', 'max:12'],
+            // .ai/specs/rental-renewals.md §2 — same §6.1 nullable/has()-guard
+            // reasoning as default_deposit_months above: this method is also
+            // an onboarding-wizard saver for the 'leases' step, which posts
+            // only the fields that step renders.
+            'tenant_notice_period_days' => ['nullable', 'integer', 'min:1', 'max:365'],
         ]);
 
         $data = [
@@ -60,6 +68,9 @@ class LeaseSettingsController extends Controller
         ];
         if ($request->has('default_deposit_months')) {
             $data['default_deposit_months'] = $validated['default_deposit_months'];
+        }
+        if ($request->has('tenant_notice_period_days')) {
+            $data['tenant_notice_period_days'] = $validated['tenant_notice_period_days'];
         }
 
         LeaseSetting::updateOrCreate(['agency_id' => $agencyId], $data);

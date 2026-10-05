@@ -215,6 +215,10 @@
         // AT-441 — this screen's own route pattern, added so its OWN nav
         // entry (just above) auto-opens the panel.
         || request()->routeIs('corex.rentals.command-centre.*')
+        // AT-443 — this screen's own route pattern, same reasoning as
+        // AT-441's own entry immediately above (its own nav entry, below,
+        // must auto-open this panel).
+        || request()->routeIs('corex.rentals.reports.*')
         // AT-439 — the five other Rentals-panel screens (Leases, Rental Inspections,
         // Rental Fault Types, Rental Fault Reports, Rental Work Orders) had no
         // $activeGroup match at all, so the panel never auto-opened on their own
@@ -1119,6 +1123,12 @@
                      module at a glance. Same-day nav entry per non-negotiable #2. --}}
                 @permission('rental_command_centre.view')
                 <a href="{{ route('corex.rentals.command-centre.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.command-centre.*') ? 'active' : '' }}">Command Centre</a>
+                @endpermission
+
+                {{-- .ai/specs/rentals-reports.md — AT-443. Same-day nav entry per
+                     non-negotiable #2. --}}
+                @permission('rental_reports.view')
+                <a href="{{ route('corex.rentals.reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.reports.*') ? 'active' : '' }}">Reports</a>
                 @endpermission
 
                 @permission('rental_applications.view')

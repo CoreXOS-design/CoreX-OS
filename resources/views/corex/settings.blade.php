@@ -111,6 +111,9 @@
                     $can('leases.manage_settings')
                         ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry notice window warn days']
                         : null,
+                    $can('rental_lease_templates.manage_settings')
+                        ? ['key'=>'rental-lease-templates-settings', 'label'=>'Rental Lease Templates', 'type'=>'link', 'href'=>route('corex.rental-lease-templates.index'), 'keywords'=>'lease renewal addendum template residential commercial docuperfect e-sign']
+                        : null,
                     $can('rental_inspections.manage_settings')
                         ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection']
                         : null,

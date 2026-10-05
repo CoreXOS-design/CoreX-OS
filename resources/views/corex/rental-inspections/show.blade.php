@@ -18,7 +18,11 @@
 @endphp
 
 @section('content')
-<div class="p-6 max-w-3xl mx-auto space-y-4">
+{{-- AT-439 Part 3 — full-width (was max-w-3xl), matching the Lease Hub/Work
+     Order show precedent: every line of space is data the agent needs or a
+     control they act on. Two-column below the header: record + actions
+     left, scans/signatures (the paperwork evidence trail) right. --}}
+<div class="p-6 max-w-7xl mx-auto space-y-4">
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
@@ -54,6 +58,11 @@
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
         </div>
     </div>
+
+    <x-rental-context-bar :property="$inspection->property" :lease="$inspection->lease" current="inspections" />
+
+    <div class="grid grid-cols-3 gap-4">
+    <div class="col-span-3 lg:col-span-2 space-y-4">
 
     {{-- Johan's ruling, 2026-09-23 — "Next inspection" records the chain:
          In -> Routine -> Routine -> Out, any length. Hidden once a
@@ -293,6 +302,10 @@
     </div>
     @endif
 
+    </div>
+    {{-- Side column: scans, signatures — the paperwork evidence trail. --}}
+    <div class="col-span-3 lg:col-span-1 space-y-4">
+
     {{-- .ai/specs/rental-inspection-form.md §13 — the OMR scan reader, part 2
          of cc5's printable-form job. Upload the wet-ink-marked printed form
          back in; nothing is applied to the inspection until a human confirms
@@ -456,5 +469,8 @@
     {{-- .ai/specs/rental-inventory.md §4 — reachable from where the work
          happens, not only the sidebar list (Johan, 2026-09-22). --}}
     @include('corex.rental-inventories.partials._related-inventories', ['property' => $inspection->property])
+
+    </div>
+    </div>
 </div>
 @endsection
