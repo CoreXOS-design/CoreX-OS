@@ -448,3 +448,82 @@ success-flash assertion, and the four header-marker cases), `tests/Feature/Lease
 (+2 — the HTTP-level move-out-date upper-bound rejection and its in-window acceptance), and
 `tests/Feature/RentalInspections/RentalInspectionListScreenTest.php` (+1 — the `?type=` query-param
 preselect fix).
+
+## 18. Follow-up 3, 2026-10-05 — auto-drafted renewal at the reminder date, landlord-contact fallback restored
+
+Johan's ruling: the reminder lead time is already an agency setting (§2, live); once a lease enters it,
+CoreX drafts the renewal itself when it has enough information to, and surfaces it on the Command
+Centre's needs-action queue as "Renewal draft ready" — opening the Lease Hub's "Renew lease" dialog
+pre-filled with what was already prepared, never a blank term-entry form inviting a second draft.
+CoreX still never sends anything by itself. Confirmed first, per the task brief: `CheckLeaseExpiry`'s
+§3 repoint (cc1/AT-439) is done — reads `Lease`/`end_date`, uses
+`LeaseSetting::expiryNoticeWindowDaysFor()`, iterates agencies explicitly, never writes `status`;
+nothing in this build touches that file.
+
+- **`App\Services\Rentals\RenewalDraftEligibilityService::decide()`** — the ONE decision of which §5
+  path a lease qualifies for, shared by the new command and the Command Centre's needs-action row so
+  the two can never disagree: (a) `copy_forward` if `source === 'esign_document'` and
+  `source_document_id` is set (unconditional, matching §5(a)'s own table — no data-completeness gate on
+  this path); else (b) `draft_from_template` for the first of the agency's own active
+  `RentalLeaseTemplate`s (ordered by name) whose `RenewalDraftService::missingRequiredFields()` comes
+  back empty against this lease's current data; else (c) `insufficient_info`, naming every blank field
+  across every template tried (or "No agency lease template configured" if the agency has none at
+  all). `::defaultTerms()` — the one definition of the starting term both the command and (implicitly,
+  via the same renewal screen) the agent edit from: start date = day after the current end date, end
+  date left blank, same rent/deposit — identical to `_renewal-term-fields.blade.php`'s own existing
+  default.
+- **`App\Console\Commands\PrepareLeaseRenewalDrafts`** (`rentals:prepare-renewal-drafts {--lease=}`),
+  scheduled `dailyAt('06:15')` right after `signatures:check-lease-expiry` (`routes/console.php`). Same
+  shape as `CheckLeaseExpiry`: iterates agencies explicitly (console commands run with no authenticated
+  user, so `Lease`'s `AgencyScope` is a no-op regardless), reads `LeaseSetting::
+  expiryNoticeWindowDaysFor()` per agency, and only ever creates a NEW draft lease/flow row — never
+  writes `status` on the lease being renewed. Skips (idempotent, one open draft per lease): a lease with
+  notice already given (either party), already month-to-month (`Lease::hasPendingRenewalDraft()` is the
+  dedup check — the SAME definition `Lease::renewalDrafts()`'s "renewals in progress" tile already
+  uses), or with no `createdByUser` to draft as (logged, skipped, never fails the run). For
+  `insufficient_info`, nothing is persisted — the Command Centre computes the same decision live and
+  names the gap there; storing it here would just be a second place for that text to go stale.
+  `--lease=<id>` restricts a run to one lease (still the real window/skip checks, just scoped to one
+  row) — the sanctioned way to verify this against real QA1 data without scanning every lease in the
+  agency's book.
+- **`RentalCommandCentreService::queueItems()`** — rule A's row (every lease in the reminder window)
+  now branches: `Lease::hasPendingRenewalDraft()` → type `renewal_draft_ready`, label "Renewal draft
+  ready", detail names the drafted rent; else, for a lease that isn't already excluded by notice/
+  month-to-month, `decide()` is checked live and an `insufficient_info` result swaps the existing row's
+  detail to "Missing: …" (type/label stay `review_renewal`/"Review renewal" — nothing has been drafted
+  yet, so the action is still the same one); otherwise the row is exactly what it always was ("Tenant:
+  …"). A lease with notice/month-to-month already on file is never run through `decide()` at all here —
+  it isn't eligible for a draft either way, and checking would risk mislabelling it "missing info" when
+  it simply isn't renewing.
+- **Lease Hub "Renew lease…" dialog** (`show.blade.php`) — when `Lease::renewalDrafts()->first()` finds
+  a pending draft, the dialog shows its rent/start date and a "Review draft" button straight into
+  `docuperfect.esign.step` (the draft's own `renewal_draft_flow_id`, step 2 — already pre-filled by
+  `RenewalDraftService::buildDraftFlow()`), alongside "Start a different renewal" (unchanged link to
+  the renewal screen, for the rare case the auto-draft isn't what the agent wants). With no pending
+  draft, the dialog is exactly what it was — "Continue to renewal" into the blank term-entry screen.
+- **Landlord-contact fallback restored, through `Lease::landlordContacts()` only — no second method.**
+  The 2026-10-04 QA1 outage fix (`96b4f3ca0`) that resolved a duplicate-declaration 500 by keeping one
+  of two merged `landlordContacts()` versions flagged, in its own commit message, that the version it
+  dropped carried a single-contact `Property::sellerOwnerContact()` fallback neither remaining caller
+  had replaced — an emergency pick to stop a crash, not a design decision against the fallback. Now: if
+  the canonical landlord/lessor-pivot query (`contactsForRole('landlord')` + `('lessor')`) comes back
+  empty, `landlordContacts()` falls back to the property's `sellerOwnerContact()` (seller/owner tagged,
+  or the property's only contact at all) as a single-item collection; any tagged landlord/lessor is
+  returned as-is, never merged with the fallback. Fixes all three flagged callers at once, since all
+  three only ever called this one method: `LeaseController::show()`'s Lease Terms card,
+  `RentalDocumentPdfService::leaseTenancyReportPdf()`, and the shared `rental-context-bar` component.
+
+**Deliberately NOT built this round** (reported, not attempted, per the task brief):
+- **Notice letters to tenant/owner** — AT-445 (another lane, Rental Notices) owns this; not touched.
+- **P24/Private Property availability-date mapper gap** (§15) — portal feed output, Johan raising
+  directly; left exactly as flagged.
+
+**Tests**: `tests/Feature/Leases/LeaseRenewalDraftAutomationTest.php` (new, 9 cases — copy-forward and
+template-draft creation, insufficient-info reporting with nothing persisted, idempotency on a second
+run, the three skip conditions (notice given, month-to-month, outside window), `--lease` scoping, and
+the eligibility service's own path-a-over-path-b priority), `tests/Feature/Rentals/
+RentalCommandCentreServiceTest.php` (+2 — the `renewal_draft_ready` row and the missing-info detail
+text), `tests/Feature/Leases/LeaseHubTest.php` (+4 — the landlord-contact fallback with and without a
+tagged landlord, and the Renew dialog's two states), all passing alongside their full existing files
+(no regressions) and `tests/Feature/Leases/RentalContextBarLandlordChipTest.php` (existing, re-verified
+unaffected).

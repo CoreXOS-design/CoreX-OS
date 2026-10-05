@@ -325,6 +325,60 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertTrue($items->contains(fn ($i) => $i['type'] === 'review_renewal' && $i['property']->id === $property->id));
     }
 
+    /**
+     * AT-444 follow-up 3 (2026-10-05) — once
+     * rentals:prepare-renewal-drafts has drafted a lease
+     * (Lease::hasPendingRenewalDraft()), this row's own type/label changes
+     * so the agent sees it's ready rather than still "needs review".
+     */
+    public function test_queue_shows_renewal_draft_ready_once_a_draft_exists(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $lease = $this->makeActiveLease($agency, $branch, $property, [
+            'end_date' => now()->addDays(10)->toDateString(), 'created_by_user_id' => $agent->id,
+        ]);
+        Lease::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'property_id' => $property->id,
+            'previous_lease_id' => $lease->id, 'status' => Lease::STATUS_DRAFT, 'rental_amount' => 9500,
+            'start_date' => now()->addDays(11)->toDateString(), 'source' => 'manual',
+        ]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        // Also has an outstanding start_inspection row (no completed
+        // in-inspection) — a lease can need more than one action at once
+        // (the queue's own "never collapsed per property" design), so this
+        // filters by type, not just by lease.
+        $item = $this->service->queueItems($agent, 'all')->first(fn ($i) => $i['type'] === 'renewal_draft_ready' && $i['lease']?->id === $lease->id);
+
+        self::assertNotNull($item);
+        self::assertSame('Renewal draft ready', $item['label']);
+        self::assertStringContainsString('R9,500.00', $item['detail']);
+    }
+
+    /**
+     * No e-sign source, no agency template configured at all — the command
+     * would never draft this one, so the row names the gap instead.
+     */
+    public function test_queue_shows_missing_info_when_the_lease_cannot_be_auto_drafted(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $lease = $this->makeActiveLease($agency, $branch, $property, [
+            'end_date' => now()->addDays(10)->toDateString(), 'created_by_user_id' => $agent->id,
+        ]);
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $item = $this->service->queueItems($agent, 'all')->first(fn ($i) => $i['type'] === 'review_renewal' && $i['lease']?->id === $lease->id);
+
+        self::assertNotNull($item);
+        self::assertStringContainsString('Missing:', $item['detail']);
+    }
+
     public function test_queue_record_outcome_rule_fires_for_active_lease_past_end_date(): void
     {
         [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();

@@ -263,6 +263,46 @@ final class LeaseHubTest extends TestCase
         self::assertSame('Owner Person', $landlords->first()->full_name);
     }
 
+    /**
+     * AT-444 follow-up 3 (2026-10-05) — Johan's ruling: restore the
+     * single-contact Property::sellerOwnerContact() fallback this method
+     * lost in the 2026-10-04 QA1 outage merge (96b4f3ca0), which only ever
+     * picked one of two versions to stop a duplicate-declaration 500 and
+     * flagged the loss rather than deciding it was correct. Fixes
+     * LeaseController::show()'s Lease Terms card, RentalDocumentPdfService
+     * ::leaseTenancyReportPdf(), and the shared rental-context-bar
+     * component — all three read this one method, never duplicated.
+     */
+    public function test_landlord_contacts_falls_back_to_seller_owner_contact_when_nothing_is_tagged_landlord(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property));
+
+        $owner = $this->makeContact($agency, $branch, 'Owner', 'OnlyTaggedSeller');
+        ContactPropertyLinker::link($owner->id, $property->id, 'seller');
+
+        $landlords = $lease->fresh()->landlordContacts();
+
+        self::assertCount(1, $landlords);
+        self::assertSame('Owner OnlyTaggedSeller', $landlords->first()->full_name);
+    }
+
+    public function test_landlord_contacts_does_not_fall_back_when_a_real_landlord_is_tagged(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property));
+
+        $landlord = $this->makeContact($agency, $branch, 'Real', 'Landlord');
+        ContactPropertyLinker::link($landlord->id, $property->id, 'landlord');
+        $seller = $this->makeContact($agency, $branch, 'Unrelated', 'Seller');
+        ContactPropertyLinker::link($seller->id, $property->id, 'seller');
+
+        $landlords = $lease->fresh()->landlordContacts();
+
+        self::assertCount(1, $landlords);
+        self::assertSame('Real Landlord', $landlords->first()->full_name);
+    }
+
     public function test_open_item_counts_are_lease_scoped(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
@@ -400,6 +440,44 @@ final class LeaseHubTest extends TestCase
         // is always rendered regardless of lease state, so assert the exact
         // marker-badge markup is absent rather than the bare word.
         self::assertStringNotContainsString('ds-badge-info">Month-to-month</span>', $response->getContent());
+    }
+
+    /**
+     * AT-444 follow-up 3 (2026-10-05) — once CoreX has already drafted a
+     * renewal, the "Renew lease…" dialog shows that draft (and a link
+     * straight into its e-sign flow) instead of a blank term-entry
+     * invitation that would just create a second one.
+     */
+    public function test_renew_dialog_shows_the_pending_draft_when_one_exists(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $draft = Lease::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'property_id' => $property->id,
+            'previous_lease_id' => $lease->id, 'status' => Lease::STATUS_DRAFT, 'rental_amount' => 9800,
+            'start_date' => now()->addDay()->toDateString(), 'source' => 'manual', 'renewal_draft_flow_id' => 42,
+        ]);
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
+
+        $response->assertOk();
+        $response->assertSee('CoreX already prepared a renewal draft');
+        $response->assertSee('R9,800.00');
+        $response->assertDontSee('Continue to renewal');
+    }
+
+    public function test_renew_dialog_shows_blank_entry_when_no_draft_exists(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
+
+        $response->assertOk();
+        $response->assertSee('Continue to renewal');
+        $response->assertDontSee('CoreX already prepared a renewal draft');
     }
 
     public function test_lease_hub_show_renders_for_a_brand_new_lease_with_nothing_attached(): void

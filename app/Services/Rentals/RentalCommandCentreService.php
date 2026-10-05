@@ -536,24 +536,62 @@ class RentalCommandCentreService
             $scope,
             'property_id'
         )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today) {
-            $items->push([
-                'type' => 'review_renewal',
+            $ageDays = -1 * (int) abs($today->diffInDays($lease->end_date));
+            $base = [
                 'urgency' => 3,
                 // Negative-and-hidden by design: a future deadline is not
                 // "N days old" (the blade's age badge only shows when
                 // age_days > 0), but still needs a signed value so the
                 // within-tier sort below puts the SOONEST deadline first.
-                'age_days' => -1 * (int) abs($today->diffInDays($lease->end_date)),
+                'age_days' => $ageDays,
                 'property' => $lease->property,
                 'lease' => $lease,
-                'label' => 'Review renewal',
-                'detail' => 'Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
                 // AT-444 follow-up (2026-10-05) — opens the Lease Hub's
                 // "Renew lease" dialog directly (LeaseActionDialogResolver),
                 // rather than landing the agent on the hub with one more
                 // click still needed.
                 'route_params' => ['lease' => $lease->id, 'action' => 'renew'],
+            ];
+
+            // AT-444 follow-up 3 (2026-10-05) — §5: the scheduled
+            // rentals:prepare-renewal-drafts command already drafted this
+            // (Lease::hasPendingRenewalDraft() is the SAME definition the
+            // "Renewals in progress" tile uses, so the two can never drift).
+            if ($lease->hasPendingRenewalDraft()) {
+                $draft = $lease->renewalDrafts()->first();
+                $items->push($base + [
+                    'type' => 'renewal_draft_ready',
+                    'label' => 'Renewal draft ready',
+                    'detail' => 'R' . number_format((float) $draft->rental_amount, 2) . '/mo — ready to review and send',
+                ]);
+
+                return;
+            }
+
+            // A lease with an outcome already on file (notice either side,
+            // month-to-month) is never drafted by that command — querying
+            // its eligibility here would be wasted work and could label a
+            // lease that is not renewing at all as "missing info".
+            if (!$lease->hasActiveNotice() && !$lease->is_month_to_month) {
+                $agent = $lease->createdByUser;
+                $decision = $agent ? app(RenewalDraftEligibilityService::class)->decide($lease, $agent) : null;
+
+                if ($decision && $decision['outcome'] === 'insufficient_info') {
+                    $items->push($base + [
+                        'type' => 'review_renewal',
+                        'label' => 'Review renewal',
+                        'detail' => 'Missing: ' . implode(', ', $decision['missing']),
+                    ]);
+
+                    return;
+                }
+            }
+
+            $items->push($base + [
+                'type' => 'review_renewal',
+                'label' => 'Review renewal',
+                'detail' => 'Tenant: ' . $lease->tenantNames(),
             ]);
         });
 

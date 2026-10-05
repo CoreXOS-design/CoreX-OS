@@ -182,19 +182,23 @@ class Lease extends Model
     }
 
     /**
-     * AT-439 §G — derived, never duplicated onto this model. Resolution per
-     * cc1's 2026-10-04 QA1-outage fix (96b4f3ca0): this is the ONLY
-     * definition of this method — do not re-add a fallback to
-     * Property::sellerOwnerContact() here. NOTE: three callers
-     * (LeaseController::show()'s Lease Terms card,
-     * RentalDocumentPdfService::leaseTenancyReportPdf(), and the shared
-     * rental-context-bar component) previously relied on a fallback here
-     * to sellerOwnerContact() when no landlord/lessor pivot role was
-     * tagged — that fallback is gone with this method and none of the
-     * three call sites have their own replacement yet, so a property
-     * whose owner is linked only as seller/owner will show "no landlord"
-     * on those three screens. Flagged to the conductor 2026-10-04; not
-     * fixed here — out of this branch's scope and cc1's resolution to own.
+     * AT-439 §G — derived, never duplicated onto this model. This is the
+     * ONLY definition of this method — the other, AT-440/cc3 copy was
+     * removed during a 2026-10-04 QA1 outage (duplicate-declaration 500,
+     * 96b4f3ca0) by keeping this (AT-439's canonical contact-role-key,
+     * N-party) version; that emergency pick was about stopping the
+     * redeclare crash, not a design call against the OTHER version's
+     * single-contact `Property::sellerOwnerContact()` fallback — the
+     * outage fix's own commit message flagged the loss explicitly rather
+     * than claiming it was intentional. Restored here (AT-444 follow-up 3,
+     * 2026-10-05, Johan's ruling): a property whose owner is linked only
+     * as seller/owner, with no landlord/lessor pivot role tagged at all,
+     * now still resolves to that one contact — the exact gap flagged
+     * against all three of this method's callers (LeaseController::show()'s
+     * Lease Terms card, RentalDocumentPdfService::leaseTenancyReportPdf(),
+     * the shared rental-context-bar component). Only a true gap — zero
+     * landlord/lessor pivots — falls back; any tagged landlord/lessor
+     * contact is returned as-is, never merged with the fallback.
      */
     public function landlordContacts(): \Illuminate\Support\Collection
     {
@@ -202,10 +206,18 @@ class Lease extends Model
             return collect();
         }
 
-        return $this->property->contactsForRole('landlord')
+        $landlords = $this->property->contactsForRole('landlord')
             ->merge($this->property->contactsForRole('lessor'))
             ->unique('id')
             ->values();
+
+        if ($landlords->isNotEmpty()) {
+            return $landlords;
+        }
+
+        $fallback = $this->property->sellerOwnerContact();
+
+        return $fallback ? collect([$fallback]) : collect();
     }
 
     /**

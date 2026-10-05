@@ -53,6 +53,11 @@
     } elseif ($lease->hasPendingRenewalDraft()) {
         $leaseStateMarker = 'Renewal in progress';
     }
+
+    // AT-444 follow-up 3 (2026-10-05) — the Renew dialog shows whatever
+    // CoreX already drafted (rentals:prepare-renewal-drafts) instead of a
+    // blank term-entry invitation that would just create a SECOND draft.
+    $pendingRenewalDraft = $lease->status === 'active' ? $lease->renewalDrafts()->first() : null;
 @endphp
 
 @section('content')
@@ -139,11 +144,22 @@
             <x-modal name="lease-dialog-renew" :show="$openDialog === 'renew'" focusable>
                 <div class="p-6 space-y-4">
                     <h2 class="text-lg font-medium">Renew this lease</h2>
-                    <p class="text-sm" style="color: var(--text-muted);">Enter the new term, draft from a template, or upload a signed renewal on the renewal screen.</p>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
-                        <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="corex-btn-primary text-xs">Continue to renewal</a>
-                    </div>
+                    @if($pendingRenewalDraft)
+                        <p class="text-sm" style="color: var(--text-muted);">CoreX already prepared a renewal draft — R{{ number_format((float) $pendingRenewalDraft->rental_amount, 2) }}/mo from {{ $pendingRenewalDraft->start_date?->format('Y-m-d') }}. Review and send when ready, or start a different one on the renewal screen.</p>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="corex-btn-outline text-xs">Start a different renewal</a>
+                            @if($pendingRenewalDraft->renewal_draft_flow_id)
+                                <a href="{{ route('docuperfect.esign.step', ['flow' => $pendingRenewalDraft->renewal_draft_flow_id, 'step' => 2]) }}" class="corex-btn-primary text-xs">Review draft</a>
+                            @endif
+                        </div>
+                    @else
+                        <p class="text-sm" style="color: var(--text-muted);">Enter the new term, draft from a template, or upload a signed renewal on the renewal screen.</p>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
+                            <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="corex-btn-primary text-xs">Continue to renewal</a>
+                        </div>
+                    @endif
                 </div>
             </x-modal>
 

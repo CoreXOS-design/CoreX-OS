@@ -55,6 +55,10 @@ Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
+// AT-444 follow-up 3 — auto-draft renewals for leases entering the reminder
+// window, right after the expiry check above runs. .ai/specs/rental-renewals.md §5.
+Schedule::command('rentals:prepare-renewal-drafts')->dailyAt('06:15')->withoutOverlapping();
+
 // AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
 Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
 
