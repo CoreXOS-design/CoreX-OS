@@ -205,12 +205,47 @@ class AgencyTimelineTest extends TestCase
 
         $this->get(route('admin.agency-timelines.index'))->assertOk()->assertSee('Start timeline');
         $this->get(route('admin.agency-timelines.start-form', $agency))->assertOk()->assertSee('Questionnaire');
-        $this->post(route('admin.agency-timelines.start', $agency), ['start_date' => '2026-10-01'])->assertRedirect();
+        $this->post(route('admin.agency-timelines.start', $agency), ['start_date' => now()->toDateString()])->assertRedirect();
 
         $tl = AgencyTimeline::where('agency_id', $agency->id)->firstOrFail();
         $this->get(route('admin.agency-timelines.show', $tl))->assertOk()->assertSee('Mark agency live')->assertSee('Public link');
         $this->get(route('admin.agency-timelines.show', ['timeline' => $tl, 'tab' => 'history']))->assertOk()->assertSee('Timeline started');
         $this->get(route('admin.timeline-defaults.index'))->assertOk()->assertSee('Default steps');
+    }
+
+    public function test_start_date_cannot_be_in_the_past_and_form_clamps_to_today(): void
+    {
+        $this->seedMini();
+        $agency = $this->agency();
+        $this->actingAs($this->owner());
+
+        $this->post(route('admin.agency-timelines.start', $agency), ['start_date' => now()->subDay()->toDateString()])
+            ->assertSessionHasErrors('start_date');
+        $this->assertNull(AgencyTimeline::where('agency_id', $agency->id)->first());
+
+        // An old date in the URL (e.g. the agency's creation date) never pre-fills a past start.
+        $this->get(route('admin.agency-timelines.start-form', [$agency, 'start_date' => '2026-03-02']))
+            ->assertOk()->assertDontSee('2026-03-02')->assertSee(now()->toDateString());
+    }
+
+    public function test_step_dates_can_be_customised_on_start_and_cannot_precede_the_start_date(): void
+    {
+        $this->seedMini();
+        $agency = $this->agency();
+        $this->actingAs($this->owner());
+        $q = AgencyTimelineDefaultItem::where('title', 'Questionnaire')->first();
+        $custom = now()->addDays(20)->toDateString();
+
+        $this->post(route('admin.agency-timelines.start', $agency), [
+            'start_date' => now()->addDay()->toDateString(), 'dates' => [$q->id => now()->toDateString()],
+        ])->assertSessionHasErrors('dates.' . $q->id);
+
+        $this->post(route('admin.agency-timelines.start', $agency), [
+            'start_date' => now()->addDay()->toDateString(), 'dates' => [$q->id => $custom],
+        ])->assertRedirect();
+
+        $tl = AgencyTimeline::where('agency_id', $agency->id)->firstOrFail();
+        $this->assertSame($custom, AgencyTimelineItem::where('timeline_id', $tl->id)->where('source_default_id', $q->id)->first()->due_date->toDateString());
     }
 
     public function test_owner_edits_defaults_with_single_go_live_enforced(): void

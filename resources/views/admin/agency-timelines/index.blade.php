@@ -12,6 +12,13 @@
         <p class="text-xs" style="color: var(--text-muted);">The onboarding plan for each agency, from take-on to going live. Start one, add custom steps, and share the public link with the agency. Defaults are edited in <a href="{{ route('admin.timeline-defaults.index') }}" class="underline">Dev Settings → Agency timeline defaults</a>.</p>
     </div>
 
+    <div class="corex-kpi-grid">
+        <x-corex-kpi-card title="Agencies" :value="number_format($kpis['total'])" />
+        <x-corex-kpi-card title="Running" :value="number_format($kpis['running'])" />
+        <x-corex-kpi-card title="Live" :value="number_format($kpis['live'])" />
+        <x-corex-kpi-card title="With overdue steps" :value="number_format($kpis['overdue'])" />
+    </div>
+
     @include('admin.partials.platform-flash')
 
     <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-3" style="background: var(--surface); border:1px solid var(--border);">
@@ -35,21 +42,21 @@
         <div class="overflow-x-auto">
             <table class="w-full text-sm ds-table">
                 <thead>
-                    <tr style="background: var(--surface-2); color:var(--text-muted);" class="text-left text-xs uppercase tracking-wider">
-                        <th class="px-4 py-3 font-semibold">{!! $sortLink('agency', 'Agency') !!}</th>
-                        <th class="px-4 py-3 font-semibold">Status</th>
-                        <th class="px-4 py-3 font-semibold">Progress</th>
-                        <th class="px-4 py-3 font-semibold">Next due</th>
-                        <th class="px-4 py-3 font-semibold text-center">{!! $sortLink('overdue', 'Overdue') !!}</th>
-                        <th class="px-4 py-3 font-semibold">{!! $sortLink('start', 'Start') !!}</th>
-                        <th class="px-4 py-3 font-semibold">{!! $sortLink('go_live', 'Go live') !!}</th>
-                        <th class="px-4 py-3 font-semibold text-right">Actions</th>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{!! $sortLink('agency', 'Agency') !!}</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Progress</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Next due</th>
+                        <th class="text-center px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{!! $sortLink('overdue', 'Overdue') !!}</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{!! $sortLink('start', 'Start') !!}</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{!! $sortLink('go_live', 'Go live') !!}</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                 @forelse($rows as $r)
                     @php [$label, $tone] = $tones[$r['status']]; $a = $r['agency']; @endphp
-                    <tr style="border-top:1px solid var(--border);">
+                    <tr>
                         <td class="px-4 py-3 font-medium" style="color:var(--text-primary);">
                             {{ $a->name }}
                             @if($a->is_demo)<span class="ds-badge ds-badge-default ml-1">Demo</span>@endif
