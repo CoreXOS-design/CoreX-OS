@@ -187,13 +187,11 @@ class AgencyTimelineTest extends TestCase
             route('admin.agency-timelines.show', $tl),
             route('admin.agency-timelines.start-form', $agency),
             route('admin.timeline-defaults.index'),
-            route('admin.agency-contracts.index'),
-            route('admin.agency-contracts.templates'),
-            route('admin.agency-contracts.create'),
+            route('admin.platform-esign.enter'),
         ] as $url) {
             $this->get($url)->assertForbidden();
         }
-        $this->post(route('admin.agency-timelines.start', $agency), ['start_date' => '2026-10-01'])->assertForbidden();
+        $this->post(route('admin.agency-timelines.start', $agency), ['start_date' => now()->toDateString()])->assertForbidden();
         $this->post(route('admin.agency-timelines.link', $tl), ['action' => 'regenerate'])->assertForbidden();
     }
 
@@ -246,6 +244,52 @@ class AgencyTimelineTest extends TestCase
 
         $tl = AgencyTimeline::where('agency_id', $agency->id)->firstOrFail();
         $this->assertSame($custom, AgencyTimelineItem::where('timeline_id', $tl->id)->where('source_default_id', $q->id)->first()->due_date->toDateString());
+    }
+
+    // ── Platform e-sign (CoreX's own contracts run in the real e-sign, in a platform agency) ──
+
+    private function platformDocument(?int $agencyId, int $ownerId, string $status): \App\Models\Docuperfect\SignatureTemplate
+    {
+        $docId = \Illuminate\Support\Facades\DB::table('docuperfect_documents')->insertGetId([
+            'name' => 'Subscription Agreement', 'agency_id' => $agencyId, 'owner_id' => $ownerId,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return \App\Models\Docuperfect\SignatureTemplate::withoutGlobalScopes()->create([
+            'document_id' => $docId, 'agency_id' => $agencyId, 'status' => $status,
+        ]);
+    }
+
+    public function test_signed_platform_document_ticks_the_agreement_step_once_linked(): void
+    {
+        $this->seedMini();
+        $owner = $this->owner();
+        $this->actingAs($owner);
+        $agency = $this->agency();
+        $tl = $this->svc()->start($agency, now(), $owner->id);
+        $doc = $this->platformDocument(null, $owner->id, 'signing');
+        $step = AgencyTimelineItem::where('timeline_id', $tl->id)->where('auto_complete_trigger', 'contract_signed')->firstOrFail();
+
+        $this->post(route('admin.agency-timelines.agreement', $tl), ['template_id' => $doc->id])->assertRedirect();
+        $this->assertSame('pending', $step->fresh()->status, 'not signed yet');
+
+        $doc->update(['status' => 'completed', 'completed_at' => now()]);
+        $this->get(route('admin.agency-timelines.show', $tl))->assertOk()->assertSee('Subscription Agreement');
+        $this->assertSame('done', $step->fresh()->status);
+    }
+
+    public function test_only_an_agency_less_platform_document_can_be_linked_as_the_agreement(): void
+    {
+        $this->seedMini();
+        $owner = $this->owner();
+        $this->actingAs($owner);
+        $agency = $this->agency();
+        $other = $this->agency('Some Other Agency');
+        $tl = $this->svc()->start($agency, now(), $owner->id);
+        $foreign = $this->platformDocument($other->id, $owner->id, 'completed');
+
+        $this->post(route('admin.agency-timelines.agreement', $tl), ['template_id' => $foreign->id])->assertStatus(422);
+        $this->assertNull($tl->fresh()->agreement_template_id);
     }
 
     public function test_owner_edits_defaults_with_single_go_live_enforced(): void

@@ -52,9 +52,10 @@
                 ],
             ],
             [
-                'label' => 'Agency onboarding',
+                'label' => 'Agency onboarding & contracts',
                 'items' => [
                     ['key'=>'timeline-defaults', 'label'=>'Agency timeline defaults', 'type'=>'link', 'href'=>route('admin.timeline-defaults.index'), 'keywords'=>'agency timeline onboarding plan default milestones days take-on go live training steps'],
+                    ['key'=>'platform-esign', 'label'=>'Platform E-Sign (CoreX contracts)', 'type'=>'link', 'href'=>route('admin.platform-esign.enter'), 'keywords'=>'esign e-sign contract subscription agreement debit order template creator send agencies platform corex'],
                 ],
             ],
             [

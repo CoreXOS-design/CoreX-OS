@@ -30,6 +30,7 @@ class AgencyTimelinePublicController extends Controller
                 ->header('Cache-Control', 'no-store')->header('X-Robots-Tag', 'noindex, nofollow');
         }
 
+        $svc->syncAgreement($timeline);
         $today = now()->startOfDay();
         $goLive = $svc->goLive($timeline, $today);
         $items = AgencyTimelineItem::where('timeline_id', $timeline->id)->where('is_public', true)->orderBy('sort_order')->orderBy('id')->get();

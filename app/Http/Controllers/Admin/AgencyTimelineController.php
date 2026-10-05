@@ -7,7 +7,6 @@ use App\Models\Agency;
 use App\Models\Platform\AgencyTimeline;
 use App\Models\Platform\AgencyTimelineEvent;
 use App\Models\Platform\AgencyTimelineItem;
-use App\Models\Platform\PlatformContractEnvelope;
 use App\Models\User;
 use App\Services\Platform\AgencyTimelineService;
 use Carbon\Carbon;
@@ -153,6 +152,7 @@ class AgencyTimelineController extends Controller
     {
         $this->owner($request);
         $today = now()->startOfDay();
+        $this->svc->syncAgreement($timeline);
         $showArchived = $request->boolean('archived');
 
         $all = AgencyTimelineItem::withTrashed()->where('timeline_id', $timeline->id)->orderBy('sort_order')->orderBy('id')->get();
@@ -171,9 +171,38 @@ class AgencyTimelineController extends Controller
             'today'      => $today,
             'events'     => AgencyTimelineEvent::where('timeline_id', $timeline->id)->orderByDesc('id')->limit(100)->get(),
             'actors'     => User::withoutGlobalScopes()->whereIn('id', AgencyTimelineEvent::where('timeline_id', $timeline->id)->pluck('actor_user_id')->filter()->unique())->pluck('name', 'id'),
-            'contracts'  => PlatformContractEnvelope::where('agency_id', $timeline->agency_id)->orderByDesc('id')->get(),
+            'agreementDocs' => $this->platformDocuments(),
             'tab'        => $request->get('tab') === 'history' ? 'history' : 'plan',
         ]);
+    }
+
+    /** Documents in the platform e-sign agency, newest first, for the agreement picker. */
+    private function platformDocuments(): \Illuminate\Support\Collection
+    {
+        // Platform (CoreX) e-sign documents belong to no agency.
+        $templates = \App\Models\Docuperfect\SignatureTemplate::withoutGlobalScopes()
+            ->whereNull('agency_id')->orderByDesc('id')->limit(100)->get(['id', 'document_id', 'status', 'completed_at']);
+        $names = \App\Models\Docuperfect\Document::withoutGlobalScopes()->whereIn('id', $templates->pluck('document_id'))->pluck('name', 'id');
+
+        return $templates->map(fn ($t) => (object) [
+            'id' => $t->id, 'name' => $names[$t->document_id] ?? ('Document #' . $t->document_id),
+            'status' => $t->status, 'completed_at' => $t->completed_at,
+        ]);
+    }
+
+    public function agreement(Request $request, AgencyTimeline $timeline)
+    {
+        $user = $this->owner($request);
+        $data = $request->validate(['template_id' => 'nullable|integer']);
+        $id = $data['template_id'] ?? null;
+        if ($id) {
+            // Only a platform (agency-less) e-sign document can be an agreement.
+            abort_unless(\App\Models\Docuperfect\SignatureTemplate::withoutGlobalScopes()
+                ->where('id', $id)->whereNull('agency_id')->exists(), 422);
+        }
+        $this->svc->linkAgreement($timeline, $id ? (int) $id : null, $user->id);
+
+        return back()->with('success', $id ? 'Agreement linked.' : 'Agreement unlinked.');
     }
 
     // ── Changes (each one recorded by the service) ─────────────────────────

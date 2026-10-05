@@ -802,12 +802,6 @@ Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name
 // Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
 Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
     ->middleware('throttle:60,1')->name('agency-timeline.public');
-Route::prefix('agency-contract/{token}')->middleware('throttle:30,1')->name('agency-contract.')->group(function () {
-    Route::get('/',                          [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'show'])->name('show');
-    Route::post('/sign',                     [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'sign'])->name('sign');
-    Route::post('/decline',                  [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'decline'])->name('decline');
-    Route::get('/attachments/{attachment}',  [\App\Http\Controllers\Public\AgencyContractSigningController::class, 'attachment'])->whereNumber('attachment')->name('attachment');
-});
 
 // ===== P24 MARKET INTELLIGENCE =====
 // Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
@@ -4233,29 +4227,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{timeline}/lifecycle',              [$c, 'lifecycle'])->whereNumber('timeline')->name('lifecycle');
         });
 
-        // Agency Contracts (dev-side e-sign) — outside every agency
-        Route::prefix('admin/agency-contracts')->name('admin.agency-contracts.')->group(function () {
-            $c = \App\Http\Controllers\Admin\AgencyContractController::class;
-            // Static paths FIRST so they are not swallowed by /{envelope}.
-            Route::get('/templates',                         [$c, 'templates'])->name('templates');
-            Route::get('/templates/create',                  [$c, 'templateCreate'])->name('templates.create');
-            Route::post('/templates',                        [$c, 'templateStore'])->name('templates.store');
-            Route::get('/templates/{template}/edit',         [$c, 'templateEdit'])->whereNumber('template')->name('templates.edit');
-            Route::put('/templates/{template}',              [$c, 'templateUpdate'])->whereNumber('template')->name('templates.update');
-            Route::get('/templates/{template}/preview',      [$c, 'templatePreview'])->whereNumber('template')->name('templates.preview');
-            Route::delete('/templates/{template}',           [$c, 'templateDestroy'])->whereNumber('template')->name('templates.destroy');
-            Route::post('/templates/{template}/restore',     [$c, 'templateRestore'])->whereNumber('template')->name('templates.restore');
-            Route::get('/send',                              [$c, 'create'])->name('create');
-            Route::post('/',                                 [$c, 'store'])->name('store');
-            Route::get('/',                                  [$c, 'index'])->name('index');
-            Route::get('/{envelope}',                        [$c, 'show'])->whereNumber('envelope')->name('show');
-            Route::post('/{envelope}/resend',                [$c, 'resend'])->whereNumber('envelope')->name('resend');
-            Route::post('/{envelope}/void',                  [$c, 'void'])->whereNumber('envelope')->name('void');
-            Route::get('/{envelope}/download',               [$c, 'download'])->whereNumber('envelope')->name('download');
-            Route::get('/{envelope}/attachments/{attachment}', [$c, 'attachment'])->whereNumber(['envelope', 'attachment'])->name('attachment');
-            Route::delete('/{envelope}',                     [$c, 'archive'])->whereNumber('envelope')->name('archive');
-            Route::post('/{envelope}/restore',               [$c, 'restore'])->whereNumber('envelope')->name('restore');
-        });
+        // Platform E-Sign — CoreX's own contracts. Enters the REAL e-sign (creator, wizard,
+        // signing) inside the dedicated platform agency, from Dev Settings. Owner only.
+        Route::get('admin/platform-esign', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'enter'])->name('admin.platform-esign.enter');
+        Route::post('admin/platform-esign/exit', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'exit'])->name('admin.platform-esign.exit');
+        Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
     });
 
     // Agency Setup Progress board — platform-owner cross-agency tracking of the

@@ -221,20 +221,32 @@
         @endforeach
     @endif
 
-    {{-- Contracts --}}
+    {{-- Agreement — the CoreX contract, sent through the real e-sign in the platform agency --}}
     <div class="rounded-md" style="background: var(--surface); border:1px solid var(--border);">
-        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
-            <div class="text-sm font-semibold" style="color:var(--text-primary);">Contracts for {{ $agency->name }}</div>
-            <a href="{{ route('admin.agency-contracts.create', ['agency_id' => $agency->id]) }}" class="corex-btn-primary text-xs">Send contract</a>
-        </div>
-        @forelse($contracts as $c)
-            <div class="px-4 py-2.5 flex items-center justify-between text-sm" style="border-top:1px solid var(--border);">
-                <a href="{{ route('admin.agency-contracts.show', $c->id) }}" class="underline" style="color:var(--brand-icon);">{{ $c->title }}</a>
-                <span class="ds-badge {{ $c->status === 'signed' ? 'ds-badge-success' : ($c->status === 'declined' ? 'ds-badge-danger' : 'ds-badge-default') }}">{{ ucfirst($c->status) }}</span>
+        <div class="px-4 py-3 flex flex-wrap items-center justify-between gap-2" style="border-bottom:1px solid var(--border);">
+            <div>
+                <div class="text-sm font-semibold" style="color:var(--text-primary);">Agreement for {{ $agency->name }}</div>
+                <div class="text-xs" style="color:var(--text-muted);">Send the contract from Platform E-Sign, then link it here. When it is fully signed the "sign agreement" step ticks itself.</div>
             </div>
-        @empty
-            <div class="px-4 py-6 text-center text-sm" style="color:var(--text-muted);">No contract sent yet.</div>
-        @endforelse
+            <a href="{{ route('admin.platform-esign.enter') }}" class="corex-btn-outline text-xs">Open Platform E-Sign</a>
+        </div>
+        <form method="POST" action="{{ route('admin.agency-timelines.agreement', $timeline) }}" class="px-4 py-3 flex flex-wrap items-end gap-3">
+            @csrf
+            <div>
+                <label class="ds-label block mb-1">Linked document</label>
+                <select name="template_id" class="ds-field" style="min-width:18rem;">
+                    <option value="">— none —</option>
+                    @foreach($agreementDocs as $d)
+                        <option value="{{ $d->id }}" @selected((int) $timeline->agreement_template_id === (int) $d->id)>{{ $d->name }} — {{ str_replace('_', ' ', $d->status) }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <button class="corex-btn-primary text-xs" type="submit">Save link</button>
+            @if($timeline->agreement_template_id)
+                @php $linked = $agreementDocs->firstWhere('id', $timeline->agreement_template_id); @endphp
+                <span class="ds-badge {{ ($linked->status ?? '') === 'completed' ? 'ds-badge-success' : 'ds-badge-default' }}">{{ ($linked->status ?? '') === 'completed' ? 'Signed' : 'Awaiting signatures' }}</span>
+            @endif
+        </form>
     </div>
     @endif
 </div>
