@@ -221,6 +221,11 @@
         // reports/rental-work-orders/rental-fault-types is AT-439's own
         // scope, not touched here).
         || request()->routeIs('corex.rental-job-cards.*', 'corex.rental-catalogue-items.*')
+        // 2026-10-05 — Rental Crews' own nav entry lives in this same panel
+        // (just below Parts & Labour Catalogue); added here so landing
+        // directly on it (not just a client-side click) auto-opens the
+        // panel, same reasoning as AT-442's two families immediately above.
+        || request()->routeIs('corex.rental-crews.*')
         || request()->routeIs('corex.rentals.properties.index', 'corex.rentals.pipeline.index', 'corex.rentals.core-matches.*', 'corex.rentals.contacts.index')
         // AT-441 — this screen's own route pattern, added so its OWN nav
         // entry (just above) auto-opens the panel.
