@@ -216,16 +216,67 @@ class RentalInventorySignature extends Model
         ]));
     }
 
-    /** Same canvas-capture storage pattern as RentalInspectionSignature::storeCanvasImage(). */
+    /** Private-disk directory prefix for signatures stored by storeCanvasImage() (legacy rows live on the public disk). */
+    public const PRIVATE_DIR = 'rental-inventory-signatures';
+
+    /** Maximum decoded size of a canvas signature PNG. */
+    public const MAX_SIGNATURE_BYTES = 524288; // 512 KB
+
+    /**
+     * Validates and stores a canvas signature on the PRIVATE 'local' disk
+     * under an unguessable, server-generated name, and returns the disk key
+     * (not a public URL). Rejects anything that is not a non-empty, valid,
+     * size-capped PNG — a blank/garbage payload must never count as a
+     * signature (audit M5). Read it back via signature_image_src.
+     *
+     * @throws \InvalidArgumentException
+     */
     public static function storeCanvasImage(string $base64, int $propertyId): string
     {
         $data = str_contains($base64, ',') ? explode(',', $base64, 2)[1] : $base64;
-        $binary = base64_decode($data, true) ?: '';
+        $binary = base64_decode(trim($data), true);
 
-        $path = "properties/{$propertyId}/rental-inventory-signatures/" . uniqid('sig_', true) . '.png';
-        \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
+        if ($binary === false || $binary === '') {
+            throw new \InvalidArgumentException('The signature image is empty or not valid base64.');
+        }
+        if (strlen($binary) > self::MAX_SIGNATURE_BYTES) {
+            throw new \InvalidArgumentException('The signature image is too large.');
+        }
+        $info = @getimagesizefromstring($binary);
+        if ($info === false || ($info[2] ?? null) !== IMAGETYPE_PNG) {
+            throw new \InvalidArgumentException('The signature image must be a PNG.');
+        }
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+        $path = self::PRIVATE_DIR . "/{$propertyId}/sig_" . bin2hex(random_bytes(16)) . '.png';
+        \Illuminate\Support\Facades\Storage::disk('local')->put($path, $binary);
+
+        return $path;
+    }
+
+    /**
+     * A self-contained data: URI for the stored signature, whichever
+     * location it lives in — the private disk (new rows) or the legacy
+     * public-disk URL form (rows captured before audit M5). Null when the
+     * file is missing. Used by the record page, the public report page and
+     * the PDF, so no signature file needs to be web-readable.
+     */
+    public function getSignatureImageSrcAttribute(): ?string
+    {
+        $path = $this->party_signature_path;
+        if (! $path) {
+            return null;
+        }
+
+        if (str_starts_with($path, self::PRIVATE_DIR . '/')) {
+            $disk = \Illuminate\Support\Facades\Storage::disk('local');
+            if (! $disk->exists($path)) {
+                return null;
+            }
+
+            return 'data:image/png;base64,' . base64_encode($disk->get($path));
+        }
+
+        return \App\Support\StorageDataUri::fromPublicStoragePath($path);
     }
 
     /** Same real-file storage pattern as RentalInspectionSignature::storeWetInkUpload(). */

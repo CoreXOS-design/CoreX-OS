@@ -203,6 +203,20 @@
             $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
             $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
         }
+
+        // Layer 3 — syndication approval (.ai/specs/syndication-approval-gate.md §6.4).
+        // Computed ONCE here and shared with the syndication panel below (which
+        // reads $synApprovalState from scope), so the identity strip and the
+        // panel can never disagree. Silent unless the agency switched it on.
+        $synApprovalState = null;
+        $synApprovalCanApprove = false;
+        if (!$isNew) {
+            $synApprovalSvc = app(\App\Services\Syndication\SyndicationApprovalService::class);
+            $synApprovalState = $synApprovalSvc->stateFor($property);
+            $synApprovalCanApprove = auth()->user()
+                ? $synApprovalSvc->canApprove(auth()->user(), $property)
+                : false;
+        }
     @endphp
     {{-- Extracted to partials/_property-shell-header.blade.php (2026-09-27,
          rental-inventory §13.10) so the standalone inventory capture page

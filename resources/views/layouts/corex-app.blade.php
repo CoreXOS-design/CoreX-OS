@@ -177,6 +177,10 @@
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
 
+        {{-- In-page PDF / image viewer behind every "View" button in a CoreX drive.
+             Spec: .ai/specs/document-inline-view.md --}}
+        @include('components.document-viewer')
+
         {{-- Frontend error capture --}}
         @include('partials.error-reporter')
 

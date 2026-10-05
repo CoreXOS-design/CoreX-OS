@@ -4,8 +4,7 @@
     the PIN is hashed server-side (AgentSignatureService). Disabled under
     impersonation (a switch-user session cannot set or use another agent's signature).
 --}}
-<div id="signature" class="rounded-md p-5" style="background:var(--surface,#fff); border:1px solid var(--border,#e2e8f0);"
-     x-data="signatureSettings()" x-init="init()">
+<div id="signature" x-data="signatureSettings()" x-init="init()">
     <div class="flex items-start justify-between gap-3 flex-wrap mb-1">
         <h3 class="text-sm font-bold" style="color:var(--text-primary,#0f172a);">Signature &amp; signing PIN</h3>
         <div class="text-xs" style="color:var(--text-muted,#64748b);">

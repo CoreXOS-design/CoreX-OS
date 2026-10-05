@@ -103,6 +103,31 @@ class PropertyFileController extends Controller
         return \Illuminate\Support\Facades\Storage::disk($disk)->download($document->storage_path, $document->original_name);
     }
 
+    /**
+     * Inline (in-browser) view of a property Drive file — the View button beside Download.
+     *
+     * Same per-record scope guard as download(); deliberately NOT behind the assistant download
+     * toggle, because AT-267's contract is that an assistant may still OPEN and VIEW a document,
+     * only not pull it down. Non-viewable types (Word, Excel) fall back to the gated download.
+     * Spec: .ai/specs/document-inline-view.md §6
+     */
+    public function view(Property $property, Document $document)
+    {
+        $this->authorizeProperty($property, forEdit: false);
+        abort_unless($document->properties()->where('properties.id', $property->id)->exists(), 404);
+
+        $disk = $document->disk ?: 'local';
+        abort_unless(\Illuminate\Support\Facades\Storage::disk($disk)->exists($document->storage_path), 404);
+
+        if (! $document->isViewableInline()) {
+            abort_unless(auth()->user()?->canDownloadDocuments(), 403);
+
+            return \Illuminate\Support\Facades\Storage::disk($disk)->download($document->storage_path, $document->original_name);
+        }
+
+        return $document->inlineResponse();
+    }
+
     public function destroy(Property $property, Document $document)
     {
         abort_unless($document->properties()->where('properties.id', $property->id)->exists(), 404);

@@ -255,6 +255,10 @@
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
 
+        {{-- In-page PDF / image viewer behind every "View" button in a CoreX drive.
+             Spec: .ai/specs/document-inline-view.md --}}
+        @include('components.document-viewer')
+
         {{-- AT-220 — global session armour + persistent connection indicator on
              every long-lived authenticated screen (spec: .ai/specs/session-armour.md). --}}
         @include('layouts.partials._session-guard')

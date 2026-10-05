@@ -81,6 +81,8 @@ class RentalInspectionSettingsController extends Controller
             // §41, 2026-09-28, Johan's ruling — auto-send the signed report
             // on completion, defaults ON.
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
+            'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
+            'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
         ]);
     }
 
@@ -101,6 +103,10 @@ class RentalInspectionSettingsController extends Controller
             // omit refusal_reason_presets (this method is also registered
             // as a wizard saver — see the onboarding config's own comment).
             'public_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            // Both has()-guarded below (agency-onboarding-setup.md §6.1) —
+            // nullable so a caller that never renders them still saves.
+            'require_notes_blocks_progression' => ['nullable', 'boolean'],
+            'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
         ]);
 
         $attributes = [
@@ -109,6 +115,16 @@ class RentalInspectionSettingsController extends Controller
         ];
         if ($request->has('public_link_expiry_days')) {
             $attributes['public_link_expiry_days'] = $validated['public_link_expiry_days'];
+        }
+        // A toggle always posts a hidden 0 ahead of its checkbox (settings
+        // page and wizard alike), so has() distinguishes "off" from "not rendered".
+        if ($request->has('require_notes_blocks_progression')) {
+            $attributes['require_notes_blocks_progression'] = $request->boolean('require_notes_blocks_progression');
+        }
+        // Blank/absent leaves the stored value (and therefore the model's own
+        // default) alone; a number saves.
+        if ($request->filled('omr_mark_threshold')) {
+            $attributes['omr_mark_threshold'] = round((float) $validated['omr_mark_threshold'], 2);
         }
 
         // Guarded on has(), not just validated() — the wizard step (§4/§8's

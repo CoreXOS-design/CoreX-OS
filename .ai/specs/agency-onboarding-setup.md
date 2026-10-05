@@ -283,6 +283,26 @@ by oversight — do not reinstate them without asking:
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
 
+- **RULED IN (owner, 2026-09-30) — no longer omitted.** These were recorded here as "Pending Johan's
+  ruling" (audit fix MED-3); the owner has ruled they belong in the wizard and they now live in the
+  **Rentals (`leases`) step**:
+  - `rental_application_qualifying_settings.credit_bureau_name` and `tenanted_label` (text controls;
+    savers `RentalApplicationSettingsController::updateCreditBureau` / `updateTenantedLabel`, now
+    `has()`-guarded so a post that never rendered them leaves the value alone).
+  - `lease_settings.show_lease_type_field` (toggle; `LeaseSettingsController::update`, already guarded).
+  - `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
+    (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
+    guarded fields), and also added to the Rental Inspection Settings page so the two never drift.
+  - The repeater lists — refusal reasons, inspection condition states (+ "All Good" baseline),
+    photo-note classifications, inventory condition states — rendered by the
+    `agency-setup.steps.rentals-inspection-lists` partial (the same repeater markup as the settings
+    screens; the step's `partial` key now accepts a list). Each list posts its own `*_submitted`
+    marker and saves through `RentalListsWizardSaver`, which is a no-op when the marker is absent and
+    otherwise delegates to the canonical saver, so a step post that never rendered a list can neither
+    wipe nor fail it (§6.1). Inventory uses its own field name (`inventory_condition_states`) because
+    the wizard is one combined form. Photo-note classifications also gained a settings-page form (they
+    previously had a route but no screen).
+
 - **Rental application "Property Link Lock"** (`rental_application_qualifying_settings.
   lock_property_after_submission`, added 2026-09-10). A fine-tuning toggle on an already-
   running rental-applications feature (whether the linked property can still be changed once

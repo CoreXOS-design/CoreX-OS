@@ -192,7 +192,7 @@ class PpraTransformationController extends Controller
     private function resolveAgency(Request $request): Agency
     {
         $user = $request->user() ?? Auth::user();
-        $agency = $user->agency ?? Agency::find($user->effectiveAgencyId());
+        $agency = Agency::find($user->effectiveAgencyId());
         abort_unless($agency, 403, 'No agency context.');
 
         return $agency;

@@ -24,6 +24,11 @@
             {{ session('success') }}
         </div>
     @endif
+    @if(session('error'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); color:var(--ds-crimson,#c41e3a); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 25%, transparent);">
+            {{ session('error') }}
+        </div>
+    @endif
 
     <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>

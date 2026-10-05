@@ -119,4 +119,36 @@ class RentalInventorySettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-inventory.edit')->with('success', 'Auto-send setting saved.');
     }
+
+    /**
+     * Setup Wizard saver for the inventory condition-state list — narrow,
+     * writes ONLY condition_states (never disposition_presets or the
+     * baseline, which the wizard step does not render). Reads its own
+     * `inventory_condition_states` field name because the wizard's single
+     * combined form also carries the Inspections list under
+     * `condition_states` (same collision reasoning as
+     * updateAutoSendReportEnabled() above). Only ever called after the
+     * wizard's list-saver wrapper has confirmed the marker is present.
+     */
+    public function updateConditionStates(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'inventory_condition_states' => ['nullable', 'array'],
+            'inventory_condition_states.*.key' => ['required_with:inventory_condition_states', 'string', 'max:60'],
+            'inventory_condition_states.*.label' => ['required_with:inventory_condition_states', 'string', 'max:191'],
+            'inventory_condition_states.*.requires_notes' => ['nullable', 'boolean'],
+        ]);
+
+        $states = collect($validated['inventory_condition_states'] ?? [])->map(fn ($c) => [
+            'key' => $c['key'],
+            'label' => $c['label'],
+            'requires_notes' => (bool) ($c['requires_notes'] ?? false),
+        ])->all();
+
+        RentalInventorySetting::updateOrCreate(['agency_id' => $agencyId], ['condition_states' => $states]);
+
+        return redirect()->route('corex.settings.rental-inventory.edit')->with('success', 'Condition states saved.');
+    }
 }

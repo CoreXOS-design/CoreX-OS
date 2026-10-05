@@ -3,14 +3,30 @@
 
 @php
     $photoUrl = $user->profilePhotoUrl();
+    // Sub-tab each tab opens on. A failed profile save reopens the section that holds the error.
+    $portalProfileSub = ($errors->has('cover_image') || $errors->has('link_url')) ? 'articles'
+        : (($errors->any() && ! $errors->has('signature')) ? 'details' : 'signature');
     $overallColors = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)'];
     $overallColor = $overallColors[$complianceStatus['overall']] ?? 'var(--text-muted)';
 @endphp
 
 @section('corex-content')
+<style>
+    /* My Portal — Sub-tabs restyle (spec .ai/specs/my-portal-restyle.md). Under each tab a second
+       row lists its sections; one section shows at a time at full width. CoreX tokens only. */
+    .pg-subs { display:flex; gap:28px; padding:6px 2px 0; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--border); margin-top:14px; }
+    .pg-sub { border:0; background:none; padding:8px 0; font-size:0.875rem; font-weight:600; color:var(--text-muted); cursor:pointer; white-space:nowrap; border-bottom:2px solid transparent; margin-bottom:-1px; display:inline-flex; align-items:center; gap:7px; }
+    .pg-sub:hover { color:var(--text-primary); }
+    .pg-sub[aria-current="page"] { color:var(--text-primary); border-bottom-color:var(--text-primary); }
+    .pg-pane { padding:26px 2px 12px; max-width:980px; }
+    .pg-pane.pg-wide { max-width:none; }
+    .pg-pane-col { display:flex; flex-direction:column; gap:14px; }
+    .pg-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+</style>
 <div class="w-full space-y-5"
      x-data="{
         tab: (window.location.hash || '#overview').replace('#', ''),
+        sub: { overview: '{{ ($isAssistant ?? false) ? 'compliance' : 'earnings' }}', profile: '{{ $portalProfileSub }}', favourites: 'intro', tools: '{{ request('pane') === 'social' ? 'social' : 'theme' }}', documents: '', training: 'rmcp', password: 'update' },
         setTab(t) { this.tab = t; history.replaceState(null, '', '#' + t); }
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
@@ -113,6 +129,9 @@
                 $portalTabs = [
                     'overview' => 'Overview',
                     'profile' => 'Profile',
+                    // Sidebar Favourites — personal navigation, available to every
+                    // signed-in user. Spec: .ai/specs/sidebar-favourites.md §6.3
+                    'favourites' => 'Favourites',
                 ];
                 if (!($isAssistant ?? false)) {
                     $portalTabs['tools'] = 'Tools';
@@ -148,10 +167,37 @@
          TAB: OVERVIEW
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'overview'" x-cloak>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {{-- Training progress data (rendered as its own sub-tab below) --}}
+            @php
+                $trainingRole = auth()->user()->effectiveRole();
+                $trainingReqDocs = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->ordered()->get();
+                $trainingReads = \App\Models\Training\TrainingDocRead::where('user_id', auth()->id())
+                    ->whereIn('doc_id', $trainingReqDocs->pluck('id'))
+                    ->get()->keyBy('doc_id');
+                $trainingDone = $trainingReqDocs->filter(fn($d) => ($trainingReads->get($d->id)?->completed_at) && !($trainingReads->get($d->id)?->is_outdated_since))->count();
+                $trainingTotal = $trainingReqDocs->count();
+                $trainingPct = $trainingTotal > 0 ? (int) round(($trainingDone / $trainingTotal) * 100) : 100;
+                $trainingNext = $trainingReqDocs->first(fn($d) => !($trainingReads->get($d->id)?->completed_at) || ($trainingReads->get($d->id)?->is_outdated_since));
+            @endphp
+        <nav class="pg-subs" aria-label="Sections">
+            @unless($isAssistant ?? false)
+            <button type="button" class="pg-sub" @click="sub.overview = 'earnings'" :aria-current="sub.overview === 'earnings' ? 'page' : null">My Earnings</button>
+            @endunless
+            <button type="button" class="pg-sub" @click="sub.overview = 'compliance'" :aria-current="sub.overview === 'compliance' ? 'page' : null">Compliance Overview</button>
+            @unless($isAssistant ?? false)
+            @if(isset($presentationStats))
+            <button type="button" class="pg-sub" @click="sub.overview = 'presentations'" :aria-current="sub.overview === 'presentations' ? 'page' : null">My Presentations</button>
+            @endif
+            @endunless
+            <button type="button" class="pg-sub" @click="sub.overview = 'activity'" :aria-current="sub.overview === 'activity' ? 'page' : null">Recent Activity</button>
+            @if($trainingTotal > 0)
+            <button type="button" class="pg-sub" @click="sub.overview = 'training'" :aria-current="sub.overview === 'training' ? 'page' : null">Training Progress</button>
+            @endif
+        </nav>
+        <div>
             {{-- Earnings snapshot — AT-267 §10: hidden for assistants (no commission of their own) --}}
             @unless($isAssistant ?? false)
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-earnings">
+            <div x-show="sub.overview === 'earnings'" x-cloak class="pg-pane " data-tour="portal-home-earnings">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">My Earnings</h3>
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -177,7 +223,7 @@
             @endunless
 
             {{-- Quick compliance card --}}
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;" data-tour="portal-home-compliance">
+            <div x-show="sub.overview === 'compliance'" x-cloak class="pg-pane " data-tour="portal-home-compliance">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Compliance Overview</h3>
                 @php $dotColors = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)', 'grey' => 'var(--text-muted)', 'missing' => 'var(--text-muted)']; @endphp
                 @php
@@ -214,7 +260,7 @@
         {{-- Phase 9a G2 — Presentations widget (light agent stats). AT-267 §10: hidden for assistants. --}}
         @unless($isAssistant ?? false)
         @if(isset($presentationStats))
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:16px;">
+        <div x-show="sub.overview === 'presentations'" x-cloak class="pg-pane ">
             <div class="px-5 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">My Presentations</h3>
                 @if(\Illuminate\Support\Facades\Route::has('presentations.index'))
@@ -250,7 +296,7 @@
         @endunless
 
         {{-- Recent activity --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:16px;">
+        <div x-show="sub.overview === 'activity'" x-cloak class="pg-pane pg-wide">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Recent Activity</h3>
             </div>
@@ -280,21 +326,9 @@
                 @endforeach
             </div>
             @endif
-
-            {{-- Training Progress tile --}}
-            @php
-                $trainingRole = auth()->user()->effectiveRole();
-                $trainingReqDocs = \App\Models\Training\TrainingDoc::required()->forRole($trainingRole)->ordered()->get();
-                $trainingReads = \App\Models\Training\TrainingDocRead::where('user_id', auth()->id())
-                    ->whereIn('doc_id', $trainingReqDocs->pluck('id'))
-                    ->get()->keyBy('doc_id');
-                $trainingDone = $trainingReqDocs->filter(fn($d) => ($trainingReads->get($d->id)?->completed_at) && !($trainingReads->get($d->id)?->is_outdated_since))->count();
-                $trainingTotal = $trainingReqDocs->count();
-                $trainingPct = $trainingTotal > 0 ? (int) round(($trainingDone / $trainingTotal) * 100) : 100;
-                $trainingNext = $trainingReqDocs->first(fn($d) => !($trainingReads->get($d->id)?->completed_at) || ($trainingReads->get($d->id)?->is_outdated_since));
-            @endphp
+        </div>{{-- /activity pane --}}
             @if($trainingTotal > 0)
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+            <div x-show="sub.overview === 'training'" x-cloak class="pg-pane ">
                 <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Training Progress</h3>
                 <div class="text-xs mb-2" style="color:var(--text-muted);">Required for your role: {{ $trainingTotal }} {{ Str::plural('guide', $trainingTotal) }}</div>
                 <div class="text-lg font-bold mb-2" style="color:var(--text-primary);">{{ $trainingDone }} of {{ $trainingTotal }} completed</div>
@@ -312,7 +346,6 @@
                 @endif
             </div>
             @endif
-        </div>
     </div>
 
     {{-- Impersonation audit (visible to all users on Overview tab) --}}
@@ -340,14 +373,27 @@
          TAB: PROFILE
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'profile'" x-cloak>
+        <nav class="pg-subs" aria-label="Sections">
+            <button type="button" class="pg-sub" @click="sub.profile = 'signature'" :aria-current="sub.profile === 'signature' ? 'page' : null">Signature &amp; PIN</button>
+            <button type="button" class="pg-sub" @click="sub.profile = 'photo'" :aria-current="sub.profile === 'photo' ? 'page' : null">Photo &amp; Public Page</button>
+            <button type="button" class="pg-sub" @click="sub.profile = 'details'" :aria-current="sub.profile === 'details' ? 'page' : null">Contact &amp; Licence</button>
+            @unless($isAssistant ?? false)
+            <button type="button" class="pg-sub" @click="sub.profile = 'website'" :aria-current="sub.profile === 'website' ? 'page' : null">Public Website Profile</button>
+            @endunless
+            <button type="button" class="pg-sub" @click="sub.profile = 'admin'" :aria-current="sub.profile === 'admin' ? 'page' : null">Admin Managed</button>
+            @if(!empty($canSelfAssignBranches) && $selfAssignAgencyBranches->count() > 0)
+            <button type="button" class="pg-sub" @click="sub.profile = 'branches'" :aria-current="sub.profile === 'branches' ? 'page' : null">Branches I Manage</button>
+            @endif
+            <button type="button" class="pg-sub" @click="sub.profile = 'articles'" :aria-current="sub.profile === 'articles' ? 'page' : null">Articles</button>
+        </nav>
 
-        {{-- Saved signature / initial / signing PIN (encrypted; PIN-gated; blocked under impersonation) --}}
-        <div style="margin-bottom:20px;">
+        <div x-show="sub.profile === 'signature'" x-cloak class="pg-pane pg-wide">
             @include('agent._signature-settings')
         </div>
 
+        <div x-show="sub.profile === 'photo'" x-cloak class="pg-pane ">
         {{-- Live preview of the public agent page --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 24px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div style="margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
             <div>
                 <div class="text-sm font-bold" style="color:var(--text-primary);">Your public agent page</div>
                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">See exactly how your profile, listings &amp; testimonials look on the agency website.</div>
@@ -358,15 +404,15 @@
         </div>
 
         {{-- Profile photo upload --}}
-        <div x-data="{ open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-bottom:20px; overflow:hidden;">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+        <div x-data="{ open:true }">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 12px; background:none; border:0; cursor:pointer; text-align:left;">
                 <div>
                     <div class="text-sm font-bold" style="color:var(--text-primary);">Profile Photo</div>
                     <div class="text-xs mt-0.5" style="color:var(--text-muted);">Square crop, face centered — applied automatically.</div>
                 </div>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
             </button>
-            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+            <div x-show="open" x-cloak>
                 <form method="POST" action="{{ route('agent.portal.upload') }}" enctype="multipart/form-data">
                     @csrf
                     <input type="hidden" name="document_type" value="photo">
@@ -375,21 +421,16 @@
             </div>
         </div>
 
-        {{-- Profile form --}}
-        <div x-data="{ open: {{ $errors->any() ? 'true' : 'false' }} }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
-                <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Profile Information</h3>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-            </button>
-            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+        </div>
 
-            <form id="send-verification" method="post" action="{{ route('verification.send') }}">@csrf</form>
+        <form id="send-verification" method="post" action="{{ route('verification.send') }}">@csrf</form>
 
-            <form method="post" action="{{ route('agent.portal.profile.update') }}">
-                @csrf
-                @method('patch')
+        <form method="post" action="{{ route('agent.portal.profile.update') }}">
+            @csrf
+            @method('patch')
 
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:560px;">
+            <div x-show="sub.profile === 'details'" x-cloak class="pg-pane ">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:760px;">
                     {{-- Name --}}
                     <div style="grid-column:span 2;">
                         <label for="name" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Name <span class="text-red-500">*</span></label>
@@ -486,11 +527,18 @@
                     @endunless
                 </div>
 
+                <div style="margin-top:20px;">
+                    <button type="submit" class="corex-btn-primary">Save Profile</button>
+                </div>
+            </div>
+
+            @unless($isAssistant ?? false)
+            <div x-show="sub.profile === 'website'" x-cloak class="pg-pane ">
                 {{-- Public website profile — About me + personal social links.
                      Shown on the agent's public website page (distinct from the
                      ad/OAuth accounts under the Tools tab). AT-267 §10: assistants have no public page. --}}
                 @unless($isAssistant ?? false)
-                <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+                <div>
                     <div class="flex items-center gap-2 mb-1">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                         <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Public Website Profile</span>
@@ -518,8 +566,15 @@
                 </div>
                 @endunless
 
+                <div style="margin-top:20px;">
+                    <button type="submit" class="corex-btn-primary">Save Profile</button>
+                </div>
+            </div>
+            @endunless
+
+            <div x-show="sub.profile === 'admin'" x-cloak class="pg-pane ">
                 {{-- Read-only admin fields --}}
-                <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+                <div>
                     <div class="flex items-center gap-2 mb-3">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
                         <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Admin Managed</span>
@@ -559,27 +614,23 @@
                     </div>
                 </div>
 
-                <div style="margin-top:20px;">
-                    <button type="submit" class="corex-btn-primary">Save Profile</button>
-                </div>
-            </form>
-            </div>{{-- /x-show profile info --}}
-        </div>
+            </div>
+        </form>
 
         {{-- Branches I Manage (Admin Multi-Branch Manager) — only for admins
              holding branches.self_assign_managed. Identity only: picking
              branches here lets you "act as" their manager from the sidebar;
              it never changes what you can see. --}}
         @if(!empty($canSelfAssignBranches) && $selfAssignAgencyBranches->count() > 0)
-        <div x-data="{ open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-top:20px; overflow:hidden;">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+        <div x-data="{ open:true }" x-show="sub.profile === 'branches'" x-cloak class="pg-pane">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 14px; background:none; border:0; cursor:pointer; text-align:left;">
                 <div>
                     <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Branches I Manage</h3>
                     <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Choose the branches you manage and the one CoreX opens to. Switch between them anytime from the sidebar.</p>
                 </div>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
             </button>
-            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+            <div x-show="open" x-cloak>
                 <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick each branch you manage, then mark one as your <strong>default</strong> (the branch loaded when you sign in). The default must be one of the branches you tick.</p>
                 <form method="POST" action="{{ route('agent.portal.managed-branches.update') }}">
                     @csrf
@@ -610,15 +661,15 @@
 
         {{-- Articles — agent-authored content for the public website profile --}}
         @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
-        <div x-data="{ editingId: null, open:false }" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; margin-top:20px; overflow:hidden;">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 24px; background:none; border:0; cursor:pointer; text-align:left;">
+        <div x-data="{ editingId: null, open:true }" x-show="sub.profile === 'articles'" x-cloak class="pg-pane pg-wide">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 14px; background:none; border:0; cursor:pointer; text-align:left;">
                 <div>
                     <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Articles</h3>
                     <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Content for your public website profile.</p>
                 </div>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
             </button>
-            <div x-show="open" x-cloak style="padding:0 24px 20px;">
+            <div x-show="open" x-cloak>
             <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
 
             {{-- Add article --}}
@@ -708,12 +759,329 @@
     </div>{{-- /tab: profile --}}
 
     {{-- ═══════════════════════════════════════════
+         TAB: FAVOURITES — choose the pages that appear in the sidebar
+         Favourites panel above your name.
+         The checklist is built client-side from the live sidebar
+         (window.CorexNavSearch) so it always mirrors exactly what THIS user
+         can open — no hand-maintained page registry, nothing to keep in sync.
+         Spec: .ai/specs/sidebar-favourites.md §6.3, §6.4
+         ═══════════════════════════════════════════ --}}
+    <div x-show="tab === 'favourites'" x-cloak>
+        <nav class="pg-subs" aria-label="Sections">
+            <button type="button" class="pg-sub" @click="sub.favourites = 'intro'" :aria-current="sub.favourites === 'intro' ? 'page' : null">Favourites</button>
+            <button type="button" class="pg-sub" @click="sub.favourites = 'mine'" :aria-current="sub.favourites === 'mine' ? 'page' : null">My Favourites</button>
+            <button type="button" class="pg-sub" @click="sub.favourites = 'all'" :aria-current="sub.favourites === 'all' ? 'page' : null">All Pages</button>
+        </nav>
+        <form method="POST" action="{{ route('agent.portal.favourites.update') }}"
+              x-data="corexFavouritesPicker(@js($navFavourites->map(fn($f) => ['key' => $f->nav_key, 'label' => $f->label])->values()), {{ $navFavouriteMax }}, @js((bool) $user->nav_favourites_autoopen))"
+              x-init="init()">
+            @csrf
+            @method('PUT')
+
+            <div>
+                <div x-show="sub.favourites === 'intro'" x-cloak class="pg-pane">
+                <h3 style="font-size:0.9375rem; font-weight:600; color:var(--text-primary); margin-bottom:4px;">Favourites</h3>
+                <p style="font-size:0.8125rem; color:var(--text-secondary); margin-bottom:20px;">
+                    Pick the pages you use most. They appear in a Favourites list just above your name in the
+                    sidebar, one click away from anywhere in CoreX.
+                </p>
+
+                {{-- ── Auto-open ─────────────────────────────────────────── --}}
+                {{-- The hidden 0 keeps auto_open ALWAYS present in this post, so
+                     unticking the box actually turns the setting off. An unchecked
+                     checkbox submits nothing, and the controller's $request->has()
+                     guard (which protects partial posts from other forms) would
+                     otherwise read "absent" and leave the setting untouched. --}}
+                <input type="hidden" name="auto_open" value="0">
+                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:12px 14px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);">
+                    <input type="checkbox" name="auto_open" value="1" x-model="autoOpen"
+                           style="margin-top:2px; width:16px; height:16px; accent-color:var(--brand-button, #0ea5e9);">
+                    <span>
+                        <span style="display:block; font-size:0.8125rem; font-weight:500; color:var(--text-primary);">Open my Favourites automatically when I sign in</span>
+                        <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                            What this changes: the Favourites list opens by itself the first time you land in CoreX
+                            after signing in. Close it and it stays closed until your next sign-in.
+                        </span>
+                    </span>
+                </label>
+
+                </div>{{-- /pane: intro --}}
+
+                {{-- ── My favourites (ordered) ───────────────────────────── --}}
+                <div x-show="sub.favourites === 'mine'" x-cloak class="pg-pane">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                        <h4 style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">My favourites</h4>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">
+                            <span x-text="chosen.length"></span> of {{ $navFavouriteMax }}
+                        </span>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:10px;">
+                        Drag a page to reorder it, or use the arrows. This is the order they appear in the sidebar.
+                    </p>
+
+                    <template x-if="chosen.length === 0">
+                        <div style="padding:16px; border:1px dashed var(--border); border-radius:6px; font-size:0.8125rem; color:var(--text-muted);">
+                            You haven't chosen any pages yet — tick them below.
+                        </div>
+                    </template>
+
+                    <div x-show="chosen.length > 0" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                        <template x-for="(fav, i) in chosen" :key="fav.key">
+                            <div draggable="true"
+                                 @dragstart="startDrag(i)" @dragover.prevent="dragOver(i)"
+                                 @drop.prevent="endDrag()" @dragend="endDrag()"
+                                 {{-- Object syntax, never a string: Alpine's setStylesFromString()
+                                      does setAttribute('style', value), which REPLACES the static
+                                      style attribute — a string binding here wiped display:flex and
+                                      wrapped every row. Object syntax merges per property. --}}
+                                 :style="{ opacity: i === dragIndex ? 0.45 : 1 }"
+                                 style="display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--surface); cursor:grab;">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted); flex-shrink:0;">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9h16.5m-16.5 6.75h16.5" />
+                                </svg>
+                                <span style="flex:1; font-size:0.8125rem; color:var(--text-primary);" x-text="fav.label"></span>
+                                <button type="button" @click="move(i, -1)" :disabled="i === 0" title="Move up"
+                                        style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--text-muted);"
+                                        :style="{ opacity: i === 0 ? 0.3 : 1, cursor: i === 0 ? 'default' : 'pointer' }">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" /></svg>
+                                </button>
+                                <button type="button" @click="move(i, 1)" :disabled="i === chosen.length - 1" title="Move down"
+                                        style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--text-muted);"
+                                        :style="{ opacity: i === chosen.length - 1 ? 0.3 : 1, cursor: i === chosen.length - 1 ? 'default' : 'pointer' }">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                                </button>
+                                <button type="button" @click="removeAt(i)" title="Remove from favourites"
+                                        style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--ds-crimson, #dc2626);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                </button>
+                                <input type="hidden" :name="'favourites[' + i + '][key]'" :value="fav.key">
+                                <input type="hidden" :name="'favourites[' + i + '][label]'" :value="fav.label">
+                            </div>
+                        </template>
+                    </div>
+
+                    <p x-show="atLimit()" x-cloak style="margin-top:8px; font-size:0.75rem; color:var(--ds-amber, #d97706);">
+                        You've reached the limit of {{ $navFavouriteMax }} favourites. Remove one to add another.
+                    </p>
+                </div>
+
+                {{-- ── All pages you can open ────────────────────────────── --}}
+                <div x-show="sub.favourites === 'all'" x-cloak class="pg-pane pg-wide">
+                    <h4 style="font-size:0.8125rem; font-weight:600; color:var(--text-primary); margin-bottom:10px;">All pages you can open</h4>
+
+                    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px;">
+                        <input type="text" x-model="q" placeholder="Search pages…" autocomplete="off" spellcheck="false"
+                               aria-label="Search pages"
+                               style="flex:1; min-width:200px; padding:7px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
+                        <select x-model="filterMode" aria-label="Filter pages"
+                                style="padding:7px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
+                            <option value="all">All pages</option>
+                            <option value="mine">Only my favourites</option>
+                        </select>
+                    </div>
+
+                    <template x-if="!ready">
+                        <p style="font-size:0.8125rem; color:var(--text-muted);">Reading your menu…</p>
+                    </template>
+
+                    <template x-if="ready && failed">
+                        <p style="font-size:0.8125rem; color:var(--text-muted);">Couldn't read your menu — please reload the page.</p>
+                    </template>
+
+                    <template x-if="ready && !failed && visibleSections().length === 0">
+                        <p style="font-size:0.8125rem; color:var(--text-muted);"
+                           x-text="filterMode === 'mine' ? 'You haven\'t chosen any pages yet.' : 'No pages match “' + q + '”.'"></p>
+                    </template>
+
+                    {{-- The page list scrolls INSIDE itself. With ~150 pages across a
+                         dozen sections, letting it run down the page pushed Save far
+                         below the fold — the user had to scroll past everything just to
+                         save. Bounded here, so Save stays a short reach away whatever
+                         the menu size. The pane shrinks to fit when a search narrows it. --}}
+                    <div class="space-y-3 corex-brand-scroll"
+                         x-show="ready && !failed && visibleSections().length > 0"
+                         style="max-height:460px; overflow-y:auto; overscroll-behavior:contain; box-sizing:border-box; padding:12px; border:1px solid var(--border); border-radius:6px;">
+                        <template x-for="section in visibleSections()" :key="section.label">
+                            <div style="border:1px solid var(--border); border-radius:6px; padding:12px 14px; background:var(--surface-2);">
+                                <div style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:8px;"
+                                     x-text="section.label"></div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                    <template x-for="page in section.pages" :key="page.key">
+                                        <label style="display:flex; align-items:center; gap:8px; font-size:0.8125rem; color:var(--text-primary); padding:2px 0;"
+                                               :style="{ opacity: (!isChosen(page.key) && atLimit()) ? 0.45 : 1, cursor: (!isChosen(page.key) && atLimit()) ? 'default' : 'pointer' }">
+                                            <input type="checkbox" :checked="isChosen(page.key)"
+                                                   :disabled="!isChosen(page.key) && atLimit()"
+                                                   @change="togglePage(page)"
+                                                   style="width:16px; height:16px; border-radius:4px; accent-color:var(--brand-button, #0ea5e9);">
+                                            <span x-text="page.label"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- One Save for the whole form, always visible whichever section is open. --}}
+                <div class="pg-pane" style="padding-top:8px; padding-bottom:0;">
+                    <button type="submit" class="corex-btn-primary">Save Favourites</button>
+                </div>
+            </div>
+        </form>
+    </div>{{-- /tab: favourites --}}
+
+    <script>
+    // ── Favourites picker ────────────────────────────────────────────────
+    // Spec: .ai/specs/sidebar-favourites.md §6.3, §6.4
+    // Plain (non-deferred) script so the factory exists before Alpine (loaded as
+    // a deferred module by the Vite bundle) evaluates the x-data above.
+    function corexFavouritesPicker(saved, max, autoOpen) {
+        return {
+            ready: false,
+            failed: false,
+            max: max || 25,
+            autoOpen: !!autoOpen,
+            chosen: (saved || []).map(function (f) { return { key: f.key, label: f.label }; }),
+            sections: [],
+            q: '',
+            filterMode: 'all',
+            dragIndex: null,
+
+            init() {
+                const run = () => this.build();
+                if (window.CorexNavSearch) run();
+                else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+                else run();
+            },
+
+            // Must match NavFavouriteService::normalisePath() on the server —
+            // same-origin pathname, trailing slash stripped — so a page is one
+            // favourite, not two.
+            navKeyFor(entry) {
+                if (!entry.href) return null;
+                try {
+                    let path = new URL(entry.href, location.origin).pathname;
+                    if (path.length > 1) path = path.replace(/\/+$/, '');
+                    return 'p:' + path;
+                } catch (e) {
+                    return null;
+                }
+            },
+
+            build() {
+                if (!window.CorexNavSearch) { this.failed = true; this.ready = true; return; }
+
+                const entries = window.CorexNavSearch.build();
+                const map = {};
+                const order = [];
+                const seen = {};
+
+                entries.forEach((e) => {
+                    // Decision #1 — only entries that open a page. A group toggle
+                    // just slides a sub-menu open and is not pinnable.
+                    if (e.group) return;
+                    const key = this.navKeyFor(e);
+                    if (!key) return;
+
+                    const section = e.parent || 'Pages';
+                    if (!map[section]) { map[section] = { label: section, pages: [] }; order.push(section); }
+
+                    const dedupe = section + '|' + key;
+                    if (seen[dedupe]) return;
+                    seen[dedupe] = true;
+                    map[section].pages.push({ key: key, label: e.label });
+                });
+
+                const sections = order.map((s) => map[s]);
+                sections.forEach((s) => s.pages.sort((a, b) => a.label.localeCompare(b.label)));
+                sections.sort((a, b) => {
+                    if (a.label === 'Pages') return -1;
+                    if (b.label === 'Pages') return 1;
+                    return a.label.localeCompare(b.label);
+                });
+
+                // Refresh stored labels from the live sidebar, so a page renamed
+                // since it was pinned shows its current name.
+                const labels = {};
+                sections.forEach((s) => s.pages.forEach((p) => { labels[p.key] = p.label; }));
+                this.chosen.forEach((c) => { if (labels[c.key]) c.label = labels[c.key]; });
+
+                this.sections = sections;
+                this.failed = sections.length === 0;
+                this.ready = true;
+            },
+
+            isChosen(key) { return this.chosen.some((c) => c.key === key); },
+
+            atLimit() { return this.chosen.length >= this.max; },
+
+            togglePage(page) {
+                const i = this.chosen.findIndex((c) => c.key === page.key);
+                if (i >= 0) { this.chosen.splice(i, 1); return; }
+                if (this.atLimit()) return;
+                this.chosen.push({ key: page.key, label: page.label });
+            },
+
+            removeAt(i) { this.chosen.splice(i, 1); },
+
+            move(i, d) {
+                const j = i + d;
+                if (j < 0 || j >= this.chosen.length) return;
+                const row = this.chosen.splice(i, 1)[0];
+                this.chosen.splice(j, 0, row);
+            },
+
+            startDrag(i) { this.dragIndex = i; },
+
+            dragOver(i) {
+                if (this.dragIndex === null || this.dragIndex === i) return;
+                const row = this.chosen.splice(this.dragIndex, 1)[0];
+                this.chosen.splice(i, 0, row);
+                this.dragIndex = i;
+            },
+
+            endDrag() { this.dragIndex = null; },
+
+            visibleSections() {
+                const q = (this.q || '').trim().toLowerCase();
+                const mine = this.filterMode === 'mine';
+                const out = [];
+                this.sections.forEach((s) => {
+                    const pages = s.pages.filter((p) => {
+                        if (mine && !this.isChosen(p.key)) return false;
+                        if (!q) return true;
+                        return p.label.toLowerCase().indexOf(q) >= 0 || s.label.toLowerCase().indexOf(q) >= 0;
+                    });
+                    if (pages.length) out.push({ label: s.label, pages: pages });
+                });
+                return out;
+            },
+        };
+    }
+    </script>
+
+    {{-- ═══════════════════════════════════════════
          TAB: TOOLS — utilities moved out of Profile
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'tools'" x-cloak>
+        <nav class="pg-subs" aria-label="Sections">
+            <button type="button" class="pg-sub" @click="sub.tools = 'theme'" :aria-current="sub.tools === 'theme' ? 'page' : null">Theme</button>
+            <button type="button" class="pg-sub" @click="sub.tools = 'app'" :aria-current="sub.tools === 'app' ? 'page' : null">App Access</button>
+            @if($user->portal_show_api_token)
+            <button type="button" class="pg-sub" @click="sub.tools = 'api'" :aria-current="sub.tools === 'api' ? 'page' : null">API Token</button>
+            <button type="button" class="pg-sub" @click="sub.tools = 'chrome'" :aria-current="sub.tools === 'chrome' ? 'page' : null">Chrome Extension</button>
+            @endif
+            @if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
+            <button type="button" class="pg-sub" @click="sub.tools = 'social'" :aria-current="sub.tools === 'social' ? 'page' : null">Social Media</button>
+            @endif
+            <button type="button" class="pg-sub" @click="sub.tools = 'qr'" :aria-current="sub.tools === 'qr' ? 'page' : null">Client QR Code</button>
+            @if(auth()->user()->hasPermission('access_communication'))
+            <button type="button" class="pg-sub" @click="sub.tools = 'wa'" :aria-current="sub.tools === 'wa' ? 'page' : null">WhatsApp</button>
+            @endif
+        </nav>
 
         {{-- Theme Preference --}}
-        <div class="rounded-md p-5 mt-5" style="background:var(--surface); border:1px solid var(--border);"
+        <div x-show="sub.tools === 'theme'" x-cloak class="pg-pane "
              x-data="{ current: localStorage.getItem('corex-theme') || '{{ $user->theme ?? 'dark' }}' }">
             <h3 class="text-base font-bold mb-1" style="color:var(--text-primary);">Theme Preference</h3>
             <p class="text-xs mb-4" style="color:var(--text-muted);">Choose how CoreX looks for you. Synced across your devices.</p>
@@ -746,7 +1114,7 @@
         {{-- App Access — mobile "Delete my account" (Apple 5.1.1(v)).
              Spec: .ai/specs/mobile-app-access.md §5. Unconditional: every
              agent has this, unlike the settings-gated cards below. --}}
-        <div class="rounded-md p-5 mt-5" style="background:var(--surface); border:1px solid var(--border);">
+        <div x-show="sub.tools === 'app'" x-cloak class="pg-pane ">
             <h3 class="text-base font-bold mb-1" style="color:var(--text-primary);">App Access</h3>
             <p class="text-xs mb-4" style="color:var(--text-muted);">Whether you can log into the CoreX mobile app. Turning this off in the app (Delete my account) never affects your CoreX account here on the website.</p>
             @if($user->hasAppAccess())
@@ -764,7 +1132,7 @@
 
         @if($user->portal_show_api_token)
         {{-- API Token --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;"
+        <div x-show="sub.tools === 'api'" x-cloak class="pg-pane "
              x-data="{
                 hasToken: {{ auth()->user()->api_token ? 'true' : 'false' }},
                 plaintext: null, loading: false, copied: false, error: null,
@@ -819,7 +1187,7 @@
         </div>
 
         {{-- Chrome Extension --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+        <div x-show="sub.tools === 'chrome'" x-cloak class="pg-pane ">
             @php
                 $corexExtVersion = null;
                 $corexExtManifest = public_path('chrome-extension/portal-capture/manifest.json');
@@ -857,7 +1225,7 @@
         @php
             $fbSocial = $socialAccounts->firstWhere('platform', 'facebook');
         @endphp
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+        <div x-show="sub.tools === 'social'" x-cloak class="pg-pane ">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 12px;">Social Media Accounts</h3>
             <div style="display:grid; grid-template-columns:1fr; gap:12px;">
                 {{-- Facebook --}}
@@ -870,13 +1238,14 @@
                             <div style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">Facebook</div>
                             @if($fbSocial)
                             <span class="ds-badge ds-badge-success">Connected</span>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">{{ $fbSocial->platform_page_name }}</div>
                             @else
                             <span class="ds-badge ds-badge-default">Not Connected</span>
                             @endif
                         </div>
                     </div>
                     @if($fbSocial)
-                    <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">@csrf<input type="hidden" name="platform" value="facebook">
+                    <form method="POST" action="{{ route('corex.marketing.social.disconnect') }}">@csrf<input type="hidden" name="platform" value="facebook"><input type="hidden" name="return" value="portal">
                         <button type="submit" style="font-size:0.6875rem; padding:5px 12px; border-radius:6px; background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent); cursor:pointer;">Disconnect</button>
                     </form>
                     @else
@@ -903,7 +1272,7 @@
             $qrImgSrc = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=8&ecc=H&data={$qrParam}";
             $qrPngSrc = "https://api.qrserver.com/v1/create-qr-code/?size=1024x1024&margin=8&ecc=H&format=png&data={$qrParam}";
         @endphp
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+        <div x-show="sub.tools === 'qr'" x-cloak class="pg-pane ">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Your Client QR Code</h3>
             <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
                 Hand this to prospects. When they scan it in the CoreX app, they sign up directly as your client.
@@ -930,7 +1299,7 @@
              ═══════════════════════════════════════════ --}}
         @if(auth()->user()->hasPermission('access_communication'))
         <div x-data="waLink()" x-init="init()"
-             style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+             x-show="sub.tools === 'wa'" x-cloak class="pg-pane ">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">WhatsApp Link</h3>
             <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
                 Link your work WhatsApp so CoreX can capture your client conversations into the compliance archive. Read-only — CoreX never sends from your number.
@@ -1090,7 +1459,22 @@
             ];
         @endphp
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        @php
+            $firstDocKey = ! empty($docTypeConfig) ? ($docTypeToKey[$docTypeConfig[0]['type']] ?? $docTypeConfig[0]['type']) : '';
+            $docDotColors = ['verified' => 'var(--ds-green)', 'pending' => 'var(--ds-amber)', 'rejected' => 'var(--ds-crimson)', 'expired' => 'var(--ds-crimson)', 'missing' => 'var(--text-muted)'];
+        @endphp
+        <div x-init="if (! sub.documents) sub.documents = '{{ $firstDocKey }}'"></div>
+        <nav class="pg-subs" aria-label="Sections">
+            @foreach($docTypeConfig as $docCfg)
+            @php
+                $navKey = $docTypeToKey[$docCfg['type']] ?? $docCfg['type'];
+                $navDoc = $documents->get($navKey);
+                $navStatus = $navDoc ? $navDoc->status : 'missing';
+            @endphp
+            <button type="button" class="pg-sub" @click="sub.documents = '{{ $navKey }}'" :aria-current="sub.documents === '{{ $navKey }}' ? 'page' : null">{{ $docCfg['label'] }}<span class="pg-dot" style="background:{{ $docDotColors[$navStatus] ?? 'var(--text-muted)' }};" title="{{ $statusPills[$navStatus]['text'] ?? '' }}"></span></button>
+            @endforeach
+        </nav>
+        <div>
             @foreach($docTypeConfig as $docCfg)
             @php
                 $docKey = $docTypeToKey[$docCfg['type']] ?? $docCfg['type'];
@@ -1098,7 +1482,7 @@
                 $docStatus = $doc ? $doc->status : 'missing';
                 $pill = $statusPills[$docStatus];
             @endphp
-            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px 18px; display:flex; flex-direction:column; gap:10px;">
+            <div x-show="sub.documents === '{{ $docKey }}'" x-cloak class="pg-pane pg-pane-col">
                 {{-- Header --}}
                 <div class="flex items-center gap-3">
                     <div style="color:var(--text-muted); flex-shrink:0;">{!! $docCfg['icon'] !!}</div>
@@ -1240,7 +1624,7 @@
                 default => 'var(--surface-2)',
             };
         @endphp
-        <div class="rounded-md p-6 text-center" style="background:var(--surface); border:1px solid var(--border); margin-bottom:20px;">
+        <div class="pg-pane pg-wide" style="text-align:center; padding-bottom:0;">
             <div class="mx-auto mb-3 flex items-center justify-center" style="width:48px; height:48px; border-radius:50%; background:{{ $overallTint }};">
                 <span style="width:20px; height:20px; border-radius:50%; background:{{ $overallColor }}; display:block;"></span>
             </div>
@@ -1252,7 +1636,7 @@
         </div>
 
         {{-- Breakdown list --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="portal-home-compliance-breakdown">
+        <div class="pg-pane pg-wide" data-tour="portal-home-compliance-breakdown">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Compliance Breakdown</h3>
             </div>
@@ -1337,8 +1721,19 @@
          TAB: TRAINING
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'training'" x-cloak>
+        <nav class="pg-subs" aria-label="Sections">
+            <button type="button" class="pg-sub" @click="sub.training = 'rmcp'" :aria-current="sub.training === 'rmcp' ? 'page' : null">RMCP Acknowledgement</button>
+            @isset($outstandingPolicies)
+            @if($outstandingPolicies->isNotEmpty())
+            <button type="button" class="pg-sub" @click="sub.training = 'policies'" :aria-current="sub.training === 'policies' ? 'page' : null">Policies</button>
+            @endif
+            @endisset
+            @if($trainingItems->isNotEmpty())
+            <button type="button" class="pg-sub" @click="sub.training = 'other'" :aria-current="sub.training === 'other' ? 'page' : null">Other Training</button>
+            @endif
+        </nav>
         {{-- RMCP Acknowledgement — primary card --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+        <div x-show="sub.training === 'rmcp'" x-cloak class="pg-pane ">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $dotColors[$rmcpStatus] }};"></span>
@@ -1362,7 +1757,7 @@
         {{-- Agency Policies (AT-29) — outstanding sign-offs --}}
         @isset($outstandingPolicies)
         @if($outstandingPolicies->isNotEmpty())
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+        <div x-show="sub.training === 'policies'" x-cloak class="pg-pane ">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 4px;">Policies to acknowledge</h3>
             <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 16px;">You have {{ $outstandingPolicies->count() }} {{ \Illuminate\Support\Str::plural('policy', $outstandingPolicies->count()) }} that need your sign-off.</p>
             <div class="space-y-3">
@@ -1392,7 +1787,7 @@
 
         {{-- Other training courses --}}
         @if($trainingItems->isNotEmpty())
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;">
+        <div x-show="sub.training === 'other'" x-cloak class="pg-pane ">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 16px;">Other Training</h3>
             <div class="space-y-3">
                 @foreach($trainingItems as $item)
@@ -1420,7 +1815,13 @@
          TAB: PASSWORD
          ═══════════════════════════════════════════ --}}
     <div x-show="tab === 'password'" x-cloak>
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+        <nav class="pg-subs" aria-label="Sections">
+            <button type="button" class="pg-sub" @click="sub.password = 'update'" :aria-current="sub.password === 'update' ? 'page' : null">Update Password</button>
+            @unless($isAssistant ?? false)
+            <button type="button" class="pg-sub" @click="sub.password = 'delete'" :aria-current="sub.password === 'delete' ? 'page' : null">Delete Account</button>
+            @endunless
+        </nav>
+        <div x-show="sub.password === 'update'" x-cloak class="pg-pane ">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Update Password</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">Ensure your account is using a long, random password to stay secure.</p>
 
@@ -1462,7 +1863,7 @@
 
         {{-- Delete Account — AT-267 §10: deleting an assistant is an admin action, not self-service --}}
         @unless($isAssistant ?? false)
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px; margin-top:20px;" x-data="{ confirmDelete: false }">
+        <div x-show="sub.password === 'delete'" x-cloak class="pg-pane " x-data="{ confirmDelete: false }">
             <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
 
@@ -1490,7 +1891,7 @@
     {{-- ══ Payslips tab ══ --}}
     @if(!($isAssistant ?? false) && auth()->user()->hasPermission('view_own_payslips'))
     <div x-show="tab === 'payslips'" x-cloak>
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+        <div class="pg-pane">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Payslips</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">Your finalised payslips from the payroll system.</p>
 
@@ -1524,7 +1925,7 @@
     {{-- ══ Leave tab ══ · AT-267 §10: hidden for assistants (v1) --}}
     @if(!($isAssistant ?? false) && auth()->user()->hasPermission('apply_for_leave'))
     <div x-show="tab === 'leave'" x-cloak>
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+        <div class="pg-pane">
             <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Leave</h3>
             <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">View your leave balances, apply for leave, and track your applications.</p>
 
@@ -1587,7 +1988,7 @@
                     + '&access_token=' + encodeURIComponent(response.authResponse.accessToken)
                     + '&state=' + encodeURIComponent(state);
             } else {
-                window.location.href = '{{ route('agent.portal') }}?tab=user';
+                window.location.href = '{{ route('agent.portal', ['pane' => 'social']) }}#tools';
             }
         }, {
             config_id: configId,

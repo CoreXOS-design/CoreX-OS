@@ -14,10 +14,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('agencies', function (Blueprint $table) {
-            $table->unsignedTinyInteger('ppra_mandate_register_red_threshold_pct')->default(10)->after('ppra_pack_mandate_sample_size');
-            $table->unsignedSmallInteger('ppra_zip_max_files')->default(200)->after('ppra_mandate_register_red_threshold_pct');
-        });
+        if (! Schema::hasColumn('agencies', 'ppra_mandate_register_red_threshold_pct')) {
+            Schema::table('agencies', function (Blueprint $table) {
+                $table->unsignedTinyInteger('ppra_mandate_register_red_threshold_pct')->default(10)->after('ppra_pack_mandate_sample_size');
+            });
+        }
+
+        if (! Schema::hasColumn('agencies', 'ppra_zip_max_files')) {
+            Schema::table('agencies', function (Blueprint $table) {
+                $table->unsignedSmallInteger('ppra_zip_max_files')->default(200)->after('ppra_mandate_register_red_threshold_pct');
+            });
+        }
     }
 
     public function down(): void

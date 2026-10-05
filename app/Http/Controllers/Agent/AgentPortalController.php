@@ -228,9 +228,16 @@ class AgentPortalController extends Controller
         // bank, payroll, leave, tools and agent-marketing surfaces are all suppressed.
         $isAssistant = $user->isAssistant();
 
+        // Sidebar Favourites — the user's own pinned pages, for the Favourites
+        // tab's "my favourites" list. Spec: .ai/specs/sidebar-favourites.md §6.3
+        $navFavourites = app(\App\Services\Navigation\NavFavouriteService::class)->forUser($user);
+        $navFavouriteMax = \App\Models\UserNavFavourite::MAX_PER_USER;
+
         return view('agent.portal', compact(
             'user',
             'isAssistant',
+            'navFavourites',
+            'navFavouriteMax',
             'documents',
             'articles',
             'outstandingPolicies',

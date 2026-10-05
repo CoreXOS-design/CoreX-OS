@@ -58,6 +58,8 @@ Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 // AT-444 follow-up 3 — auto-draft renewals for leases entering the reminder
 // window, right after the expiry check above runs. .ai/specs/rental-renewals.md §5.
 Schedule::command('rentals:prepare-renewal-drafts')->dailyAt('06:15')->withoutOverlapping();
+// Lease rent escalations recorded with a future effective date — applied once due.
+Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOverlapping();
 
 // AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
 Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
@@ -547,6 +549,10 @@ Schedule::command('geo:cache-purge')
 // obligation, NO grace period (was 01:00 = an hour of unlawful advertising).
 // Spec: .ai/specs/p24-syndication.md (AT-68) + corex-domain-events-spec.md.
 Schedule::command('mandates:expire')->dailyAt('00:00')->onOneServer()->withoutOverlapping();
+
+// PPRA inspection pack — mark packs whose job was lost/killed as failed so they can be regenerated.
+Schedule::call(fn () => \App\Models\Compliance\PpraInspectionPack::rescueStale())
+    ->everyTenMinutes()->name('ppra-pack-rescue-stale')->onOneServer()->withoutOverlapping();
 
 // Fault reports auto-prune — soft-delete reports older than 3 days, daily at 02:30.
 Schedule::call(function () {

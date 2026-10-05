@@ -47,6 +47,32 @@ class DealDocumentController extends Controller
         return back()->with('success', "Filed {$doc->original_name} — it's now on the deal, the property and the linked contacts.");
     }
 
+    /**
+     * Inline (in-browser) view of a deal document — the View button beside Download.
+     *
+     * Same owns-by-twin / owns-by-source guard as download(); deliberately NOT behind the
+     * assistant download toggle (AT-267 allows VIEW, not pull-down). Non-viewable types fall
+     * back to the gated download.
+     * Spec: .ai/specs/document-inline-view.md §6
+     */
+    public function view(Deal $deal, Document $document)
+    {
+        $ownsByTwin   = $deal->deal_v2_id && (int) $document->deal_id === (int) $deal->deal_v2_id;
+        $ownsBySource = $document->source_type === 'deal' && (int) $document->source_id === (int) $deal->id;
+        abort_unless($ownsByTwin || $ownsBySource, 403);
+
+        $disk = $document->disk ?: 'local';
+        abort_unless(Storage::disk($disk)->exists($document->storage_path), 404);
+
+        if (! $document->isViewableInline()) {
+            abort_unless(auth()->user()?->canDownloadDocuments(), 403);
+
+            return Storage::disk($disk)->download($document->storage_path, $document->original_name);
+        }
+
+        return $document->inlineResponse();
+    }
+
     public function download(Deal $deal, Document $document)
     {
         // The doc must belong to this deal (via the twin) or its DR1 source.

@@ -494,6 +494,12 @@ return [
         ['key' => 'properties.archive',          'label' => 'Archive',                     'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 13],
         ['key' => 'properties.ad_templates.manage', 'label' => 'Manage Others\' Ad Templates', 'section' => 'properties',    'type' => 'action',  'module' => 'properties',       'sort_order' => 14],
         ['key' => 'properties.share',            'label' => 'Share Listing Link',          'section' => 'properties',       'type' => 'action',  'module' => 'properties',       'sort_order' => 15],
+        // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §6.2.
+        // This governs who may CONFIGURE the gate (the switch + the chosen-approver
+        // roster). Who may APPROVE is deliberately NOT a permission key: it is the
+        // agency's roster itself, resolved by SyndicationApprovalService::canApprove().
+        // Two lists of "who approves" would drift.
+        ['key' => 'properties.syndication.manage_approvers', 'label' => 'Configure Syndication Approval (switch + approvers)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 16],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -987,12 +993,33 @@ return [
                 // manage_settings deliberately NOT included (narrower, matching
                 // every sibling module's own manage_settings key).
                 'rental_inventories.view', 'rental_inventories.create',
+                // 2026-09-30 audit fix (MED-4) — the Leases / Rental Inspections /
+                // Fault Reports / Work Orders modules shipped with no role default,
+                // leaving every non-admin role locked out on a fresh agency (same
+                // gap rental_applications.* closed above). Branch managers get the
+                // full working set incl. cancel/approval/resolve powers; the
+                // manage_settings keys stay admin-only, like every sibling module.
+                // properties.syndication.manage_approvers is deliberately NOT here.
+                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel',
+                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.resolve_discrepancy',
+                // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
+                'rental_inspections.review_deposit_comparison',
+                'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
+                'rental_fault_reports.record_approval', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
+                'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.record_approval',
+                'rental_work_orders.complete', 'rental_work_orders.cancel', 'rental_work_orders.manage_quotes',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
                 'calculators.manage',
                 'access_compliance', 'manage_compliance', 'view_compliance_reports',
                 'compliance.view', 'compliance.manage', 'fica.view', // AT-346: branch-scoped FICA list
+                // Sending a FICA request moved off access_compliance onto its own
+                // (previously dormant) key — see the agent block below and
+                // .ai/investigations/contact-property-quick-actions-2026-09-28.md
+                // (no spec exists yet). Listed here so a BM keeps exactly the
+                // send ability they already had.
+                'compliance.fica.send',
                 'verify_user_documents', 'access_compliance_dashboard',
                 'access_communication_archive',
                 'triage_communications', 'view_communication_flag_register',
@@ -1120,6 +1147,17 @@ return [
                 // manage_settings deliberately NOT included (narrower, matching
                 // every sibling module's own manage_settings key).
                 'rental_inventories.view', 'rental_inventories.create',
+                // 2026-09-30 audit fix (MED-4) — agents work their own tenancies:
+                // view/create/renew, record inspections, report faults and raise/
+                // complete work orders (breadth own/branch/all comes from
+                // scope_defaults, not the key). Cancel, owner-approval, discrepancy
+                // resolution, sign-on-behalf and every manage_settings stay with
+                // branch managers/admin. properties.syndication.manage_approvers
+                // stays admin-only.
+                'leases.view', 'leases.create', 'leases.renew',
+                'rental_inspections.view', 'rental_inspections.create',
+                'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.raise_work_order',
+                'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
@@ -1129,6 +1167,15 @@ return [
                 'triage_communications',
                 'communications.view', // AT-118 per-contact comms gate — own scope (via scope_defaults)
                 'fica.view', // AT-346 FICA list visibility — own scope for agents (via scope_defaults)
+                // Johan's ruling, 2026-09-28: an agent may SEND the FICA form to their
+                // own contact from the contact page. Approval is untouched and still
+                // belongs to the compliance officer — this key gates POST /compliance/fica
+                // ONLY, never agent-approve / compliance-approve / refer-to-co. Creating a
+                // request lands on status 'draft', which Contact::ficaStatus() never counts
+                // as complete, so an agent cannot fabricate FICA compliance with it.
+                // Source: .ai/investigations/contact-property-quick-actions-2026-09-28.md
+                // (investigation + Johan's ruling; no spec written yet).
+                'compliance.fica.send',
                 'access_client_portal',
                 'access_docuperfect', 'create_docuperfect_docs',
                 'access_docuperfect_packs', 'access_clause_library',

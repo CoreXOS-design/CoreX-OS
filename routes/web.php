@@ -975,6 +975,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware(['permission:view_deals', 'deny_assistant_download'])->name('documents.download');
+    // Inline (in-browser) view — no deny_assistant_download by design (AT-267 permits VIEW).
+    Route::get('/{deal}/documents/{document}/view',     [\App\Http\Controllers\Dr2\DealDocumentController::class, 'view'])->whereNumber(['deal', 'document'])->middleware(['permission:view_deals'])->name('documents.view');
 
     // Proforma Invoices (Accounting pillar) — any agent may generate from Granted onward
     // (server-gated); the endpoint re-checks eligibility, never trusts the hidden button.
@@ -2245,6 +2247,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
 
+    // Sidebar Favourites — a user's own pinned pages. No permission key: this is
+    // a personal preference over pages the user can already open, and the action
+    // is hard-scoped to Auth::user()'s own rows.
+    // Spec: .ai/specs/sidebar-favourites.md
+    Route::put('/my-portal/favourites', [\App\Http\Controllers\Agent\NavFavouriteController::class, 'update'])
+        ->name('agent.portal.favourites.update');
+
     // Saved signature / initial / signing PIN — agent sets their own (My Portal).
     Route::patch('/my-portal/signature', [\App\Http\Controllers\Agent\AgentPortalController::class, 'saveSignature'])
         ->middleware('permission:access_my_portal')->name('agent.portal.signature.save');
@@ -2525,10 +2534,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         return redirect('/corex/settings?tab=user');
     })->name('compliance.officer.index')->middleware('permission:manage_compliance_officer');
 
+    // ── Sending a FICA request — its own gate, NOT access_compliance ──
+    // Johan's ruling, 2026-09-28: an agent may send the FICA form to their own
+    // contact straight from the contact page; the compliance officer still
+    // approves it. `compliance.fica.send` was already declared in
+    // config/corex-permissions.php and enforced nowhere — this activates it.
+    // ONLY the create-a-request POST lives here. Every review/approval route
+    // (agent-approve, compliance-approve, refer-to-co, reject) and every wet-ink
+    // route stays behind access_compliance in the group below, untouched.
+    // Source: .ai/investigations/contact-property-quick-actions-2026-09-28.md §4.
+    // NOTE: there is NO spec for this change — the investigation records the
+    // finding and Johan's ruling, nothing more. A spec is still owed before
+    // anything is built on top of it (spec-first rule).
+    Route::middleware(['permission:compliance.fica.send', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
+    });
+
     Route::middleware(['permission:access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
-        Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
         Route::get('/wet-ink/create', [\App\Http\Controllers\Compliance\FicaController::class, 'createWetInk'])->name('wet-ink.create');
         Route::post('/wet-ink', [\App\Http\Controllers\Compliance\FicaController::class, 'storeWetInk'])->name('wet-ink.store');
         // AT-361 — contact's existing documents feed for the wet-ink link picker (before /{submission}).
@@ -3429,6 +3453,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // signature blocks for every outstanding party, printed and handed
         // to the landlord/tenant for a wet-ink signature.
         Route::get('/{rentalInspection}/print-for-signature', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printForSignature'])->name('corex.rental-inspections.print-for-signature');
+        // Audit M4 — signature images / wet-ink uploads live on the private disk; served only here (session + own/branch scoping).
+        Route::get('/{rentalInspection}/signatures/{signature}/file/{kind}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'signatureFile'])
+            ->where('kind', 'signature|wet-ink')->name('corex.rental-inspections.signatures.file');
         // The chain — "Next inspection" from this one, and the public-link
         // lifecycle (generate/regenerate, revoke).
         Route::post('/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'next'])
@@ -4553,6 +4580,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // surface. Sale or rental, not gated on listing_type.
         Route::get('/{property}/inventory', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'show'])
             ->middleware('permission:rental_inventories.view')->name('inventory.show');
+        // Audit M4 — the GET above is read-only; creating the inventory is an explicit POST.
+        Route::post('/{property}/inventory', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'start'])
+            ->middleware('permission:rental_inventories.create')->name('inventory.start');
 
         // Presentations V2 — one-button generator (Phase 1) + coverage scorer (Phase 2)
         Route::post('/{property}/generate-presentation', [\App\Http\Controllers\Presentation\PresentationGeneratorController::class, 'generate'])
@@ -4759,8 +4789,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Rental inspection items — Johan's ruling §0.6, the agent adds items per
         // property, differing from the advertised marketing room list above.
         // Spec: rental-inspections.md §14.1/§14.2.
-        Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->name('rental-inspection-tab.data');
-        Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
+        Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->middleware('permission:rental_inspections.view')->name('rental-inspection-tab.data');
+        Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->middleware('permission:rental_inspections.create')->name('rental-inspections.start');
         // Johan's ruling, 2026-09-23 — "Next inspection" from the tab's own
         // live recording surface. JSON, same "thin call into the shared
         // model method" pattern as start() above (RentalInspection::
@@ -4769,24 +4799,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // second caller for the property tab's AJAX flow, not a second
         // implementation.
         Route::post('/{property}/rental-inspections/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'next'])
-            ->name('rental-inspections.next');
-        Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
-        Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+            ->middleware('permission:rental_inspections.create')->name('rental-inspections.next');
+        Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.store');
+        Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.retire');
         // 2026-09-22 — Johan, property 4862: "how do I add to a room, not a
         // new room." restore/rename/reorder complete the CRUD floor for an
         // item added to an existing room (retire already existed above).
-        Route::post('/{property}/rental-inspection-items/{item}/restore', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'restoreItem'])->name('rental-inspection-items.restore');
-        Route::post('/{property}/rental-inspection-items/{item}/rename', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'renameItem'])->name('rental-inspection-items.rename');
-        Route::post('/{property}/rental-inspection-items/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderItems'])->name('rental-inspection-items.reorder');
+        Route::post('/{property}/rental-inspection-items/{item}/restore', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'restoreItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.restore');
+        Route::post('/{property}/rental-inspection-items/{item}/rename', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'renameItem'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.rename');
+        Route::post('/{property}/rental-inspection-items/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderItems'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.reorder');
         // 2026-09-21 — retrofit a room type onto a legacy typeless space item
         // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
-        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
-        Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
+        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.assign-type');
+        Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.seed-from-advertising');
         // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
         // is the explicit, agent-triggered one-click fix for a property's EXISTING
         // rooms; reorder persists the agent's own manual up/down moves.
-        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->name('rental-inspection-rooms.apply-default-order');
-        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->name('rental-inspection-rooms.reorder');
+        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->middleware('permission:rental_inspections.create')->name('rental-inspection-rooms.apply-default-order');
+        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->middleware('permission:rental_inspections.create')->name('rental-inspection-rooms.reorder');
         // §20.15 — the two-panel compare view's "match photos" control.
         // Property-scoped like items/rooms above: a match spans two
         // different inspections on the same property, never one.
@@ -4815,6 +4845,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/files',                    [\App\Http\Controllers\CoreX\PropertyFileController::class, 'store'])->name('files.store');
         // AT-267 / POPIA — gated download of a property Drive file (replaces direct /storage URLs).
         Route::get('/{property}/files/{document}/download', [\App\Http\Controllers\CoreX\PropertyFileController::class, 'download'])->middleware('deny_assistant_download')->name('files.download');
+        // Inline (in-browser) view — same scope guard, NO deny_assistant_download: AT-267 lets an
+        // assistant OPEN and VIEW a document, only not pull it down. Spec: document-inline-view.md
+        Route::get('/{property}/files/{document}/view',     [\App\Http\Controllers\CoreX\PropertyFileController::class, 'view'])->name('files.view');
         Route::put('/{property}/files/{document}/tag',      [\App\Http\Controllers\CoreX\PropertyFileController::class, 'updateTag'])->name('files.tag');
         Route::delete('/{property}/files/{document}',       [\App\Http\Controllers\CoreX\PropertyFileController::class, 'destroy'])->name('files.destroy');
         // Contacts
@@ -4863,6 +4896,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/website-syndication/{apiKey}/activate',   [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'activate'])->name('website-syndication.activate');
         Route::post('/{property}/website-syndication/{apiKey}/deactivate', [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'deactivate'])->name('website-syndication.deactivate');
         Route::post('/{property}/website-syndication/{apiKey}/refresh',    [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'refresh'])->name('website-syndication.refresh');
+
+        // Syndication approval (layer 3) — .ai/specs/syndication-approval-gate.md §5/§6.2.
+        // Agent-side: send / cancel. Approver-side: approve / reject / revoke,
+        // each guarded by SyndicationApprovalService::canApprove() (the agency's
+        // chosen-approver roster + the owner/agency-admin fallback). There is no
+        // queue screen route — the Properties list filtered to
+        // ?filter=approval_pending IS the queue (spec D7).
+        Route::post('/{property}/syndication-approval/request', [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'request'])->name('syndication-approval.request');
+        Route::post('/{property}/syndication-approval/cancel',  [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'cancel'])->name('syndication-approval.cancel');
+        Route::post('/{property}/syndication-approval/approve', [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'approve'])->name('syndication-approval.approve');
+        Route::post('/{property}/syndication-approval/reject',  [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'reject'])->name('syndication-approval.reject');
+        Route::post('/{property}/syndication-approval/revoke',  [\App\Http\Controllers\CoreX\SyndicationApprovalController::class, 'revoke'])->name('syndication-approval.revoke');
     });
 
     // AT-401 — Rentals → Properties. Deliberately the SAME controller action
@@ -5109,6 +5154,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Documents (Drive)
         Route::post('/{contact}/documents',                    [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'store'])->name('documents.store');
         Route::get('/{contact}/documents/{document}/download', [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'download'])->middleware('deny_assistant_download')->name('documents.download');
+        // Inline (in-browser) view — no deny_assistant_download by design (AT-267 permits VIEW).
+        Route::get('/{contact}/documents/{document}/view',     [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'view'])->name('documents.view');
         Route::put('/{contact}/documents/{document}/tag',      [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'updateTag'])->name('documents.tag');
         Route::delete('/{contact}/documents/{document}',       [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'destroy'])->name('documents.destroy');
         // Properties
@@ -6049,6 +6096,10 @@ Route::prefix('rental-application')->group(function () {
 Route::prefix('rental-inspection-report')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'show'])
         ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.show');
+    // Audit M4 — token-authorised fetch of a private signature / wet-ink file for the public page.
+    Route::get('/{token}/signatures/{signature}/{kind}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'signatureFile'])
+        ->where(['signature' => '[0-9]+', 'kind' => 'signature|wet-ink'])
+        ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.signature-file');
 });
 
 // ===== RENTAL INVENTORY REPORT — public, no auth, token-based =====
@@ -6164,6 +6215,9 @@ Route::middleware(['auth', 'permission:access_document_library', 'feature:docume
     Route::get('/library/{item}/download', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'download'])
         ->middleware('deny_assistant_download')
         ->name('library.download');
+    // Inline (in-browser) view — no deny_assistant_download by design (AT-267 permits VIEW).
+    Route::get('/library/{item}/view', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'view'])
+        ->name('library.view');
     Route::post('/library/attach', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'attach'])
         ->name('library.attach');
 

@@ -144,6 +144,14 @@ return [
     |
     */
 
+    /*
+    | Non-production redirect target for per-mailbox distribution mail
+    | (SignedDocumentDistributionService). Outside APP_ENV=production every
+    | send is redirected here; when unset, non-production sends are
+    | suppressed entirely rather than reaching a real recipient.
+    */
+    'non_production_redirect' => env('MAIL_NON_PRODUCTION_REDIRECT'),
+
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
         'name' => env('MAIL_FROM_NAME', 'Example'),

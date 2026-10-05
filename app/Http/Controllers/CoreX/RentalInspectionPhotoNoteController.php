@@ -124,6 +124,12 @@ class RentalInspectionPhotoNoteController extends Controller
      */
     public function restore(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo, RentalInspectionPhotoNote $note): JsonResponse
     {
+        // The route uses ->withTrashed(), which bypasses RentalInspection's own
+        // visibleTo route binding — re-apply the own/branch scope explicitly.
+        abort_unless(
+            RentalInspection::withTrashed()->visibleTo($request->user())->whereKey($rentalInspection->id)->exists(),
+            404
+        );
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
