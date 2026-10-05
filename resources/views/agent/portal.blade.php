@@ -1474,7 +1474,7 @@
             <button type="button" class="pg-sub" @click="sub.documents = '{{ $navKey }}'" :aria-current="sub.documents === '{{ $navKey }}' ? 'page' : null">{{ $docCfg['label'] }}<span class="pg-dot" style="background:{{ $docDotColors[$navStatus] ?? 'var(--text-muted)' }};" title="{{ $statusPills[$navStatus]['text'] ?? '' }}"></span></button>
             @endforeach
             @unless($isAssistant ?? false)
-            @if(($ppraLetterCanCreate ?? false) || ($ppraLetters ?? collect())->isNotEmpty() || ($ppraAwaitingMySignature ?? collect())->isNotEmpty())
+            @if(($ppraLetterCanReceive ?? false) || ($ppraAwaitingMySignature ?? collect())->isNotEmpty())
             <button type="button" class="pg-sub" @click="sub.documents = 'ppra_employment_letter'" :aria-current="sub.documents === 'ppra_employment_letter' ? 'page' : null">PPRA Employment Letter</button>
             @endif
             @endunless

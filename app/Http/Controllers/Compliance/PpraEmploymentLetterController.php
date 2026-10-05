@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\AgentSignatureService;
 use App\Services\Compliance\PpraEmploymentLetterPdfService;
 use App\Services\Compliance\PpraEmploymentLetterService;
+use App\Services\Compliance\PractitionerFfcRosterService;
 use App\Support\Impersonation;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
@@ -46,6 +47,7 @@ class PpraEmploymentLetterController extends Controller
     {
         $user = $request->user();
         abort_unless($user->hasPermission('ppra_employment_letters.create'), 403);
+        abort_unless($user->hasPermission(PractitionerFfcRosterService::LETTER_PERMISSION), 403);
 
         $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId());
         abort_unless($agency, 422, 'No agency context.');

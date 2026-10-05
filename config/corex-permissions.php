@@ -829,6 +829,11 @@ return [
         // PDF/CSV, pack) is a per-role Role Manager setting, never a hardcoded role list. A user appears if
         // their agency's copy of their role holds this key. Not a view/scope permission.
         ['key' => 'ppra_inspection_pack.roster',    'label' => 'Appears on inspection pack staff roster',    'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 5],
+        // 2026-10-05 (Johan): WHO can receive a PPRA Employment Letter — listed in the admin New-letter picker AND
+        // shown the letter tab in their own My Portal — is a per-role Role Manager setting, never a hardcoded role
+        // list or FFC-number rule. Deliberately grouped here beside the roster key (Johan's instruction), but the
+        // key keeps the ppra_employment_letters.* prefix: it belongs to the letter feature, not the Inspection Pack.
+        ['key' => 'ppra_employment_letters.receive', 'label' => 'Can receive PPRA employment letter',        'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 6],
 
         // ── PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) ──
         // A genuinely separate feature from PPRA Inspection Pack above. .view's
@@ -1092,6 +1097,8 @@ return [
                 'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
                 // Inspection Pack staff roster — the roles that qualify today (agent/branch_manager/admin); an admin ticks others in Role Manager.
                 'ppra_inspection_pack.roster',
+                // Can receive a PPRA Employment Letter — same practitioner roles; an admin ticks others in Role Manager.
+                'ppra_employment_letters.receive',
                 'access_filing_register',
                 'filing.view', 'filing.create', 'filing.edit',
                 'access_misfiled_documents', 'misfiled_documents.refile',
@@ -1229,6 +1236,8 @@ return [
                 'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
                 // Inspection Pack staff roster — the roles that qualify today (agent/branch_manager/admin); an admin ticks others in Role Manager.
                 'ppra_inspection_pack.roster',
+                // Can receive a PPRA Employment Letter — same practitioner roles; an admin ticks others in Role Manager.
+                'ppra_employment_letters.receive',
                 'access_filing_register',
                 'filing.view', 'filing.create',
                 'access_commercial_evaluations',

@@ -66,7 +66,10 @@ class AgentPortalController extends Controller
         // ── PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) ──
         $ppraLetters = \App\Models\Compliance\PpraEmploymentLetter::where('user_id', $user->id)
             ->orderByDesc('created_at')->limit(10)->get();
-        $ppraLetterCanCreate = $user->hasPermission('ppra_employment_letters.create');
+        // Eligibility is the Role Manager setting "Can receive PPRA employment letter" (Johan, 2026-10-05) —
+        // it gates the whole tab; .create then gates the Start button within it.
+        $ppraLetterCanReceive = $user->hasPermission(\App\Services\Compliance\PractitionerFfcRosterService::LETTER_PERMISSION);
+        $ppraLetterCanCreate  = $ppraLetterCanReceive && $user->hasPermission('ppra_employment_letters.create');
         $ppraLetterMissing = [];
         if ($ppraLetterCanCreate && $user->agency) {
             $ppraLetterMissing = app(\App\Services\Compliance\PpraEmploymentLetterService::class)
@@ -282,6 +285,7 @@ class AgentPortalController extends Controller
             'managedBranchIds',
             'defaultManagedBranchId',
             'ppraLetters',
+            'ppraLetterCanReceive',
             'ppraLetterCanCreate',
             'ppraLetterMissing',
             'ppraAwaitingMySignature'
