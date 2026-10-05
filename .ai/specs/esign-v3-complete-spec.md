@@ -2305,4 +2305,77 @@ None at draft time. To be added as build surfaces them.
 
 ---
 
+## 24. My E-Sign Documents — Status Bucket Coverage (AT-445, 2026-10-05)
+
+`ESignWizardController::myDocuments()` sorts every `SignatureTemplate` the
+agent created (`$allTemplates`) into named `$groups` buckets by `status`, and
+the Blade view renders one section per bucket. A status with no matching
+bucket does not error — it simply never appears anywhere on the page, so the
+document looks gone even though nothing was deleted. This has happened four
+times:
+
+| # | Status | Symptom when unbucketed | Bucket added |
+|---|--------|--------------------------|---------------|
+| AT-299 | `amendment_review` | Frozen ceremony invisible to the agent | `flagged` |
+| BUG-2 | `returned_to_candidate` | Candidate's own returned doc invisible | `returned` |
+| AT-373 | `amendment_chain_review` | Recipient amendment returned to agent invisible | `amendment_approval` |
+| AT-445 | `expired` | Signing-link TTL lapsed; doc vanished from the list (found via a Staging investigation of Maggie Venter's "16 Natspat" mandate — doc #562, template #76 — reported stuck/missing) | `expired` |
+
+**The class fix, not another instance fix:** `myDocuments()` now also builds
+a final `other` bucket — every template in `$allTemplates` whose id isn't
+already present in any of the status-keyed buckets above (`finalization_failed`
+and `needs_authorisation` are excluded from this id-dedup: the former is a
+cross-cutting flag on `finalization_status`, not a status bucket, and a
+template legitimately belongs there AND in its normal status bucket; the
+latter is a separate candidate-authoriser query, not sourced from
+`$allTemplates`). Any future `SignatureTemplate::STATUS_*` this page hasn't
+been taught a named bucket for degrades to a visible "Other" row (document,
+property, raw status label) instead of disappearing.
+
+**Current full bucket list** (`$groups` keys): `finalization_failed`,
+`flagged`, `returned`, `amendment_approval`, `needs_authorisation`,
+`pending_approval`, `draft`, `ready_to_sign`, `awaiting`, `completed`,
+`cancelled`, `expired`, `other`.
+
+**Expired section — what it shows and why.** Rendered collapsed, mirroring
+Cancelled: document name, property address, "Expired <updated_at>". Its
+"View" action deep-links to `docuperfect.signatures.audit` — the one
+document-level signature screen with no status gate (`SignatureController::
+audit()` only calls `authorizeDocument()` + `firstOrFail()`). The normal
+Review screen (`SignatureController::review()`) explicitly redirects any
+status outside the pending-approval set — including `expired` — with "This
+document is not pending approval", so it was never a viable link target here.
+
+**What this fix deliberately does NOT do** (scope-locked to the vanish-from-
+list bug): it does not touch `SignatureService::expireOutstandingRequests()`
+or the `ExpireSignatureRequests` command that flips a template to `expired`,
+and it adds no resend/regenerate/extend action. A future "resend/extend an
+expired document" action would need: (1) a new signing-link-reissue path on
+`SignatureRequest` that creates a fresh `token`/`token_expires_at` rather than
+mutating the expired one (preserve the expired request as audit history);
+(2) a template-level transition back out of `STATUS_EXPIRED` (e.g. to
+`STATUS_REVIVED`, already a declared-but-unused constant) once at least one
+request is reissued, mirroring how `handlePartyCompletion()` recomputes
+template status today; (3) a decision on whether reissue requires the
+original recipient to re-consent/re-view, since the original signing
+ceremony's legal chain (audit log, consent log) must stay intact and not be
+silently rewritten.
+
+**Checked for a second list with the same gap:** no admin/agency-wide
+(Own/Branch/All-scoped) e-sign document list exists anywhere in the
+codebase. `docuperfect.dashboard` (`DashboardController::index()`) lists
+`Document::active()->visibleTo($user)` with no status buckets at all (just
+pagination), so it has no analogous "real status with no bucket" exposure.
+My E-Sign Documents — scoped to `created_by = $user->id` only, with no
+Branch/All toggle — is the only status-bucketed e-sign list in CoreX.
+
+**Test:** `tests/Feature/Docuperfect/MyDocumentsStatusBucketCoverageTest.php`
+— iterates every `SignatureTemplate::STATUS_*` constant via reflection,
+creates one template per status, and asserts each lands in *some* rendered
+`$groups` bucket; a dedicated assertion pins `expired` to its own bucket
+(not the catch-all), and another pins an intentionally-unbucketed status
+(`lapsed`) into `other` specifically.
+
+---
+
 *End of E-Sign V3 Complete Spec.*

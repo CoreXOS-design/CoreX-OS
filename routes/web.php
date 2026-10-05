@@ -3888,6 +3888,35 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_catalogue.manage')->name('corex.rental-catalogue-items.restore');
     });
 
+    // 2026-10-05 — Johan's ruling: agents/staff are never maintenance crew.
+    // Crew are people with no CoreX access, set up by the agency admin,
+    // pickable on job cards. Same permission as managing the catalogue
+    // (Johan's own instruction) — no new permission key.
+    Route::prefix('rental-crews')->middleware('permission:rental_catalogue.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'index'])->name('corex.rental-crews.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'create'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'store'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.store');
+        Route::get('/{rentalCrew}/edit', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'edit'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.edit');
+        Route::put('/{rentalCrew}', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'update'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.update');
+        Route::delete('/{rentalCrew}', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'archive'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.archive');
+        Route::post('/{rentalCrew}/restore', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'restore'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.restore');
+
+        Route::post('/{rentalCrew}/members', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'storeMember'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.members.store');
+        Route::put('/{rentalCrew}/members/{member}', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'updateMember'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.members.update');
+        Route::delete('/{rentalCrew}/members/{member}', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'archiveMember'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.members.archive');
+        Route::post('/{rentalCrew}/members/{member}/restore', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'restoreMember'])
+            ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.members.restore');
+    });
+
     // .ai/specs/rental-work-orders.md §14 (AT-442), rebuilt 2026-10-05 — ONE
     // screen for create and edit. store() below links to an existing work
     // order/fault report when given one; it never creates a new work

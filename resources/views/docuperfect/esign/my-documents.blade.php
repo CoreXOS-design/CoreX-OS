@@ -9,6 +9,8 @@
         cancelDocName: '',
         showCompleted: false,
         showCancelled: false,
+        showExpired: false,
+        showOther: false,
         showFiled: false,
         activeFilter: null,
      }">
@@ -966,6 +968,78 @@
                             @endif
                             <div class="text-xs mt-1" style="color: var(--text-muted);">
                                 Cancelled {{ $tpl->updated_at->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        @if($doc)
+                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--text-muted);">View</a>
+                        @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== EXPIRED (collapsed by default) — AT-445 =====
+         The signing link TTL lapsed with no active recipient left; the document and template
+         still exist, nothing was deleted. "View" opens signatures.audit — the one document
+         screen with no status gate — since signatures.review rejects non-pending-approval
+         statuses outright. --}}
+    @if($groups['expired']->isNotEmpty())
+    <div id="section-expired" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150" style="color: var(--text-muted);"
+            @click="showExpired = !showExpired">
+            Expired ({{ number_format($groups['expired']->count()) }})
+            <span class="text-xs" x-text="showExpired ? '&#9660;' : '&#9654;'"></span>
+        </h3>
+        <div x-show="showExpired" x-collapse class="space-y-3">
+            @foreach($groups['expired'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4 opacity-75" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h4 class="font-medium" style="color: var(--text-muted);">{{ $doc->name ?? 'Untitled' }}</h4>
+                            @if($doc && $doc->property_address)
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->property_address }}</div>
+                            @endif
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Expired {{ $tpl->updated_at->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        @if($doc)
+                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--text-muted);">View</a>
+                        @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== OTHER (collapsed by default) — AT-445 catch-all =====
+         Any template whose status isn't matched by a named bucket above lands here with its raw
+         status label, so a future status this page hasn't been taught about yet still shows up
+         instead of silently vanishing (the same defect the Expired section above was added to
+         fix — AT-299, BUG-2, AT-373, AT-445). --}}
+    @if($groups['other']->isNotEmpty())
+    <div id="section-other" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150" style="color: var(--text-muted);"
+            @click="showOther = !showOther">
+            Other ({{ number_format($groups['other']->count()) }})
+            <span class="text-xs" x-text="showOther ? '&#9660;' : '&#9654;'"></span>
+        </h3>
+        <div x-show="showOther" x-collapse class="space-y-3">
+            @foreach($groups['other'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4 opacity-75" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h4 class="font-medium" style="color: var(--text-muted);">{{ $doc->name ?? 'Untitled' }}</h4>
+                            @if($doc && $doc->property_address)
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->property_address }}</div>
+                            @endif
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Status: {{ ucfirst(str_replace('_', ' ', $tpl->status)) }}
                             </div>
                         </div>
                         @if($doc)

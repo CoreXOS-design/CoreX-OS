@@ -8192,6 +8192,14 @@ class ESignWizardController extends Controller
             'awaiting'         => $allTemplates->whereIn('status', $awaitingStatuses)->values(),
             'completed'        => $allTemplates->where('status', SignatureTemplate::STATUS_COMPLETED)->values(),
             'cancelled'        => $allTemplates->where('status', SignatureTemplate::STATUS_CANCELLED)->values(),
+            // AT-445 (Johan, 2026-10-05) — a document whose outstanding signing link TTL lapsed
+            // (ExpireSignatureRequests → SignatureService::expireOutstandingRequests()) was in NO
+            // bucket, same defect class as AT-299/BUG-2/AT-373 above: it stayed in $allTemplates
+            // but was never matched into any $groups entry, so it vanished from the page even
+            // though nothing was ever deleted. Surfaced as a dedicated, collapsed "Expired"
+            // section (mirrors Cancelled) deep-linking to signatures.audit, the one document
+            // screen with no status gate.
+            'expired'          => $allTemplates->where('status', SignatureTemplate::STATUS_EXPIRED)->values(),
         ];
 
         // Candidate documents needing authorisation (shared queue for full-status users)
@@ -8223,6 +8231,20 @@ class ESignWizardController extends Controller
         }
 
         $groups['needs_authorisation'] = $needsAuthorisation;
+
+        // AT-445 (fix the CLASS, not just the expired instance) — this is the 4th time a real
+        // SignatureTemplate status has had no bucket (AT-299 flagged, BUG-2 returned, AT-373
+        // amendment_chain_review, now expired). Rather than wait for a 5th, catch anything from
+        // $allTemplates not already placed in a status-keyed bucket above and surface it under
+        // "Other" with its raw status label, so a future unbucketed status degrades to a visible
+        // row instead of silently disappearing. finalization_failed is excluded from this
+        // id-dedup on purpose — it is a cross-cutting flag (finalization_status), not a status
+        // bucket, and a template legitimately belongs there AND in its normal status bucket.
+        $bucketedIds = collect($groups)
+            ->except('finalization_failed', 'needs_authorisation')
+            ->flatMap(fn ($bucket) => $bucket->pluck('id'))
+            ->unique();
+        $groups['other'] = $allTemplates->reject(fn ($tpl) => $bucketedIds->contains($tpl->id))->values();
 
         // Recipient supporting-document uploads (SignedDocumentVersion kind='supporting') —
         // the optional docs recipients attach on the signing screen. Surface them to the
@@ -8292,6 +8314,8 @@ class ESignWizardController extends Controller
             'awaiting_signatures' => $groups['awaiting']->count(),
             'completed'           => $groups['completed']->count(),
             'cancelled'           => $groups['cancelled']->count(),
+            'expired'             => $groups['expired']->count(), // AT-445 — lapsed signing link TTL
+            'other'               => $groups['other']->count(), // AT-445 catch-all — any unbucketed status
         ];
 
         return view('docuperfect.esign.my-documents', [
