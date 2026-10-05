@@ -353,7 +353,8 @@
                                 <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tasks.toggle', [$jobCard, $task]) }}" class="flex items-center gap-2 flex-1">
                                     @csrf
                                     <button type="submit" class="flex items-center gap-2 text-left">
-                                        <input type="checkbox" @checked($task->is_done) onclick="return false;" class="rounded">
+                                        {{-- onclick="return false" used to swallow the click, so ticking only worked on the button's padding around the box — clicking the box itself did nothing. The box now submits the form itself (requestSubmit keeps the data-keep-scroll handler); the box state shown always comes from the server after the reload. --}}
+                                        <input type="checkbox" @checked($task->is_done) onclick="event.preventDefault(); this.form.requestSubmit();" class="rounded">
                                     </button>
                                     <span class="text-sm font-medium" x-show="!renaming">{{ $loop->iteration }} - <span style="{{ $task->is_done ? 'text-decoration: line-through; color: var(--text-muted);' : '' }}">{{ $task->description }}</span></span>
                                 </form>

@@ -124,6 +124,10 @@ final class RentalJobCardFollowUpsTest extends TestCase
             && str_contains($tag, '/rental-job-cards/')));
         $this->assertSame([], $missing, 'A card form without data-keep-scroll jumps the panel back to the top.');
 
+        // The tick checkbox itself must submit (it used to cancel its own click, so only the padding around it worked).
+        $this->assertStringContainsString('onclick="event.preventDefault(); this.form.requestSubmit();"', $html);
+        $this->assertStringNotContainsString('onclick="return false;"', $html);
+
         foreach (['/tasks"', '/assign-crew', '/schedule', '/start', '/worker-sign-off', '/agent-sign-off', '/tenant-confirm'] as $needle) {
             $this->assertMatchesRegularExpression('/<form\b[^>]*data-keep-scroll[^>]*' . preg_quote($needle, '/') . '/', $html, "{$needle} form must keep scroll");
         }
