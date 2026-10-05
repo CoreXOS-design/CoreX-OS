@@ -154,6 +154,72 @@ class Document extends Model
         );
     }
 
+    /**
+     * The Content-Type this document may be served INLINE as, or null when it may not be.
+     *
+     * Deliberately a whitelist that returns a FIXED string rather than echoing the stored
+     * mime_type: an inline response renders in the app's own origin, so a row whose mime_type
+     * says `text/html` (or an `.svg`, which is a script carrier) would be stored XSS. Only PDF
+     * and raster images are viewable; everything else falls back to download.
+     * Spec: .ai/specs/document-inline-view.md §5.2
+     */
+    public function inlineMimeType(): ?string
+    {
+        $mime = strtolower(trim((string) $this->mime_type));
+        $ext  = strtolower(pathinfo((string) $this->original_name, PATHINFO_EXTENSION));
+
+        // mime_type is authoritative when present; legacy rows with a null/blank mime
+        // (and generic octet-stream uploads) fall back to the file's own extension.
+        $key = match (true) {
+            $mime === 'application/pdf'                  => 'pdf',
+            $mime === 'image/jpeg' || $mime === 'image/jpg' => 'jpg',
+            $mime === 'image/png'                        => 'png',
+            $mime === 'image/gif'                        => 'gif',
+            $mime === 'image/webp'                       => 'webp',
+            $mime === '' || $mime === 'application/octet-stream' => $ext,
+            default                                      => null,
+        };
+
+        return match ($key) {
+            'pdf'          => 'application/pdf',
+            'jpg', 'jpeg'  => 'image/jpeg',
+            'png'          => 'image/png',
+            'gif'          => 'image/gif',
+            'webp'         => 'image/webp',
+            default        => null,
+        };
+    }
+
+    /**
+     * May this document be opened in the browser instead of downloaded?
+     * Drives whether a View affordance renders for the row at all.
+     */
+    public function isViewableInline(): bool
+    {
+        return $this->inlineMimeType() !== null;
+    }
+
+    /**
+     * Inline (in-browser) counterpart of downloadResponse().
+     *
+     * Goes through decryptedContents() for the same reason downloadResponse() does (AT-173):
+     * an enveloped FICA document must never be handed to the browser as cipher bytes. Callers
+     * MUST check isViewableInline() first — a non-viewable document has no safe Content-Type,
+     * so this refuses rather than guessing.
+     */
+    public function inlineResponse()
+    {
+        $contentType = $this->inlineMimeType();
+
+        abort_if($contentType === null, 404, 'This document cannot be viewed in the browser.');
+
+        return response($this->decryptedContents(), 200, [
+            'Content-Type'            => $contentType,
+            'Content-Disposition'     => 'inline; filename="' . addslashes($this->original_name) . '"',
+            'X-Content-Type-Options'  => 'nosniff',
+        ]);
+    }
+
     public function getHumanSizeAttribute(): string
     {
         $bytes = (int) $this->size;

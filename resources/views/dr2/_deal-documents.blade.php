@@ -51,6 +51,24 @@
                             @if($doc->contacts->isNotEmpty()) · {{ $doc->contacts->count() }} contact(s) @endif
                         </div>
                     </div>
+                    {{-- View / Download. View opens the document over the page; it is not gated on
+                         canDownloadDocuments() because AT-267 permits VIEW, only not pull-down.
+                         Spec: .ai/specs/document-inline-view.md --}}
+                    <div style="display:flex;align-items:center;gap:.6rem;flex-shrink:0;">
+                        @if($doc->isViewableInline())
+                        <x-document-view-link
+                            :url="route('deals-dr2.documents.view', [$deal, $doc])"
+                            :name="$doc->original_name"
+                            :is-image="$doc->isImage()"
+                            :download-url="auth()->user()?->canDownloadDocuments() ? route('deals-dr2.documents.download', [$deal, $doc]) : null"
+                            class="no-underline"
+                            style="font-size:.75rem;font-weight:600;color:var(--brand-icon,#0ea5e9);" />
+                        @endif
+                        @if(auth()->user()?->canDownloadDocuments())
+                        <a href="{{ route('deals-dr2.documents.download', [$deal, $doc]) }}" class="no-underline"
+                           style="font-size:.75rem;font-weight:600;color:var(--brand-icon,#0ea5e9);">Download</a>
+                        @endif
+                    </div>
                 </div>
                 @endforeach
             </div>

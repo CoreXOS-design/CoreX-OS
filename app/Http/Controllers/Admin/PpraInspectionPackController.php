@@ -46,6 +46,14 @@ class PpraInspectionPackController extends Controller
         $rows = $this->checklist->checklistFor($agency);
         $latestPack = PpraInspectionPack::where('agency_id', $agency->id)->latest('created_at')->first();
 
+        // A job lost or killed mid-run (timeout/OOM/deploy) never writes 'failed'.
+        // Show such a pack as failed WITHOUT writing on a GET; the scheduled
+        // PpraInspectionPack::rescueStale() (and generate()) persist it.
+        if ($latestPack && $latestPack->isStale()) {
+            $latestPack->status = 'failed';
+            $latestPack->error_message = 'Generation did not finish (timed out or was interrupted). Please regenerate.';
+        }
+
         return view('admin.ppra-inspection-pack.index', compact('agency', 'rows', 'latestPack'));
     }
 
@@ -60,6 +68,15 @@ class PpraInspectionPackController extends Controller
     {
         $agency = $this->resolveAgency($request);
         $user = $request->user();
+
+        // Persist any dead pack as failed first so regeneration is never blocked by it.
+        PpraInspectionPack::rescueStale();
+
+        // A live (dispatched, not stale) generation is already running — do not double-dispatch.
+        if (PpraInspectionPack::where('agency_id', $agency->id)->where('status', 'generating')->exists()) {
+            return redirect()->route('admin.ppra-inspection-pack.index')
+                ->with('success', 'A pack is already being generated — you\'ll be notified when it\'s ready.');
+        }
 
         // currentDraftFor() only ever returns a queued/generated_at=null row
         // — reuse it as-is if one exists. Otherwise this is a REGENERATION
@@ -81,6 +98,10 @@ class PpraInspectionPackController extends Controller
                 'sample_listing_ids'   => $previous?->sample_listing_ids,
             ]);
         }
+
+        // 'generating' from the moment of dispatch (not 'queued', which is also the
+        // picker draft's state) so a lost job is detectable by rescueStale().
+        $pack->update(['status' => 'generating', 'error_message' => null]);
 
         GeneratePpraInspectionPackJob::dispatch($pack->id);
 
@@ -131,7 +152,7 @@ class PpraInspectionPackController extends Controller
             'checklist_item_slug'  => 'required|string|in:a,b,c,d,e,f,g,h,i,j,k,l,m',
             'remediation_due_date' => 'nullable|date',
             'note'                 => 'nullable|string|max:2000',
-            'assigned_to_user_id'  => 'nullable|integer|exists:users,id',
+            'assigned_to_user_id'  => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('users', 'id')->where('agency_id', $agency->id)],
         ]);
 
         $user = $request->user();
@@ -435,6 +456,10 @@ class PpraInspectionPackController extends Controller
 
         $result = $this->mandateRegister->mandateMdfDocumentsForZip($agency, $filters);
 
+        if ($result['documents']->isEmpty()) {
+            return redirect()->back()->with('error', 'No mandate or MDF files match the current filters — nothing to download.');
+        }
+
         $tempDir = storage_path('app/temp');
         if (! is_dir($tempDir)) {
             mkdir($tempDir, 0755, true);
@@ -442,14 +467,17 @@ class PpraInspectionPackController extends Controller
         $zipPath = $tempDir . '/mandate-register-' . $agency->id . '-' . now()->format('Ymd-His') . '.zip';
 
         $zip = new ZipArchive();
-        $zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            return redirect()->back()->with('error', 'Could not create the ZIP file.');
+        }
         $usedNames = [];
+        $added = 0;
         foreach ($result['documents'] as $document) {
             $diskPath = \Illuminate\Support\Facades\Storage::disk($document->disk ?: 'local')->path($document->storage_path);
             if (! is_file($diskPath)) {
                 continue;
             }
-            $name = $document->original_name ?: basename($diskPath);
+            $name = basename(str_replace('\\', '/', (string) ($document->original_name ?: $diskPath))) ?: 'file';
             $suffix = 1;
             $unique = $name;
             while (in_array($unique, $usedNames, true)) {
@@ -458,8 +486,19 @@ class PpraInspectionPackController extends Controller
             }
             $usedNames[] = $unique;
             $zip->addFile($diskPath, $unique);
+            $added++;
         }
-        $zip->close();
+
+        if ($added === 0) {
+            $zip->close();
+            @unlink($zipPath);
+
+            return redirect()->back()->with('error', 'None of the matching files are available on disk — nothing to download.');
+        }
+
+        if (! $zip->close() || ! is_file($zipPath)) {
+            return redirect()->back()->with('error', 'Could not finalise the ZIP file.');
+        }
 
         $message = $result['capped']
             ? "Included {$result['documents']->count()} of {$result['total_available']} available files (capped at the agency's configured max-files-per-ZIP)."
@@ -472,7 +511,7 @@ class PpraInspectionPackController extends Controller
     private function resolveAgency(Request $request): Agency
     {
         $user = $request->user() ?? Auth::user();
-        $agency = $user->agency ?? Agency::find($user->effectiveAgencyId());
+        $agency = Agency::find($user->effectiveAgencyId());
         abort_unless($agency, 403, 'No agency context.');
 
         return $agency;

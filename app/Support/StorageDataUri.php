@@ -38,18 +38,13 @@ class StorageDataUri
             return null;
         }
 
-        $relative = preg_replace('#^.*/storage/#', '', $storedPath);
-        if (! $relative || ! Storage::disk('public')->exists($relative)) {
+        // Audit M4 — handles both the private ("private:<path>", local disk)
+        // and the legacy public ("/storage/...") reference forms.
+        $read = \App\Models\RentalInspectionSignature::readStored($storedPath);
+        if ($read === null) {
             return null;
         }
 
-        $bytes = Storage::disk('public')->get($relative);
-        if ($bytes === null) {
-            return null;
-        }
-
-        $mime = Storage::disk('public')->mimeType($relative) ?: 'image/png';
-
-        return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+        return 'data:' . ($read[1] ?: 'image/png') . ';base64,' . base64_encode($read[0]);
     }
 }

@@ -67,6 +67,18 @@ final class RentalInventoryCaptureRebuildTest extends TestCase
         $this->inventory = RentalInventory::start($this->property, $this->lease, $this->agent);
     }
 
+    /**
+     * Audit M4 — the capture screen's GET is read-only and no longer creates
+     * the inventory; the agent starts it with an explicit POST (idempotent —
+     * it resumes an existing current inventory). Returns the GET response.
+     */
+    private function openInventory(\App\Models\Property $property): \Illuminate\Testing\TestResponse
+    {
+        $this->post(route('corex.properties.inventory.start', $property));
+
+        return $this->get(route('corex.properties.inventory.show', $property));
+    }
+
     public function test_condition_states_for_defaults_when_agency_has_not_customized(): void
     {
         $states = RentalInventorySetting::conditionStatesFor($this->agency->id);
@@ -249,7 +261,7 @@ final class RentalInventoryCaptureRebuildTest extends TestCase
         // the button itself shows. The surrounding sentence is only ever
         // server-rendered inside the @if($hasPriorInventory) block itself,
         // so it actually proves the control's real visibility.
-        $withoutPrior = $this->get(route('corex.properties.inventory.show', $this->property));
+        $withoutPrior = $this->openInventory($this->property);
         $withoutPrior->assertOk();
         $withoutPrior->assertDontSee('This property has an earlier inventory on record.');
 
@@ -262,14 +274,14 @@ final class RentalInventoryCaptureRebuildTest extends TestCase
             'created_by_user_id' => $this->agent->id,
         ]);
 
-        $withPrior = $this->get(route('corex.properties.inventory.show', $this->property));
+        $withPrior = $this->openInventory($this->property);
         $withPrior->assertOk();
         $withPrior->assertSee('This property has an earlier inventory on record.');
     }
 
     public function test_capture_page_renders_the_agencys_condition_chip_labels(): void
     {
-        $response = $this->get(route('corex.properties.inventory.show', $this->property));
+        $response = $this->openInventory($this->property);
 
         $response->assertOk();
         foreach (RentalInventorySetting::DEFAULT_CONDITION_STATES as $state) {

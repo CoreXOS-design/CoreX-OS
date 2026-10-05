@@ -2744,6 +2744,65 @@
                     </form>
                 </div>
 
+                {{-- Syndication approval (layer 3) — .ai/specs/syndication-approval-gate.md §5.1.
+                     OFF by default. Its own form (not the portals form above) so each saves
+                     independently; the saver guards both keys with $request->has() so neither
+                     form can ever wipe the other's settings. --}}
+                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div class="mb-3">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Syndication Approval</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">A third layer after compliance. When this is on, a listing that has passed compliance still cannot be sent to Property24, Private Property or your website until a person you choose has approved it. Your agents get a "Send for approval" button instead of the portal switches, and the people you pick get an email for every listing plus an "Awaiting approval" filter on the Properties list.</div>
+                    </div>
+
+                    <form method="POST" action="{{ route('corex.settings.syndication-portals') }}" class="space-y-2"
+                          x-data="{
+                            approvalOn: {{ $syndicationApprovalRequired ? 'true' : 'false' }},
+                            chosen: {{ \Illuminate\Support\Js::from(array_map('strval', $syndicationApproverIds)) }},
+                          }">
+                        @csrf
+                        <input type="hidden" name="syndication_approval_required" :value="approvalOn ? 1 : 0">
+
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Require approval before a listing is syndicated</div>
+                                <div class="text-xs" style="color:var(--text-muted);">Nothing already out on a portal is affected — it is approved automatically the day you switch this on.</div>
+                            </div>
+                            <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
+                                <input type="checkbox" class="sr-only" x-model="approvalOn">
+                                <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                      :style="approvalOn ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></span>
+                                <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                      :style="approvalOn ? 'transform:translateX(20px)' : 'transform:translateX(0)'"></span>
+                            </label>
+                        </div>
+
+                        <div class="px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);" x-show="approvalOn" x-cloak>
+                            <div class="text-sm font-medium mb-1" style="color:var(--text-primary);">Who approves</div>
+                            <div class="text-xs mb-2" style="color:var(--text-muted);">Everyone you tick is emailed when a listing is sent for approval, and any one of them can approve it. Pick more than one so a listing never waits on somebody who is away.</div>
+
+                            @forelse($syndicationApproverChoices as $choice)
+                            <label class="flex items-center gap-2 py-1 cursor-pointer">
+                                <input type="checkbox" name="syndication_approver_user_ids[]" value="{{ $choice->id }}"
+                                       x-model="chosen" class="rounded"
+                                       style="accent-color: var(--brand-button, #0ea5e9);">
+                                <span class="text-sm" style="color:var(--text-primary);">{{ $choice->name }}</span>
+                                <span class="text-xs" style="color:var(--text-muted);">{{ $choice->email }}</span>
+                            </label>
+                            @empty
+                            <div class="text-xs" style="color:var(--text-muted);">No active users to choose from yet.</div>
+                            @endforelse
+
+                            <div class="text-xs mt-2" x-show="chosen.length === 0" style="color:var(--ds-crimson, #dc2626);">
+                                Choose at least one person before you turn this on.
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                        </div>
+                    </form>
+                </div>
+
                 @foreach($propGroups as $pg)
                 @php
                     $defaultItems    = $pg['items']->where('is_default', true)->values();

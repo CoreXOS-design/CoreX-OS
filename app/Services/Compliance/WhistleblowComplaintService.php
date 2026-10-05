@@ -460,12 +460,15 @@ class WhistleblowComplaintService
             }
         }
 
+        // Demo mode must never reach real people: suppress the real CC recipients too.
         $recipientCc = [];
-        if ($agency->whistleblow_compliance_officer_email) {
-            $recipientCc[] = $agency->whistleblow_compliance_officer_email;
-        }
-        if ($complaint->approvedBy?->email) {
-            $recipientCc[] = $complaint->approvedBy->email;
+        if (! $isDemoMode) {
+            if ($agency->whistleblow_compliance_officer_email) {
+                $recipientCc[] = $agency->whistleblow_compliance_officer_email;
+            }
+            if ($complaint->approvedBy?->email) {
+                $recipientCc[] = $complaint->approvedBy->email;
+            }
         }
 
         return ['to' => $recipientTo, 'cc' => $recipientCc, 'is_demo' => $isDemoMode];
@@ -507,8 +510,13 @@ class WhistleblowComplaintService
         // per-mailbox AND shared-mailer send paths, since both dispatch
         // MessageSent through the app's own event bus either way.
         $messageId = null;
-        $listener = function (MessageSent $event) use (&$messageId) {
-            $messageId = $messageId ?? $event->sent->getMessageId();
+        // Deactivates itself after the send rather than Event::forget(MessageSent::class),
+        // which would remove every other MessageSent listener for the rest of the process.
+        $captureActive = true;
+        $listener = function (MessageSent $event) use (&$messageId, &$captureActive) {
+            if ($captureActive) {
+                $messageId = $messageId ?? $event->sent->getMessageId();
+            }
         };
 
         try {
@@ -551,7 +559,7 @@ class WhistleblowComplaintService
             try {
                 $this->mailDispatcher->send(null, $mailable);
             } finally {
-                Event::forget(MessageSent::class);
+                $captureActive = false;
             }
 
             // Write email log row — success
@@ -637,6 +645,10 @@ class WhistleblowComplaintService
                 "Complaint #{$complaint->id} has not been sent to PPRA yet (status: {$complaint->status}) — use Approve, not Resend."
             );
         }
+
+        // Same approver-list rule as approve(): only someone entitled to approve
+        // may push this complaint to PPRA again.
+        $this->validateApproverPermission($complaint, $actor);
 
         $this->sendToPpra($complaint, $actor);
 

@@ -71,6 +71,11 @@
             {{ session('success') }}
         </div>
     @endif
+    @if(session('error'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); color:var(--ds-crimson,#c41e3a); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 25%, transparent);">
+            {{ session('error') }}
+        </div>
+    @endif
 
     @php
         $colourMap = [

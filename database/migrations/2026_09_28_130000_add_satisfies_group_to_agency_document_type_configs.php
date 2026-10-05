@@ -18,9 +18,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('agency_document_type_configs', function (Blueprint $table) {
-            $table->string('satisfies_group')->nullable()->after('slug');
-        });
+        if (! Schema::hasColumn('agency_document_type_configs', 'satisfies_group')) {
+            Schema::table('agency_document_type_configs', function (Blueprint $table) {
+                $table->string('satisfies_group')->nullable()->after('slug');
+            });
+        }
 
         // Existing bee_certificate rows (one per agency that has ever configured
         // the vault) join the 'bee' group. Scoped per-agency, never a blanket

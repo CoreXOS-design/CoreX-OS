@@ -48,6 +48,23 @@ class RentalApplicationCustomFieldController extends Controller
 
         $validated = $this->validateField($request);
 
+        // Once any application has answered this field, its type is locked and
+        // a choice list may only grow: changing text -> file/number/choice or
+        // dropping an option would orphan or misread stored answers.
+        $answered = \App\Models\RentalApplication::withoutGlobalScopes()
+            ->where('agency_id', $customField->agency_id)
+            ->whereNotNull('custom_field_values->' . $customField->key)
+            ->exists();
+        if ($answered) {
+            if ($validated['field_type'] !== $customField->field_type) {
+                return back()->withInput()->withErrors(['field_type' => 'This field has already been answered on applications, so its type can no longer be changed. Retire it and add a new field instead.']);
+            }
+            $removed = array_diff((array) $customField->options, (array) ($validated['options'] ?? []));
+            if ($customField->field_type === RentalApplicationCustomField::TYPE_CHOICE_LIST && $removed !== []) {
+                return back()->withInput()->withErrors(['options_text' => 'Answered options cannot be removed (' . implode(', ', $removed) . '). You can add new options.']);
+            }
+        }
+
         $customField->update([
             'label' => $validated['label'],
             'help_text' => $validated['help_text'] ?? null,

@@ -98,10 +98,34 @@ function corexSyndicationBus() {
 }
 
 // Private Property Syndication Alpine component
+// Portal Agent Mismatch Guard — .ai/specs/portal-agent-mismatch-guard.md §4.
+// Shared by the P24 and PP panels. A 409 carrying agent_conflict is not a
+// failure to debug — it is the question "send under the listing agent?", shown
+// by partials/portal-agent-conflict. Yes re-runs the stopped action with
+// confirm_agent_switch; Cancel just closes it (nothing is sent).
+// Requires on the host: agentConflict, loading, submitListing(), reactivateListing().
+function corexAgentConflictMixin() {
+    return {
+        _takeAgentConflict(data) {
+            if (!data || !data.agent_conflict) return false;
+            this.agentConflict = data.agent_conflict;
+            this.loading = false;
+            return true;
+        },
+        confirmAgentSwitch() {
+            const action = (this.agentConflict && this.agentConflict.action) || 'submit';
+            this.agentConflict = null;
+            return action === 'reactivate' ? this.reactivateListing(true) : this.submitListing(true);
+        },
+    };
+}
+
 function ppSyndication(config) {
     return {
         ...corexCopyLinkMixin(),
         ...corexSyndicationBus(),
+        ...corexAgentConflictMixin(),
+        agentConflict: config.agentConflict || null,
         portalKey: 'private_property',
         portalLabel: 'Private Property',
         propertyId: config.propertyId,
@@ -318,7 +342,7 @@ function ppSyndication(config) {
             } catch (e) { /* silent */ }
         },
 
-        async submitListing() {
+        async submitListing(confirmSwitch = false) {
             // Double-check readiness before submitting
             await this.refreshReadiness();
             if (this.missingFields.length > 0) {
@@ -336,10 +360,12 @@ function ppSyndication(config) {
                     // AT-369 — carry the agent's opt-in exclusivity choice. 0 clears it
                     // (an unticked/never-ticked control) — the server treats 0 as "not
                     // requested", never as "leave whatever PP already has."
-                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays }),
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays, confirm_agent_switch: confirmSwitch ? 1 : 0 }),
                 });
                 const data = await res.json();
+                if (this._takeAgentConflict(data)) return;
                 if (data.success) {
+                    this.agentConflict = null;
                     this.status = data.pp_syndication_status || 'submitted';
                     this.ppRef = data.pp_ref || this.ppRef;
                     this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -372,7 +398,7 @@ function ppSyndication(config) {
             }
         },
 
-        async refreshListing() {
+        async refreshListing(confirmSwitch = false) {
             this.loading = true;
             this.debugErrors = [];
             this.showDebug = false;
@@ -382,10 +408,12 @@ function ppSyndication(config) {
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
                     // AT-369 — same as submitListing(): a Refresh also carries the
                     // current opt-in exclusivity choice.
-                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays }),
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays, confirm_agent_switch: confirmSwitch ? 1 : 0 }),
                 });
                 const data = await res.json();
+                if (this._takeAgentConflict(data)) return;
                 if (data.success) {
+                    this.agentConflict = null;
                     this.status = data.pp_syndication_status || 'active';
                     this.ppRef = data.pp_ref || this.ppRef;
                     this.lastSubmitted = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -426,8 +454,8 @@ function ppSyndication(config) {
             }
         },
 
-        async reactivateListing() {
-            if (!confirm('Reactivate this listing on Private Property?')) return;
+        async reactivateListing(confirmSwitch = false) {
+            if (!confirmSwitch && !confirm('Reactivate this listing on Private Property?')) return;
             this.loading = true;
             try {
                 const res = await fetch(`/corex/properties/${this.propertyId}/syndication/reactivate`, {
@@ -437,10 +465,12 @@ function ppSyndication(config) {
                     // but reactivate() is a status-only PP call (ListingStatusUpdate)
                     // and does NOT push it to PP by itself — the message returned
                     // tells the agent a Refresh is still needed for that.
-                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays }),
+                    body: JSON.stringify({ pp_exclusive_days: this.exclusiveDays, confirm_agent_switch: confirmSwitch ? 1 : 0 }),
                 });
                 const data = await res.json();
+                if (this._takeAgentConflict(data)) return;
                 if (data.success) {
+                    this.agentConflict = null;
                     this.status = data.pp_syndication_status || 'submitted';
                     this.ppRef = data.pp_ref || this.ppRef;
                     this.showMessage('Listing reactivated on PP');
@@ -552,6 +582,8 @@ function p24Syndication(config) {
     return {
         ...corexCopyLinkMixin(),
         ...corexSyndicationBus(),
+        ...corexAgentConflictMixin(),
+        agentConflict: config.agentConflict || null,
         portalKey: 'property24',
         portalLabel: 'Property24',
         propertyId: config.propertyId, enabled: config.enabled, status: config.status || '',
@@ -633,6 +665,7 @@ function p24Syndication(config) {
                     const st = data.p24_syndication_status || '';
                     if (st === 'submitting') { setTimeout(tick, 3000); return; }
                     this.status = st;
+                    this.agentConflict = data.agent_conflict || null;
                     this.p24Ref = data.p24_ref || this.p24Ref;
                     if (st === 'active' || st === 'submitted') {
                         this.lastSubmitted = data.p24_last_submitted_at || this.lastSubmitted;
@@ -660,12 +693,14 @@ function p24Syndication(config) {
             };
             setTimeout(tick, 1500);
         },
-        async submitListing() {
+        async submitListing(confirmSwitch = false) {
             this.loading = true; this.debugErrors = []; this.showDebug = false;
             try {
-                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ confirm_agent_switch: confirmSwitch ? 1 : 0 }) });
                 const data = await res.json();
+                if (this._takeAgentConflict(data)) return;
                 if (data.success && data.queued) {
+                    this.agentConflict = null;
                     this.status = 'submitting';
                     this.lastError = ''; this.debugErrors = []; this.showDebug = false;
                     this.showMessage(data.message || 'Syncing to Property24…');
@@ -679,12 +714,14 @@ function p24Syndication(config) {
                 this.showDebug = true; this.loading = false;
             } catch (e) { this.debugErrors = ['Network error: ' + e.message]; this.showDebug = true; this.loading = false; }
         },
-        async refreshListing() {
+        async refreshListing(confirmSwitch = false) {
             this.loading = true; this.debugErrors = []; this.showDebug = false;
             try {
-                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({}) });
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ confirm_agent_switch: confirmSwitch ? 1 : 0 }) });
                 const data = await res.json();
+                if (this._takeAgentConflict(data)) return;
                 if (data.success && data.queued) {
+                    this.agentConflict = null;
                     this.status = 'submitting';
                     this.lastError = ''; this.debugErrors = []; this.showDebug = false;
                     this.showMessage(data.message || 'Refreshing on Property24…');
@@ -706,15 +743,25 @@ function p24Syndication(config) {
                 else { this.showMessage(data.message || 'Deactivation failed', 'error'); }
             } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
         },
-        async reactivateListing() {
-            if (!confirm('Reactivate this listing on Property24?')) return;
+        async reactivateListing(confirmSwitch = false) {
+            if (!confirmSwitch && !confirm('Reactivate this listing on Property24?')) return;
             this.loading = true;
+            let polling = false;
             try {
-                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/reactivate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' } });
+                const res = await fetch(`/corex/properties/${this.propertyId}/p24-syndication/reactivate`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ confirm_agent_switch: confirmSwitch ? 1 : 0 }) });
                 const data = await res.json();
-                if (data.success) { this.status = data.p24_syndication_status || 'submitted'; this.showMessage('Listing reactivated on P24'); }
+                if (this._takeAgentConflict(data)) return;
+                if (data.success && data.queued) {
+                    // Confirmed agent switch — the full send runs in the queue.
+                    this.status = 'submitting'; this.agentConflict = null;
+                    this.showMessage(data.message || 'Sending to Property24…');
+                    polling = true;
+                    this._pollP24SyncState('Listing back on P24 under the listing agent');
+                    return;
+                }
+                if (data.success) { this.agentConflict = null; this.status = data.p24_syndication_status || 'submitted'; this.showMessage('Listing reactivated on P24'); }
                 else { this.debugErrors = [data.message || 'Reactivation failed']; this.showDebug = true; }
-            } catch (e) { this.showMessage('Network error', 'error'); } finally { this.loading = false; }
+            } catch (e) { this.showMessage('Network error', 'error'); } finally { if (!polling) this.loading = false; }
         },
     };
 }
@@ -843,6 +890,60 @@ function syndicationRefreshAll() {
 
             this.fired = 'Refreshing on ' + detail.acked.join(', ') + '…';
             setTimeout(() => { this.fired = ''; }, 6000);
+        },
+    };
+}
+
+// ── Syndication approval (layer 3) ─────────────────────────────────────
+// .ai/specs/syndication-approval-gate.md §6.4. Backs the approval banner at
+// the top of the panel (partials/_syndication-approval-banner.blade.php).
+//
+// On success it RELOADS rather than patching state in JS: an approval
+// decision changes the whole panel (every portal control locks or unlocks,
+// the badge changes, the button set changes), and the banner is rendered
+// server-side from one DTO. Re-deriving all of that in the browser would be a
+// second implementation of the gate — exactly the drift this feature must not
+// have.
+function syndicationApproval(config) {
+    return {
+        propertyId: config.propertyId,
+        csrfToken: config.csrfToken,
+        badge: config.badge || '',
+        urls: config.urls || {},
+        open: false,
+        openReason: '',
+        note: '',
+        reason: '',
+        loading: false,
+        message: '',
+        errorMsg: '',
+        async post(url, fields = {}) {
+            if (this.loading || !url) return;
+            this.loading = true; this.errorMsg = ''; this.message = '';
+            const fd = new FormData();
+            fd.append('_token', this.csrfToken);
+            Object.entries(fields).forEach(([k, v]) => {
+                if (v !== null && v !== undefined && String(v).length) fd.append(k, v);
+            });
+            try {
+                const r = await fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                });
+                const j = await r.json().catch(() => ({}));
+                if (r.ok && j.success) {
+                    this.message = j.message || 'Done.';
+                    this.open = false; this.openReason = ''; this.note = ''; this.reason = '';
+                    setTimeout(() => window.location.reload(), 600);
+                } else {
+                    this.errorMsg = j.message || ('Request failed (HTTP ' + r.status + ')');
+                }
+            } catch (e) {
+                this.errorMsg = e.message || 'Network error';
+            } finally {
+                this.loading = false;
+            }
         },
     };
 }

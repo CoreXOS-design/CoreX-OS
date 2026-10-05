@@ -67,11 +67,23 @@ final class RentalInventoryCaptureTest extends TestCase
         ]);
     }
 
+    /**
+     * Audit M4 — the capture screen's GET is read-only and no longer creates
+     * the inventory; the agent starts it with an explicit POST (idempotent —
+     * it resumes an existing current inventory). Returns the GET response.
+     */
+    private function openInventory(\App\Models\Property $property): \Illuminate\Testing\TestResponse
+    {
+        $this->post(route('corex.properties.inventory.start', $property));
+
+        return $this->get(route('corex.properties.inventory.show', $property));
+    }
+
     public function test_opening_inventory_from_the_property_resolves_it_transparently_and_lists_its_rooms(): void
     {
         $this->assertSame(0, RentalInventory::count());
 
-        $response = $this->get(route('corex.properties.inventory.show', $this->property));
+        $response = $this->openInventory($this->property);
 
         $response->assertOk();
         $response->assertSee('Lounge');
@@ -96,7 +108,7 @@ final class RentalInventoryCaptureTest extends TestCase
             'title' => 'Sale Property', 'status' => 'active', 'listing_type' => 'sale',
         ]);
 
-        $response = $this->get(route('corex.properties.inventory.show', $saleProperty));
+        $response = $this->openInventory($saleProperty);
 
         $response->assertOk();
         $response->assertDontSee('no active lease');
@@ -114,8 +126,8 @@ final class RentalInventoryCaptureTest extends TestCase
             'title' => 'Sale Property', 'status' => 'active', 'listing_type' => 'sale',
         ]);
 
-        $this->get(route('corex.properties.inventory.show', $saleProperty))->assertOk();
-        $this->get(route('corex.properties.inventory.show', $saleProperty))->assertOk();
+        $this->openInventory($saleProperty)->assertOk();
+        $this->openInventory($saleProperty)->assertOk();
 
         $this->assertSame(1, RentalInventory::where('property_id', $saleProperty->id)->count());
     }
@@ -141,7 +153,7 @@ final class RentalInventoryCaptureTest extends TestCase
             'created_by_user_id' => $this->agent->id,
         ]);
 
-        $this->get(route('corex.properties.inventory.show', $saleProperty))->assertOk();
+        $this->openInventory($saleProperty)->assertOk();
         $inventory = RentalInventory::where('property_id', $saleProperty->id)->firstOrFail();
         $this->assertNull($inventory->lease_id);
 
@@ -199,7 +211,7 @@ final class RentalInventoryCaptureTest extends TestCase
         Storage::fake('public');
 
         // Step 1: open from the property — this transparently starts the inventory.
-        $this->get(route('corex.properties.inventory.show', $this->property))->assertOk();
+        $this->openInventory($this->property)->assertOk();
         $inventory = RentalInventory::firstOrFail();
 
         // Step 2: add a line item to the room — autosave endpoint, no separate "create" step.
@@ -233,7 +245,7 @@ final class RentalInventoryCaptureTest extends TestCase
         $this->assertSame($photoId, $line->photos->first()->id);
 
         // Step 5: reload the capture page — everything persisted, nothing was ever "saved" explicitly.
-        $reload = $this->get(route('corex.properties.inventory.show', $this->property));
+        $reload = $this->openInventory($this->property);
         $reload->assertOk();
         // The line lives in the Alpine data blob (json_encode'd, not literal
         // server-rendered HTML), so assert on the description without its
@@ -274,7 +286,7 @@ final class RentalInventoryCaptureTest extends TestCase
         ]);
         $this->assertSame(0, PropertyRoom::where('property_id', $blankProperty->id)->count());
 
-        $this->get(route('corex.properties.inventory.show', $blankProperty))->assertOk();
+        $this->openInventory($blankProperty)->assertOk();
 
         // Same write path the Inspection Items section's own control calls
         // (RentalInspectionRecordingController::storeItem, kind=space) —
@@ -298,7 +310,7 @@ final class RentalInventoryCaptureTest extends TestCase
         // query PropertyRoom::where('property_id')->where('is_retired',
         // false) — this IS the query the inspections tab data endpoint uses
         // too, so a room visible here is, by construction, visible there.
-        $reload = $this->get(route('corex.properties.inventory.show', $blankProperty));
+        $reload = $this->openInventory($blankProperty);
         $reload->assertOk();
         $reload->assertSee('Bedroom 1', false);
     }
@@ -306,7 +318,7 @@ final class RentalInventoryCaptureTest extends TestCase
     public function test_line_and_photo_are_scoped_to_the_inventory_they_belong_to(): void
     {
         Storage::fake('public');
-        $this->get(route('corex.properties.inventory.show', $this->property))->assertOk();
+        $this->openInventory($this->property)->assertOk();
         $inventory = RentalInventory::firstOrFail();
 
         $otherAgency = Agency::create(['name' => 'Other Agency', 'slug' => 'other-' . uniqid()]);
@@ -333,7 +345,7 @@ final class RentalInventoryCaptureTest extends TestCase
      */
     public function test_a_line_with_no_description_is_refused_not_saved(): void
     {
-        $this->get(route('corex.properties.inventory.show', $this->property))->assertOk();
+        $this->openInventory($this->property)->assertOk();
         $inventory = RentalInventory::firstOrFail();
 
         $this->postJson(route('corex.rental-inventories.lines.store', $inventory), [
@@ -352,7 +364,7 @@ final class RentalInventoryCaptureTest extends TestCase
      */
     public function test_updating_an_existing_line_persists_the_edit(): void
     {
-        $this->get(route('corex.properties.inventory.show', $this->property))->assertOk();
+        $this->openInventory($this->property)->assertOk();
         $inventory = RentalInventory::firstOrFail();
 
         $line = RentalInventoryLine::create([
@@ -431,7 +443,7 @@ final class RentalInventoryCaptureTest extends TestCase
             ],
         ]);
 
-        $response = $this->get(route('corex.properties.inventory.show', $blankProperty));
+        $response = $this->openInventory($blankProperty);
         $response->assertOk();
         $response->assertSee('Create spaces from listing', false);
         $response->assertDontSee('Inventory and Inspections share the same room list');
@@ -445,7 +457,7 @@ final class RentalInventoryCaptureTest extends TestCase
         $this->assertTrue($roomLabels->contains('Bedroom 2'));
         $this->assertTrue($roomLabels->contains('Flatlet 1'));
 
-        $reload = $this->get(route('corex.properties.inventory.show', $blankProperty));
+        $reload = $this->openInventory($blankProperty);
         $reload->assertOk();
         $reload->assertSee('Bedroom 1', false);
         $reload->assertSee('Flatlet 1', false);

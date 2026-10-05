@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
@@ -24,6 +25,8 @@ use Illuminate\View\View;
  */
 class RentalInventoryController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     public function create(Request $request): View
     {
         // §0a/§15 — an inventory is a PROPERTY feature, sale or rental, and
@@ -45,6 +48,11 @@ class RentalInventoryController extends Controller
         ]);
 
         $property = Property::findOrFail($validated['property_id']);
+        // The property must be one this user may see (own/branch/agency).
+        abort_unless(
+            Property::query()->visibleTo($request->user())->whereKey($property->id)->exists(),
+            404
+        );
         $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
 
         try {
@@ -103,7 +111,8 @@ class RentalInventoryController extends Controller
             $query->where('rental_inventories.created_at', '>=', $dateFrom);
         }
         if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_inventories.created_at', '<=', $dateTo);
+            // Inclusive end date (a bare date compares as midnight).
+            $query->where('rental_inventories.created_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
         }
 
         if ($sort === 'property') {
@@ -133,6 +142,8 @@ class RentalInventoryController extends Controller
 
     public function show(Request $request, RentalInventory $rentalInventory): View
     {
+        $this->assertVisible($request, $rentalInventory);
+
         $rentalInventory->load([
             'property', 'lease.tenants.contact',
             'lines.createdBy', 'lines.room',
@@ -177,11 +188,14 @@ class RentalInventoryController extends Controller
      */
     public function report(Request $request, RentalInventory $rentalInventory, \App\Services\Rentals\RentalInventoryReportPdfService $service)
     {
+        $this->assertVisible($request, $rentalInventory);
+
         $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact']);
 
-        if (! $rentalInventory->publicLinkIsValid()) {
-            $rentalInventory->generatePublicLink();
-        }
+        // Read-only: this GET (view permission) no longer mints or rotates
+        // the public link — that would invalidate a link already emailed
+        // (audit L4). The link is created at completion / by the POST
+        // resend-report path; a PDF with no live link simply omits the QR.
 
         $pdf = $service->generate($rentalInventory);
 
@@ -218,6 +232,7 @@ class RentalInventoryController extends Controller
      */
     public function comparison(Request $request, RentalInventory $rentalInventory, RentalInventoryComparisonService $service): View
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless($rentalInventory->status === RentalInventory::STATUS_COMPLETED, 400,
             'The move-out comparison is only available once the inventory itself is completed.');
         abort_unless($rentalInventory->lease_id !== null, 400,
@@ -239,11 +254,17 @@ class RentalInventoryController extends Controller
 
     public function cancel(Request $request, RentalInventory $rentalInventory): RedirectResponse
     {
+        $this->assertVisible($request, $rentalInventory);
+
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $rentalInventory->cancel($request->user(), $validated['cancel_reason']);
+        try {
+            $rentalInventory->cancel($request->user(), $validated['cancel_reason']);
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_inventory' => $e->getMessage()]);
+        }
 
         return redirect()->route('corex.rental-inventories.show', $rentalInventory)->with('success', 'Inventory cancelled.');
     }
@@ -251,6 +272,8 @@ class RentalInventoryController extends Controller
     /** Soft delete — archive, never destroy (non-negotiable #1). restore() below undoes it. */
     public function destroy(Request $request, RentalInventory $rentalInventory): RedirectResponse
     {
+        $this->assertVisible($request, $rentalInventory);
+
         $rentalInventory->forceFill(['archived_by_user_id' => $request->user()->id])->save();
         $rentalInventory->delete();
 
@@ -260,6 +283,7 @@ class RentalInventoryController extends Controller
     public function restore(Request $request, int $rentalInventory): RedirectResponse
     {
         $inventory = RentalInventory::withTrashed()->findOrFail($rentalInventory);
+        $this->assertVisible($request, $inventory);
         $inventory->restore();
         $inventory->forceFill(['archived_by_user_id' => null])->save();
 

@@ -957,10 +957,9 @@ backward from any observation a deposit dispute needs to trace.
 `RentalInspectionSetting::omrMarkThresholdFor($agencyId)` — the fraction of a box's interior that must
 read as dark ink to count as marked. Default 0.35, chosen to tolerate a slightly light photocopy or an
 unevenly lit phone photo while staying well clear of paper-texture noise; an agency scanning on worse
-equipment can raise or lower it without a code change. **Deliberately NOT added to the Agency Onboarding
-Setup Wizard** (non-negotiable #10a) — this is an expert/rarely-touched calibration knob an agency would
-tune only after a real accuracy problem, not something meaningful to present during onboarding before any
-agency has ever scanned a form; recorded here as a deliberate omission, not an oversight. Every other
+equipment can raise or lower it without a code change. **Now in the Agency Onboarding Setup Wizard (owner's ruling, 2026-09-30 — reversing the earlier
+"deliberately not in the wizard" call):** a number control on the Rentals step, also on the Rental
+Inspection Settings page, saved by `RentalInspectionSettingsController::update`. Every other
 number in this build (box size, fiducial size, grid layout) is a print/layout constant inherited unchanged
 from cc5's own §12.7 reasoning — not a setting, for the same reason a button's pixel padding isn't one.
 

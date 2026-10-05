@@ -3,7 +3,9 @@
 namespace App\Jobs\PrivateProperty;
 
 use App\Models\Property;
+use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\PrivateProperty\PrivatePropertySyndicationService;
+use App\Services\Syndication\SyndicationApprovalService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -57,6 +59,18 @@ class SyncPpListingStatusJob implements ShouldQueue
         // pp_ref set), kept explicit so a manually-drifted flag can never push
         // a status update for another agency's listing.
         if ($property->isOtherAgencyStock()) {
+            return;
+        }
+
+        // Layer 3 — an off-market push (Inactive) only REDUCES exposure and is
+        // never blocked; anything that would keep or return the listing to the
+        // market needs the syndication approval.
+        $listingType = PrivatePropertyListingMapper::resolveListingType($property);
+        if (
+            PrivatePropertyListingMapper::statusFor($property, $listingType) !== 'Inactive'
+            && ($refusal = app(SyndicationApprovalService::class)->refusalForUpdate($property, 'Private Property'))
+        ) {
+            Log::warning("PP status sync skipped for property #{$property->id} — {$refusal['message']}");
             return;
         }
 

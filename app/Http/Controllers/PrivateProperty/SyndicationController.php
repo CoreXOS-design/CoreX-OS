@@ -16,6 +16,8 @@ use Illuminate\Http\Request;
 class SyndicationController extends Controller
 {
     use \App\Http\Controllers\Concerns\EnforcesMarketingReadiness;
+    // Layer 3 — .ai/specs/syndication-approval-gate.md §6.3.
+    use \App\Http\Controllers\Concerns\EnforcesSyndicationApproval;
 
     private PrivatePropertySyndicationService $syndicationService;
     private PrivatePropertyListingMapper $mapper;
@@ -41,6 +43,7 @@ class SyndicationController extends Controller
         if (!$wasEnabled) {
             $this->enforceListingNotDraft($property, 'Private Property');
             $this->enforceMarketingReadiness($property);
+            $this->enforceSyndicationApproval($property, 'Private Property');
         }
         $nowEnabled = !$wasEnabled;
 
@@ -82,6 +85,7 @@ class SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Private Property');
 
         if ($errorResponse = $this->validateAndSaveExclusiveDays($request, $property)) {
             return $errorResponse;
@@ -107,7 +111,7 @@ class SyndicationController extends Controller
             ], 422);
         }
 
-        $result = $this->syndicationService->submitListing($property);
+        $result = $this->syndicationService->submitListing($property, $request->boolean('confirm_agent_switch'));
 
         $fresh = $property->fresh();
 
@@ -123,7 +127,8 @@ class SyndicationController extends Controller
             'pp_syndication_status' => $fresh->pp_syndication_status,
             'pp_ref'                => $fresh->pp_ref,
             'errors'                => $result['errors'] ?? [],
-        ], $result['success'] ? 200 : 422);
+            'agent_conflict'        => $result['agent_conflict'] ?? null,
+        ], $result['success'] ? 200 : (isset($result['agent_conflict']) ? 409 : 422));
     }
 
     /**
@@ -187,12 +192,13 @@ class SyndicationController extends Controller
         $this->authorizeProperty($property);
         $this->enforceListingNotDraft($property, 'Private Property');
         $this->enforceMarketingReadiness($property);
+        $this->enforceSyndicationApproval($property, 'Private Property');
 
         if ($errorResponse = $this->validateAndSaveExclusiveDays($request, $property)) {
             return $errorResponse;
         }
 
-        $result = $this->syndicationService->reactivateListing($property);
+        $result = $this->syndicationService->reactivateListing($property, $request->boolean('confirm_agent_switch'));
 
         $fresh = $property->fresh();
 
@@ -222,7 +228,8 @@ class SyndicationController extends Controller
             'message'               => $message,
             'pp_syndication_status' => $fresh->pp_syndication_status,
             'pp_ref'                => $fresh->pp_ref,
-        ], $result['success'] ? 200 : 422);
+            'agent_conflict'        => $result['agent_conflict'] ?? null,
+        ], $result['success'] ? 200 : (isset($result['agent_conflict']) ? 409 : 422));
     }
 
     /**

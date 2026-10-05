@@ -24,11 +24,24 @@ use Tests\TestCase;
  * ComparisonController/ScanController/PhotoNoteController) all receive a
  * bound RentalInspection (or a record reached through one) with no
  * per-record scope re-check beyond the list screen's own
- * RentalInspection::scopeVisibleTo(). One 403 test per controller, proving
+ * RentalInspection::scopeVisibleTo(). One test per controller, proving
  * AuthorizesRentalRecordScope::guardRentalRecordScope() now guards each.
  * The public, unauthenticated report link (RentalInspectionPublicController)
  * is deliberately NOT covered here — it takes no RentalInspection route
  * parameter at all (token-only lookup) and must keep working with no login.
+ *
+ * Staging/QA1 merge, 2026-10-04 (Johan's ruling) — expects 404, not 403, on
+ * this specific model. RentalInspection::resolveRouteBinding() (Audit M1,
+ * Staging's own pre-existing fix, deliberately kept: "nothing Staging
+ * protected may become unprotected") already scopes the route-model-binding
+ * itself and returns null for an out-of-scope id, which Laravel resolves to
+ * a 404 BEFORE the controller method — and guardRentalRecordScope() — ever
+ * runs. The record is exactly as unreachable either way; only the status
+ * code differs, because the earlier layer already refused it. This is the
+ * one rental model with its own resolveRouteBinding() override; Lease/
+ * RentalFaultReport/RentalWorkOrder have none, so guardRentalRecordScope()
+ * is the first and only guard there and really does answer 403 (see their
+ * own *ScopeGuardTest siblings).
  */
 final class RentalInspectionScopeGuardTest extends TestCase
 {
@@ -79,13 +92,13 @@ final class RentalInspectionScopeGuardTest extends TestCase
         ]);
     }
 
-    public function test_inspection_controller_show_returns_403_for_out_of_scope_user(): void
+    public function test_inspection_controller_show_refuses_out_of_scope_user(): void
     {
         $inspection = $this->inspectionOwnedByOther();
 
         $this->actingAs($this->own)
             ->get(route('corex.rental-inspections.show', $inspection))
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     public function test_recording_controller_guards_out_of_scope_user(): void
@@ -94,7 +107,7 @@ final class RentalInspectionScopeGuardTest extends TestCase
 
         $this->actingAs($this->own)
             ->post(route('corex.rental-inspections.overall-notes.update', $inspection), ['overall_notes' => 'x'])
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     public function test_comparison_controller_guards_out_of_scope_user(): void
@@ -103,7 +116,7 @@ final class RentalInspectionScopeGuardTest extends TestCase
 
         $this->actingAs($this->own)
             ->get(route('corex.rental-inspections.deposit-comparison', $inspection))
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     public function test_scan_controller_guards_out_of_scope_user(): void
@@ -122,7 +135,7 @@ final class RentalInspectionScopeGuardTest extends TestCase
 
         $this->actingAs($this->own)
             ->get(route('corex.rental-inspections.scans.review', [$inspection, $scan]))
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     public function test_photo_note_controller_guards_out_of_scope_user(): void
@@ -140,7 +153,7 @@ final class RentalInspectionScopeGuardTest extends TestCase
                 'classification_key' => 'defect',
                 'note' => 'Cracked tile',
             ])
-            ->assertForbidden();
+            ->assertNotFound();
     }
 
     public function test_own_scope_user_can_open_their_own_inspection(): void

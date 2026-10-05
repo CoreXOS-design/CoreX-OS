@@ -61,11 +61,15 @@ class LeaseSettingsController extends Controller
 
         $data = [
             'expiry_notice_window_days' => $validated['expiry_notice_window_days'],
-            // This form always renders the checkbox (never a subset-posting
-            // wizard step), so an absent checkbox is a genuine, deliberate
-            // "off" — not a field this step never showed the user.
-            'show_lease_type_field' => $request->boolean('show_lease_type_field'),
         ];
+        // has()-guarded (agency-onboarding-setup.md §6.1): this method is
+        // also a wizard saver for the leases step, which renders no
+        // show_lease_type_field control — an absent key means "not shown",
+        // never "off". The settings page always submits it (hidden 0 input
+        // / checkbox), so unchecking there still works.
+        if ($request->has('show_lease_type_field')) {
+            $data['show_lease_type_field'] = $request->boolean('show_lease_type_field');
+        }
         if ($request->has('default_deposit_months')) {
             $data['default_deposit_months'] = $validated['default_deposit_months'];
         }

@@ -15,6 +15,7 @@ use App\Services\Rentals\RentalWorkOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -181,7 +182,9 @@ class RentalWorkOrderController extends Controller
             $query->where('rental_work_orders.reported_at', '>=', $dateFrom);
         }
         if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_work_orders.reported_at', '<=', $dateTo);
+            // Inclusive end date: a bare 'YYYY-MM-DD' compares as midnight,
+            // which would drop every record reported ON the end date.
+            $query->where('rental_work_orders.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
         }
         if ($request->boolean('overdue')) {
             $query->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()));
@@ -290,10 +293,16 @@ class RentalWorkOrderController extends Controller
      */
     public function store(Request $request, RentalWorkOrderService $service): RedirectResponse
     {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $propertyId = $request->input('property_id');
+
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_inspection_item_id' => ['nullable', 'exists:rental_inspection_items,id'],
+            // The lease / inspection item must belong to THIS property — a
+            // same-agency lease on another property would otherwise make
+            // notifyTenant() email the wrong tenant (audit L2).
+            'lease_id' => ['nullable', Rule::exists('leases', 'id')->where('property_id', $propertyId)],
+            'rental_inspection_item_id' => ['nullable', Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
             'assignment_type' => ['nullable', 'in:' . implode(',', [
                 RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
                 RentalWorkOrder::ASSIGNMENT_INTERNAL,
@@ -304,7 +313,7 @@ class RentalWorkOrderController extends Controller
                 RentalWorkOrder::REPORTED_BY_OWNER_INSTRUCTED,
                 RentalWorkOrder::REPORTED_BY_INSPECTION,
             ])],
-            'reported_by_contact_id' => ['nullable', 'exists:contacts,id'],
+            'reported_by_contact_id' => ['nullable', Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
             'reported_inspection_observation_id' => ['nullable', 'exists:rental_inspection_observations,id'],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
@@ -313,6 +322,12 @@ class RentalWorkOrderController extends Controller
         ]);
 
         $property = Property::findOrFail($validated['property_id']);
+        // The acting user must be able to see this property (own/branch/agency)
+        // — same rule as the inventory store; AgencyScope alone is not enough.
+        abort_unless(
+            Property::query()->visibleTo($request->user())->whereKey($property->id)->exists(),
+            404
+        );
         $user = $request->user();
 
         if (($validated['assignment_type'] ?? RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
@@ -347,7 +362,7 @@ class RentalWorkOrderController extends Controller
         return view('corex.rental-work-orders.show', [
             'workOrder' => $rentalWorkOrder,
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
-            'noApprovalThreshold' => \App\Models\RentalWorkOrderSetting::thresholdFor($rentalWorkOrder->property),
+            'noApprovalThreshold' => $rentalWorkOrder->spendThreshold(),
             // §3.4c full-CRUD floor — archived quotes stay reachable with a
             // restore path on this same screen (no separate quotes index).
             'archivedQuotes' => $rentalWorkOrder->quotes()->onlyTrashed()->with('supplier')->get(),
@@ -355,10 +370,9 @@ class RentalWorkOrderController extends Controller
     }
 
     /**
-     * §"Printing" — a work order handed to a supplier. Same query-layer
-     * scoping as show() above (route-model-binding + the global AgencyScope) —
-     * a user who cannot open this record's own detail page cannot download
-     * it either, since both resolve the SAME bound model the SAME way.
+     * §"Printing" — a work order handed to a supplier. Same OWN/BRANCH/AGENCY
+     * check as show() above (guardRentalRecordScope) — a user who cannot open this
+     * record's own detail page cannot download it either.
      */
     public function pdf(RentalWorkOrder $rentalWorkOrder, RentalDocumentPdfService $service)
     {
@@ -395,7 +409,7 @@ class RentalWorkOrderController extends Controller
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
 
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', 'exists:agency_service_providers,id'],
+            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'trade_type' => ['nullable', 'string', 'max:60'],
         ]);
 
@@ -544,7 +558,8 @@ class RentalWorkOrderController extends Controller
 
         $clientKey = $validated['client_idempotency_key'] ?? null;
         if ($clientKey) {
-            $existing = RentalWorkOrderPhoto::where('client_idempotency_key', $clientKey)->first();
+            $existing = RentalWorkOrderPhoto::where('client_idempotency_key', $clientKey)
+                ->where('rental_work_order_id', $rentalWorkOrder->id)->first();
             if ($existing) {
                 return response()->json($existing, 200);
             }

@@ -52,6 +52,25 @@
                         own threshold can be set higher or lower on the lease itself.
                     </p>
                 </div>
+                <div>
+                    <input type="hidden" name="completion_requires_photo" value="0">
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="checkbox" name="completion_requires_photo" value="1" @checked(old('completion_requires_photo', $completionRequiresPhoto))>
+                        Require a photo before a work order can be marked complete
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        When on, a job needs photo evidence before it can be completed. Off by default, as some repairs cannot sensibly be photographed.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Overdue reminder window (days)</label>
+                    <input type="number" name="overdue_reminder_days" value="{{ old('overdue_reminder_days', $overdueReminderDays) }}"
+                           min="1" max="365" step="1"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $defaultOverdueReminderDays }} days. A work order with no status change for this long triggers an overdue reminder.
+                    </p>
+                </div>
             </div>
         </div>
 
