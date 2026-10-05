@@ -86,9 +86,19 @@ class Lease extends Model
         'move_out_date' => 'date',
     ];
 
+    /**
+     * Deleted-related-record rule (.ai/BUILD_STANDARD.md §4): a lease
+     * outlives its property's own soft-delete (e.g. a landlord's property
+     * record is archived while historic leases on it stay on file).
+     * ->withTrashed() keeps $lease->property resolving to the archived
+     * Property instead of silently going null, so every screen that
+     * renders it can show "(archived)" instead of 500ing on a route()
+     * call with a null model. Mirrors the existing
+     * RentalWorkOrder::property() precedent.
+     */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function branch(): BelongsTo
@@ -96,19 +106,22 @@ class Lease extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /** Same reasoning as property() above; RentalApplication is soft-deletable. */
     public function rentalApplication(): BelongsTo
     {
-        return $this->belongsTo(RentalApplication::class);
+        return $this->belongsTo(RentalApplication::class)->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function previousLease(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'previous_lease_id');
+        return $this->belongsTo(self::class, 'previous_lease_id')->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function renewedLease(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'renewed_lease_id');
+        return $this->belongsTo(self::class, 'renewed_lease_id')->withTrashed();
     }
 
     /**
@@ -133,10 +146,11 @@ class Lease extends Model
     }
 
     /**
-     * rental-renewals.md — a renewal draft the agent explicitly cancelled
-     * for this term. rentals:prepare-renewal-drafts checks this so a
-     * cancelled draft is never silently re-created on its next run — only
-     * an agent explicitly using "Renew lease" creates another one.
+     * rental-renewals.md §20 — a renewal draft the agent explicitly
+     * cancelled for this term. Kept as its own distinct state from an
+     * active draft so the tenancy log and any future lookup can tell "never
+     * started" apart from "started, then called off" — only an agent
+     * explicitly using "Renew lease" creates another one for this term.
      */
     public function cancelledRenewalDrafts(): HasMany
     {

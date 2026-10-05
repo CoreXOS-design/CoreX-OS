@@ -277,8 +277,8 @@
             <tbody>
                 @forelse($applications as $application)
                 <tr style="border-bottom: 1px solid var(--border);">
-                    <td class="px-4 py-2">{{ $application->contact->full_name ?? $application->full_name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $application->contact?->full_name ?? $application->full_name ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">
                         @permission('rental_applications.create')
                             {{-- 2026-09-12 REGRESSION FIX — this used to trigger on
@@ -502,8 +502,8 @@
             <tbody>
                 @forelse($archived as $application)
                 <tr style="border-bottom: 1px solid var(--border);">
-                    <td class="px-4 py-2">{{ $application->contact->full_name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $application->contact?->full_name ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">{{ $application->deleted_at->format('d M Y') }}</td>
                     <td class="px-4 py-2 text-right">
                         {{-- 2026-09-12 — moved off rental_applications.create onto

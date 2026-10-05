@@ -124,12 +124,21 @@
             <label class="text-xs" style="color: var(--text-muted);">Scheduled to</label><br>
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
+        <div>
+            <label class="text-xs" style="color: var(--text-muted);">Inspector</label><br>
+            <select name="inspector_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <option value="">All</option>
+                @foreach($inspectorOptions as $inspectorOption)
+                    <option value="{{ $inspectorOption->id }}" @selected(($filters['inspector_id'] ?? '') == $inspectorOption->id)>{{ $inspectorOption->name }}</option>
+                @endforeach
+            </select>
+        </div>
         <label class="flex items-center gap-1.5 text-xs pb-2" style="color: var(--text-secondary);">
             <input type="checkbox" name="has_unresolved_discrepancy" value="1" @checked(!empty($filters['has_unresolved_discrepancy']))>
             Has unresolved discrepancy
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']))
+        @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id']))
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -143,6 +152,7 @@
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('scheduled_for') }}" style="color: var(--text-muted);">Scheduled{{ $sortIndicator('scheduled_for') }}</a></th>
+                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('inspector') }}" style="color: var(--text-muted);">Inspector{{ $sortIndicator('inspector') }}</a></th>
                     <th class="text-left px-4 py-2">{{ $archived ? 'Archived' : 'Discrepancy' }}</th>
                     <th></th>
                 </tr>
@@ -150,11 +160,17 @@
             <tbody>
                 @forelse($inspections as $inspection)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="rental-inspection-row-{{ $inspection->id }}">
-                    <td class="px-4 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
+                    <td class="px-4 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">{{ $inspection->lease?->tenantNames() ?? '—' }}</td>
                     <td class="px-4 py-2">{{ ucfirst(str_replace('_', '-', $inspection->type)) }}</td>
                     <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
-                    <td class="px-4 py-2">{{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}</td>
+                    <td class="px-4 py-2">
+                        {{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}
+                        @if($inspection->scheduled_for && $inspection->scheduled_time)
+                            {{ substr((string) $inspection->scheduled_time, 0, 5) }}
+                        @endif
+                    </td>
+                    <td class="px-4 py-2">{{ $inspection->inspector?->name ?? '—' }}</td>
                     <td class="px-4 py-2">
                         @if($archived)
                             {{ $inspection->archivedBy?->name ?? 'Unknown' }} — {{ $inspection->deleted_at?->format('Y-m-d') }}
@@ -171,12 +187,20 @@
                             </form>
                             @endpermission
                         @else
+                            {{-- §43 — a scheduled inspection hasn't been recorded
+                                 yet; "Start" opens the SAME property Inspections
+                                 tab the original immediate-Start flow always
+                                 landed on, alongside "View" (the read-only
+                                 detail page). --}}
+                            @if($inspection->scheduled_for && $inspection->isRecordable())
+                            <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-primary text-xs">Start</a>
+                            @endif
                             <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">View</a>
                         @endif
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                     @if($archived)
                         No archived inspections on this agency.
                     @elseif(!$hasAnyInspections)

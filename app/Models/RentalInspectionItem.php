@@ -45,9 +45,10 @@ class RentalInspectionItem extends Model
         'is_retired' => 'boolean',
     ];
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     /**

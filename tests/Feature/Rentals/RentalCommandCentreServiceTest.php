@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Lease;
+use App\Models\LeaseSetting;
 use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
@@ -147,7 +148,8 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
-        self::assertSame(1, $tiles['open_faults']);
+        self::assertSame(1, $tiles['open_faults']['records']);
+        self::assertSame(1, $tiles['open_faults']['properties']);
     }
 
     public function test_open_work_orders_tile_excludes_completed_and_cancelled(): void
@@ -162,7 +164,8 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
-        self::assertSame(1, $tiles['open_work_orders']);
+        self::assertSame(1, $tiles['open_work_orders']['records']);
+        self::assertSame(1, $tiles['open_work_orders']['properties']);
     }
 
     /**
@@ -188,11 +191,13 @@ final class RentalCommandCentreServiceTest extends TestCase
         $tiles = $this->service->tileCounts($agent, 'all');
         $rows = $this->service->derivedPropertyQuery($agent, 'all')->get(['id', 'open_work_orders_count']);
 
-        self::assertSame(3, $tiles['open_work_orders']);
+        // Round 7 (2026-10-05) — the tile is now BOTH numbers at once,
+        // never just the record total alone: 'records' is the sum shown as
+        // the big number, 'properties' is the count shown beside it, and
+        // ?tile=open_work_orders lists exactly those 2 properties.
+        self::assertSame(3, $tiles['open_work_orders']['records']);
         self::assertSame(3, (int) $rows->sum('open_work_orders_count'));
-        // The property-count would have been 2 — proving this is genuinely
-        // a different (and now correct) number, not a coincidence.
-        self::assertNotSame(2, $tiles['open_work_orders']);
+        self::assertSame(2, $tiles['open_work_orders']['properties']);
     }
 
     public function test_open_faults_tile_equals_sum_of_per_row_column_not_property_count(): void
@@ -211,9 +216,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $tiles = $this->service->tileCounts($agent, 'all');
         $rows = $this->service->derivedPropertyQuery($agent, 'all')->get(['id', 'open_faults_count']);
 
-        self::assertSame(3, $tiles['open_faults']);
+        self::assertSame(3, $tiles['open_faults']['records']);
         self::assertSame(3, (int) $rows->sum('open_faults_count'));
-        self::assertNotSame(2, $tiles['open_faults']);
+        self::assertSame(2, $tiles['open_faults']['properties']);
     }
 
     /**
@@ -365,10 +370,10 @@ final class RentalCommandCentreServiceTest extends TestCase
     }
 
     /**
-     * AT-444 follow-up 3 (2026-10-05) — once
-     * rentals:prepare-renewal-drafts has drafted a lease
-     * (Lease::hasPendingRenewalDraft()), this row's own type/label changes
-     * so the agent sees it's ready rather than still "needs review".
+     * AT-444 follow-up 3 (2026-10-05) — once an agent has started a renewal
+     * for a lease via "Renew lease" (Lease::hasPendingRenewalDraft()), this
+     * row's own type/label changes so the agent sees it's ready rather than
+     * still "needs review".
      */
     public function test_queue_shows_renewal_draft_ready_once_a_draft_exists(): void
     {
@@ -398,8 +403,8 @@ final class RentalCommandCentreServiceTest extends TestCase
     }
 
     /**
-     * No e-sign source, no agency template configured at all — the command
-     * would never draft this one, so the row names the gap instead.
+     * No e-sign source, no agency template configured at all — "Renew lease"
+     * couldn't draft this one, so the row names the gap instead.
      */
     public function test_queue_shows_missing_info_when_the_lease_cannot_be_auto_drafted(): void
     {
@@ -591,9 +596,197 @@ final class RentalCommandCentreServiceTest extends TestCase
         $tiles = $this->service->tileCounts($agent, 'all');
         $filtered = $this->service->tableQuery($agent, 'all', ['tile' => 'open_faults'])->get();
 
-        self::assertSame(2, $tiles['open_faults']);
+        self::assertSame(2, $tiles['open_faults']['records']);
+        self::assertSame(1, $tiles['open_faults']['properties']);
         self::assertCount(1, $filtered);
         self::assertSame($property->id, $filtered->first()->id);
+    }
+
+    // ───────────────────────── Round 7 (2026-10-05, Johan) ─────────────────────────
+    // "the tile's number and the list it opens come from ONE shared query
+    // definition, so they can never disagree" — one test per tile, per
+    // scope level, proving the number the tile shows and what clicking it
+    // actually lists can never diverge (tilePredicateSql() is the single
+    // definition both tileCounts() and applyTile() call).
+
+    /**
+     * Fixture spanning every tile at once (one agent's whole rental book),
+     * run under each of own/branch/all so the SAME assertions prove the
+     * identity holds at every scope level, not just the widest one.
+     */
+    private function makeRound7TileFixture(): array
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+
+        // Occupied, no notice, no renewal draft, no open items, one
+        // completed in-inspection — a "healthy" occupied unit, counted in
+        // occupied/all only.
+        $healthy = $this->makeRentalProperty($agency, $branch, $agent);
+        $healthyLease = $this->makeActiveLease($agency, $branch, $healthy, ['end_date' => now()->addYear()->toDateString()]);
+        RentalInspection::create([
+            'agency_id' => $agency->id, 'lease_id' => $healthyLease->id, 'property_id' => $healthy->id,
+            'type' => RentalInspection::TYPE_IN, 'status' => RentalInspection::STATUS_COMPLETED,
+            'completed_at' => now()->subMonths(6),
+        ]);
+
+        // Occupied + notice given + expiring in window + month-to-month
+        // checked separately below via their own dedicated fixtures (kept
+        // apart so each tile's own property count stays unambiguous).
+        $expiring = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeActiveLease($agency, $branch, $expiring, ['end_date' => now()->addDays(10)->toDateString()]);
+
+        $noticeGiven = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeActiveLease($agency, $branch, $noticeGiven, [
+            'end_date' => now()->addYear()->toDateString(),
+            'notice_date' => now()->toDateString(), 'notice_given_by' => Lease::NOTICE_BY_TENANT,
+        ]);
+
+        $monthToMonth = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeActiveLease($agency, $branch, $monthToMonth, ['end_date' => null, 'is_month_to_month' => true]);
+
+        // Two properties with open faults (2 + 1 = 3 records on 2 properties).
+        $faultsOne = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeFaultReport($agency, $branch, $faultsOne, RentalFaultReport::STATUS_REPORTED);
+        $this->makeFaultReport($agency, $branch, $faultsOne, RentalFaultReport::STATUS_AWAITING_APPROVAL);
+        $faultsTwo = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeFaultReport($agency, $branch, $faultsTwo, RentalFaultReport::STATUS_REPORTED);
+
+        // One property with 2 open work orders (2 records on 1 property).
+        $workOrders = $this->makeRentalProperty($agency, $branch, $agent);
+        $this->makeWorkOrder($agency, $branch, $workOrders, RentalWorkOrder::STATUS_REPORTED, now());
+        $this->makeWorkOrder($agency, $branch, $workOrders, RentalWorkOrder::STATUS_ORDERED, now());
+
+        // Inspections due — one scheduled-not-completed inspection.
+        $inspectionDue = $this->makeRentalProperty($agency, $branch, $agent);
+        $inspectionDueLease = $this->makeActiveLease($agency, $branch, $inspectionDue, ['end_date' => now()->addYear()->toDateString()]);
+        RentalInspection::create([
+            'agency_id' => $agency->id, 'lease_id' => $inspectionDueLease->id, 'property_id' => $inspectionDue->id,
+            'type' => RentalInspection::TYPE_OUT, 'status' => RentalInspection::STATUS_IN_PROGRESS,
+        ]);
+
+        // Vacant, status 'active' (the sensible default) — counts as Unoccupied.
+        $this->makeRentalProperty($agency, $branch, $agent);
+
+        // Vacant, status 'withdrawn' — NOT active rental stock — counts as
+        // Inactive/off market instead, the exact bug Johan reported.
+        $this->makeRentalProperty($agency, $branch, $agent, ['status' => 'withdrawn']);
+
+        return [$agency, $branch, $agent];
+    }
+
+    public static function round7ScopesProvider(): array
+    {
+        return [['own'], ['branch'], ['all']];
+    }
+
+    /**
+     * @dataProvider round7ScopesProvider
+     */
+    public function test_every_property_based_tile_count_equals_its_opened_list_total(string $scope): void
+    {
+        [$agency, $branch, $agent] = $this->makeRound7TileFixture();
+        $this->actingAs($agent);
+
+        $propertyBasedTiles = ['occupied', 'unoccupied', 'inactive', 'expiring', 'notice_given', 'renewals_in_progress', 'month_to_month', 'inspections_due'];
+        $tiles = $this->service->tileCounts($agent, $scope);
+
+        foreach ($propertyBasedTiles as $tile) {
+            $listed = $this->service->tableQuery($agent, $scope, ['tile' => $tile])->count();
+            self::assertSame($tiles[$tile], $listed, "tile '{$tile}' ({$tiles[$tile]}) disagrees with its own opened list ({$listed}) at scope={$scope}");
+        }
+    }
+
+    /**
+     * @dataProvider round7ScopesProvider
+     */
+    public function test_record_based_tiles_record_total_equals_the_opened_lists_own_column_sum(string $scope): void
+    {
+        [$agency, $branch, $agent] = $this->makeRound7TileFixture();
+        $this->actingAs($agent);
+
+        $tiles = $this->service->tileCounts($agent, $scope);
+
+        $faultsList = $this->service->tableQuery($agent, $scope, ['tile' => 'open_faults'])->get(['id', 'open_faults_count']);
+        self::assertSame($tiles['open_faults']['properties'], $faultsList->count());
+        self::assertSame($tiles['open_faults']['records'], (int) $faultsList->sum('open_faults_count'));
+
+        $workOrdersList = $this->service->tableQuery($agent, $scope, ['tile' => 'open_work_orders'])->get(['id', 'open_work_orders_count']);
+        self::assertSame($tiles['open_work_orders']['properties'], $workOrdersList->count());
+        self::assertSame($tiles['open_work_orders']['records'], (int) $workOrdersList->sum('open_work_orders_count'));
+    }
+
+    /**
+     * @dataProvider round7ScopesProvider
+     */
+    public function test_occupied_unoccupied_inactive_always_sum_to_all(string $scope): void
+    {
+        [$agency, $branch, $agent] = $this->makeRound7TileFixture();
+        $this->actingAs($agent);
+
+        $tiles = $this->service->tileCounts($agent, $scope);
+
+        self::assertSame($tiles['all'], $tiles['occupied'] + $tiles['unoccupied'] + $tiles['inactive']);
+    }
+
+    /**
+     * The actual bug Johan reported: a vacant 'withdrawn' property used to
+     * count as Unoccupied (every rental property with no active lease,
+     * regardless of status). It must now count as Inactive/off market, and
+     * ONLY an active-status vacant property counts as Unoccupied.
+     */
+    public function test_unoccupied_excludes_off_market_statuses_which_count_as_inactive_instead(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $activeVacant = $this->makeRentalProperty($agency, $branch, $agent, ['status' => 'active']);
+        $withdrawnVacant = $this->makeRentalProperty($agency, $branch, $agent, ['status' => 'withdrawn']);
+        $this->actingAs($agent);
+
+        $tiles = $this->service->tileCounts($agent, 'all');
+        self::assertSame(1, $tiles['unoccupied']);
+        self::assertSame(1, $tiles['inactive']);
+
+        $unoccupiedList = $this->service->tableQuery($agent, 'all', ['tile' => 'unoccupied'])->get();
+        self::assertCount(1, $unoccupiedList);
+        self::assertSame($activeVacant->id, $unoccupiedList->first()->id);
+
+        $inactiveList = $this->service->tableQuery($agent, 'all', ['tile' => 'inactive'])->get();
+        self::assertCount(1, $inactiveList);
+        self::assertSame($withdrawnVacant->id, $inactiveList->first()->id);
+    }
+
+    public function test_active_rental_statuses_default_is_property_on_market_statuses(): void
+    {
+        self::assertSame(
+            ['active', 'for_sale', 'to_let', 'under_offer', Property::STATUS_OTHER_AGENCY_STOCK],
+            LeaseSetting::defaultActiveRentalStatuses()
+        );
+    }
+
+    public function test_active_rental_statuses_for_agency_falls_back_to_default_when_unset(): void
+    {
+        [$agency] = $this->makeAgencyBranchAgent();
+
+        self::assertSame(LeaseSetting::defaultActiveRentalStatuses(), LeaseSetting::activeRentalStatusesFor($agency->id));
+    }
+
+    public function test_active_rental_statuses_for_agency_honours_an_explicit_override(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        LeaseSetting::updateOrCreate(['agency_id' => $agency->id], ['active_rental_statuses' => ['to_let']]);
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        self::assertSame(['to_let'], LeaseSetting::activeRentalStatusesFor($agency->id));
+
+        // Proves the override actually drives the tile, not just the setting read.
+        $this->makeRentalProperty($agency, $branch, $agent, ['status' => 'active']); // now off-list -> inactive
+        $this->makeRentalProperty($agency, $branch, $agent, ['status' => 'to_let']); // on-list -> unoccupied
+
+        $tiles = $this->service->tileCounts($agent, 'all');
+        self::assertSame(1, $tiles['unoccupied']);
+        self::assertSame(1, $tiles['inactive']);
     }
 
     /**
@@ -800,7 +993,19 @@ final class RentalCommandCentreServiceTest extends TestCase
         $property = $this->makeRentalProperty($agency, $branch, $agent);
         $lease = $this->makeActiveLease($agency, $branch, $property, ['end_date' => now()->addDays(5)->toDateString()]);
 
-        $property->delete(); // soft delete — Lease::property() then resolves to null.
+        // PropertyObserver::deleting() (landed on origin/QA1 2026-10-05, a
+        // separate ticket) now blocks Property::delete() outright while any
+        // lease on it is still status=active — this review_renewal rule
+        // NEEDS that active lease to fire, so a real ->delete() call here
+        // is unreachable going forward (by design: the guard exists so
+        // this exact "active tenancy, property archived out from under
+        // it" state can no longer be newly created). Bypassing the
+        // deleting event by writing deleted_at directly simulates data
+        // that predates the guard, or was deleted another way outside
+        // Eloquent — exactly the kind of already-inconsistent real data
+        // this queue-row fallback exists to render gracefully regardless
+        // of how it came to exist.
+        $property->forceFill(['deleted_at' => now()])->save();
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
         $this->actingAs($agent);
@@ -808,7 +1013,13 @@ final class RentalCommandCentreServiceTest extends TestCase
         $item = $this->service->queueItems($agent, 'all')->first(fn ($i) => $i['type'] === 'review_renewal' && $i['lease']->id === $lease->id);
 
         self::assertNotNull($item, 'the row must not be silently dropped when its property is gone');
-        self::assertNull($item['property']);
+        // Deleted-related-record rule (.ai/BUILD_STANDARD.md §4, landed the
+        // same day as the guard above): Lease::property() is now
+        // ->withTrashed(), so this resolves to the ARCHIVED property
+        // instead of null — the queue row shows its real address + "(archived)"
+        // (command-centre/_queue-row.blade.php) rather than "Unknown property".
+        self::assertNotNull($item['property']);
+        self::assertTrue($item['property']->trashed());
         self::assertSame('corex.leases.show', $item['route']);
         self::assertSame($lease->id, $item['route_params']['lease']);
     }

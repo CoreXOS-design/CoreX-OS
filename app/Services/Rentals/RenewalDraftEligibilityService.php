@@ -7,10 +7,11 @@ use App\Models\RentalLeaseTemplate;
 use App\Models\User;
 
 /**
- * .ai/specs/rental-renewals.md §5 — the ONE decision of which renewal path
- * (a lease is eligible for, so neither the scheduled auto-draft command nor
- * the Command Centre's needs-action row can ever disagree about what a
- * given lease needs. §5's own table, decided once:
+ * .ai/specs/rental-renewals.md §5/§21 — the ONE decision of which renewal
+ * path a lease is eligible for, used by the Command Centre's needs-action
+ * row (to name what's missing before the agent clicks "Renew lease") and
+ * by the renewal screen's own eligibility preview, so the two can never
+ * disagree about what a given lease needs. §5's own table, decided once:
  *
  *   (a) copy forward — current lease was e-signed through CoreX.
  *   (b) draft fresh — agency has a mapped template AND the data it needs

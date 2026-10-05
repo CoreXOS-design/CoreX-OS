@@ -191,7 +191,7 @@
             <tbody>
                 @forelse($faultReports as $faultReport)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="fault-report-row-{{ $faultReport->id }}">
-                    <td class="px-4 py-2">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
+                    <td class="px-4 py-2">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $faultReport->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">{{ $faultReport->title }}</td>
                     <td class="px-4 py-2">
                         @if($showArchived)

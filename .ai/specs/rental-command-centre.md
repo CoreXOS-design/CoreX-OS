@@ -475,3 +475,172 @@ per-agency setting, set on screen at **Settings → Rental/Lease Settings**
 (`/corex/settings/leases`, `LeaseSettingsController`) and also offered in the Agency Onboarding
 Setup Wizard (`config/agency-onboarding-copy.php`). Non-negotiable #9/§10a's "make it a setting if
 it isn't one" did not apply — it already was one, built before this fix round. No code change.
+
+## 14. §13.3's popup fix didn't hold under real-browser verification; layout + per-group collapse (2026-10-05, same day)
+
+Johan reproduced §13.3's "fixed" popup still broken in a real browser: the `position: fixed`
+computed-coordinates approach was still painted BEHIND later rows' own sticky Actions cells. A
+`position: fixed` descendant of a `position: sticky` table cell does not reliably out-rank
+siblings elsewhere in the DOM by z-index alone, regardless of the z-index value used — the only
+fix that actually holds is removing the popup from that DOM subtree entirely.
+
+### 14.1 Row-actions popup — teleport to `<body>`, a shared component
+
+New component `resources/views/components/row-actions-popup.blade.php` (`<x-row-actions-popup>`):
+on open, the popup panel is physically moved (`appendChild`) to a direct child of `<body>` — once
+it's no longer a descendant of the table/row/sticky-cell at all, there is no ancestor stacking
+context left to trap it in. Position computed from the trigger `<summary>`'s real
+`getBoundingClientRect()` at open time, right-aligned, flipping upward near the viewport bottom.
+Closes on scroll (capture-phase — this is what makes it correct from inside an independently-
+scrolling panel, see §14.2), resize, Escape, and outside click; only one instance open at a time.
+One shared, once-per-page script drives every instance via event delegation.
+
+Two real bugs found and fixed via the real-HTTP Playwright proof before this held:
+
+- Blade compiles `@directive`/`<x-component>`-shaped text **anywhere in the raw template**,
+  including inside a plain `//` JS comment — it has no concept of "this is inside a `<script>`
+  comment, don't touch it." Comments that literally wrote `@once`, `<x-row-actions-popup>`, or
+  `@section('content')` in prose each got compiled into a real, unclosed directive, breaking the
+  whole template (500, "unexpected end of file" / "undefined property: $startSection"). `view:cache`
+  did **not** catch any of these — it compiles but never executes the output, so it reports
+  "cached successfully" right up until a real request renders the view. Caught only by hitting the
+  deployed page over real HTTP. Fixed by describing the mechanism in prose instead of the literal
+  token, each time it recurred.
+- `closeMenu()`/the outside-click handler both re-ran `details.querySelector('.corex-rap-panel')`
+  to find the panel to hide — but the panel is teleported OUT of `<details>` on first open, so
+  that query returns null for every subsequent close. `details.open` still correctly flipped to
+  `false`, but the panel itself never got `display:none` and stayed visible, intercepting clicks.
+  Fixed with one cached reference (`details.__corexPanel`, set on first lookup) used by every
+  close path instead of re-querying.
+
+No other rentals list screen (leases/fault-reports/work-orders/job-cards/inspections) has a
+sticky-column dropdown popup today, so this component has one call site; built shared anyway so
+the next screen that adds a row-action dropdown over a sticky column adopts it rather than
+reinventing the same bug.
+
+### 14.2 Layout — both panels scroll independently, the page itself never scrolls
+
+Johan: the Needs-action panel and the properties table must each be their own scroll container
+filling the remaining viewport height below the tiles — scrolling one must never move the other,
+and the page itself must never need to scroll to reach a row, at 1366×768 and 1536×735.
+
+`#rcc-queue-panel` and `#rcc-table-section` are each `flex flex-col` with a JS-measured `height`;
+inside each, the header/controls and pagination are `flex-shrink-0` and the actual row list
+(`#rcc-queue-scroll` / `#rcc-table-scroll`) is `flex-1 overflow-y-auto` — ordinary flexbox then
+distributes whatever's left over to the scrolling part. Height is measured from `#rcc-layout`'s
+own `getBoundingClientRect().top`, corrected against the ACTUAL resulting overflow on
+`#appScroll` (the real scrolling element in `layouts.corex` — `<html>`/`<body>` never scroll, by
+that layout's own existing `h-screen` + `overflow-hidden` wrapper) rather than trying to
+precompute every padding layer between `#rcc-layout` and the viewport edge (`<main
+id="appScroll">`'s own padding, the shared `.hfc-card` wrapper, this page's own container
+padding — none of which this page owns or should couple to). Re-measured on `window.load` as well
+as `DOMContentLoaded` since fonts/images can still reflow the title/tiles row afterward.
+
+The Needs-action panel's own group/sort/property/date controls had ALSO been fixed once already
+(§13.1, `flex-nowrap` + a local `overflow-x-auto` fallback) — round 2 of real-browser verification
+found that fallback was hiding the actual defect (a horizontal scrollbar, the last date field cut
+off at this panel's ~300px width), not fixing it. The `overflow-x-auto` escape hatch was removed
+on purpose — a horizontal scrollbar here is itself the defect. Fixed by shrinking the three selects
+further and replacing the two side-by-side date inputs (180px) with a single "Dates" disclosure
+button (~40px) holding both fields stacked vertically inside a dropdown.
+
+### 14.3 Needs-action queue — per-group collapse
+
+Grouped items (by property or by date, §13.1) now have a collapsible heading — chevron + item
+count, e.g. "1 Kenmuir Road, Uvongo (4)" — plus one Expand-all/Collapse-all toggle, scoped to the
+groups rendered on the current queue page. Persisted per user via the existing
+`RentalCommandCentreUserPreference` mechanism (new key `collapsed_queue_groups`, an array of group
+keys), keyed by each group's new stable `'key'` field
+(`RentalCommandCentreService::groupQueueItems()` — `property:<id>` / `date:<Y-m-d|overdue|none>`)
+rather than its display heading, so a renamed property or reformatted date heading never silently
+loses its remembered collapsed state. `RentalCommandCentreController::updatePreference()` was
+generalised off a boolean-only `$request->boolean('value')` cast to branch on `preference_key`
+(array for `collapsed_queue_groups`, boolean for everything else).
+
+### 14.4 Proof
+
+Real-browser Playwright proof against the deployed QA1 page (not a PHPUnit assertion — this is
+DOM/CSS/JS behaviour, same reasoning as §13.3): first and last row Actions menus both teleport to
+`<body>`, every menu item fully inside the viewport AND top-most at its own centre point
+(`document.elementFromPoint`), Escape closes them; the two panels scroll independently of each
+other and of the page; `document.documentElement.scrollHeight <= window.innerHeight` at both
+1366×768 and 1536×735; clicking a group heading collapses only that group, other groups
+unaffected; Expand-all/Collapse-all toggles every rendered group together.
+
+## 15. Tile count ≠ opened list, "Unoccupied" counted off-market stock (2026-10-05, Johan)
+
+Two faults, both load-bearing for trust in this screen's numbers:
+
+1. **"Open work orders" showed 5, clicking it listed 2 rows** (same for "Open faults"). Cause:
+   `tileCounts()`'s `open_faults`/`open_work_orders` ran an independent `->count()` directly
+   against `rental_fault_reports`/`rental_work_orders` — RECORDS. `applyTile()`'s `?tile=` click
+   filtered the derived property query by `open_*_count > 0` — PROPERTIES with ≥1. Both numbers
+   were individually correct for what they measured; shown side by side with no label, they read
+   as disagreeing.
+2. **"Unoccupied" showed 553 = 570 − 17**, i.e. every rental property with no active lease,
+   including withdrawn/expired/draft/prospecting/sold/let-out-elsewhere ones — `applyTile()`'s
+   `unoccupied`/`tileCounts()`'s own loop both used `active_lease_id IS NULL` alone, with no
+   check on the property's own `status`.
+
+### 15.1 Rule: every tile's number and its opened list share ONE query definition
+
+`RentalCommandCentreService::tilePredicateSql(string $tile, ...): ?array` is now the single place
+each tile's condition is written, as a raw SQL boolean expression over the derived table's own
+columns (`buildDerivedInnerQuery()`). `applyTile()`'s `WHERE` and `tileCounts()`'s `CASE WHEN` both
+call it — textually identical SQL in both places, not independently-maintained logic that merely
+happens to agree today. `tileCounts()` is now ONE aggregate query (`SUM(CASE WHEN ... THEN 1 ELSE
+0 END)` per tile) over `derivedPropertyQuery()`, not the old per-row PHP-boolean loop plus two
+separate direct-count queries — one query, provably non-divergent, no N+1.
+
+For the two record-based tiles (`open_faults`, `open_work_orders`), `tileCounts()` returns
+`['records' => N, 'properties' => M]` instead of a plain int: `records` is `SUM(open_faults_count)`
+— the exact same column the opened list's own "Open" cell displays per row — over the exact same
+property set the tile's click opens, so by construction that sum can never diverge from what the
+opened list adds up to. Every other tile stays a plain int. The tile itself now shows BOTH numbers
+("5 · on 2 properties") instead of one unlabelled figure. `inspections_due` was considered for the
+same treatment (Johan's own example list named it) but its current definition is a per-property
+boolean OR (open-inspection-exists OR missing-completed-in-inspection), not a sum of a numeric
+per-property column — there is no natural "record total" distinct from its property count under
+that definition without redefining the tile, which wasn't asked for; left as a plain property-
+count tile, same shape as occupied/expiring/etc.
+
+### 15.2 "Unoccupied" restricted to active rental stock; new "Inactive / off market" tile
+
+New agency-configurable setting, `lease_settings.active_rental_statuses` (nullable JSON array),
+`LeaseSetting::activeRentalStatusesFor(?int $agencyId): array` / `::defaultActiveRentalStatuses()`.
+Default = `Property::systemStatuses()` minus `Property::OFF_MARKET_STATUSES` — i.e. `active,
+for_sale, to_let, under_offer, other_agency_stock` — the SAME on-market definition
+`Property::scopeOnMarket()`/`isOnMarket()` already use everywhere else in CoreX, not a second,
+rental-specific guess at the same question (`for_sale`/`under_offer` are harmless to include even
+though a pure rental listing won't normally carry them). Set on screen at **Settings →
+Rental/Lease Settings** (`/corex/settings/leases`), a checkbox grid over
+`Property::allowedStatuses($agencyId)` (this agency's full write-side status vocabulary — same
+source the dashboard's own Status filter already draws from).
+
+New tile `inactive` ("Inactive / off market") = vacant properties whose status is NOT in the
+active list — withdrawn, expired, draft, prospecting, sold, let-out-elsewhere, etc. `unoccupied`
+narrowed to vacant properties whose status IS in the active list. `occupied + unoccupied +
+inactive` always equals `all` (tested directly, §15.3).
+
+**Deliberately NOT in the Agency Onboarding Setup Wizard** — the wizard's control-type vocabulary
+(`config/agency-onboarding-copy.php`) has `number`/`select`/`text`/`textarea`/`toggle`/
+`user_multiselect`, no generic "checkbox grid over an arbitrary, agency-sized option list" type.
+Building one wizard-wide for this one setting was judged disproportionate (an architecture call,
+not a business one — CLAUDE.md §8). The setting ships with a correct, well-reasoned default (the
+existing on-market definition) so every agency — including a brand-new one that never visits this
+page — gets right behaviour out of the box, and it's one click away on the Lease Settings screen
+already linked from Settings. Recorded here per non-negotiable #10a's "ask, then record the
+omission" requirement.
+
+### 15.3 Proof
+
+`tests/Feature/Rentals/RentalCommandCentreServiceTest.php` — one test per property-based tile
+(`occupied`, `unoccupied`, `inactive`, `expiring`, `notice_given`, `renewals_in_progress`,
+`month_to_month`, `inspections_due`) asserting the tile's count equals its own opened list's row
+count, run under own/branch/all scope (`@dataProvider`); one test per record-based tile
+(`open_faults`, `open_work_orders`) asserting `records`/`properties` equal the opened list's own
+column sum/row count, same three scopes; `occupied + unoccupied + inactive == all` at every scope;
+the exact reported bug reproduced directly (a vacant `withdrawn` property counts as `inactive`,
+not `unoccupied`); the default/override/live-effect of `active_rental_statuses`. Verified against
+the real deployed QA1 page with a script reading each tile's own number and its opened list's
+total side by side (`scripts/verify-command-centre-tiles.mjs` or equivalent, see build report).

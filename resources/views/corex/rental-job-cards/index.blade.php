@@ -158,7 +158,7 @@
             <tbody>
                 @forelse($jobCards as $jc)
                     <tr style="border-top: 1px solid var(--border);">
-                        <td class="px-4 py-2">{{ $jc->property?->buildDisplayAddress() ?? '—' }}</td>
+                        <td class="px-4 py-2">{{ $jc->property?->buildDisplayAddress() ?? '—' }}{{ $jc->property?->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-2">{{ $jc->title }}</td>
                         <td class="px-4 py-2">{{ $jc->lease?->tenantNames() ?? '—' }}</td>
                         <td class="px-4 py-2">{{ $jc->assignedUser?->name ?? '—' }}</td>

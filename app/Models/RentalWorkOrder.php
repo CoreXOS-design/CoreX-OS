@@ -126,9 +126,10 @@ class RentalWorkOrder extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /** Same reasoning as property() above. */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function inspectionItem(): BelongsTo
@@ -136,14 +137,16 @@ class RentalWorkOrder extends Model
         return $this->belongsTo(RentalInspectionItem::class, 'rental_inspection_item_id');
     }
 
+    /** Same reasoning as property() above — a soft-deleted supplier must not vanish from work-order history. */
     public function supplier(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id');
+        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function reportedByContact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class, 'reported_by_contact_id');
+        return $this->belongsTo(Contact::class, 'reported_by_contact_id')->withTrashed();
     }
 
     public function reportedByUser(): BelongsTo

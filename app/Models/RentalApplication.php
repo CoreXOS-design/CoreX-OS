@@ -1007,14 +1007,16 @@ class RentalApplication extends Model
         return $this->status === 'under_assessment' && $this->submitted_for_approval_at !== null;
     }
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function contact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class);
+        return $this->belongsTo(Contact::class)->withTrashed();
     }
 
+    /** Same reasoning as contact() above. */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function branch(): BelongsTo

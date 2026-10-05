@@ -91,6 +91,18 @@ do not cite it as a verification gate, do not tell Johan or the conductor
 it ran, and do not wait for it. The two scripts above are its replacement
 in this environment.**
 
+**Every PHPUnit run on this box goes through `scripts/lane-test.sh <files>`
+— never `php8.2 artisan test` or `vendor/bin/phpunit` directly.** This
+script takes the shared `/tmp/corex-lane-test.lock`, shows who's holding it
+and for how long while you wait, and keeps a PERSISTENT per-lane schema on
+a dedicated tests-only MySQL instance (127.0.0.1:3317, never the shared
+instance serving live/Staging/QA1/QA2/demo — see `/root/LANETEST-MYSQL.md`),
+self-healing/updating it via a fingerprint check instead of a full rebuild
+every run. First run on a lane pays the real bootstrap cost once; every run
+after that is seconds. `scripts/lane-test.sh --fresh <files>` forces a full
+rebuild; `scripts/lane-test.sh --status` checks the queue without joining
+it. See `.ai/STANDARDS.md` Standard −1x and −1y.
+
 ---
 
 ## 0. The governing principle

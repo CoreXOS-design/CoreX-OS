@@ -665,6 +665,29 @@ class Property extends Model
     }
 
     /**
+     * Johan's ruling (2026-10-05) — a property with an active lease must never
+     * be archived. The only lease status that means "in force" is
+     * Lease::STATUS_ACTIVE (leases.md §3.6) — this single check already covers
+     * every shape Johan described (month-to-month, under-notice, signed-but-
+     * not-yet-started all activate the lease and carry status='active'
+     * regardless of start/end date). draft/expired/cancelled never block, so a
+     * draft renewal sitting on an already-ended lease is never mistaken for
+     * the thing keeping the property occupied.
+     *
+     * Queried directly against leases.property_id + leases.agency_id rather
+     * than relying on the ambient AgencyScope, so the guard is correct from
+     * any calling context (console/import/no-auth), not only inside a
+     * request with a logged-in user.
+     */
+    public function blockingActiveLease(): ?\App\Models\Lease
+    {
+        return \App\Models\Lease::where('property_id', $this->id)
+            ->where('agency_id', $this->agency_id)
+            ->where('status', \App\Models\Lease::STATUS_ACTIVE)
+            ->first();
+    }
+
+    /**
      * Whether this property type is a habitable dwelling that is normally
      * listed with bedroom/bathroom counts. Land, farms, commercial and
      * industrial stock are not — so readiness/completeness gates must not

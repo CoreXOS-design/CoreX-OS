@@ -2996,6 +2996,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
     Route::post('/settings/rental-inspections/auto-send-report', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoSendReportEnabled'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-send-report');
+    // §43 — schedule/reschedule/cancel notification settings.
+    Route::post('/settings/rental-inspections/schedule-notifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateScheduleNotifications'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.schedule-notifications');
 
     // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
     // (present/short/damaged/missing), agency-configurable. Own settings
@@ -3500,6 +3503,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.destroy');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
+        // §43 — reschedule a booked inspection; keeps the old date/time/
+        // inspector as history (RentalInspectionReschedule), re-syncs the
+        // calendar event, re-notifies the parties.
+        Route::post('/{rentalInspection}/reschedule', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'reschedule'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.reschedule');
         // §15 (AT-447) — the Follow-up block's "Create fault report" action.
         // Gated on rental_fault_reports.create (the same permission the
         // normal "Report a Fault" create form already requires) in ADDITION

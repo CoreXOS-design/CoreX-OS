@@ -969,6 +969,129 @@ floor here, not the ceiling.
 
 ---
 
+## Standard −1x — `scripts/lane-test.sh` is the ONE sanctioned way to run tests (2026-10-05, Johan, standing policy)
+
+Standard −1h recorded six-lane MySQL contention as "a known, accepted cost, do not build a fix without
+Johan's go-ahead" on 2026-09-13. This is that go-ahead. Every lane had already converged on wrapping test
+runs in `flock /tmp/corex-lane-test.lock php8.2 artisan test <files>` by hand — correct instinct, ad-hoc
+execution: no visibility into who's holding the lock or for how long, no self-healing when a lane's
+`hfc_dash_test_N` schema has been dropped (a sibling disk clean-up removed several idle ones on
+2026-10-05), and a live incident the same day showed a single stuck test (0.1% CPU, genuinely hung, not
+slow) blocking three other lanes behind the lock for 20+ minutes with zero visibility into why.
+
+**`scripts/lane-test.sh` replaces every hand-typed `flock ... artisan test ...` invocation.** It:
+
+1. Takes the same `/tmp/corex-lane-test.lock` every lane's manual invocations already used (interoperates
+   with runs already in flight — no migration needed).
+2. While waiting, prints the current holder's worktree, pid, and elapsed hold time every 5s (reads a
+   sidecar `/tmp/corex-lane-test.lock.info` the current holder writes on acquire) — so a lane stuck in the
+   queue can tell *who* is holding it and *for how long*, instead of staring at silence.
+3. Resolves this worktree's `TEST_DB_DATABASE` with the exact same precedence `tests/bootstrap.php`
+   already uses, and — new as of this standard — if that schema doesn't exist in MySQL, (re)creates it
+   and bootstraps it from `database/schema/mysql-schema.sql` before handing off to `artisan test`. A lane
+   whose schema was dropped out from under it (disk clean-up, a fresh worktree, anything) self-heals
+   instead of hard-failing with `SQLSTATE[HY000] [1049] Unknown database`.
+4. Holds the lock via an open file descriptor (fd 200), not a PID file or a manual stale-check — so a
+   `kill -9` of the wrapper, a timeout, or the test process itself hanging forever all resolve the same
+   way the kernel already guarantees: the lock is held for exactly as long as something is still actually
+   using it, and releases itself the instant nothing is. No stale-lock bookkeeping to get wrong.
+5. `scripts/lane-test.sh --status` shows the current holder (worktree, pid, elapsed) without joining the
+   queue, for exactly the "is it safe to start a run" check a lane wants before committing to wait.
+6. **Never kills, signals, or touches a process belonging to another lane/worktree.** A stuck holder
+   (verified via `--status` showing an implausible elapsed time, e.g. the 2026-10-05 `PpraEmploymentLetterTest`
+   hang) is that lane's own problem to report and resolve — this script's cleanup only ever reaches its
+   own child.
+
+**Root cause note, so staleness isn't re-investigated from scratch next time it's suspected:**
+`database/schema/mysql-schema.sql` was found current on `origin/QA1` HEAD when this was written (last
+regenerated minutes earlier, per Standard −1b's own discipline working as intended that day) — the
+mechanism in `tests/bootstrap.php` + Laravel's `MigrateCommand::loadSchemaState()` is not broken. What IS
+missing, permanently, is automation: nothing (no git hook, no CI step, no composer script) enforces
+Standard −1b's "re-dump the moment a migration lands" — it is a purely manual habit six concurrent lanes
+routinely skip, and the only thing that currently catches a stale dump is someone noticing tests got slow.
+**Measured 2026-10-05, against a fresh schema with the snapshot already current**: bootstrapping
+`hfc_dash_test_9001` from the (current, committed) dump and running
+`tests/Feature/Admin/RentalCatalogueUnitTest.php` took **276.81s** for the first test (schema bootstrap)
+and **279.76s** total for all 7 — far above the ~25s target non-negotiable #12a documents, even with a
+correct, current dump. This points at MySQL durability settings under multi-lane load (see the
+recommendations list below) as today's dominant cost, not dump staleness — the two are separate problems
+and this standard's fix only addresses the lock-visibility and schema-self-heal half of "no test
+bottlenecks," not DDL/fsync latency, which is Johan's call per the settings recommendations.
+
+---
+
+## Standard −1y — Tests run on a dedicated, tests-only MySQL instance; schemas are persistent (2026-10-05, Johan-approved, standing policy)
+
+Standard −1x fixed lock visibility and self-healing but left the real cost (MySQL durability
+settings under multi-lane load on the ONE shared instance that also serves live/Staging/QA1/QA2/
+demo) untouched — measured there at 276.81s to bootstrap a fresh schema even with a current dump.
+Johan approved a second, completely separate MySQL instance dedicated to tests, so lane tests never
+compete with live for that instance's resources and can run with durability settings that would be
+unsafe on real data. Full detail, settings, access control, and how to operate it:
+**`/root/LANETEST-MYSQL.md`**.
+
+**What changed:**
+- A Docker container, `corex-lanetest-mysql` (same `mysql:8.0.46` version as the main instance),
+  listening on `127.0.0.1:3317` only, with its own datadir
+  (`/mnt/HC_Volume_103099143/lanetest-mysql-data`) — shares nothing with the main instance's files.
+  Hard-capped at 1.5GB memory (this box runs with very little free RAM) so it can never starve the
+  host or the main instance.
+- Durability relaxed because every schema here is `hfc_dash_test_*` and always rebuildable:
+  `skip-log-bin`, `innodb_flush_log_at_trx_commit=0`, `sync_binlog=0`, `innodb_doublewrite=OFF`,
+  `performance_schema=OFF`, `innodb_buffer_pool_size=1G`. **These settings must never be applied to
+  the main instance** — it serves live.
+- A dedicated `lanetest` MySQL user, grantable ONLY on `` `hfc_dash_test_%`.* `` — verified it cannot
+  create or touch a schema outside that pattern.
+- `scripts/lane-test.sh` and `tests/bootstrap.php` both now route every test connection to this
+  instance by reading `/root/.lanetest-mysql-credentials` (root-only, never committed, never
+  echoed) — overriding DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD regardless of what a worktree's own
+  `.env` says, so a test run on this box cannot reach the main instance even by accident. **On any
+  machine without that credentials file (any developer's own local MySQL, Windows/Laragon
+  included), both fall through to the previous behaviour unchanged** — this is additive, not a
+  universal requirement.
+- **Schemas are now PERSISTENT, never dropped at the end of a run.** `scripts/lane-test.sh` stores a
+  fingerprint (hash of `database/schema/mysql-schema.sql` + every migration file's own content) in
+  a marker row inside each lane's schema. Unchanged fingerprint → nothing rebuilt, and
+  `LANE_TEST_SCHEMA_READY=1` tells `tests/bootstrap.php` to pre-set
+  `RefreshDatabaseState::$migrated = true` so RefreshDatabase (used individually by every `*Test.php`
+  file — 978 of them, none touched) skips its own `migrate:fresh` and goes straight to wrapping each
+  test in a transaction against the already-correct schema. Changed fingerprint → a plain `artisan
+  migrate --force` for the delta, never a full rebuild. `scripts/lane-test.sh --fresh <files>` forces
+  a full rebuild — the recovery valve for a test that escapes its own wrapping transaction (raw DDL,
+  an explicit commit) and leaves residue migrate:fresh previously wiped away unconditionally. That
+  trade-off is real and stated plainly in both the script's own header comment and
+  `tests/bootstrap.php`'s.
+
+**Measured** (this instance, persistent schema): a **cold** run (schema didn't exist, full
+snapshot import) took ~197s — inflated by concurrent disk contention from other lanes still on the
+OLD instance at measurement time (host disk was at 100% util, swap fully exhausted — a real,
+diagnosed condition, not this instance's own cost). A **warm** run of the same file (fingerprint
+already matched) took **4.25s–5.48s total**, with the single test that previously cost 213–277s now
+running in under a second. That is the number that matters day to day: every run after the first on
+a given lane is this fast, not just the one measured.
+
+**Concurrency**: still behind the single shared `/tmp/corex-lane-test.lock` for now (Standard −1x) —
+not changed in this pass. With durability relaxed and each lane isolated to its own
+`hfc_dash_test_N` schema (enforced by the `lanetest` user's grant, not just convention), 2–3 lanes
+testing concurrently against this instance should no longer reproduce Standard −1h's contention (that
+was fsync/redo-log pressure from conservative durability settings, now removed on this instance) —
+recommended as a safe next step (a semaphore of ~3 instead of an exclusive lock), not yet built; this
+pass intentionally stopped at "wire the dedicated instance in and prove it's fast," per the explicit
+instruction to keep the lock as-is for this round.
+
+**MySQL-settings correction, so the wrong claim in Standard −1x's own recommendations list is not
+repeated:** `sync_binlog`, `innodb_flush_log_at_trx_commit`, and `log_bin` are GLOBAL-only on the main
+instance — there is no way to relax them "for test connections only" there, and they must never be
+changed on an instance that also serves live. The one genuinely session-scoped, safe lever
+(`SET SESSION sql_log_bin=0`) was checked directly against the main instance's test DB user
+(`corexqa1`) and confirmed NOT currently grantable without an explicit `SESSION_VARIABLES_ADMIN` (or
+legacy `SUPER`) grant — a narrow, live-safe privilege that only lets that one user skip binlogging
+its own session, never a server-wide change, but still a grant Johan would need to approve
+separately if ever wanted on the main instance. This dedicated instance makes that question moot for
+tests.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
