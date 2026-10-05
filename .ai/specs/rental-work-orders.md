@@ -2581,6 +2581,90 @@ later rename/archive of the catalogue item it came from).
 `resources/views/corex/rental-job-cards/_pdf-lines-table.blade.php`,
 `resources/views/corex/rental-catalogue-items/{index,create,edit}.blade.php`.
 
+### 14.19 Catalogue bulk import (2026-10-05) — load a price list in one go
+
+Johan's own instruction: an agency loading a parts/labour price list should not have to add every
+item one at a time. Template download -> upload CSV/XLSX -> dry-run preview with per-row errors ->
+confirm, duplicate-by-code update-or-skip by the agency's own choice.
+
+**Deliberately NOT the take-on importer's shape.** §9's `RentalTakeOnImportRun`/`Row` pair
+persists every batch as a listable, archivable entity because a take-on book is a one-time,
+high-stakes migration worth a permanent audit trail. Nobody asked for that here — this is a
+repeatable "top up my price list" action on a single, already-fully-CRUD entity
+(`RentalCatalogueItem`). The dry-run result is held in `Cache` (database store, 30-minute TTL,
+keyed by a UUID token carrying the resolving agency's id) between the upload and confirm requests
+instead of new database tables — nothing is written until Confirm, and nothing about the batch
+itself needs to outlive that round trip. Building the heavier Run/Row/archive machinery here would
+have been exactly the kind of silent extra non-negotiable #6 forbids.
+
+**Template** (`RentalCatalogueImportTemplateService`, PhpSpreadsheet with real dropdown data
+validation — same technique as `RentalTakeOnTemplateService`, chosen there because OpenSpout's
+writer supports neither a second sheet nor dropdowns). Columns, fixed by position: Code,
+Description, Type, Unit, VAT type, Price (excl VAT), Price (incl VAT). The Type/Unit/VAT type
+columns' dropdowns are built from the downloading agency's OWN configured lists — never a
+hardcoded Labour/Part/Each list (multi-agency always, non-negotiable #9). A second "Instructions"
+sheet explains every column and the duplicate-handling choice.
+
+**Parsing** (`RentalCatalogueImportRowParser`) reads CSV/XLSX by column position via OpenSpout,
+same streaming-generator pattern as `RentalTakeOnRowParser`/`ContactImportController`. Price cells
+pass through as raw values — parsing and "is this even a number" validation live in the resolver
+so an unparseable price becomes a named per-row error rather than a silently-dropped null.
+
+**Dry-run resolution** (`RentalCatalogueImportDryRunResolver`), per row, agency-scoped throughout:
+- Code and Description required; Type and Unit required and must match one of the agency's own
+  active `RentalCatalogueItemType`/`RentalCatalogueUnit` names (case-insensitive) — an unmatched
+  name is an error naming the exact bad value and pointing at Settings, never a silent fallback.
+- VAT type is optional. Blank means no VAT type on the item (same as leaving the single-item
+  form's own VAT type picker unset) — **not** "use the agency's default type"; a provided name
+  must match an active `RentalVatType` and must not be `rate_mode=custom_per_line` (the template
+  has no column for a per-item custom rate — that combination is a named error directing the
+  agent to set it afterwards on the item's own edit screen, rather than silently importing a wrong
+  rate).
+- Price: excl wins when both excl and incl are filled; incl-only is converted down to excl via
+  `RentalJobCardVatService::splitAmount()` — the exact same conversion the single-item create/edit
+  form uses, so an agency gets numerically identical results whether it types one item or imports
+  a thousand. Not VAT-registered: incl is read as the same plain amount as excl (no conversion
+  attempted, matching the single-item form's "a single Price field" behaviour).
+- Duplicate-by-code: an existing agency item with the same code resolves to `update` or `skip`
+  per the ONE choice made on the upload form (applies to the whole file — not a per-row override,
+  since nothing in the brief asked for mixing both within one upload and a blanket choice is what
+  "by choice" plainly reads as). A code reused a second time WITHIN the same uploaded file is
+  always an error on the second occurrence, regardless of duplicate mode — almost certainly a
+  mistake in the source spreadsheet, never silently resolved either way.
+- Every row that errors is left exactly alone — confirm only ever creates/updates rows whose dry
+  run actually resolved to `create`/`update`.
+
+**Confirm** (`RentalCatalogueImportController::confirm()`) re-reads the cached dry-run rows (never
+re-parses the file) and is the only method in this feature that writes — mirrors the per-row
+`create()`/`update()` field set the single-item controller already uses, so an imported item is
+indistinguishable from a hand-entered one. Flashes a plain-language summary (created/updated/
+skipped-as-duplicate/skipped-as-error counts).
+
+**Permission:** reuses `rental_catalogue.manage` (no new permission key) — importing is exactly as
+mutating as editing one item by hand. Reached from an "Import" button on the existing Parts &
+Labour Catalogue list (`rental-catalogue-items.index`), itself already on the Rentals nav panel —
+non-negotiable #2's "nav entry same day" is satisfied via that existing entry point, not a new
+standalone sidebar item (a repeatable secondary action off an already-CRUD screen, not a
+first-class destination — the "would this get lost without a sidebar link" test the take-on
+importer's own standing sidebar entry exists for does not apply the same way here).
+
+**Not in the wizard, deliberately:** this is a workflow/action, not a setting — nothing to add to
+`config/agency-onboarding-copy.php`.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalCatalogueImportTest.php` — template downloads;
+upload previews without writing anything; confirm creates the previewed rows; duplicate code
+updates when "update" chosen and is left untouched when "skip" chosen; an unknown type is a
+per-row error and is never created; a code reused twice in one file errors on the second row; an
+incl-VAT price converts down to excl identically to the single-item form; a blank VAT type column
+means no VAT type, not the agency default; a preview token belonging to another agency cannot be
+viewed or confirmed; blank price columns leave `default_price` null.
+
+**Files:** `app/Services/Rentals/CatalogueImport/{RentalCatalogueImportRowParser,
+RentalCatalogueImportTemplateService,RentalCatalogueImportDryRunResolver}.php` (new),
+`app/Http/Controllers/CoreX/RentalCatalogueImportController.php` (new),
+`resources/views/corex/rental-catalogue-items/import/{index,preview}.blade.php` (new),
+`resources/views/corex/rental-catalogue-items/index.blade.php` (Import button), `routes/web.php`.
+
 ---
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
