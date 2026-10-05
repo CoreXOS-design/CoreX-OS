@@ -762,6 +762,17 @@ return [
         ['key' => 'ppra_inspection_pack.generate',  'label' => 'Generate Full PPRA Inspection Pack',        'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 3],
         ['key' => 'ppra_inspection_pack.configure', 'label' => 'Configure PPRA Inspection Pack Settings',   'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 4],
 
+        // ── PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) ──
+        // A genuinely separate feature from PPRA Inspection Pack above. .view's
+        // scope (own/branch/all, via Role Manager + scope_defaults) drives the
+        // Admin register's visibility (PpraEmploymentLetter::scopeVisibleTo()).
+        // .create and .sign_as_principal are self-service actions on My Portal —
+        // not scoped, since an agent only ever acts on records about themselves.
+        ['key' => 'ppra_employment_letters.view',              'label' => 'View PPRA Employment Letters (Admin register)', 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 1],
+        ['key' => 'ppra_employment_letters.create',            'label' => 'Start a PPRA Employment Letter',                 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 2],
+        ['key' => 'ppra_employment_letters.sign_as_principal', 'label' => 'Sign PPRA Employment Letters as Principal',     'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 3],
+        ['key' => 'ppra_employment_letters.manage',            'label' => 'Archive/Restore PPRA Employment Letters',       'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 4],
+
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
         // switch   = use the "View as Branch" dropdown to impersonate a branch
@@ -994,6 +1005,11 @@ return [
                 // AT-112 — viewing packs (own scope for agent, branch for BM via scope_defaults).
                 'access_viewing_packs',
                 'viewing_packs.view', 'viewing_packs.create', 'viewing_packs.edit',
+                // PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) —
+                // branch scope for BM via scope_defaults; sign_as_principal only takes
+                // effect when combined with the resolved principal_user_id on a given
+                // letter, so granting it broadly here is safe.
+                'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
                 'access_filing_register',
                 'filing.view', 'filing.create', 'filing.edit',
                 'access_misfiled_documents', 'misfiled_documents.refile',
@@ -1125,6 +1141,10 @@ return [
                 // AT-112 — viewing packs (own scope for agent, branch for BM via scope_defaults).
                 'access_viewing_packs',
                 'viewing_packs.view', 'viewing_packs.create', 'viewing_packs.edit',
+                // PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) —
+                // own scope via scope_defaults; sign_as_principal only takes effect for
+                // an agent who is ALSO the resolved principal on a given letter.
+                'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
                 'access_filing_register',
                 'filing.view', 'filing.create',
                 'access_commercial_evaluations',

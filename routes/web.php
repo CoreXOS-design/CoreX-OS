@@ -1249,6 +1249,22 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
     });
 });
 
+// ===== PPRA FFC EMPLOYMENT LETTER — Admin register =====
+// .ai/specs/ppra-ffc-employment-letter.md — a genuinely separate feature
+// from PPRA Inspection Pack above (distinct permission namespace,
+// deliberately NOT nested under admin/ppra-inspection-pack). Creation is
+// never exposed here — a letter is always self-service from My Portal.
+Route::prefix('admin/ppra-employment-letters')->middleware(['auth', 'agency.required', 'permission:ppra_employment_letters.view'])->name('admin.ppra-employment-letters.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'index'])->name('index');
+    Route::get('/{letter}', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'show'])->whereNumber('letter')->name('show');
+    Route::get('/{letter}/download', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'download'])->whereNumber('letter')->middleware('deny_assistant_download')->name('download');
+
+    Route::middleware('permission:ppra_employment_letters.manage')->group(function () {
+        Route::post('/{letter}/archive', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'archive'])->whereNumber('letter')->name('archive');
+        Route::post('/{letter}/restore', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'restore'])->whereNumber('letter')->name('restore');
+    });
+});
+
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====
 // 2026-08-24 (Johan) — throttle:30,1 per the resilience audit; raw sequential
 // property ID, previously unthrottled.
@@ -2312,6 +2328,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware(['permission:view_agency_documents', 'agency.required'])->group(function () {
         Route::get('/my-portal/agency-documents', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'index'])->name('my-portal.agency-documents');
         Route::get('/my-portal/agency-documents/download/{provision}', [\App\Http\Controllers\Compliance\AgencyDocumentsViewerController::class, 'download'])->middleware('deny_assistant_download')->name('my-portal.agency-documents.download');
+    });
+
+    // ── PPRA FFC Employment Letter (self-service) ── .ai/specs/ppra-ffc-employment-letter.md
+    // Visibility (index/show) is self-service: the signing agent, the resolved
+    // principal, or an in-scope admin/BM (PpraEmploymentLetter::scopeVisibleTo()).
+    // Starting a new letter requires access_my_portal (route group) +
+    // ppra_employment_letters.create (checked in-controller, same pattern as
+    // EvaluationCertificateController).
+    Route::middleware(['permission:access_my_portal', 'agency.required'])->group(function () {
+        Route::get('/my-portal/ppra-employment-letters', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'index'])->name('ppra-employment-letters.index');
+        Route::post('/my-portal/ppra-employment-letters', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'store'])->name('ppra-employment-letters.store');
+        Route::get('/my-portal/ppra-employment-letters/{letter}', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'show'])->whereNumber('letter')->name('ppra-employment-letters.show');
+        Route::get('/my-portal/ppra-employment-letters/{letter}/download', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'download'])->whereNumber('letter')->middleware('deny_assistant_download')->name('ppra-employment-letters.download');
+        Route::post('/my-portal/ppra-employment-letters/{letter}/sign-as-agent', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'signAsAgent'])->whereNumber('letter')->name('ppra-employment-letters.sign-as-agent');
+        Route::post('/my-portal/ppra-employment-letters/{letter}/sign-as-principal', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'signAsPrincipal'])->whereNumber('letter')->name('ppra-employment-letters.sign-as-principal');
+        Route::post('/my-portal/ppra-employment-letters/{letter}/cancel', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'cancel'])->whereNumber('letter')->name('ppra-employment-letters.cancel');
     });
 
     // ── RMCP Acknowledgement Flow ──
@@ -3900,6 +3932,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Whistleblower Settings ──
     Route::post('/settings/whistleblow', [CoreXSettingsController::class, 'saveWhistleblowSettings'])->middleware('permission:compliance.whistleblow.configure')->name('corex.settings.whistleblow.save');
     Route::post('/settings/ppra-inspection-pack', [CoreXSettingsController::class, 'savePpraInspectionPackSettings'])->middleware('permission:ppra_inspection_pack.configure')->name('corex.settings.ppra-inspection-pack.save');
+    Route::post('/settings/ppra-employment-letter', [CoreXSettingsController::class, 'savePpraEmploymentLetterSettings'])->middleware('permission:ppra_employment_letters.manage')->name('corex.settings.ppra-employment-letter.save');
 
     // ── FICA Officer Appointments (unified) ──
     Route::post('/settings/fica-officers/primary', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'savePrimary'])
