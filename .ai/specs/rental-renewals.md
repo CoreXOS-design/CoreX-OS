@@ -394,3 +394,57 @@ already expired, never active, so that check could never fire for a currently ac
 handler) preserved entered values on failure; a business-rule rejection from the service itself
 (caught manually) did not, so the Lease Hub's notice dialogs would reopen EMPTY on that failure path
 instead of with what the agent typed.
+
+## 17. Follow-up 2, 2026-10-05 — Lease Hub header/strip state representation, duplicate toast, date-input bound
+
+Found walking a real notice recorded on QA1 lease 22 (move-out 2026-11-30, re-advertise ticked): the
+dialog itself worked (saves, tenancy log entry, Command Centre "Notice given" tile incremented), but the
+Lease Hub page `/corex/leases/{lease}` did not reflect the outcome anywhere else on the screen.
+
+- **Header state marker** — `resources/views/corex/leases/show.blade.php` now computes a single
+  `$leaseStateMarker` next to the status badge: `"Notice given · move-out {date}"` /
+  `"Landlord not renewing · move-out {date}"` (from `Lease::hasActiveNotice()` +
+  `notice_given_by`/`move_out_date`) / `"Month-to-month"` (`is_month_to_month`) / `"Renewal in progress"`
+  (`Lease::hasPendingRenewalDraft()`, §16's own helper) — in that priority order, one badge, never a
+  banner. A healthy lease with none of these shows no marker.
+- **`LeaseHubService::lifecycle()`** — the `renewal_notice` node now also lights `'current'` when
+  `hasActiveNotice()`, `is_month_to_month`, or `hasPendingRenewalDraft()` is true (previously only
+  `$withinRenewalWindow`), so it reflects an outcome already on file, not only the reminder window.
+- **`LeaseHubService::nextStep()`** — a new branch, checked ahead of the existing "Start in-inspection"
+  one: once a lease has an active notice and no completed out-inspection, the Next: banner reads
+  "Start out-inspection" and links to `corex.rental-inspections.create` with
+  `['lease_id' => $lease->id, 'type' => 'out']` — the same route the in-inspection link already uses.
+  Previously an active lease whose in-inspection had never been completed kept showing "Start
+  in-inspection" forever, even after notice was recorded, because that branch had no notice-aware guard.
+  **Found while wiring this**: `resources/views/corex/rental-inspections/create.blade.php`'s own `type`
+  `<select>` only ever read `old('type')` and silently ignored the `?type=` query param both next-step
+  links pass — it happened to look correct for the in-inspection link only because `TYPE_IN` is the
+  first `<option>` in the DOM. Fixed to fall back to `request()->query('type')` so the out-inspection
+  link actually arrives pre-selected; `old()` still wins on a failed resubmit.
+- **Duplicate success message** — `show.blade.php` had its own inline `session('success')` banner
+  *in addition to* the app's standard toast (`components.toast-notifications`, which already reads the
+  same flash key on `DOMContentLoaded`). Removed the inline banner; the toast is the one surface now.
+- **Move-out date upper bound** — `move_out_date` on the tenant-notice/landlord-notice dialogs
+  (`show.blade.php`) accepted a mistyped 6-digit year typed on a keyboard (e.g. `202611-03-01`) past the
+  existing `min` attribute with no `max`, only failing server-side on a bare `'date'` rule. No agency
+  setting exists for "how far ahead can a move-out date be" (checked `LeaseSetting` — nothing fits; per
+  CLAUDE.md non-negotiable, a window setting is reused if one exists and never invented for a one-off
+  bound) — added `max="{{ now()->addYears(2)->toDateString() }}"` to both dialog inputs and
+  `before_or_equal:` + the matching server-side date two years out in
+  `LeaseRenewalController::recordNotice()`'s validation, as a fixed sanity bound, not a configurable
+  setting.
+- **Confirmed, not changed** — notice + readvertise ticked (GATE 2 row 2, §15) on QA1 lease 22 set
+  `properties.status` to the agency's `default_pre_let_status` (`'active'`, the agency default — the
+  QA1 agency has not overridden it) and `properties.lease_start_date` to the day after `move_out_date`
+  (`2026-12-01`), logged via `PropertyAuditService`; `status_before_letting` was untouched (confirmed
+  `NULL`, as row 2 never reads or writes it — only rows 6/7 do). No portal call was queued by this path
+  on QA1 — QA is web-only with no queue worker (BUILD_STANDARD §8), and §15's own write-up already
+  tracks the P24/PP mapper gap for a residential property's real availability date as a pre-existing,
+  separately-scoped issue.
+
+**Tests**: `tests/Feature/Leases/LeaseHubTest.php` (+8 — out-inspection next-step priority and its
+suppression once completed, the `renewal_notice` node lighting for notice/month-to-month, the single
+success-flash assertion, and the four header-marker cases), `tests/Feature/Leases/LeaseRenewalTest.php`
+(+2 — the HTTP-level move-out-date upper-bound rejection and its in-window acceptance), and
+`tests/Feature/RentalInspections/RentalInspectionListScreenTest.php` (+1 — the `?type=` query-param
+preselect fix).

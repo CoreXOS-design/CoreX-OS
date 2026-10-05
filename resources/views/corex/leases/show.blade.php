@@ -37,13 +37,30 @@
         $reopenAction
     );
     $isReopening = fn (string $key) => $hasDialogErrors && $reopenAction === $key;
+
+    // AT-444 follow-up 2 (2026-10-05) — one state marker next to the status
+    // badge so the agent sees the lease's current outcome without opening
+    // the tenancy log. Priority order: an active notice is the most urgent
+    // fact; month-to-month and a pending renewal draft are independent of
+    // each other in the data model but mutually exclusive with notice in
+    // practice, so only the single most relevant one is ever shown.
+    $leaseStateMarker = null;
+    if ($lease->hasActiveNotice()) {
+        $who = $lease->notice_given_by === \App\Models\Lease::NOTICE_BY_TENANT ? 'Notice given' : 'Landlord not renewing';
+        $leaseStateMarker = $who . ' · move-out ' . optional($lease->move_out_date)->format('d M Y');
+    } elseif ($lease->is_month_to_month) {
+        $leaseStateMarker = 'Month-to-month';
+    } elseif ($lease->hasPendingRenewalDraft()) {
+        $leaseStateMarker = 'Renewal in progress';
+    }
 @endphp
 
 @section('content')
 <div class="p-6 space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
+    {{-- AT-444 follow-up 2 — session('success') is already surfaced by the
+         app's standard toast (components.toast-notifications reads the
+         same flash key on DOMContentLoaded); an inline banner here showed
+         the same message twice. --}}
 
     {{-- Header: address, status, tenant(s), rent, term, actions. --}}
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -51,6 +68,9 @@
             <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
+                @if($leaseStateMarker)
+                    <span class="ds-badge ds-badge-info">{{ $leaseStateMarker }}</span>
+                @endif
                 <span>{{ $lease->tenantNames() }}</span>
                 <span>&middot;</span>
                 <span>R{{ number_format((float) $lease->rental_amount, 2) }}/mo</span>
@@ -166,7 +186,7 @@
                         <h2 class="text-lg font-medium">Tenant gave notice</h2>
                         <div>
                             <label class="text-xs font-medium">Move-out date (required)</label>
-                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" value="{{ $isReopening('tenant-notice') ? old('move_out_date') : '' }}" class="prop-input mt-1">
+                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" max="{{ now()->addYears(2)->toDateString() }}" value="{{ $isReopening('tenant-notice') ? old('move_out_date') : '' }}" class="prop-input mt-1">
                             <x-input-error :messages="$isReopening('tenant-notice') ? $errors->get('move_out_date') : []" class="mt-1" />
                         </div>
                         <div>
@@ -192,7 +212,7 @@
                         <h2 class="text-lg font-medium">Landlord not renewing</h2>
                         <div>
                             <label class="text-xs font-medium">Move-out date (required)</label>
-                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" value="{{ $isReopening('landlord-notice') ? old('move_out_date') : '' }}" class="prop-input mt-1">
+                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" max="{{ now()->addYears(2)->toDateString() }}" value="{{ $isReopening('landlord-notice') ? old('move_out_date') : '' }}" class="prop-input mt-1">
                             <x-input-error :messages="$isReopening('landlord-notice') ? $errors->get('move_out_date') : []" class="mt-1" />
                         </div>
                         <div>

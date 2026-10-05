@@ -164,6 +164,40 @@ final class LeaseRenewalTest extends TestCase
         self::assertTrue($landlordUpdated->hasActiveNotice());
     }
 
+    /**
+     * AT-444 follow-up 2 (2026-10-05) — the dialog's own min/max attributes
+     * are a client-side convenience only; the server is the real guard
+     * against a mistyped date (e.g. a 6-digit year typed on a keyboard
+     * instead of picked) reaching the service layer at all.
+     */
+    public function test_tenant_notice_http_rejects_a_move_out_date_too_far_in_the_future(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+
+        $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
+            'move_out_date' => now()->addYears(5)->toDateString(),
+        ]);
+
+        $response->assertSessionHasErrors('move_out_date');
+        self::assertFalse($lease->fresh()->hasActiveNotice());
+    }
+
+    public function test_tenant_notice_http_accepts_a_move_out_date_within_the_sane_window(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = $this->makeUser($agency, $branch);
+
+        $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
+            'move_out_date' => now()->addDays(30)->toDateString(),
+        ]);
+
+        $response->assertSessionDoesntHaveErrors();
+        self::assertTrue($lease->fresh()->hasActiveNotice());
+    }
+
     public function test_record_notice_rejects_an_invalid_given_by_value(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();

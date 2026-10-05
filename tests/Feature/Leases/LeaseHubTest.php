@@ -152,6 +152,102 @@ final class LeaseHubTest extends TestCase
         self::assertNull($nextStep);
     }
 
+    /**
+     * AT-444 follow-up 2 (2026-10-05) — once notice is on file, the Next:
+     * banner must point at the out-inspection, overriding the "Start
+     * in-inspection" branch even when the in-inspection was never
+     * completed (the exact state the real QA1 lease was found in).
+     */
+    public function test_next_step_points_at_out_inspection_once_notice_is_active(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'end_date' => now()->addDays(10)->toDateString(),
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+            'move_out_date' => now()->addDays(30)->toDateString(),
+        ]));
+
+        $nextStep = app(LeaseHubService::class)->nextStep($lease->fresh());
+
+        self::assertNotNull($nextStep);
+        self::assertSame('Start out-inspection', $nextStep['label']);
+        self::assertSame('corex.rental-inspections.create', $nextStep['route_name']);
+        self::assertSame(['lease_id' => $lease->id, 'type' => 'out'], $nextStep['route_param']);
+    }
+
+    public function test_next_step_out_inspection_suppressed_once_out_inspection_completed(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+            'move_out_date' => now()->toDateString(),
+        ]));
+        \App\Models\RentalInspection::create([
+            'agency_id' => $agency->id, 'lease_id' => $lease->id, 'property_id' => $property->id,
+            'type' => \App\Models\RentalInspection::TYPE_OUT, 'status' => \App\Models\RentalInspection::STATUS_COMPLETED,
+            'completed_at' => now(),
+        ]);
+
+        $nextStep = app(LeaseHubService::class)->nextStep($lease->fresh());
+
+        self::assertNotSame('Start out-inspection', $nextStep['label'] ?? null);
+    }
+
+    public function test_lifecycle_lights_renewal_notice_node_once_notice_is_active(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+            'move_out_date' => now()->addDays(30)->toDateString(),
+        ]));
+
+        $steps = app(LeaseHubService::class)->lifecycle($lease->fresh());
+        $byKey = collect($steps)->keyBy('key');
+
+        self::assertSame('current', $byKey['renewal_notice']['state']);
+    }
+
+    public function test_lifecycle_lights_renewal_notice_node_once_month_to_month(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'is_month_to_month' => true,
+            'end_date' => null,
+        ]));
+
+        $steps = app(LeaseHubService::class)->lifecycle($lease->fresh());
+        $byKey = collect($steps)->keyBy('key');
+
+        self::assertSame('current', $byKey['renewal_notice']['state']);
+    }
+
+    /**
+     * AT-444 follow-up 2 — the Lease Hub's own success flash must surface
+     * exactly once: the app's standard toast reads session('success') on
+     * every page load, so an inline banner reading the same key doubled
+     * the message.
+     */
+    public function test_success_flash_is_not_rendered_twice_on_the_lease_hub(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)
+            ->withSession(['success' => 'Notice recorded.'])
+            ->get(route('corex.leases.show', $lease));
+
+        $response->assertOk();
+        self::assertSame(1, substr_count($response->getContent(), 'Notice recorded.'));
+    }
+
     public function test_landlord_derives_from_the_property_contact_pivot_not_a_stored_column(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
@@ -233,6 +329,77 @@ final class LeaseHubTest extends TestCase
 
         $response->assertOk();
         self::assertSame('application/pdf', $response->headers->get('content-type'));
+    }
+
+    /**
+     * AT-444 follow-up 2 (2026-10-05) — the header must carry a one-line
+     * state marker next to the status badge for each of the four outcomes;
+     * only the single highest-priority one shows at a time.
+     */
+    public function test_header_shows_notice_given_marker(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_TENANT,
+            'move_out_date' => '2026-11-30',
+        ]));
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
+
+        $response->assertOk();
+        $response->assertSee('Notice given · move-out 30 Nov 2026');
+    }
+
+    public function test_header_shows_landlord_not_renewing_marker(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'notice_date' => now()->toDateString(),
+            'notice_given_by' => Lease::NOTICE_BY_LANDLORD,
+            'move_out_date' => '2026-11-30',
+        ]));
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
+
+        $response->assertSee('Landlord not renewing · move-out 30 Nov 2026');
+    }
+
+    public function test_header_shows_month_to_month_marker(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE,
+            'is_month_to_month' => true,
+            'end_date' => null,
+        ]));
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
+
+        $response->assertOk();
+        self::assertStringContainsString('ds-badge-info">Month-to-month</span>', $response->getContent());
+    }
+
+    public function test_header_has_no_marker_for_a_healthy_active_lease(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
+        $response->assertOk();
+
+        $response->assertDontSee('Notice given');
+        $response->assertDontSee('Renewal in progress');
+        // The "Month-to-month (no fixed end date)" edit-panel checkbox label
+        // is always rendered regardless of lease state, so assert the exact
+        // marker-badge markup is absent rather than the bare word.
+        self::assertStringNotContainsString('ds-badge-info">Month-to-month</span>', $response->getContent());
     }
 
     public function test_lease_hub_show_renders_for_a_brand_new_lease_with_nothing_attached(): void
