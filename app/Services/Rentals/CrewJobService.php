@@ -355,7 +355,7 @@ class CrewJobService
             $note = "{$sent} line" . ($sent === 1 ? '' : 's') . " ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')';
             $card->logUpdate('crew_lines_sent', null, $note);
             if ($requestId) {
-                $card->logUpdate('pricing_submitted', null, "Crew sent their prices ({$ctx->actorLabel})");
+                $card->logUpdate('pricing_submitted', null, "Crew sent their prices ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')');
             }
         });
 

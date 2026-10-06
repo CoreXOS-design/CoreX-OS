@@ -74,6 +74,15 @@ final class CrewPriceRequestTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.price-requests.store', $this->emptyCard()), [])->assertSessionHasErrors('pricing');
     }
 
+    public function test_asking_is_refused_when_crew_links_are_switched_off(): void
+    {
+        \App\Models\RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_links_enabled' => false]);
+
+        $this->ask()->assertSessionHasErrors('pricing');
+        $this->assertStringContainsString('Crew links are switched off', session('errors')->first('pricing'));
+        $this->assertSame(0, $this->card->priceRequests()->count());
+    }
+
     public function test_asking_can_mint_and_email_the_crews_link_in_the_same_step(): void
     {
         Mail::fake();
@@ -272,6 +281,29 @@ final class CrewPriceRequestTest extends TestCase
         $this->assertSame(3, $this->card->lines()->where('office_status', RentalJobCardLine::OFFICE_ACCEPTED)->count());
         $this->assertSame(0, $this->card->lines()->where('office_status', RentalJobCardLine::OFFICE_AWAITING)->count());
         $this->assertEquals(60.00, (float) $this->card->fresh()->total_amount, '0 % default markup: priced at cost');
+    }
+
+    public function test_a_line_accepted_after_the_quote_went_out_is_frozen_for_vat_at_once_and_flags_the_quote_as_changed(): void
+    {
+        $this->pricingWorld('Frozen Accept', [], true);
+        $card = $this->emptyCard();
+        $this->officeLine($card, ['description' => 'Sent line', 'unit_price' => 100, 'rental_vat_type_id' => $this->standardVat()->id]);
+        app(\App\Services\Rentals\RentalJobCardService::class)->sendToOwnerAsQuote($card->fresh(), $this->admin, app(\App\Services\Rentals\RentalDocumentPdfService::class));
+        $card = $card->fresh();
+        $this->assertNotNull($card->vat_snapshotted_at, 'the quote froze the card');
+        $this->assertFalse($card->quoteChangedSinceSent());
+
+        $line = $this->awaitingLine($card, ['description' => 'Late extra', 'unit_cost' => 50, 'quantity' => 1, 'rental_vat_type_id' => null]);
+        $this->assertFalse($card->fresh()->quoteChangedSinceSent(), 'a line still awaiting the office is not on the quote');
+
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.crew-lines.accept', [$card, $line->id]), [])->assertRedirect();
+
+        $line->refresh();
+        $this->assertEquals(50.00, (float) $line->unit_price);
+        $this->assertNotNull($line->vat_excl_snapshot, 'snapshotted the moment it was accepted (the §14.21 rule)');
+        $this->assertEquals(50.00, (float) $line->vat_excl_snapshot);
+        $this->assertTrue($card->fresh()->quoteChangedSinceSent(), 'accepting changed what the owner would see: the office is told to re-send');
+        $this->assertEquals(150.00, (float) app(\App\Services\Rentals\RentalJobCardVatService::class)->breakdown($card->fresh()->load('lines'))['subtotalExcl']);
     }
 
     public function test_accepting_needs_the_price_permission(): void

@@ -46,6 +46,9 @@ class RentalCrewPricingService
         if (! \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($card->agency_id)) {
             throw new \LogicException('Job card pricing is switched off for this agency (Settings → Rental Work Orders), so there is nothing to price.');
         }
+        if (! \App\Models\RentalPortalSetting::crewLinksEnabledFor($card->agency_id)) {
+            throw new \LogicException('Crew links are switched off for this agency (Settings → Rental Portal), so the crew has no way to send prices back.');
+        }
         if ($card->priceRequests()->where('status', RentalJobCardPriceRequest::STATUS_OPEN)->exists()) {
             throw new \LogicException('The crew has already been asked to price this job — wait for their prices, or close that request first.');
         }
