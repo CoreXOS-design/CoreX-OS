@@ -641,6 +641,68 @@ class RentalJobCard extends Model
         $this->logUpdate('sign_off', $by, 'Agent — checked');
     }
 
+    // ---- BUILD 3 BEGIN — dispute reopening (§17.10.6/§17.10.7, §17.21.5): the two methods below are Build 3's only ----
+
+    /**
+     * §17.10.6 — a tenant reported the finished work as not complete. The card becomes `disputed` (an OPEN state, so the
+     * crew can reach it again); a completed card is reopened (`completed_at` cleared). The worker and agent sign-offs
+     * are given up so they can be given again — and returned here as a snapshot, so the dispute round keeps what
+     * the earlier sign-offs were. A cancelled card is never reopened.
+     *
+     * @return array<string, mixed> the sign-off details that were reset
+     */
+    public function reopenForDispute(string $tenantNote): array
+    {
+        if ($this->status === self::STATUS_CANCELLED) {
+            throw new \LogicException('This job card was cancelled — it cannot be reopened.');
+        }
+
+        $snapshot = [
+            'status_before' => $this->status,
+            'completed_at' => $this->completed_at?->toIso8601String(),
+            'worker_signed_off_at' => $this->worker_signed_off_at?->toIso8601String(),
+            'worker_sign_off_name' => $this->worker_sign_off_name,
+            'worker_sign_off_via' => $this->worker_sign_off_via,
+            'worker_signed_off_by_user_id' => $this->worker_signed_off_by_user_id,
+            'agent_signed_off_at' => $this->agent_signed_off_at?->toIso8601String(),
+            'agent_signed_off_by_user_id' => $this->agent_signed_off_by_user_id,
+        ];
+
+        $fromStatus = $this->status;
+        $this->forceFill([
+            'status' => self::STATUS_DISPUTED,
+            'completed_at' => null,
+            'worker_signed_off_at' => null,
+            'worker_signed_off_by_user_id' => null,
+            'worker_sign_off_name' => null,
+            'worker_sign_off_via' => null,
+            'worker_sign_off_ip' => null,
+            'worker_sign_off_device' => null,
+            'agent_signed_off_at' => null,
+            'agent_signed_off_by_user_id' => null,
+        ])->save();
+
+        $this->logUpdate('dispute_opened', null, 'Tenant reported the work as not complete: ' . $tenantNote, $fromStatus, self::STATUS_DISPUTED);
+        if ($fromStatus === self::STATUS_COMPLETED) {
+            $this->logUpdate('reopened', null, 'Reopened — the earlier worker and agent sign-offs must be given again');
+        }
+
+        return $snapshot;
+    }
+
+    /** §17.10.7 — the crew (or the office) reported the work done again: back to `in_progress`. */
+    public function returnFromDispute(): void
+    {
+        if ($this->status !== self::STATUS_DISPUTED) {
+            return;
+        }
+
+        $this->update(['status' => self::STATUS_IN_PROGRESS]);
+        $this->logUpdate('status_change', null, 'Work reported done again after a tenant dispute', self::STATUS_DISPUTED, self::STATUS_IN_PROGRESS);
+    }
+
+    // ---- BUILD 3 END ----
+
     /** Tenant confirmation is recorded BY THE AGENT for now — AT-442 brief; tenant login is AT-445. */
     public function tenantConfirm(?string $note, User $by): void
     {

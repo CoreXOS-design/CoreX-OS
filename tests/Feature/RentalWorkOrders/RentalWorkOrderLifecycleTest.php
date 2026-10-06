@@ -112,8 +112,10 @@ final class RentalWorkOrderLifecycleTest extends TestCase
         $workOrder = RentalWorkOrder::firstOrFail();
         $this->assertSame(RentalWorkOrder::REPORTED_BY_FAULT_REPORT, $workOrder->reported_by_type);
         $this->assertSame($faultReport->id, $workOrder->reported_fault_report_id);
-        // Owner is not asked twice — inherited directly.
-        $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $workOrder->owner_approval_status);
+        // §17.3.3 — approval no longer rides the fault: the work order starts not_required with no approved amount;
+        // it is authorised by the quote / the owner's no-approval limit / an emergency capture, never inherited.
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $workOrder->owner_approval_status);
+        $this->assertNull($workOrder->approved_amount);
     }
 
     public function test_cannot_raise_a_work_order_from_a_fault_report_approved_via_owner_handles(): void

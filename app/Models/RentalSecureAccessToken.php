@@ -89,9 +89,9 @@ class RentalSecureAccessToken extends Model
         return match ($this->purpose ?: self::PURPOSE_CONTRACTOR_WORK_ORDER) {
             self::PURPOSE_CREW_JOB_CARD => $this->crewJobCardTargetIsLive(),
             self::PURPOSE_CREW_STANDING => $this->crewStandingTargetIsLive(),
-            // Foundation: never live until Build 3 implements the round's liveness (§17.10.3). Without this arm a
-            // tenant_completion token would fall through to the contractor rule below.
-            self::PURPOSE_TENANT_COMPLETION => false,
+            // §17.10.3 — the tenant's response link for ONE completion round (Build 3). Its own arm so a tenant_completion
+            // token can never fall through to the contractor rule below.
+            self::PURPOSE_TENANT_COMPLETION => $this->tenantCompletionTargetIsLive(),
             default => $this->contractorTargetIsLive(),
         };
     }
@@ -100,6 +100,27 @@ class RentalSecureAccessToken extends Model
     public function completionRound(): BelongsTo
     {
         return $this->belongsTo(RentalWorkCompletionRound::class, 'rental_completion_round_id')->withoutGlobalScopes();
+    }
+
+    /**
+     * §17.10.3 — live while the link has not expired (window end + 7 days, set when minted) and its round, work
+     * order and property still exist in the same agency. NOT tied to the answer: after a response the SAME link shows
+     * a read-only "You answered" page, and after the window it says the response period has ended — the controller
+     * decides which page from the round's outcome, so those are not "unavailable".
+     */
+    private function tenantCompletionTargetIsLive(): bool
+    {
+        $round = $this->completionRound;
+        if (! $round || (int) $round->agency_id !== (int) $this->agency_id) {
+            return false;
+        }
+        $workOrder = RentalWorkOrder::withoutGlobalScopes()->withTrashed()->find($round->rental_work_order_id);
+        if (! $workOrder || $workOrder->trashed() || (int) $workOrder->agency_id !== (int) $this->agency_id) {
+            return false;
+        }
+        $property = Property::withoutGlobalScopes()->withTrashed()->find($workOrder->property_id);
+
+        return $property !== null && ! $property->trashed();
     }
 
     private function contractorTargetIsLive(): bool

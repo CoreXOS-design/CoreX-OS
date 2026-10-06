@@ -126,6 +126,7 @@ class RentalWorkOrderController extends Controller
             'in_progress' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_IN_PROGRESS)->count(),
             'completed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_COMPLETED)->count(),
             'cancelled' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_CANCELLED)->count(),
+            'disputed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_DISPUTED)->count(),
             'overdue' => $woTileBase()->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()))->count(),
         ];
 

@@ -81,7 +81,8 @@ class CrewJobService
 
         $photos = RentalWorkOrderPhoto::withoutGlobalScopes()
             ->where('rental_job_card_id', $card->id)
-            ->where('photo_type', '!=', RentalWorkOrder::PHOTO_REPORTED)
+            // §17.24 item 4 — a tenant's DISPUTE photo is shown only inside the dispute block (CrewDisputeBlock), never in the general gallery.
+            ->whereNotIn('photo_type', [RentalWorkOrder::PHOTO_REPORTED, RentalWorkOrder::PHOTO_DISPUTE])
             // §17.5.1 — a photo that explains one crew line shows against that line (Parts & labour panel), not in the job gallery.
             ->where('photo_type', '!=', RentalJobCardLine::PHOTO_TYPE)
             ->orderByDesc('created_at')->orderByDesc('id')

@@ -26,7 +26,9 @@ use Illuminate\Support\Collection;
  */
 class LeaseTimelineService
 {
-    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'job_card', 'notice', 'rental_notice'];
+    // BUILD 3 — the three maintenance-flow types (§17.16) sit at the end of the list. A later lease e-sign build adds its own
+    // types AFTER this block; this line is the only one both touch, so keep any change here to appending.
+    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'job_card', 'notice', 'rental_notice', 'emergency_approval', 'variation', 'completion_check'];
 
     /**
      * @return array{entries: Collection, total: int}
@@ -78,7 +80,8 @@ class LeaseTimelineService
             ->merge($this->workOrderEntries($lease))
             ->merge($this->jobCardEntries($lease))
             ->merge($this->noticeEntries($lease))
-            ->merge($this->renewalEventEntries($lease));
+            ->merge($this->renewalEventEntries($lease))
+            ->merge($this->maintenanceFlowEntries($lease)); // BUILD 3 — §17.16
 
         return $entries->sortByDesc('occurred_at')->values();
     }
@@ -361,4 +364,148 @@ class LeaseTimelineService
             );
         })->all();
     }
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // BUILD 3 BEGIN — maintenance-flow tenancy-log entries (.ai/specs/rental-work-orders.md §17.16). One builder, merged
+    // in allEntriesFor() above. Everything is scoped by `lease_id` through the lease's own work orders (a vacancy work
+    // order with no lease does not appear, as today) and every entry links to the work order. Reads only the append-only
+    // tables, so a later change to a term or a setting never rewrites what the log says.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Approval decisions (as `work_order` entries), emergency approvals (recorded / voided), variations (raised /
+     * auto-approved / approved / declined / withdrawn) and every completion round: "Work reported done by {name} (round n)",
+     * "Tenant confirmed" / "Tenant reported not complete: {note}" / "Accepted — no response in {n} days", "Dispute sent back
+     * to {crew|contractor}", and "Reported done again (round n+1)".
+     */
+    private function maintenanceFlowEntries(Lease $lease): array
+    {
+        $workOrders = $lease->workOrders()->get(['id', 'title', 'assignment_type', 'status']);
+        if ($workOrders->isEmpty()) {
+            return [];
+        }
+        $ids = $workOrders->pluck('id')->all();
+        $titles = $workOrders->pluck('title', 'id');
+        $route = 'corex.rental-work-orders.show';
+        $out = [];
+
+        // Approval decisions — "Approved — within the owner's no-approval limit". The system acts, so no actor.
+        foreach (\App\Models\RentalApprovalDecision::query()->whereIn('rental_work_order_id', $ids)->orderBy('id')->get() as $decision) {
+            $out[] = $this->entry(
+                'work_order',
+                (string) $decision->created_at,
+                ($decision->note ?: ucfirst(str_replace('_', ' ', (string) $decision->decision))) . ': ' . ($titles[$decision->rental_work_order_id] ?? 'Work order'),
+                null,
+                (string) $decision->decision,
+                $route,
+                $decision->rental_work_order_id,
+            );
+        }
+
+        foreach (\App\Models\RentalEmergencyApproval::query()->whereIn('rental_work_order_id', $ids)->with('recordedByUser')->orderBy('id')->get() as $approval) {
+            $title = $titles[$approval->rental_work_order_id] ?? 'Work order';
+            $out[] = $this->entry(
+                'emergency_approval',
+                (string) ($approval->approved_at ?? $approval->created_at),
+                'Emergency work agreed by the owner (' . ($approval->approved_by_name ?: 'the owner') . ', by ' . str_replace('_', ' ', (string) $approval->approved_via) . '): ' . $title,
+                $approval->recordedByUser?->name,
+                'recorded',
+                $route,
+                $approval->rental_work_order_id,
+            );
+            if ($approval->voided_at) {
+                $out[] = $this->entry(
+                    'emergency_approval',
+                    (string) $approval->voided_at,
+                    'Emergency approval voided' . ($approval->void_reason ? ' — ' . $approval->void_reason : '') . ': ' . $title,
+                    null,
+                    'voided',
+                    $route,
+                    $approval->rental_work_order_id,
+                );
+            }
+        }
+
+        $variations = \App\Models\RentalWorkOrderVariation::query()->whereIn('rental_work_order_id', $ids)->orderBy('id')->get();
+        $raisers = \App\Models\User::query()->withoutGlobalScopes()->whereIn('id', $variations->pluck('raised_by_user_id')->filter()->unique()->all())->pluck('name', 'id');
+        foreach ($variations as $variation) {
+            $title = $titles[$variation->rental_work_order_id] ?? 'Work order';
+            $out[] = $this->entry(
+                'variation',
+                (string) $variation->raised_at,
+                'Variation raised: extra R' . number_format((float) $variation->extra_amount, 2) . ' (new total R' . number_format((float) $variation->new_total, 2) . ') — ' . $title,
+                $raisers[$variation->raised_by_user_id] ?? null,
+                \App\Models\RentalWorkOrderVariation::STATUS_AWAITING_OWNER,
+                $route,
+                $variation->rental_work_order_id,
+            );
+            $decidedWords = match ($variation->status) {
+                \App\Models\RentalWorkOrderVariation::STATUS_AUTO_APPROVED => 'Variation auto-approved — within the owner\'s agreed limit',
+                \App\Models\RentalWorkOrderVariation::STATUS_APPROVED => 'Variation approved by the owner',
+                \App\Models\RentalWorkOrderVariation::STATUS_DECLINED => 'Variation declined by the owner',
+                \App\Models\RentalWorkOrderVariation::STATUS_WITHDRAWN => 'Variation withdrawn',
+                default => null,
+            };
+            if ($decidedWords && ($variation->decided_at ?? $variation->raised_at)) {
+                $out[] = $this->entry(
+                    'variation',
+                    (string) ($variation->decided_at ?? $variation->raised_at),
+                    $decidedWords . ': ' . $title,
+                    null,
+                    (string) $variation->status,
+                    $route,
+                    $variation->rental_work_order_id,
+                );
+            }
+        }
+
+        // Completion rounds — the tenant check (§17.10).
+        $rounds = \App\Models\RentalWorkCompletionRound::query()->whereIn('rental_work_order_id', $ids)->orderBy('rental_work_order_id')->orderBy('round_no')->get();
+        foreach ($rounds as $round) {
+            $title = $titles[$round->rental_work_order_id] ?? 'Work order';
+            $out[] = $this->entry(
+                'completion_check',
+                (string) $round->opened_at,
+                ($round->round_no > 1 ? 'Reported done again' : 'Work reported done') . ' by ' . ($round->reported_by_label ?: 'the crew') . ' (round ' . $round->round_no . '): ' . $title,
+                null,
+                $round->outcome,
+                $route,
+                $round->rental_work_order_id,
+            );
+            $answer = match ($round->outcome) {
+                \App\Models\RentalWorkCompletionRound::OUTCOME_CONFIRMED => 'Tenant confirmed the work is done',
+                \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED => 'Tenant reported not complete: ' . ($round->response_note ?: '—'),
+                \App\Models\RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE => 'Accepted — no response in ' . max(1, (int) round($round->opened_at->diffInDays($round->window_ends_at ?? $round->opened_at, true))) . ' days',
+                default => null,
+            };
+            if ($answer) {
+                $out[] = $this->entry(
+                    'completion_check',
+                    (string) ($round->responded_at ?? $round->window_ends_at ?? $round->updated_at),
+                    $answer . ' (round ' . $round->round_no . ')',
+                    null,
+                    $round->outcome,
+                    $route,
+                    $round->rental_work_order_id,
+                );
+            }
+        }
+
+        // "Dispute sent back to the crew / contractor" — read from the work order's own append-only log.
+        foreach (\App\Models\RentalWorkOrderUpdate::query()->whereIn('rental_work_order_id', $ids)->where('update_type', 'dispute_sent_back')->with('createdByUser')->orderBy('id')->get() as $update) {
+            $kind = ($workOrders->firstWhere('id', $update->rental_work_order_id)?->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) ? 'crew' : 'contractor';
+            $out[] = $this->entry(
+                'completion_check',
+                (string) $update->created_at,
+                "Dispute sent back to the {$kind}: " . ($titles[$update->rental_work_order_id] ?? 'Work order'),
+                $update->createdByUser?->name,
+                'sent_back',
+                $route,
+                $update->rental_work_order_id,
+            );
+        }
+
+        return $out;
+    }
+    // BUILD 3 END
 }

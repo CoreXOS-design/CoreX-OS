@@ -117,7 +117,7 @@
                         <div class="tabs">
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
                             <button :class="{active: tenantTab==='faults'}" @click="tenantTab='faults'; loadFaultReports()">Faults</button>
-                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadJobCards()">Jobs</button>
+                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Jobs</button>
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
@@ -189,6 +189,8 @@
                                         <div class="list-item row">
                                             <span x-text="f.title"></span>
                                             <span class="badge" x-text="f.status"></span>
+                                            {{-- BUILD 3 — §17.3.5: the linked work order's plain stage. --}}
+                                            <span class="muted" x-show="f.work_order_stage" x-text="f.work_order_stage ? 'Job: ' + f.work_order_stage.stage_label : ''"></span>
                                         </div>
                                     </template>
                                     <p class="muted" x-show="!faultReports.length">No faults reported yet.</p>
@@ -196,26 +198,61 @@
                             </div>
                         </template>
 
-                        {{-- §14.29 — job cards on the tenant's own lease: status, dates, who signed the crew's completion, and the photos the agency allows. --}}
+                        {{-- BUILD 3 BEGIN — §17.3.5 / §17.10.4: the tenant's Jobs are WORK ORDERS (the job-card endpoints stay registered but are no longer linked from here): the plain stage, who is doing it, the completion rounds, the photos the agency allows — never a price — and the "Is this finished?" question. --}}
                         <template x-if="tenantTab === 'jobs'">
                             <div>
-                                <div class="card" x-show="!jobCards.length"><p class="muted">No maintenance jobs yet.</p></div>
-                                <template x-for="j in jobCards" :key="j.id">
-                                    <div class="card" data-job-card>
-                                        <div class="row"><h2 x-text="j.title"></h2><span class="badge" x-text="j.status.replace('_',' ')"></span></div>
-                                        <p class="muted" x-show="j.property_address" x-text="j.property_address"></p>
-                                        <p class="muted" x-show="j.completed_at" x-text="j.completed_at ? 'Completed ' + j.completed_at.substring(0,10) : ''"></p>
-                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="j.scheduled_at ? 'Scheduled ' + j.scheduled_at.substring(0,10) : ''"></p>
-                                        <p class="muted" x-show="j.crew_completion" x-text="j.crew_completion ? ('Work completed' + (j.crew_completion.signed_by ? ' — signed by ' + j.crew_completion.signed_by : '')) : ''"></p>
-                                        <div class="photo-grid" x-show="j.photos.length">
-                                            <template x-for="ph in j.photos" :key="ph.id">
+                                <div class="card" x-show="!workOrders.length"><p class="muted">No maintenance jobs yet.</p></div>
+                                <template x-for="w in workOrders" :key="w.id">
+                                    <div class="card" data-work-order>
+                                        <div class="row"><h2 x-text="w.title"></h2><span class="badge" x-text="w.stage_label"></span></div>
+                                        <p class="muted" x-show="w.property_address" x-text="w.property_address"></p>
+                                        <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
+                                        <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
+                                        <p class="muted" x-show="!w.completed_at && w.scheduled_at" x-text="w.scheduled_at ? 'Scheduled ' + w.scheduled_at.substring(0,10) : ''"></p>
+                                        <div class="photo-grid" x-show="w.photos.length">
+                                            <template x-for="ph in w.photos" :key="ph.id">
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
                                             </template>
                                         </div>
+
+                                        {{-- §17.10.4 — "Is this finished?" — only while a completion round waits on this tenant. --}}
+                                        <template x-if="w.awaiting_answer">
+                                            <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
+                                                <h2>Is this finished?</h2>
+                                                <p class="muted" x-text="(w.awaiting_answer.reported_by || 'The crew') + ' says this work is complete. Please check it' + (w.awaiting_answer.answer_due ? ' — if we do not hear from you by ' + w.awaiting_answer.answer_due.substring(0,10) + ' we will treat it as accepted.' : '.')"></p>
+                                                <button class="btn btn-ok" :disabled="answerBusy" @click="answerCompletion(w, true)">All done, thanks</button>
+                                                <template x-if="!answerForm || answerForm.workOrderId !== w.id">
+                                                    <button class="btn btn-outline" @click="openNotComplete(w)">Not complete / still wrong</button>
+                                                </template>
+                                                <template x-if="answerForm && answerForm.workOrderId === w.id">
+                                                    <div>
+                                                        <label>What is still wrong?</label>
+                                                        <textarea rows="3" x-model="answerForm.note" placeholder="For example: the tap is fixed but it still drips."></textarea>
+                                                        <label>Photos (optional)</label>
+                                                        <input type="file" accept="image/*" multiple @change="answerForm.photos = $event.target.files">
+                                                        <button class="btn btn-danger" :disabled="answerBusy" @click="answerCompletion(w, false)">Send — it is not complete</button>
+                                                    </div>
+                                                </template>
+                                                <p class="error" x-show="answerError" x-text="answerError"></p>
+                                            </div>
+                                        </template>
+
+                                        <template x-for="r in w.rounds" :key="r.id">
+                                            <div style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                                <div class="row"><span class="muted" x-text="'Check ' + r.round_no + ' — reported done ' + (r.reported_at ? r.reported_at.substring(0,10) : '')"></span><span class="badge" x-text="r.outcome_label"></span></div>
+                                                <p class="muted" x-show="r.response_note" x-text="r.response_note ? 'You said: ' + r.response_note : ''"></p>
+                                                <div class="photo-grid" x-show="r.photos.length">
+                                                    <template x-for="ph in r.photos" :key="ph.id">
+                                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo you sent" loading="lazy"></a>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
                         </template>
+                        {{-- BUILD 3 END --}}
 
                         <template x-if="tenantTab === 'documents'">
                             <div class="card">
@@ -236,7 +273,7 @@
                             <button :class="{active: landlordTab==='decisions'}" @click="landlordTab='decisions'; loadDecisions()">Decisions</button>
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
                             <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults</button>
-                            <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadJobCards()">Jobs</button>
+                            <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadWorkOrders()">Jobs</button>
                         </div>
 
                         <template x-if="landlordTab === 'decisions'">
@@ -314,27 +351,39 @@
                             </div>
                         </template>
 
-                        {{-- §14.29 — job cards on the landlord's own properties, with the selected quote amount as the work-order list already shows it. --}}
+                        {{-- BUILD 3 BEGIN — §17.3.5: the landlord's Jobs are WORK ORDERS too: the plain stage, who is doing it, the owner-facing amount only (never cost or margin), the completion rounds and the permitted photos. --}}
                         <template x-if="landlordTab === 'jobs'">
                             <div>
-                                <div class="card" x-show="!jobCards.length"><p class="muted">No maintenance jobs yet.</p></div>
-                                <template x-for="j in jobCards" :key="j.id">
-                                    <div class="card" data-job-card>
-                                        <div class="row"><h2 x-text="j.title"></h2><span class="badge" x-text="j.status.replace('_',' ')"></span></div>
-                                        <p class="muted" x-show="j.property_address" x-text="j.property_address"></p>
-                                        <p class="muted" x-show="j.completed_at" x-text="j.completed_at ? 'Completed ' + j.completed_at.substring(0,10) : ''"></p>
-                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="j.scheduled_at ? 'Scheduled ' + j.scheduled_at.substring(0,10) : ''"></p>
-                                        <p class="muted" x-show="j.crew_completion" x-text="j.crew_completion ? ('Work completed' + (j.crew_completion.signed_by ? ' — signed by ' + j.crew_completion.signed_by : '')) : ''"></p>
-                                        <p class="muted" x-show="j.selected_quote_amount" x-text="j.selected_quote_amount ? 'Quote: R ' + j.selected_quote_amount : ''"></p>
-                                        <div class="photo-grid" x-show="j.photos.length">
-                                            <template x-for="ph in j.photos" :key="ph.id">
+                                <div class="card" x-show="!workOrders.length"><p class="muted">No maintenance jobs yet.</p></div>
+                                <template x-for="w in workOrders" :key="w.id">
+                                    <div class="card" data-work-order>
+                                        <div class="row"><h2 x-text="w.title"></h2><span class="badge" x-text="w.stage_label"></span></div>
+                                        <p class="muted" x-show="w.property_address" x-text="w.property_address"></p>
+                                        <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
+                                        <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
+                                        <p class="muted" x-show="!w.completed_at && w.scheduled_at" x-text="w.scheduled_at ? 'Scheduled ' + w.scheduled_at.substring(0,10) : ''"></p>
+                                        <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined" x-text="'Amount: R ' + w.owner_facing_amount"></p>
+                                        <div class="photo-grid" x-show="w.photos.length">
+                                            <template x-for="ph in w.photos" :key="ph.id">
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
                                             </template>
                                         </div>
+                                        <template x-for="r in w.rounds" :key="r.id">
+                                            <div style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                                <div class="row"><span class="muted" x-text="'Tenant check ' + r.round_no + ' — reported done ' + (r.reported_at ? r.reported_at.substring(0,10) : '')"></span><span class="badge" x-text="r.outcome_label"></span></div>
+                                                <p class="muted" x-show="r.response_note" x-text="r.response_note ? 'The tenant said: ' + r.response_note : ''"></p>
+                                                <div class="photo-grid" x-show="r.photos.length">
+                                                    <template x-for="ph in r.photos" :key="ph.id">
+                                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo from the tenant" loading="lazy"></a>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
                         </template>
+                        {{-- BUILD 3 END --}}
 
                         {{-- §15 (AT-447, portal frontend follow-up) — "Request work / report
                              a problem": same shape as the tenant fault-report wizard above
@@ -446,6 +495,8 @@ function rentalsPortal() {
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
         jobCards: [],
+        // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
+        workOrders: [], answerForm: null, answerBusy: false, answerError: null,
         landlordFaultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null, success: null },
         landlordFaultTypesByProperty: {},
 
@@ -549,6 +600,38 @@ function rentalsPortal() {
             const r = await portalFetch(url);
             if (r.ok) this.jobCards = r.data.job_cards;
         },
+        // BUILD 3 BEGIN — §17.3.5: one list, two endpoints: the tenant's work orders, or the landlord's (each carries its own `client` view).
+        async loadWorkOrders() {
+            if (this.activeRole === 'landlord') {
+                const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders');
+                if (r.ok) this.workOrders = (r.data.work_orders || []).map(w => Object.assign({ photos: [], rounds: [] }, w.client || w));
+            } else {
+                const r = await portalFetch('/api/v1/client/rentals/work-orders');
+                if (r.ok) this.workOrders = r.data.work_orders;
+            }
+        },
+        openNotComplete(w) { this.answerError = null; this.answerForm = { workOrderId: w.id, note: '', photos: null }; },
+        // §17.10.4 — confirm ("All done") or say it is NOT complete (a note of at least 5 characters, up to 10 photos).
+        async answerCompletion(w, fixed) {
+            this.answerError = null;
+            const form = new FormData();
+            form.append('fixed', fixed ? '1' : '0');
+            if (!fixed) {
+                const note = (this.answerForm && this.answerForm.workOrderId === w.id ? this.answerForm.note : '').trim();
+                if (note.length < 5) { this.answerError = 'Please tell us what is still wrong (at least 5 characters).'; return; }
+                form.append('note', note);
+                if (this.answerForm && this.answerForm.photos) {
+                    for (const file of this.answerForm.photos) form.append('photos[]', file);
+                }
+            }
+            this.answerBusy = true;
+            const r = await portalFetch('/api/v1/client/rentals/work-orders/' + w.id + '/completion-response', { method: 'POST', body: form });
+            this.answerBusy = false;
+            if (!r.ok) { this.answerError = r.data?.message || 'Could not send your answer.'; return; }
+            this.answerForm = null;
+            await this.loadWorkOrders();
+        },
+        // BUILD 3 END
         async loadDocuments() {
             const r = await portalFetch('/api/v1/client/rentals/documents');
             if (r.ok) this.documents = r.data.documents;

@@ -58,22 +58,20 @@ class RentalWorkOrderService
     }
 
     /**
-     * §3a.1/§0c — the agency_appoints route. The owner is not asked twice:
-     * this work order inherits 'approved' directly from the fault report
-     * that already satisfied it. The tenant is NOT notified here — they
-     * were already notified at fault-report creation (§3a/§4).
+     * §17.3 (R0) — "Create work order" from a fault report. The gate is relaxed (§17.3.2): a work order may be
+     * created from a fault in status reported, awaiting_approval, or approved (agency_appoints) — the owner can only
+     * approve a NUMBER once the work order exists (§17.9 step order) — and is refused, in plain words, for a fault
+     * the owner declined or is handling themselves, or one that is already past that point
+     * ({@see RentalFaultReport::workOrderBlockReason()} is the one place the rule lives).
+     *
+     * §17.3.3 — NO inherited approval: the new work order starts `not_required` with no approved amount;
+     * authorisation is decided by the gate when a quote is selected, the card is scheduled/started, or an emergency
+     * approval is captured. The tenant is NOT notified here — they were already notified at fault-report creation.
      */
     public function fromFaultReport(RentalFaultReport $faultReport, User $by, array $attributes): RentalWorkOrder
     {
-        if ($faultReport->approval_route !== RentalFaultReport::ROUTE_AGENCY_APPOINTS) {
-            throw new \LogicException('A work order can only be raised from a fault report approved via the agency_appoints route.');
-        }
-        if (in_array($faultReport->status, [
-            RentalFaultReport::STATUS_WORK_ORDER_RAISED,
-            RentalFaultReport::STATUS_RESOLVED,
-            RentalFaultReport::STATUS_CANCELLED,
-        ], true)) {
-            throw new \LogicException('This fault report has already moved past the point a work order can be raised from it.');
+        if ($reason = $faultReport->workOrderBlockReason()) {
+            throw new \LogicException($reason);
         }
 
         $workOrder = RentalWorkOrder::create(array_merge($attributes, [
@@ -84,7 +82,8 @@ class RentalWorkOrderService
             'rental_inspection_item_id' => $faultReport->rental_inspection_item_id,
             'reported_by_type' => RentalWorkOrder::REPORTED_BY_FAULT_REPORT,
             'reported_fault_report_id' => $faultReport->id,
-            'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED,
+            // §17.3.3 — approval no longer rides the fault: not_required, approved_amount null.
+            'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
             'status' => RentalWorkOrder::STATUS_REPORTED,
             'reported_at' => now(),
             'created_by_user_id' => $by->id,
@@ -116,6 +115,17 @@ class RentalWorkOrderService
             'client_idempotency_key' => $clientKey,
             'file_size_bytes' => $file->getSize(),
         ]);
+    }
+
+    /**
+     * §17.3.4 — ONE creation announcement, the same on every path (fault, work-order form, inspection follow-up,
+     * the job-card alias, a card created with no work order): `rental_work_order.created` to the property's agent.
+     * (The paths that already announce through report() / fromFaultReport() keep doing so via notifyCreated(), which
+     * this calls — it is the same event, never fired twice for one work order.)
+     */
+    public function announceCreated(RentalWorkOrder $workOrder): void
+    {
+        $this->notifyCreated($workOrder);
     }
 
     /** §4 — fires to the property's assigned agent. */

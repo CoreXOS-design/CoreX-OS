@@ -921,6 +921,76 @@ class RentalWorkOrder extends Model
         }
     }
 
+    // ---- BUILD 3 BEGIN — completion check & dispute (§17.10, §17.21.5): methods below are Build 3's only ----
+
+    /** §17.10 — the newest completion round (highest round_no), or null when work has never been reported done. */
+    public function latestCompletionRound(): ?RentalWorkCompletionRound
+    {
+        return $this->completionRounds()->reorder()->orderByDesc('round_no')->first();
+    }
+
+    /**
+     * §17.10.6 — a tenant said the finished work is not complete. A completed work order is reopened
+     * (`completed_at` cleared); every other open stage simply becomes `disputed`. Logged as `dispute_opened`
+     * with the tenant's note. Cancelled work orders cannot be disputed.
+     */
+    public function markDisputed(string $tenantNote): void
+    {
+        if ($this->status === self::STATUS_CANCELLED) {
+            throw new \LogicException('This work order was cancelled — it cannot be reopened.');
+        }
+
+        $fromStatus = $this->status;
+        $this->forceFill(['status' => self::STATUS_DISPUTED, 'completed_at' => null])->save();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'dispute_opened',
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_DISPUTED,
+            'note' => 'Tenant reported the work as not complete: ' . $tenantNote,
+        ]);
+    }
+
+    /** §17.10.7 — work was reported done again after a dispute: back to `in_progress`. */
+    public function returnFromDispute(): void
+    {
+        if ($this->status !== self::STATUS_DISPUTED) {
+            return;
+        }
+
+        $this->forceFill(['status' => self::STATUS_IN_PROGRESS])->save();
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'status_change',
+            'from_status' => self::STATUS_DISPUTED, 'to_status' => self::STATUS_IN_PROGRESS,
+            'note' => 'Work reported done again after a tenant dispute',
+        ]);
+    }
+
+    /**
+     * §17.10.4 — the legacy `tenant_confirmed_*` columns on the work order (and its job card) are kept as
+     * MIRRORS of the latest round's answer, so every older reader (reports, the portal alias) still agrees.
+     */
+    public function mirrorCompletionAnswer(bool $fixed, ?string $note, ?int $contactId): void
+    {
+        $this->forceFill([
+            'tenant_confirmed_at' => now(),
+            'tenant_confirmed_fixed' => $fixed,
+            'tenant_confirmed_by_contact_id' => $contactId,
+            'tenant_confirmation_note' => $note,
+        ])->save();
+
+        $jobCard = $this->jobCard;
+        if ($jobCard) {
+            $jobCard->forceFill([
+                'tenant_confirmed_at' => now(),
+                'tenant_confirmed_fixed' => $fixed,
+                'tenant_confirmed_by_contact_id' => $contactId,
+                'tenant_confirmation_note' => $note,
+            ])->save();
+        }
+    }
+
+    // ---- BUILD 3 END ----
+
     /** §3.4 — never deleted once anything has been logged against it. */
     public function cancel(User $by, string $reason): void
     {

@@ -6,7 +6,7 @@
     $statusBadgeClass = match ($workOrder->status) {
         'completed' => 'ds-badge-success',
         'reported', 'ordered', 'in_progress' => 'ds-badge-info',
-        'cancelled' => 'ds-badge-danger',
+        'cancelled', 'disputed' => 'ds-badge-danger',
         default => 'ds-badge-muted',
     };
     $isOpen = !in_array($workOrder->status, ['completed', 'cancelled'], true);

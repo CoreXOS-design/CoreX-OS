@@ -143,74 +143,33 @@ class RentalJobCardController extends Controller
      * job card can end up pointed at another property's lease. Resolved
      * only inside the user's own scope.
      */
-    public function create(Request $request): View
+    public function create(Request $request): RedirectResponse
     {
-        $user = $request->user();
-
-        $lease = $request->get('lease_id') ? Lease::query()->visibleTo($user, null)->find($request->get('lease_id')) : null;
-        $faultReport = $request->get('fault_report_id') ? RentalFaultReport::findOrFail($request->get('fault_report_id')) : null;
-        $workOrder = $request->get('rental_work_order_id')
-            ? \App\Models\RentalWorkOrder::query()->visibleTo($user, null)->find($request->get('rental_work_order_id'))
-            : null;
-        $inspection = $request->get('rental_inspection_id')
-            ? \App\Models\RentalInspection::query()->visibleTo($user, null)->find($request->get('rental_inspection_id'))
-            : null;
-        $lease = $lease ?? $faultReport?->lease ?? $workOrder?->lease ?? $inspection?->lease;
-
-        $property = $lease
-            ? $lease->property
-            : ($faultReport?->property ?? $workOrder?->property ?? $inspection?->property
-                ?? ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null));
-
-        $observationIds = array_filter((array) $request->get('observation_ids', []));
-        $observations = $observationIds
-            ? \App\Models\RentalInspectionObservation::query()->whereIn('id', $observationIds)->with(['item.room'])->get()
-            : collect();
-
-        $draftTasks = [];
-        if ($faultReport) {
-            $draftTasks[] = $faultReport->title;
-        }
-        if ($workOrder && !$faultReport) {
-            $draftTasks[] = $workOrder->title;
-        }
-        foreach ($observations as $observation) {
-            $room = $observation->item?->room?->label ?? 'General';
-            $item = $observation->item?->label ?? 'Unknown item';
-            $desc = "{$room} — {$item} (" . ucfirst(str_replace('_', ' ', $observation->condition)) . ')';
-            if ($observation->notes) {
-                $desc .= ' — ' . $observation->notes;
+        // BUILD 3 BEGIN — §17.3.1: "New Job Card" is an ALIAS. There is exactly ONE creation form for maintenance
+        // work — the work-order create form with "Internal crew" preselected — and one rule: no job card ever exists
+        // without its work order. Everything the old screen understood (a lease, a property, an inspection's marked
+        // items) is carried across; a fault report goes to its own "Create work order" form, and an existing
+        // work order to its own screen (a work order already owns its job card).
+        if ($faultId = $request->get('fault_report_id')) {
+            $fault = RentalFaultReport::query()->visibleTo($request->user(), null)->find($faultId);
+            if ($fault) {
+                return redirect()->route('corex.rental-fault-reports.show', $fault)
+                    ->with('success', 'Use “Create work order” on this fault report — it creates the work order and the job card together.');
             }
-            $draftTasks[] = $desc;
+        }
+        if ($workOrderId = $request->get('rental_work_order_id')) {
+            $workOrder = \App\Models\RentalWorkOrder::query()->visibleTo($request->user(), null)->find($workOrderId);
+            if ($workOrder) {
+                return redirect()->route('corex.rental-work-orders.show', $workOrder);
+            }
         }
 
-        // A job card is always created within the AUTHENTICATED user's own
-        // agency, regardless of which property ends up picked (the
-        // searchable picker resolves client-side, so a fresh /create with
-        // no prefill has no $property yet at all) — resolve pricesOn/VAT
-        // off the user's own agency, not $property?->agency, so the draft
-        // screen's catalogue/VAT controls are correct from the first paint
-        // instead of silently empty until a property happens to be chosen.
-        $agency = $property?->agency ?? $user->agency;
+        $carry = $request->only(['property_id', 'lease_id', 'rental_inspection_id', 'observation_ids', 'combine']);
 
-        return view('corex.rental-job-cards.show', [
-            'jobCard' => null,
-            'property' => $property,
-            'lease' => $lease,
-            'faultReport' => $faultReport,
-            'workOrder' => $workOrder,
-            'draftTasks' => $draftTasks,
-            'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
-            'catalogueItemTypes' => $agency ? RentalCatalogueItemType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect(),
-            'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
-            'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
-            // §17.15 — selling can be typed on the create screen only by someone who holds `rental_job_cards.price`.
-            'canPrice' => $request->user()->hasPermission('rental_job_cards.price'),
-            'vatTypes' => $agency?->vat_registered
-                ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get()
-                : collect(),
-            'vatRegistered' => (bool) $agency?->vat_registered,
-        ]);
+        return redirect()->route('corex.rental-work-orders.create', array_merge($carry, [
+            'assignment_type' => \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
+        ]));
+        // BUILD 3 END
     }
 
     public function store(Request $request, RentalJobCardService $service): RedirectResponse
@@ -755,6 +714,22 @@ class RentalJobCardController extends Controller
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
+
+        // BUILD 3 BEGIN — §17.10.1: the office's "Worker — done" is one of the routes that reports work done, and
+        // it dispatches no crew event — so it opens the completion round directly. Never breaks the sign-off.
+        if ($rentalJobCard->rental_work_order_id && $rentalJobCard->workOrder) {
+            try {
+                app(\App\Services\Rentals\RentalCompletionService::class)->openRound($rentalJobCard->workOrder, [
+                    'reported_by_label' => $validated['worker_sign_off_name'] ?? ($rentalJobCard->crew?->name ?: 'The crew'),
+                    'reported_via' => \App\Models\RentalWorkCompletionRound::VIA_OFFICE,
+                    'reported_by_user_id' => $request->user()->id,
+                    'rental_job_card_id' => $rentalJobCard->id,
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Completion round could not be opened from the office sign-off', ['job_card_id' => $rentalJobCard->id, 'error' => $e->getMessage()]);
+            }
+        }
+        // BUILD 3 END
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Worker sign-off recorded.');
     }

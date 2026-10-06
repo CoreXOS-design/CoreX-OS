@@ -188,6 +188,56 @@ final class CrewPayloadNeverCarriesSellingTest extends TestCase
         }
     }
 
+    // ── Build 3: the dispute block (§17.10.6) is part of the crew view, so it is part of the guard ─────────────────
+
+    /** A disputed job carrying the tenant's note and photos — and, deliberately, the selling figures on its lines. */
+    private function disputedCard(): RentalJobCard
+    {
+        $card = $this->sellingCard();
+        $workOrder = $card->workOrder;
+        $workOrder->forceFill(['cost_amount' => 31977.29, 'approved_amount' => 31977.29])->save();
+        $round = \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'rental_work_order_id' => $workOrder->id, 'rental_job_card_id' => $card->id, 'round_no' => 1,
+            'opened_at' => now()->subDay(), 'reported_by_label' => 'Team 1', 'reported_via' => 'crew_link', 'outcome' => 'disputed',
+            'responded_at' => now(), 'responded_via' => 'portal', 'response_note' => 'The tap still drips after the repair',
+        ]);
+        \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'rental_work_order_id' => $workOrder->id, 'rental_job_card_id' => $card->id, 'rental_completion_round_id' => $round->id,
+            'photo_type' => 'dispute', 'uploaded_via' => 'tenant', 'storage_path' => '/storage/properties/1/drip.jpg', 'file_size_bytes' => 1000,
+        ]);
+        $workOrder->forceFill(['status' => 'disputed'])->save();
+        $card->forceFill(['status' => RentalJobCard::STATUS_DISPUTED])->save();
+
+        return $card->fresh();
+    }
+
+    #[DataProvider('settingCombinations')]
+    public function test_a_disputed_job_shows_the_crew_the_complaint_and_never_selling(bool $showCosts, bool $showTenant): void
+    {
+        $this->applySettings($showCosts, $showTenant);
+        $card = $this->disputedCard();
+
+        $payload = app(CrewJobService::class)->payload($card, $this->ctx($card, $showCosts, $showTenant));
+        $json = json_encode($payload, JSON_THROW_ON_ERROR);
+
+        $this->assertSame('The tap still drips after the repair', $payload['blocks']['dispute']['note']);
+        $this->assertSame([['url' => '/storage/properties/1/drip.jpg']], $payload['blocks']['dispute']['photos']);
+        $this->assertSame(0, collect($payload['photos'])->where('type', 'dispute')->count(), 'dispute photos are NOT in the general gallery');
+        $this->assertNoSelling($json, 'CrewJobService::payload() of a disputed job');
+        foreach (self::FORBIDDEN_KEYS as $key) {
+            $this->assertStringNotContainsString('"' . $key, $json, "forbidden key {$key} in a disputed job's payload");
+        }
+        $this->assertStringNotContainsString('Thandi', $json, 'the crew is told what is wrong, not who said it');
+
+        $issued = app(RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->admin);
+        $html = $this->get('/secure/job-cards/' . $issued['raw_token'])->assertOk()->getContent();
+        $this->assertNoSelling($html, 'GET /secure/job-cards/{token} of a disputed job');
+        $this->assertStringContainsString('The tenant says this is not complete', $html);
+
+        $page = app(RentalSecureAccessTokenService::class)->issueForCrew($this->crew, $this->admin)['raw_token'];
+        $this->assertNoSelling($this->get("/secure/crews/{$page}/job-cards/{$card->id}")->assertOk()->getContent(), 'GET /secure/crews/{token}/job-cards/{card} of a disputed job');
+    }
+
     public function test_the_real_pdf_service_passes_the_cost_setting_not_the_old_price_setting(): void
     {
         $this->applySettings(true, false);

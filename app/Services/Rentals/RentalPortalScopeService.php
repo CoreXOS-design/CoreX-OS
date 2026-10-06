@@ -366,6 +366,39 @@ class RentalPortalScopeService
             ->get();
     }
 
+    // BUILD 3 BEGIN — work orders & completion rounds for the tenant (rental-work-orders.md §17.3.5, §17.10.10) ───────
+    // The portal's "Jobs" are work orders now. A tenant sees work orders on THEIR OWN live lease(s); a round id (or a work
+    // order id) from another tenant, lease or agency resolves to null — a 404 at the controller. Global scopes are
+    // stripped (a portal request has no staff user), so agency_id and deleted_at are pinned explicitly.
+
+    public function tenantWorkOrders(Contact $contact)
+    {
+        return RentalWorkOrder::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('lease_id', $this->tenantLeaseIds($contact))
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    /** The round this tenant may answer: the work order must be theirs, and the round must be its newest. */
+    public function tenantCompletionRound(Contact $contact, int $workOrderId, ?int $roundId = null): ?\App\Models\RentalWorkCompletionRound
+    {
+        $workOrder = $this->tenantWorkOrder($contact, $workOrderId);
+        if (! $workOrder) {
+            return null;
+        }
+
+        $query = \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->where('rental_work_order_id', $workOrder->id);
+
+        return $roundId !== null
+            ? $query->whereKey($roundId)->first()
+            : $query->orderByDesc('round_no')->first();
+    }
+    // BUILD 3 END
+
     // ── Job cards — rental-work-orders.md §14.29 ────────────────────────
     // A tenant sees cards on THEIR OWN lease(s); a landlord sees cards on THEIR
     // OWN property(ies). Global scopes are stripped (a ClientUser request has no

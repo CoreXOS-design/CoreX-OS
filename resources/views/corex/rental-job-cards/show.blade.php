@@ -35,7 +35,7 @@
 
     $statusBadgeClass = $jobCard ? match ($jobCard->status) {
         'completed' => 'ds-badge-success',
-        'cancelled' => 'ds-badge-danger',
+        'cancelled', 'disputed' => 'ds-badge-danger',
         'in_progress', 'scheduled' => 'ds-badge-info',
         default => 'ds-badge-muted',
     } : null;

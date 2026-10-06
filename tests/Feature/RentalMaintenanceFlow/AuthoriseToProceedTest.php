@@ -214,15 +214,22 @@ final class AuthoriseToProceedTest extends TestCase
 
     public function test_a_card_with_no_work_order_is_judged_on_its_own_amount_against_the_property_limit(): void
     {
-        $small = app(RentalJobCardService::class)->createStandalone([
-            'property_id' => $this->property->id, 'title' => 'Standalone small',
-            'general_lines' => [['type' => 'part', 'description' => 'Washer', 'quantity' => 1, 'unit_price' => 120]],
-        ], $this->admin);
-        $big = app(RentalJobCardService::class)->createStandalone([
-            'property_id' => $this->property->id, 'title' => 'Standalone big',
-            'general_lines' => [['type' => 'part', 'description' => 'Boiler', 'quantity' => 1, 'unit_price' => 4000]],
-        ], $this->admin);
-        $empty = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Standalone empty'], $this->admin);
+        // Build 3 (§17.3.1) gives every NEW card its work order up front, so a card with none is a legacy row: build those directly.
+        $legacy = function (string $title, ?array $line = null) {
+            $card = RentalJobCard::create([
+                'agency_id' => $this->property->agency_id, 'branch_id' => $this->property->branch_id, 'property_id' => $this->property->id,
+                'title' => $title, 'status' => RentalJobCard::STATUS_DRAFT, 'created_by_user_id' => $this->admin->id,
+            ]);
+            if ($line) {
+                app(RentalJobCardService::class)->addLine($card, $line, $this->admin);
+            }
+
+            return $card->fresh();
+        };
+        $small = $legacy('Standalone small', ['type' => 'part', 'description' => 'Washer', 'quantity' => 1, 'unit_price' => 120]);
+        $big = $legacy('Standalone big', ['type' => 'part', 'description' => 'Boiler', 'quantity' => 1, 'unit_price' => 4000]);
+        $empty = $legacy('Standalone empty');
+        $this->assertNull($small->rental_work_order_id);
 
         $small->schedule(now()->addDay(), null, $this->admin);
         $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $small->fresh()->status);

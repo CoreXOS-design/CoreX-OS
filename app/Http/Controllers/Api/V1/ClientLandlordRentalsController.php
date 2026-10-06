@@ -248,6 +248,9 @@ class ClientLandlordRentalsController extends Controller
                 'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
                 // §14.29 — photos of the work (own + linked job card), filtered by the agency's visibility rule.
                 'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($w)),
+                // BUILD 3 — §17.3.5: the portal's Jobs list reads these (plain stage, who, rounds); amounts stay owner-facing only.
+                'client' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
+                    ->payload($w, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_LANDLORD),
             ])->values(),
         ]);
     }
