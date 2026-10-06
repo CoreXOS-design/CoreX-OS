@@ -212,7 +212,8 @@ class RentalJobCardVatService
         $groups = []; // rate (string key, 2dp) => ['label' => ..., 'rate' => float, 'amount' => float]
         $lineFigures = [];
 
-        foreach ($jobCard->lines as $line) {
+        // §17.4.6 — a crew's draft or a line still awaiting the office is in no total, no VAT group, no figure.
+        foreach ($jobCard->lines->filter(fn (RentalJobCardLine $l) => $l->isAccepted()) as $line) {
             if ($useSnapshot && $line->isVatSnapshotted()) {
                 $excl = (float) $line->vat_excl_snapshot;
                 $vat = (float) $line->vat_amount_snapshot;
@@ -295,7 +296,7 @@ class RentalJobCardVatService
             return;
         }
 
-        foreach ($jobCard->lines as $line) {
+        foreach ($jobCard->lines->filter(fn (RentalJobCardLine $l) => $l->isAccepted()) as $line) {
             $calc = $this->lineVat($line, $agency);
             if ($calc['excl'] === null) {
                 continue;
@@ -328,6 +329,11 @@ class RentalJobCardVatService
             return;
         }
 
+        // §17.4.6 — only an accepted line is ever frozen; a pending crew line is snapshotted the moment it is accepted.
+        if (! $line->isAccepted()) {
+            return;
+        }
+
         $calc = $this->lineVat($line, $agency, $jobCard->vat_snapshotted_at !== null ? $jobCard->vat_capture_mode_snapshot : null);
 
         $line->forceFill($calc['excl'] === null ? [
@@ -340,6 +346,104 @@ class RentalJobCardVatService
             'vat_amount_snapshot' => $calc['vat'],
             'vat_incl_snapshot' => $calc['incl'],
         ])->save();
+    }
+
+    /**
+     * §17.4 / §17.19 — a catalogue item's default COST, converted to the agency's capture mode exactly as
+     * catalogueDefaultPriceForLine() does for the selling default (default_cost, like default_price, is stored excl VAT).
+     */
+    public function catalogueDefaultCostForLine(RentalCatalogueItem $item, Agency $agency): ?float
+    {
+        if ($item->default_cost === null) {
+            return null;
+        }
+
+        $excl = (float) $item->default_cost;
+
+        if (! $agency->vat_registered || $agency->vat_capture_mode !== Agency::VAT_CAPTURE_INCL) {
+            return $excl;
+        }
+
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+        $rate = $this->rateFor($type, $item->default_custom_vat_rate);
+
+        return round($excl * (1 + $rate / 100), 2);
+    }
+
+    /**
+     * One line's COST split into excl / VAT / incl. Cost shares the line's VAT type and the card's capture mode
+     * (§17.4.7 / §17.19 — "cost and selling are held on the same VAT basis"). A card that is already frozen computes the
+     * cost in ITS frozen mode and at the line's frozen rate, so a later change to the agency's VAT set-up never moves it
+     * (there is no separate cost snapshot column — the selling snapshot's rate and the card's frozen mode are the freeze).
+     * Nulls when the line has no cost; an agency that is not VAT registered gets excl = incl = the cost and a null VAT.
+     *
+     * @return array{rate: ?float, label: ?string, excl: ?float, vat: ?float, incl: ?float}
+     */
+    public function lineCostVat(RentalJobCard $jobCard, RentalJobCardLine $line, ?Agency $agency = null): array
+    {
+        $amount = $line->cost_total !== null ? (float) $line->cost_total : null;
+        if ($amount === null) {
+            return ['rate' => null, 'label' => null, 'excl' => null, 'vat' => null, 'incl' => null];
+        }
+
+        $agency ??= $jobCard->agency ?? Agency::withoutGlobalScopes()->find($jobCard->agency_id);
+        $frozen = $jobCard->vat_snapshotted_at !== null;
+        $registered = $frozen ? (bool) $jobCard->vat_registered_snapshot : (bool) $agency?->vat_registered;
+        if (! $registered) {
+            return ['rate' => null, 'label' => null, 'excl' => round($amount, 2), 'vat' => null, 'incl' => round($amount, 2)];
+        }
+
+        if ($frozen && $line->vat_rate_snapshot !== null) {
+            $rate = (float) $line->vat_rate_snapshot;
+            $label = $line->vat_type_name_snapshot;
+        } else {
+            $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::find($line->rental_vat_type_id)) : null;
+            $rate = $this->rateFor($type, $line->custom_vat_rate);
+            $label = $type?->name ?? 'No VAT';
+        }
+        $mode = $frozen ? ($jobCard->vat_capture_mode_snapshot ?: $agency?->vat_capture_mode) : $agency?->vat_capture_mode;
+
+        return $this->splitAmount($amount, $rate, (string) ($mode ?? Agency::VAT_CAPTURE_EXCL)) + ['rate' => $rate, 'label' => $label];
+    }
+
+    /**
+     * §17.4.5 — the card's COST with VAT, over ACCEPTED lines only: the worker print's totals (Build 1's "costBreakdown")
+     * and the office margin. Lines with no cost recorded add nothing (never a forced 0).
+     *
+     * @return array{registered: bool, subtotalExcl: ?float, totalVat: ?float, totalIncl: ?float, lineFigures: array<int, array{excl: float, vat: ?float, incl: float}>, costedLines: int, uncostedLines: int}
+     */
+    public function costBreakdown(RentalJobCard $jobCard): array
+    {
+        $agency = $jobCard->agency ?? Agency::withoutGlobalScopes()->find($jobCard->agency_id);
+        $frozen = $jobCard->vat_snapshotted_at !== null;
+        $registered = $frozen ? (bool) $jobCard->vat_registered_snapshot : (bool) $agency?->vat_registered;
+
+        $excl = 0.0;
+        $vat = 0.0;
+        $figures = [];
+        $costed = 0;
+        $uncosted = 0;
+        foreach ($jobCard->lines->filter(fn (RentalJobCardLine $l) => $l->isAccepted()) as $line) {
+            if ($line->cost_total === null) {
+                $uncosted++;
+                continue;
+            }
+            $calc = $this->lineCostVat($jobCard, $line, $agency);
+            $figures[$line->id] = ['excl' => (float) $calc['excl'], 'vat' => $calc['vat'] !== null ? (float) $calc['vat'] : null, 'incl' => (float) $calc['incl']];
+            $excl += (float) $calc['excl'];
+            $vat += (float) ($calc['vat'] ?? 0);
+            $costed++;
+        }
+
+        return [
+            'registered' => $registered,
+            'subtotalExcl' => $costed ? round($excl, 2) : null,
+            'totalVat' => $costed && $registered ? round($vat, 2) : null,
+            'totalIncl' => $costed ? round($excl + $vat, 2) : null,
+            'lineFigures' => $figures,
+            'costedLines' => $costed,
+            'uncostedLines' => $uncosted,
+        ];
     }
 
     /**

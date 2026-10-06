@@ -75,7 +75,7 @@ class RentalCatalogueItemController extends Controller
     {
         $agency = Agency::withoutGlobalScopes()->find($request->user()->effectiveAgencyId());
 
-        return view('corex.rental-catalogue-items.create', $this->formData($agency));
+        return view('corex.rental-catalogue-items.create', $this->formData($agency) + ['canViewCosts' => (bool) $request->user()->hasPermission('rental_job_cards.view_costs')]);
     }
 
     public function store(Request $request): RedirectResponse
@@ -95,7 +95,13 @@ class RentalCatalogueItemController extends Controller
     {
         $agency = Agency::withoutGlobalScopes()->find($request->user()->effectiveAgencyId());
 
-        return view('corex.rental-catalogue-items.edit', ['item' => $rentalCatalogueItem] + $this->formData($agency));
+        $canViewCosts = (bool) $request->user()->hasPermission('rental_job_cards.view_costs');
+
+        return view('corex.rental-catalogue-items.edit', ['item' => $rentalCatalogueItem] + $this->formData($agency) + [
+            'canViewCosts' => $canViewCosts,
+            // Stored excl VAT; shown in the agency's capture mode, like the price.
+            'itemCost' => ($canViewCosts && $agency) ? $this->vat->catalogueDefaultCostForLine($rentalCatalogueItem, $agency) : null,
+        ]);
     }
 
     public function update(Request $request, RentalCatalogueItem $rentalCatalogueItem): RedirectResponse
@@ -134,6 +140,7 @@ class RentalCatalogueItemController extends Controller
 
         return [
             'priceLabel' => $this->priceLabel($agency),
+            'costLabel' => $this->costLabel($agency),
             'catalogueItemTypes' => $catalogueItemTypes,
             'catalogueUnits' => $catalogueUnits,
             'vatTypes' => $vatTypes,
@@ -160,10 +167,12 @@ class RentalCatalogueItemController extends Controller
             'description' => ['required', 'string', 'max:500'],
             'rental_catalogue_unit_id' => ['required', Rule::exists('rental_catalogue_units', 'id')->where('agency_id', $agencyId)],
             'default_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // §17.4.4 — what the item usually COSTS the agency; prefills the cost on a new job card line. Needs `view_costs` to set.
+            'default_cost' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'default_rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $agencyId)],
             'default_custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'is_active' => ['nullable', 'boolean'],
-        ]) + ['is_active' => $request->boolean('is_active', true), 'default_price' => null];
+        ]) + ['is_active' => $request->boolean('is_active', true), 'default_price' => null, 'default_cost' => null];
         // The trailing 'default_price' => null above is a DEFAULT, not an
         // override — PHP's array union (+) keeps the validator's own key
         // when present and only fills the gap when the field was omitted
@@ -178,7 +187,7 @@ class RentalCatalogueItemController extends Controller
         // editable amount is the INCL figure; convert it down to excl
         // before it ever reaches the DB. No-op when not registered, no VAT
         // type picked, or the resolved rate is 0 (excl === incl already).
-        if ($data['default_price'] !== null && $agency?->vat_registered && $agency->vat_capture_mode === Agency::VAT_CAPTURE_INCL) {
+        if (($data['default_price'] !== null || $data['default_cost'] !== null) && $agency?->vat_registered && $agency->vat_capture_mode === Agency::VAT_CAPTURE_INCL) {
             $type = !empty($data['default_rental_vat_type_id']) ? RentalVatType::find($data['default_rental_vat_type_id']) : null;
             $rate = $type
                 ? ($type->rate_mode === RentalVatType::RATE_MODE_CUSTOM_PER_LINE
@@ -186,8 +195,18 @@ class RentalCatalogueItemController extends Controller
                     : (float) $type->liveRate())
                 : 0.0;
             if ($rate > 0) {
-                $data['default_price'] = $this->vat->splitAmount((float) $data['default_price'], $rate, Agency::VAT_CAPTURE_INCL)['excl'];
+                // Cost is held on the same VAT basis as price (§17.19): typed incl, stored excl.
+                foreach (['default_price', 'default_cost'] as $field) {
+                    if ($data[$field] !== null) {
+                        $data[$field] = $this->vat->splitAmount((float) $data[$field], $rate, Agency::VAT_CAPTURE_INCL)['excl'];
+                    }
+                }
             }
+        }
+
+        // §17.15 — a user who cannot see costs cannot set (or wipe) one: the key is dropped, so an update leaves the stored cost alone.
+        if (! $request->user()?->hasPermission('rental_job_cards.view_costs')) {
+            unset($data['default_cost']);
         }
 
         if (empty($data['default_rental_vat_type_id'])) {
@@ -195,6 +214,16 @@ class RentalCatalogueItemController extends Controller
         }
 
         return $data;
+    }
+
+    /** The default-cost field's label follows the same VAT set-up as the price (§17.19). */
+    private function costLabel(?Agency $agency): string
+    {
+        if (! $agency?->vat_registered) {
+            return 'Default cost (R, optional)';
+        }
+
+        return $agency->vat_capture_mode === Agency::VAT_CAPTURE_INCL ? 'Default cost (incl VAT) (R, optional)' : 'Default cost (excl VAT) (R, optional)';
     }
 
     /** The default-price field's label follows the agency's VAT set-up — no data conversion implied by the label alone. */

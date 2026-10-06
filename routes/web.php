@@ -85,6 +85,21 @@ Route::prefix('secure/crews/{token}')->middleware('throttle:30,1')->whereNumber(
     Route::post('/job-cards/{card}/complete', [\App\Http\Controllers\CrewPageController::class, 'complete'])->name('rentals.crew-page.complete');
 });
 
+// BUILD 1 BEGIN — §17.5 the crew's Parts & labour (public, token IS the credential; same throttles as the sibling crew routes)
+Route::prefix('secure/job-cards/{token}')->middleware('throttle:30,1')->whereNumber('line')->group(function () {
+    Route::post('/lines', [\App\Http\Controllers\CrewJobLinkController::class, 'addLine'])->middleware('throttle:60,10')->name('rentals.crew-job.lines.store');
+    Route::post('/lines/send', [\App\Http\Controllers\CrewJobLinkController::class, 'sendLines'])->name('rentals.crew-job.lines.send');
+    Route::post('/lines/{line}', [\App\Http\Controllers\CrewJobLinkController::class, 'updateLine'])->middleware('throttle:60,10')->name('rentals.crew-job.lines.update');
+    Route::post('/lines/{line}/archive', [\App\Http\Controllers\CrewJobLinkController::class, 'archiveLine'])->name('rentals.crew-job.lines.archive');
+});
+Route::prefix('secure/crews/{token}')->middleware('throttle:30,1')->whereNumber(['card', 'line'])->group(function () {
+    Route::post('/job-cards/{card}/lines', [\App\Http\Controllers\CrewPageController::class, 'addLine'])->middleware('throttle:60,10')->name('rentals.crew-page.lines.store');
+    Route::post('/job-cards/{card}/lines/send', [\App\Http\Controllers\CrewPageController::class, 'sendLines'])->name('rentals.crew-page.lines.send');
+    Route::post('/job-cards/{card}/lines/{line}', [\App\Http\Controllers\CrewPageController::class, 'updateLine'])->middleware('throttle:60,10')->name('rentals.crew-page.lines.update');
+    Route::post('/job-cards/{card}/lines/{line}/archive', [\App\Http\Controllers\CrewPageController::class, 'archiveLine'])->name('rentals.crew-page.lines.archive');
+});
+// BUILD 1 END
+
 // ── Seller-Outreach Public Landing (no auth) ──
 // Spec: .ai/specs/seller-outreach-spec.md S8, 6.4, 6.5.
 Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'show'])
@@ -3970,6 +3985,27 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §17.21.1 — marker blocks: each maintenance-flow build adds ITS routes only between its own markers (wrap them in
     // their own Route::prefix(...)->group(...) as needed), so the three builds never collide in this file.
     // BUILD 1 BEGIN — cost & selling, crew parts, estimate term: routes (.ai/specs/rental-work-orders.md §17.21.5)
+    // §17.4.4 / §17.5 — the Pricing panel, "Ask crew to price this job", Accept / Reject the crew's lines. Every route also runs the
+    // own / branch / agency record guard in its controller (direct-URL by id is blocked, not just unlinked).
+    Route::prefix('rental-job-cards')->middleware('permission:rental_job_cards.view')->group(function () {
+        Route::post('/{rentalJobCard}/markup', [\App\Http\Controllers\CoreX\RentalJobCardPricingController::class, 'markup'])
+            ->middleware('permission:rental_job_cards.price')->name('corex.rental-job-cards.markup');
+        Route::post('/{rentalJobCard}/price-requests', [\App\Http\Controllers\CoreX\RentalJobCardPriceRequestController::class, 'store'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-job-cards.price-requests.store');
+        Route::post('/{rentalJobCard}/price-requests/{priceRequest}/close', [\App\Http\Controllers\CoreX\RentalJobCardPriceRequestController::class, 'close'])
+            ->whereNumber('priceRequest')->middleware('permission:rental_job_cards.share')->name('corex.rental-job-cards.price-requests.close');
+        Route::post('/{rentalJobCard}/crew-lines/accept-all', [\App\Http\Controllers\CoreX\RentalJobCardCrewLineController::class, 'acceptAll'])
+            ->middleware('permission:rental_job_cards.price')->name('corex.rental-job-cards.crew-lines.accept-all');
+        Route::post('/{rentalJobCard}/crew-lines/{line}/accept', [\App\Http\Controllers\CoreX\RentalJobCardCrewLineController::class, 'accept'])
+            ->whereNumber('line')->middleware('permission:rental_job_cards.price')->name('corex.rental-job-cards.crew-lines.accept');
+        Route::post('/{rentalJobCard}/crew-lines/{line}/reject', [\App\Http\Controllers\CoreX\RentalJobCardCrewLineController::class, 'reject'])
+            ->whereNumber('line')->middleware('permission:rental_job_cards.price')->name('corex.rental-job-cards.crew-lines.reject');
+    });
+    // §17.14 / §17.11 — the pricing settings (default markups; the estimate wording) — own narrow savers, siblings of the work-order settings savers.
+    Route::post('/settings/rental-work-orders/default-markups', [\App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'updateDefaultMarkups'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.default-markups');
+    Route::post('/settings/rental-work-orders/quote-estimate-term', [\App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'updateQuoteEstimateTerm'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.quote-estimate-term');
     // BUILD 1 END
     // BUILD 2 BEGIN — approvals & external flow: routes (.ai/specs/rental-work-orders.md §17.21.5)
     // BUILD 2 END

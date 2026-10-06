@@ -30,10 +30,11 @@
         ['key' => 'scheduled', 'label' => 'Scheduled', 'value' => $tileCounts['scheduled']],
         ['key' => 'in_progress', 'label' => 'In progress', 'value' => $tileCounts['in_progress']],
         ['key' => 'overdue', 'label' => 'Overdue', 'value' => $tileCounts['overdue']],
+        ['key' => 'needs_pricing', 'label' => 'Needs pricing', 'value' => $tileCounts['needs_pricing'] ?? 0],
         ['key' => 'completed', 'label' => 'Completed', 'value' => $tileCounts['completed']],
         ['key' => 'cancelled', 'label' => 'Cancelled', 'value' => $tileCounts['cancelled']],
     ];
-    $filterKeys = ['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue', 'archived'];
+    $filterKeys = ['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue', 'needs_pricing', 'archived'];
     $isFiltered = request()->hasAny($filterKeys);
 @endphp
 
@@ -73,16 +74,19 @@
         </div>
     @endif
 
-    <div class="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-2 flex-shrink-0">
+    <div class="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-10 gap-2 flex-shrink-0">
         @foreach($tiles as $tile)
             @php
-                $tileParams = $tile['key'] === 'overdue'
-                    ? array_merge(request()->except(['page', 'status', 'overdue']), ['overdue' => 1])
-                    : array_merge(request()->except(['page', 'status', 'overdue']), $tile['key'] ? ['status' => $tile['key']] : []);
-                $isActive = $tile['key'] === 'overdue'
-                    ? request()->boolean('overdue')
-                    : (request('status') === $tile['key'] && !request()->boolean('overdue'))
-                        || ($tile['key'] === null && !request('status') && !request()->boolean('overdue'));
+                // overdue and needs_pricing (§17.5.5) are yes/no filters, not statuses.
+                $flagTile = in_array($tile['key'], ['overdue', 'needs_pricing'], true);
+                $noFlags = !request()->boolean('overdue') && !request()->boolean('needs_pricing');
+                $tileParams = $flagTile
+                    ? array_merge(request()->except(['page', 'status', 'overdue', 'needs_pricing']), [$tile['key'] => 1])
+                    : array_merge(request()->except(['page', 'status', 'overdue', 'needs_pricing']), $tile['key'] ? ['status' => $tile['key']] : []);
+                $isActive = $flagTile
+                    ? request()->boolean($tile['key'])
+                    : (request('status') === $tile['key'] && $noFlags)
+                        || ($tile['key'] === null && !request('status') && $noFlags);
             @endphp
             <a href="{{ route('corex.rental-job-cards.index', $tileParams) }}"
                data-tile="{{ $tile['key'] ?? 'total' }}"
@@ -100,6 +104,7 @@
         <input type="hidden" name="scope" value="{{ $resolvedScope }}">
         @if(request('status'))<input type="hidden" name="status" value="{{ request('status') }}">@endif
         @if(request()->boolean('overdue'))<input type="hidden" name="overdue" value="1">@endif
+        @if(request()->boolean('needs_pricing'))<input type="hidden" name="needs_pricing" value="1">@endif
         @if(request('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
         @if(request('direction'))<input type="hidden" name="direction" value="{{ request('direction') }}">@endif
         <div>

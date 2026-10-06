@@ -24,13 +24,15 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 class RentalCatalogueImportTemplateService
 {
     private const HEADERS = ['*Code', '*Description', '*Type', '*Unit', 'VAT type', 'Price (excl VAT)', 'Price (incl VAT)'];
+    /** §17.4.4 — appended last so older 7-column files keep reading as before; only offered to someone who may set costs. */
+    private const COST_HEADER = 'Cost (excl VAT)';
 
-    public function build(Agency $agency): Spreadsheet
+    public function build(Agency $agency, bool $withCost = false): Spreadsheet
     {
         $spreadsheet = new Spreadsheet();
 
-        $this->buildDataSheet($spreadsheet, $agency);
-        $this->buildInstructionsSheet($spreadsheet, $agency);
+        $this->buildDataSheet($spreadsheet, $agency, $withCost);
+        $this->buildInstructionsSheet($spreadsheet, $agency, $withCost);
 
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -42,12 +44,13 @@ class RentalCatalogueImportTemplateService
         (new Xlsx($spreadsheet))->save($absolutePath);
     }
 
-    private function buildDataSheet(Spreadsheet $spreadsheet, Agency $agency): void
+    private function buildDataSheet(Spreadsheet $spreadsheet, Agency $agency, bool $withCost): void
     {
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Catalogue items');
 
-        foreach (self::HEADERS as $i => $header) {
+        $headers = $withCost ? array_merge(self::HEADERS, [self::COST_HEADER]) : self::HEADERS;
+        foreach ($headers as $i => $header) {
             $sheet->setCellValue([$i + 1, 1], $header);
         }
 
@@ -85,13 +88,13 @@ class RentalCatalogueImportTemplateService
             }
         }
 
-        foreach (range(1, count(self::HEADERS)) as $col) {
+        foreach (range(1, count($headers)) as $col) {
             $colLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($col);
             $sheet->getColumnDimension($colLetter)->setWidth(20);
         }
     }
 
-    private function buildInstructionsSheet(Spreadsheet $spreadsheet, Agency $agency): void
+    private function buildInstructionsSheet(Spreadsheet $spreadsheet, Agency $agency, bool $withCost): void
     {
         $sheet = $spreadsheet->createSheet();
         $sheet->setTitle('Instructions');
@@ -109,6 +112,10 @@ class RentalCatalogueImportTemplateService
             'Price (excl VAT)' => 'Rands, numbers only. Fill this OR the incl-VAT column, not necessarily both — leave both blank if this item has no standard price.',
             'Price (incl VAT)' => 'Rands, numbers only. Fill this OR the excl-VAT column — whichever you know. If both are filled, the excl-VAT amount wins.',
         ];
+
+        if ($withCost) {
+            $notes['Cost (excl VAT)'] = 'Optional. What this item usually costs your agency, in rands excluding VAT, numbers only. It prefills the cost when the item is added to a job card; a blank cost leaves any cost already on the item alone.';
+        }
 
         $row = 2;
         foreach ($notes as $label => $note) {

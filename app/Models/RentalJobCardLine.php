@@ -46,6 +46,9 @@ class RentalJobCardLine extends Model
     public const BASIS_CATALOGUE_PRICE = 'catalogue_price';
     public const BASIS_AGENCY_DEFAULT = 'agency_default';
 
+    /** §17.5.1 — rental_work_order_photos.photo_type of a photo that explains ONE crew line; never shown to a tenant/landlord and not in the job gallery. */
+    public const PHOTO_TYPE = 'crew_line';
+
     public const MARKUP_PERCENT = 'percent';
     public const MARKUP_AMOUNT = 'amount';
 

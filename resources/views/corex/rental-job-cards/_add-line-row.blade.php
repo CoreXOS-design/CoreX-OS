@@ -59,12 +59,23 @@
       unit/priceForLine/vatTypeId/customVatRate — not used in edit mode),
       $catalogueItemTypes, $catalogueUnits, $pricesOn, $vatTypes, $vatRegistered.
 
+    §17.4 (maintenance flow, Build 1) — optional $showCost (viewer holds rental_job_cards.view_costs) and
+    $canPrice (viewer holds rental_job_cards.price). The Unit price column is now SELLING: left blank it is
+    priced by the §17.4.3 rules from the cost (it shows "auto"); typing a price makes it the office's own word.
+    A COST box exists only for someone who can both see and set costs (nobody edits a figure they cannot see),
+    a Margin placeholder keeps the grid aligned, and the edit row gains a markup control (% or R on this
+    line) and "Back to automatic". Without $canPrice the selling/cost boxes are not in the markup at all and
+    the server ignores any such field a hand-made POST adds (RentalJobCardController).
+
     Column widths: App\Support\RentalJobCardLineGrid — the ONE source of
     truth, shared with the header row and the lines table, so this file
     can never silently drift out of alignment with either again.
 --}}
 @php
-    $gridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vatRegistered);
+    $showCost = ($showCost ?? false) && $pricesOn;
+    $canPrice = ($canPrice ?? false) && $pricesOn;
+    $canEditCost = $showCost && $canPrice;
+    $gridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vatRegistered, $showCost);
     $fieldStyle = \App\Support\RentalJobCardLineGrid::fieldStyle();
     $rowId = $refPrefix ?? ('t' . ($taskId ?? 'gen'));
     $isEdit = $mode === 'edit';
@@ -81,6 +92,9 @@
         $selectedVatId = $val('rental_vat_type_id', $line->rental_vat_type_id);
         $customRate = $val('custom_vat_rate', $line->custom_vat_rate);
         $priceValue = $val('unit_price', $line->unit_price !== null ? number_format((float) $line->unit_price, 2, '.', '') : '');
+        $costValue = $val('unit_cost', $line->unit_cost !== null ? number_format((float) $line->unit_cost, 2, '.', '') : '');
+        $markupTypeValue = $val('markup_type', $line->markup_type ?? '');
+        $markupAmountValue = $val('markup_value', $line->markup_value !== null ? number_format((float) $line->markup_value, 2, '.', '') : '');
         $qtyValue = $val('quantity', rtrim(rtrim(number_format((float) $line->quantity, 2, '.', ''), '0'), '.'));
         $pickerInit = ['selectedId' => $selectedItemId ? (string) $selectedItemId : '', 'fallbackQuery' => (string) ($line->code ?? '')];
         $selectedVatType = $selectedVatId ? $vatTypes->firstWhere('id', (int) $selectedVatId) : null;
@@ -167,10 +181,22 @@
                    step="0.01" min="0.01" value="{{ $isEdit ? $qtyValue : 1 }}" aria-label="Qty" title="Qty"
                    @if($isEdit) required @endif
                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-            <input type="number" {{ $named ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
-                   step="0.01" min="0" aria-label="Unit price" title="Unit price (R)"
-                   @if($isEdit) value="{{ $priceValue }}" @endif
+            @if($canEditCost)
+            <input type="number" {{ $named ? 'name=unit_cost' : 'x-ref=' . $refPrefix . 'UnitCost' }}
+                   step="0.01" min="0" aria-label="Cost" title="Cost (R) — what this line cost the agency"
+                   @if($isEdit) value="{{ $costValue }}" @endif placeholder="cost"
                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+            @elseif($showCost)
+            <span></span>
+            @endif
+            @if($canPrice)
+            <input type="number" {{ $named ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
+                   step="0.01" min="0" aria-label="Selling price" title="Selling price (R) — what the owner is charged. Leave blank to price it automatically from the cost."
+                   @if($isEdit) value="{{ $priceValue }}" @endif placeholder="auto"
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+            @else
+            <span></span>
+            @endif
             @if($vatRegistered)
             <select {{ $named ? 'name=rental_vat_type_id' : 'x-ref=' . $refPrefix . 'VatType' }}
                     aria-label="VAT type" title="VAT type"
@@ -195,6 +221,9 @@
                    class="w-full rounded-md px-2 py-1.5 text-xs mt-1 {{ $customVisible ? '' : 'hidden' }}" style="border: 1px solid var(--border); grid-column: 1 / -1;">
             @endif
             @endif
+            @if($showCost)
+            <span></span>
+            @endif
         @endif
         @if($isEdit)
             <span></span>
@@ -206,6 +235,20 @@
         @endif
     </div>
 @if($isEdit)
+    @if($canPrice)
+    {{-- §17.4.4 — markup on THIS line (a % or a set amount on top of the cost) and "Back to automatic"
+         (drops the typed price and this line's markup so the card / agency rules apply again). --}}
+    <div class="flex items-center gap-2 pt-2 flex-wrap text-xs" style="color: var(--text-muted);" data-line-markup>
+        <span>Markup on this line</span>
+        <select name="markup_type" aria-label="Markup type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+            <option value="">— none —</option>
+            <option value="percent" @selected($markupTypeValue === 'percent')>% of cost</option>
+            <option value="amount" @selected($markupTypeValue === 'amount')>R on the line</option>
+        </select>
+        <input type="number" name="markup_value" step="0.01" min="0" value="{{ $markupAmountValue }}" aria-label="Markup value" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 80px;">
+        <label class="inline-flex items-center gap-1"><input type="checkbox" name="back_to_auto" value="1"> Back to automatic</label>
+    </div>
+    @endif
     <div class="flex items-center justify-end gap-2 pt-2 flex-wrap">
         @if($oldTarget)
             <span class="text-xs mr-auto" style="color: var(--ds-crimson);">
