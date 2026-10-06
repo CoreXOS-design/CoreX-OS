@@ -28,7 +28,7 @@
 <table class="t">
     <tr><th>File</th><th>Received</th><th>Size</th><th>SHA-256</th></tr>
     @foreach($files as $f)
-        <tr><td>{{ $f->original_name }}</td><td>{{ $f->created_at?->format('j M Y H:i') }}</td><td>{{ number_format($f->size / 1024, 0) }} KB</td><td class="mono">{{ $f->sha256 }}</td></tr>
+        <tr><td>{{ $f->original_name }}</td><td>{{ $f->created_at?->format('j M Y H:i') }}</td><td>{{ number_format(max(1, $f->size / 1024), 0) }} KB</td><td class="mono">{{ $f->sha256 }}</td></tr>
     @endforeach
 </table>
 

@@ -16,7 +16,7 @@
     @if(!empty($canReplaceUpload))
         <div style="text-align:left;margin-top:1rem;font-size:.9rem;">
             <div style="font-weight:600;margin-bottom:.3rem;">Received from you</div>
-            <ul style="margin:0 0 .8rem 1.1rem;padding:0;color:#334155;">@foreach($files as $f)<li>{{ $f->original_name }} · {{ number_format($f->size / 1024, 0) }} KB · {{ $f->created_at?->format('j M Y H:i') }}</li>@endforeach</ul>
+            <ul style="margin:0 0 .8rem 1.1rem;padding:0;color:#334155;">@foreach($files as $f)<li>{{ $f->original_name }} · {{ number_format(max(1, $f->size / 1024), 0) }} KB · {{ $f->created_at?->format('j M Y H:i') }}</li>@endforeach</ul>
             <form method="POST" action="{{ route('platform-esign.agreement.upload', $token) }}" enctype="multipart/form-data">@csrf
                 <label style="display:block;margin-bottom:.4rem;">Replace it with a new signed copy (PDF, JPG or PNG, up to 10 MB each)</label>
                 <input type="file" name="files[]" multiple required accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
