@@ -205,9 +205,9 @@ class AgreementFeeTableTest extends TestCase
         $html = $this->get(route('platform-esign.agreement.show', $token))->assertOk()->getContent();
 
         // three read-only places: the plan ticks, section 1 "Number of branches", section 3 "Branches at start"
-        $this->assertSame(3, substr_count($html, 'class="auto-tip'));
+        $this->assertSame(3 + 8, substr_count($html, 'class="auto-tip'), '3 pricing tips + 8 single-entry tips (section 5 x4, mandate address/contact/place/date)');
         $this->assertSame(3, substr_count($html, 'Fills in automatically — enter your number of agents and branches in the '));
-        $this->assertSame(3, substr_count($html, '<a href="#fld-agents" data-goto-agents="1">Monthly fee at start</a> section (section 3).'));
+        $this->assertSame(3, substr_count($html, '<a href="#fld-agents" data-goto="fld-agents">Monthly fee at start</a> section (section 3).'));
         $this->assertStringContainsString('id="fld-agents"', $html, 'the link target exists');
         $this->assertMatchesRegularExpression('/data-mirror="branches"[^>]*>\s*<span class="auto-tip"/', $html, 'tip next to the section 1 branches row');
         $this->assertMatchesRegularExpression('/name="branches_start"[^>]*>\s*<span class="auto-tip"/', $html, 'tip next to the section 3 branches row');
