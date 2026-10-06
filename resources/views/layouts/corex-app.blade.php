@@ -119,7 +119,6 @@
 
                 {{-- Content --}}
                 <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg, #f4f6fb)">
-                    @include('partials.platform-esign-banner')
                     {{-- Branch-isolation: unassigned-user banner (Phase 2, spec §8) --}}
                     @php
                         $_bannerUser    = auth()->user();

@@ -206,7 +206,6 @@
 
                 {{-- Content --}}
                 <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg)">
-                    @include('partials.platform-esign-banner')
                     @hasSection('corex-content')
                         @yield('corex-content')
                     @else

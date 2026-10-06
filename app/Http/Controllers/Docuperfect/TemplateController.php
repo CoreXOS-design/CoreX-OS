@@ -780,8 +780,7 @@ class TemplateController extends Controller
             // 2026-08-24 note above re: is_global). This is what lets a CoreX
             // user fix a template that landed under the wrong agency: pick the
             // correct one via the switcher surfaced on this page, then save.
-            // AT-447 — a platform (CoreX) template has no agency; never assign one on re-save.
-            if ($user->isOwnerRole() && ! $template->is_platform) {
+            if ($user->isOwnerRole()) {
                 $templateData['agency_id'] = $user->effectiveAgencyId();
             }
             $template->update($templateData);
@@ -791,8 +790,7 @@ class TemplateController extends Controller
             // that stranded template 96). Ordinary agency users always have an
             // effectiveAgencyId(), so this only ever fires for a CoreX account
             // that skipped the switcher surfaced on this page.
-            // AT-447 — except in Platform E-Sign mode, where "no agency" is the point.
-            if ($user->isOwnerRole() && ! $user->effectiveAgencyId() && ! \App\Support\PlatformEsignMode::active()) {
+            if ($user->isOwnerRole() && ! $user->effectiveAgencyId()) {
                 return back()->withErrors(['agency' => 'Select an agency above before saving this template.']);
             }
 

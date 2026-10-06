@@ -320,7 +320,7 @@
                                     </label>
                                     <label class="block md:col-span-2">
                                         <span class="text-xs" style="color:var(--text-muted);">
-                                            Update link@if($pKey === 'android') — blank uses the Play Store listing @endif
+                                            Update link{{ $pKey === 'android' ? ' — blank uses the Play Store listing' : '' }}
                                         </span>
                                         <input type="text" name="mobile_update_url_{{ $pKey }}" value="{{ $v['update_url'] }}"
                                                placeholder="{{ $v['effective_url'] ?: 'https://apps.apple.com/za/app/...' }}"

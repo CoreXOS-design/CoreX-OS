@@ -24,7 +24,7 @@ class AgencyTimeline extends Model
 
     protected $fillable = [
         'agency_id', 'token', 'start_date', 'status',
-        'public_link_enabled', 'started_by', 'live_at', 'agreement_template_id',
+        'public_link_enabled', 'started_by', 'live_at', 'agreement_document_id',
     ];
 
     protected $casts = [

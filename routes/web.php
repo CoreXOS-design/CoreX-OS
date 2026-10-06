@@ -809,6 +809,15 @@ Route::post('/agency-timeline/{token}/steps/{item}', [\App\Http\Controllers\Publ
     ->whereNumber('item')->middleware('throttle:20,1')->name('agency-timeline.public.complete');
 Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
     ->middleware('throttle:60,1')->name('agency-timeline.public');
+Route::prefix('platform-esign/sign/{token}')->middleware('throttle:60,1')->name('platform-esign.sign.')->group(function () {
+    $c = \App\Http\Controllers\PlatformEsign\SigningController::class;
+    Route::get('/',                      [$c, 'show'])->name('show');
+    Route::post('/',                     [$c, 'sign'])->name('submit');
+    Route::post('/decline',              [$c, 'decline'])->name('decline');
+    Route::get('/page/{page}',           [$c, 'page'])->whereNumber('page')->name('page');
+    Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->name('attachment');
+    Route::get('/download',              [$c, 'download'])->name('download');
+});
 
 // ===== P24 MARKET INTELLIGENCE =====
 // Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
@@ -4236,10 +4245,34 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{timeline}/restore',                [$c, 'restore'])->whereNumber('timeline')->name('restore');
         });
 
-        // Platform E-Sign — CoreX's own contracts. Enters the REAL e-sign (creator, wizard,
-        // signing) inside the dedicated platform agency, from Dev Settings. Owner only.
-        Route::post('admin/platform-esign', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'enter'])->name('admin.platform-esign.enter');
-        Route::post('admin/platform-esign/exit', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'exit'])->name('admin.platform-esign.exit');
+        // Platform E-Sign v2 — CoreX's own e-sign (spec §3A). Separate module, own tables. Owner only.
+        Route::prefix('platform-esign')->name('platform-esign.')->group(function () {
+            $c = \App\Http\Controllers\PlatformEsign\OwnerController::class;
+            Route::get('/',                                   [$c, 'hub'])->name('hub');
+            Route::get('/templates',                          [$c, 'templates'])->name('templates.index');
+            Route::get('/templates/create',                   [$c, 'templateCreate'])->name('templates.create');
+            Route::post('/templates',                         [$c, 'templateStore'])->name('templates.store');
+            Route::get('/templates/{template}/edit',          [$c, 'templateEdit'])->whereNumber('template')->name('templates.edit');
+            Route::put('/templates/{template}',               [$c, 'templateUpdate'])->whereNumber('template')->name('templates.update');
+            Route::get('/templates/{template}/preview',       [$c, 'templatePreview'])->whereNumber('template')->name('templates.preview');
+            Route::get('/templates/{template}/fields',        [$c, 'fields'])->whereNumber('template')->name('templates.fields');
+            Route::put('/templates/{template}/fields',        [$c, 'fieldsSave'])->whereNumber('template')->name('templates.fields.save');
+            Route::get('/templates/{template}/page/{page}',   [$c, 'templatePage'])->whereNumber(['template', 'page'])->name('templates.page');
+            Route::delete('/templates/{template}',            [$c, 'templateDestroy'])->whereNumber('template')->name('templates.destroy');
+            Route::post('/templates/{id}/restore',            [$c, 'templateRestore'])->whereNumber('id')->name('templates.restore');
+            Route::get('/documents',                          [$c, 'documents'])->name('documents.index');
+            Route::get('/send',                               [$c, 'create'])->name('documents.create');
+            Route::post('/send',                              [$c, 'store'])->name('documents.store');
+            Route::get('/documents/{id}',                     [$c, 'show'])->whereNumber('id')->name('documents.show');
+            Route::post('/documents/{document}/resend',       [$c, 'resend'])->whereNumber('document')->name('documents.resend');
+            Route::post('/documents/{document}/void',         [$c, 'void'])->whereNumber('document')->name('documents.void');
+            Route::post('/documents/{document}/reseal',       [$c, 'reseal'])->whereNumber('document')->name('documents.reseal');
+            Route::get('/documents/{document}/download',      [$c, 'download'])->whereNumber('document')->name('documents.download');
+            Route::get('/documents/{document}/attachments/{attachment}', [$c, 'attachment'])->whereNumber(['document', 'attachment'])->name('documents.attachment');
+            Route::delete('/documents/{document}',            [$c, 'archive'])->whereNumber('document')->name('documents.archive');
+            Route::post('/documents/{id}/restore',            [$c, 'restore'])->whereNumber('id')->name('documents.restore');
+        });
+
         Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
     });
 
@@ -5317,10 +5350,6 @@ Route::prefix('docuperfect/compiler')->middleware(['auth', 'verified', 'permissi
         Route::post('/studio/{id}/publish', [$c, 'publish'])->whereNumber('id')
             ->middleware('permission:esign.compiler.publish')->name('publish');
     });
-
-// Platform E-Sign landing page (AT-447) — top level on purpose: the mode only applies to paths under docuperfect/.
-Route::get('docuperfect/platform', [\App\Http\Controllers\Admin\PlatformEsignController::class, 'hub'])
-    ->middleware(['auth', 'owner_only'])->name('docuperfect.platform.hub');
 
 // ===== DOCUPERFECT =====
 Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect', 'feature:docuperfect'])->group(function () {

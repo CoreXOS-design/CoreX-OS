@@ -24,11 +24,11 @@
    timeline at the top.
 
 ## 2. What this is NOT
-* Not a copy of the e-sign code. One engine, run in a special mode (§3).
+* (Reversed 2026-10-05 — see §3A: Platform E-Sign IS now a separate copy of the e-sign, cut down to contracts.)
 * Not the Agency Setup Wizard (`agency-onboarding-setup.md`); finishing the wizard merely ticks a step.
 * No agency can see Platform E-Sign content, ever (§3.3).
 
-## 3. Part A — Platform E-Sign (agency-less mode of the real e-sign)
+## 3. Part A — SUPERSEDED by §3A (kept for history: the agency-less mode of the real e-sign, removed 2026-10-05)
 
 ### 3.1 Behaviour
 * **Sidebar → System Developer → "Platform E-Sign"** (`admin.platform-esign.enter`, owner-only, no permission
@@ -61,6 +61,46 @@ id, by starting a flow, or by model query. Only an owner inside the mode can.
   Seller = agency principal, Agent = CoreX. Custom platform role names would require changing the shared e-sign.
 * Every signer needs an ID/passport number (the e-sign's own legal rule).
 * The wizard's contact/property search still searches all agencies for an owner.
+
+## 3A. Part A v2 — Platform E-Sign as its OWN e-sign (APPROVED by Johan and BUILT 2026-10-05; supersedes §3)
+
+> Johan, 2026-10-05: "make a copy of esign so that it becomes 2 different ones — Platform E-Sign won't use
+> properties and stuff, it is used to send out the CoreX contract." Decisions taken the same day: **contracts-only
+> copy** (not a full clone) and **replace** the §3 agency-less mode, archiving the contract already created in it.
+> This reverses the §2 line "not a copy of the e-sign code" — the shared-engine/mode approach is retired.
+
+### 3A.1 What it is
+A separate module (own routes `platform-esign/*`, own tables `platform_esign_*`, own models/services/views under
+`App\\*\\PlatformEsign`), copied from DocuPerfect e-sign and cut down to what a CoreX contract needs. It owns
+its data outright — no `agency_id`, no scopes, no session "mode". Nothing in it reads or writes properties,
+listings, deals or the contact book; DocuPerfect is not touched by it and cannot see it.
+
+### 3A.2 Carried over from e-sign (copied, then simplified)
+Template builder (upload a PDF/Word -> place signature, initial, date and text fields; or web template),
+named signers with order, send by email, signer page (typed/drawn signature, consent, ID/passport), reminders,
+decline, sealed PDF with SHA-256, audit certificate + event log, resend/void, signed copy download & email,
+status tracking. Same look and feel as e-sign.
+
+### 3A.3 Deliberately removed
+Property / listing / deal / contact pickers; Seller-Buyer-Landlord-Tenant-Agent roles (signer roles are free
+text: e.g. "Agency Principal", "CoreX"); packs, amendments, wet-ink, conditions, rental/sales flows, branch/agency
+branding, agent-facing dashboards. Merge fields come from the agency record (name, reg no, VAT, address,
+signatory, go-live/billing dates) as in the retired contracts module.
+
+### 3A.4 Timeline link
+`agency_timelines.agreement_template_id` re-points to a `platform_esign_documents` row; `syncAgreement()` ticks
+"sign agreement" when it is completed. Start-contract is offered from the agency timeline detail page.
+
+### 3A.5 Migration of the old mode
+Archive (soft delete) the agency-less `docuperfect_*` contract(s); remove `PlatformEsignMode`, `is_platform`
+scope and the DocuPerfect banner/hub; sidebar entry opens the new module. Rollback = restore the archived rows.
+
+### 3A.6 Build phases (each lands, is verified and reported before the next)
+1. Data + models + merge fields + audit/events + sealed-PDF service.
+2. Template builder (upload, field placement, web templates) + hub + lists with search/sort/filter.
+3. Send flow (agency picker, signer, merge preview) + signer public page + reminders/decline.
+4. Timeline link, archive of the old mode, removal of mode code, isolation + signing tests, demo command.
+
 
 ## 4. Part B — Agency Timeline
 
@@ -157,3 +197,23 @@ Controllers: `Admin/AgencyTimelineController`, `Admin/AgencyTimelineDefaultsCont
 `admin/dev-settings/timeline-defaults` + `_timeline-default-form`, `docuperfect/platform-hub`,
 `partials/platform-esign-banner`, `public/agency-timeline/*`. Command: `platform-esign:demo`.
 Tests: `tests/Feature/Platform/{AgencyTimelineTest,PlatformEsignModeTest,PlatformEsignIsolationTest}`.
+
+
+## 10. Platform E-Sign v2 — as built (2026-10-05)
+* Routes `corex/platform-esign/*` (owner-only; sidebar System Developer → Platform E-Sign) and public `platform-esign/sign/{token}`.
+* Tables `platform_esign_{templates,template_fields,documents,signers,field_values,events,attachments}`; code in
+  `App\Models\PlatformEsign`, `App\Services\PlatformEsign` (EsignService, SealService, MergeFields), `App\Http\Controllers\PlatformEsign`.
+* Templates: **wording** (typed, with agency merge fields, auto signature blocks) or **PDF** (upload, rasterised with
+  pdftoppm, drag-to-place signature / initials / date / text fields per signer). PDF only — Word upload is not supported.
+* Signers sign in order (or all at once), each by their own emailed link; ID/passport required; typed or drawn signature;
+  decline; resend (new links), void, expiry; sealed PDF (SHA-256) + signing record; signed copy emailed to every signer
+  and the sender; full audit trail. List screens have search, sort, filters, pagination, archive/restore (no hard delete).
+* Timeline: sending a *Subscription agreement* for an agency whose timeline has no agreement links it automatically;
+  when it is fully signed the `contract_signed` step ticks (`AgencyContractSigned`, payload now `documentId`).
+* Retired: `PlatformEsignMode`, `PlatformTemplateScope`, the DocuPerfect hub/banner and the agency-scope hooks; the shared
+  e-sign files are byte-identical to before AT-447. Migration `160000` archives (soft delete) the old agency-less
+  DocuPerfect rows and renames `agency_timelines.agreement_template_id` → `agreement_document_id`. The inert columns
+  `docuperfect_documents.agency_id NULLable` and `docuperfect_templates.is_platform` remain.
+* Deployment: two additive migrations (`150000` create tables, `160000` retire). `pdftoppm` (poppler-utils) must exist on the
+  host (it does on Staging). QA only: `php artisan platform-esign:demo [--remove]` (never on live).
+* Not in the setup wizard (non-negotiable #10a): no agency setting was added — this is platform-owner tooling.

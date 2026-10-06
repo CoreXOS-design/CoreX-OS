@@ -58,15 +58,6 @@ class AgencyScope implements Scope
             return;
         }
 
-        // AT-447 — Platform E-Sign mode: CoreX's own contracts belong to no agency, so an
-        // e-sign model is constrained to agency_id IS NULL (and nothing else). Off everywhere
-        // except an owner on docuperfect/* who entered the mode from Dev Settings.
-        if (\App\Support\PlatformEsignMode::appliesTo($model) && \App\Support\PlatformEsignMode::active()) {
-            $builder->whereNull($model->getTable() . '.agency_id');
-
-            return;
-        }
-
         // Super-admin / owner roles see every agency by default. They opt
         // INTO a specific agency via the agency switcher — until they do,
         // we do not scope their queries at all (even if a stale override
@@ -84,22 +75,6 @@ class AgencyScope implements Scope
                 && session('active_agency_id') !== null
                 && session('active_agency_id') !== '';
             if (!$hasOverride) {
-                // AT-447 — external signing links are reached by token: an owner sees agency-less contracts there.
-                if (\App\Support\PlatformEsignMode::appliesTo($model) && \App\Support\PlatformEsignMode::onTokenRoute()) {
-                    return;
-                }
-
-                // AT-447 — an owner browsing "all agencies" must not see CoreX's own contracts mixed
-                // into agency lists: a document / signing ceremony with NO agency is a platform one
-                // (agency_id was NOT NULL on documents until Platform E-Sign), visible only inside
-                // Platform E-Sign mode (handled above).
-                if (in_array(get_class($model), [
-                    \App\Models\Docuperfect\Document::class,
-                    \App\Models\Docuperfect\SignatureTemplate::class,
-                ], true)) {
-                    $builder->whereNotNull($model->getTable() . '.agency_id');
-                }
-
                 return;
             }
         }
@@ -130,22 +105,13 @@ class AgencyScope implements Scope
         $selfRowCarveOutApplies = $model instanceof \App\Models\User
             && $user instanceof \App\Models\User;
 
-        // AT-447 — evaluated here (outside the closure): is this an e-sign model on an external signing link?
-        $allowAgencyLess = \App\Support\PlatformEsignMode::appliesTo($model) && \App\Support\PlatformEsignMode::onTokenRoute();
-
-        $builder->where(function (Builder $q) use ($column, $agencyId, $keyName, $authId, $selfRowCarveOutApplies, $allowAgencyLess) {
+        $builder->where(function (Builder $q) use ($column, $agencyId, $keyName, $authId, $selfRowCarveOutApplies) {
             // Strict tenancy: rows must carry the current agency_id.
             // Previously we also allowed `agency_id IS NULL` as "shared",
             // but NULL on a tenant table is always an orphan (e.g. a
             // pre-migration row) and treating it as shared made those
             // orphans leak into every agency.
             $q->where($column, $agencyId);
-
-            // AT-447 — on an external signing link (reached by token) the agency-less CoreX contract must stay
-            // reachable even when the visitor is a logged-in agency user; everything else is exactly as before.
-            if ($allowAgencyLess) {
-                $q->orWhereNull($column);
-            }
 
             // The authenticated user must always be able to see their own
             // record. Without this, a stale session agency causes the user

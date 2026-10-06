@@ -293,22 +293,22 @@
                 <div class="text-sm font-semibold" style="color: var(--text-primary);">Agreement for {{ $agency->name }}</div>
                 <div class="text-xs" style="color: var(--text-muted);">Send the contract from Platform E-Sign, then link it here. When it is fully signed the "sign agreement" step ticks itself.</div>
             </div>
-            <form method="POST" action="{{ route('admin.platform-esign.enter') }}">@csrf<button type="submit" class="corex-btn-outline text-xs">Open Platform E-Sign</button></form>
+            <div class="flex gap-2"><a href="{{ route('platform-esign.documents.create', ['agency' => $agency->id]) }}" class="corex-btn-primary text-xs">Send a contract to {{ $agency->name }}</a><a href="{{ route('platform-esign.hub') }}" class="corex-btn-outline text-xs">Open Platform E-Sign</a></div>
         </div>
         <form method="POST" action="{{ route('admin.agency-timelines.agreement', $timeline) }}" class="px-4 py-4 flex flex-wrap items-end gap-3">
             @csrf
             <div>
                 <label class="ds-label block mb-1">Linked document</label>
-                <select name="template_id" class="ds-field" style="min-width: 18rem;">
+                <select name="document_id" class="ds-field" style="min-width: 18rem;">
                     <option value="">— none —</option>
                     @foreach($agreementDocs as $d)
-                        <option value="{{ $d->id }}" @selected((int) $timeline->agreement_template_id === (int) $d->id)>{{ $d->name }} — {{ str_replace('_', ' ', $d->status) }}</option>
+                        <option value="{{ $d->id }}" @selected((int) $timeline->agreement_document_id === (int) $d->id)>{{ $d->name }} — {{ str_replace('_', ' ', $d->status) }}</option>
                     @endforeach
                 </select>
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Save link</button>
-            @if($timeline->agreement_template_id)
-                @php $linked = $agreementDocs->firstWhere('id', $timeline->agreement_template_id); @endphp
+            @if($timeline->agreement_document_id)
+                @php $linked = $agreementDocs->firstWhere('id', $timeline->agreement_document_id); @endphp
                 <span class="ds-badge {{ ($linked->status ?? '') === 'completed' ? 'ds-badge-success' : 'ds-badge-default' }}">{{ ($linked->status ?? '') === 'completed' ? 'Signed' : 'Awaiting' }}</span>
             @endif
         </form>

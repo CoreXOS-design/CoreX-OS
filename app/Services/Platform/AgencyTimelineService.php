@@ -281,12 +281,12 @@ class AgencyTimelineService
     // ── Agreement (platform e-sign document) ───────────────────────────────
 
     /** Link (or unlink with null) the platform e-sign document that is this agency's agreement. */
-    public function linkAgreement(AgencyTimeline $timeline, ?int $templateId, ?int $userId): void
+    public function linkAgreement(AgencyTimeline $timeline, ?int $documentId, ?int $userId): void
     {
-        $before = $timeline->agreement_template_id;
-        $timeline->update(['agreement_template_id' => $templateId]);
-        $this->log($timeline, null, 'agreement_linked', $templateId ? 'Linked e-sign document #' . $templateId : 'Unlinked the e-sign agreement',
-            ['agreement_template_id' => $before], ['agreement_template_id' => $templateId], $userId);
+        $before = $timeline->agreement_document_id;
+        $timeline->update(['agreement_document_id' => $documentId]);
+        $this->log($timeline, null, 'agreement_linked', $documentId ? 'Linked e-sign document #' . $documentId : 'Unlinked the e-sign agreement',
+            ['agreement_document_id' => $before], ['agreement_document_id' => $documentId], $userId);
         $this->syncAgreement($timeline);
     }
 
@@ -297,15 +297,14 @@ class AgencyTimelineService
      */
     public function syncAgreement(AgencyTimeline $timeline): void
     {
-        if (!$timeline->agreement_template_id) {
+        if (!$timeline->agreement_document_id) {
             return;
         }
-        $signed = \App\Models\Docuperfect\SignatureTemplate::withoutGlobalScopes()
-            ->where('id', $timeline->agreement_template_id)
-            ->where('status', \App\Models\Docuperfect\SignatureTemplate::STATUS_COMPLETED)
+        $signed = \App\Models\PlatformEsign\Document::where('id', $timeline->agreement_document_id)
+            ->where('status', 'completed')
             ->exists();
         if ($signed) {
-            event(new \App\Events\Platform\AgencyContractSigned($timeline->agency_id, (int) $timeline->agreement_template_id, null));
+            event(new \App\Events\Platform\AgencyContractSigned($timeline->agency_id, (int) $timeline->agreement_document_id, null));
         }
     }
 

@@ -16,7 +16,7 @@ final class AgencyContractSigned extends AbstractDomainEvent
 {
     public function __construct(
         public readonly int $agencyId,
-        public readonly int $signatureTemplateId,
+        public readonly int $documentId,
         public readonly ?int $actorUserId = null,
         ?string $traceId = null,
     ) {

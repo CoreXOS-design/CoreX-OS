@@ -553,10 +553,6 @@ class SignaturePdfService
         // (the template creator's agency), never a hardcoded default.
         $agencyId = optional($template->creator)->agency_id;
         $agencyName = $agencyId ? (\App\Models\Agency::find($agencyId)?->name ?? 'Agency') : 'Agency';
-        // AT-447 — a platform (CoreX) contract belongs to no agency: the certificate is CoreX's own.
-        if ($template->agency_id === null && $document && $document->agency_id === null) {
-            $agencyName = config('app.name', 'CoreX OS');
-        }
 
         return [
             'agencyName' => $agencyName,

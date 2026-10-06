@@ -38,13 +38,6 @@ trait BelongsToAgency
         static::addGlobalScope(new AgencyScope());
 
         static::creating(function ($model) {
-            // AT-447 — Platform E-Sign mode: a CoreX contract record belongs to no agency.
-            if (\App\Support\PlatformEsignMode::appliesTo($model) && \App\Support\PlatformEsignMode::active()) {
-                $model->agency_id = null;
-
-                return;
-            }
-
             if (static::$agencyStampingSuppressed) {
                 // Caller has explicitly vouched for $model->agency_id via
                 // withoutAgencyStamping() — trust it verbatim, bypassing the

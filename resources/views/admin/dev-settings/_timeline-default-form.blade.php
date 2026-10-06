@@ -1,6 +1,6 @@
 {{-- One add/edit form for a timeline default (AT-447). $kind block|milestone, $item null = add.
      Rendered inside a shaded Alpine panel by timeline-defaults.blade.php. --}}
-<form method="POST" action="{{ $item ? route('admin.timeline-defaults.update', $item->id) : route('admin.timeline-defaults.store') }}" class="space-y-3 max-w-2xl">
+<form method="POST" action="{{ $item ? route('admin.timeline-defaults.update', $item->id) : route('admin.timeline-defaults.store') }}" class="space-y-4 max-w-3xl rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
     @csrf
     @if($item) @method('PUT') @else <input type="hidden" name="kind" value="{{ $kind }}"> @endif
     <div>
@@ -25,9 +25,11 @@
                 </select>
             </div>
         </div>
-        <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);"><input type="checkbox" name="agency_can_complete" value="1" @checked($item?->agency_can_complete)> The agency can mark this step completed from their public link</label>
-        <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);"><input type="checkbox" name="is_go_live" value="1" @checked($item?->is_go_live)> This is the go-live step (only one — choosing it here un-marks the current one)</label>
+        <div class="rounded-md p-3 space-y-2" style="border: 1px solid var(--border); background: var(--surface-2);">
+        <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);"><input type="checkbox" name="agency_can_complete" value="1" @checked($item?->agency_can_complete)> The agency can mark this step completed from their public link</label>
+        <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);"><input type="checkbox" name="is_go_live" value="1" @checked($item?->is_go_live)> This is the go-live step (only one — choosing it here un-marks the current one)</label>
+    </div>
     @endif
-    <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);"><input type="checkbox" name="is_public" value="1" @checked($item ? $item->is_public : true)> Show on the agency's public page</label>
-    <button type="submit" class="corex-btn-primary text-xs">{{ $item ? 'Save' : 'Add' }}</button>
+    <label class="flex items-center gap-2 text-sm" style="color: var(--text-secondary);"><input type="checkbox" name="is_public" value="1" @checked($item ? $item->is_public : true)> Show on the agency's public page</label>
+    <div class="pt-1 flex items-center gap-2" style="border-top: 1px solid var(--border); padding-top: 1rem;"><button type="submit" class="corex-btn-primary">{{ $item ? 'Save changes' : ($kind === 'milestone' ? 'Add step' : 'Add section') }}</button></div>
 </form>
