@@ -248,6 +248,8 @@
         }).catch(function () { sbtn.disabled = false; toast('Could not reach the server — your entries are saved. Try again.', 6000); });
     });
 
+    ['#id_number', '#consent'].forEach(function (sel) { var el = $(sel); if (el) { el.addEventListener('input', outstanding); el.addEventListener('change', outstanding); } });
+
     // ── masked values (owner screens): audited reveal ──────────────────────
     document.addEventListener('click', function (e) {
         var m = e.target.closest && e.target.closest('.masked[data-reveal]'); if (!m || !C.urls.reveal) return;

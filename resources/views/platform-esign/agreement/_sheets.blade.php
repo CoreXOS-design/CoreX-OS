@@ -4,7 +4,6 @@
     <section class="sheet" id="page-{{ $p['no'] }}" data-page="{{ $p['no'] }}" aria-label="Page {{ $p['no'] }} of {{ $total }}">
         <div class="sheet-head">
             <img src="{{ $company->logoUrl() }}" alt="{{ $company->brand() }}" class="sheet-logo">
-            <div class="brand">{{ $company->brand() }}</div>
             <div class="co"><b>{{ $letterhead['name'] }}</b><br>{{ $letterhead['address'] }}<br>{{ $letterhead['contact'] }}</div>
         </div>
         <div class="sheet-body agr">{!! implode("\n", $p['blocks']) !!}</div>
