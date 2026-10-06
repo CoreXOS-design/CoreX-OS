@@ -49,6 +49,8 @@
                 </div>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">
                     {{ $company->logo_id ? 'Uploaded logo in use.' : 'Using the built-in CoreX OS logo until one is uploaded.' }}
+                    @php($lm = $company->logoMetrics())
+                    @if($lm['nat_w'])<br>Image size: {{ $lm['nat_w'] }} × {{ $lm['nat_h'] }} px (shape {{ rtrim(rtrim(number_format($lm['ratio'], 2, '.', ''), '0'), '.') }} : 1)@endif
                 </div>
             </div>
             <div class="space-y-4">
@@ -61,6 +63,12 @@
                     </div>
                     <button type="submit" class="corex-btn-primary">Upload logo</button>
                 </form>
+                <div class="text-xs rounded-md p-3" id="pc-logo-hint" style="background: var(--surface-2, #f1f5f9); border: 1px solid var(--border); color: var(--text-muted); max-width: 46rem;">
+                    <strong style="color: var(--text-primary);">Recommended logo:</strong> the logo on its own — landscape, about <strong>3 : 1</strong> (for example <strong>900 × 300 px</strong>), trimmed tight to the mark with <strong>no empty space</strong> around it,
+                    on a transparent (PNG) or white background — or an SVG. At least <strong>300 px tall</strong> so it prints crisply; PNG, JPG or SVG, up to 2 MB.
+                    It is shown about <strong>60 px high</strong> on screen and in the PDFs (never larger than the image itself, and never wider than 45% of the letterhead).
+                    Please do not upload a whole letterhead page with the address on it: the address and contact details are added from the fields below, and a tall image with empty margins makes the logo look tiny.
+                </div>
 
                 <div>
                     <div class="ds-label mb-2">Versions</div>

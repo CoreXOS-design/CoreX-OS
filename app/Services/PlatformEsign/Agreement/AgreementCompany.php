@@ -56,31 +56,20 @@ class AgreementCompany
     }
 
     /**
-     * Letterhead logo box in PDF points: fixed 34pt height, width from the logo's own proportions, capped so a very wide
-     * logo can never squeeze the company block beside it (the logo is then scaled down, keeping its proportions).
+     * Letterhead logo box in PDF points — the platform-wide rule (PlatformCompany::logoBoxPt): fixed 45pt height (never upscaled past the image's
+     * own size), width from the logo's shape, capped at 45% of the header.
      *
      * @return array{w:float,h:float}
      */
-    public function logoBoxPt(float $height = 34.0, float $maxWidth = 190.0): array
+    public function logoBoxPt(?float $height = null, ?float $maxWidth = null): array
     {
-        $f = $this->c()->logoFile();
-        $ratio = 0.0;
-        if (str_contains($f['mime'], 'svg')) {
-            if (preg_match('/viewBox\s*=\s*"[\s,]*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i', $f['bytes'], $m) && (float) $m[2] > 0) {
-                $ratio = (float) $m[1] / (float) $m[2];
-            } elseif (preg_match('/\swidth\s*=\s*"([\d.]+)/i', $f['bytes'], $w) && preg_match('/\sheight\s*=\s*"([\d.]+)/i', $f['bytes'], $h) && (float) $h[1] > 0) {
-                $ratio = (float) $w[1] / (float) $h[1];
-            }
-        } elseif ($info = @getimagesizefromstring($f['bytes'])) {
-            $ratio = $info[1] > 0 ? $info[0] / $info[1] : 0.0;
-        }
-        $ratio = $ratio > 0 ? $ratio : 3.75;
-        $w = $height * $ratio;
-        if ($w > $maxWidth) {
-            return ['w' => $maxWidth, 'h' => round($maxWidth / $ratio, 2)];
-        }
+        return $this->c()->logoBoxPt($height, $maxWidth);
+    }
 
-        return ['w' => round($w, 2), 'h' => $height];
+    /** Logo size on screen in px: the same rule (PlatformCompany::logoSizePx). @return array{w:int,h:int} */
+    public function logoSizePx(float $headerWidthPx = 760.0): array
+    {
+        return $this->c()->logoSizePx($headerWidthPx);
     }
 
     public function legalName(): string
