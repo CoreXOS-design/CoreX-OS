@@ -239,10 +239,12 @@
             </div>
             <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);"><div class="ds-section-header">Preview &mdash; PDF (A4)</div></div>
-                <div class="p-4"><div style="background:#fff; color:#111; padding:22px 26px; border:1px solid var(--border); box-shadow:0 1px 4px rgba(0,0,0,.12);" id="pc-prev-pdf">
-                    <div x-html="preview.pdf"></div>
-                    <div style="height:70px;"></div>
-                </div></div>
+                {{-- Rendered at true A4 content width (190 mm ≈ 718 px) and zoomed down to fit, so what you see is what the PDF gets. --}}
+                <div class="p-4" x-data="{ z: 1 }" x-init="const fit = () => { z = Math.min(1, ($el.clientWidth - 32) / 718); }; fit(); new ResizeObserver(fit).observe($el)">
+                    <div style="background:#fff; color:#111; border:1px solid var(--border); box-shadow:0 1px 4px rgba(0,0,0,.12); width:fit-content; max-width:100%; overflow:hidden;">
+                        <div id="pc-prev-pdf" style="width:718px; padding:18px 0 14px; box-sizing:border-box;" :style="'zoom:' + z" x-html="preview.pdf"></div>
+                    </div>
+                </div>
             </div>
             <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);"><div class="ds-section-header">Preview &mdash; email signature</div></div>
@@ -295,7 +297,7 @@ function platformCompanyForm(cfg) {
         preview: cfg.preview, busy: false, dirty: false, timer: null, seq: 0,
         queue() {
             this.dirty = true;
-            window.dispatchEvent(new CustomEvent('pc-dirty'));
+            this.$dispatch('pc-dirty');
             clearTimeout(this.timer);
             this.timer = setTimeout(() => this.refresh(), 450);
         },
