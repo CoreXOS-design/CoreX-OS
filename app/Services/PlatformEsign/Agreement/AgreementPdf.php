@@ -52,7 +52,7 @@ class AgreementPdf
         $pages = $this->pages($v, $layout, $mode, $ctx);
 
         return Pdf::loadView('platform-esign.pdf.agreement', [
-            'title' => 'CoreX OS Subscription Agreement', 'logo' => self::logoDataUri(), 'letterhead' => app(AgreementCompany::class)->letterhead(), 'versionLabel' => $v->label(),
+            'title' => 'CoreX OS Subscription Agreement', 'logo' => self::logoDataUri(), 'letterhead' => app(AgreementCompany::class)->letterhead(), 'brand' => app(AgreementCompany::class)->brand(), 'versionLabel' => $v->label(),
             'total' => $total, 'pages' => $pages, 'mode' => $mode, 'initials' => $ctx['initials'] ?? [], 'cert' => $cert,
         ])->setPaper('a4')->output();
     }

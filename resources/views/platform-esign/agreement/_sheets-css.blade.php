@@ -3,9 +3,8 @@
     .agr-wrap { max-width: 860px; margin: 0 auto; padding: 0 0 6rem; }
     .sheet { background:#fff; border:1px solid #d9dee8; box-shadow: 0 1px 3px rgba(15,23,42,.08), 0 8px 24px rgba(15,23,42,.05); margin: 18px auto; padding: 22px 44px 0; border-radius: 4px; }
     .sheet-head { display:flex; align-items:center; gap: 12px; padding-bottom: 12px; border-bottom: 2px solid #0b2a4a; margin-bottom: 18px; }
-    .sheet-head svg { width: 38px; height: 38px; fill:#0b2a4a; flex: none; }
+    .sheet-head .sheet-logo { height: 38px; width: auto; max-width: 120px; flex: none; }
     .sheet-head .brand { font-size: 1.35rem; font-weight: 800; color:#0b2a4a; letter-spacing:-.02em; }
-    .sheet-head .brand span { color:#00b4d8; }
     .sheet-head .co { margin-left:auto; text-align:right; font-size: .68rem; line-height: 1.4; color:#334155; }
     .sheet-head .co b { font-size: .78rem; color:#0b2a4a; }
     .sheet-body { min-height: 320px; padding-bottom: 14px; }

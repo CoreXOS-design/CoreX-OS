@@ -29,7 +29,7 @@
 </head><body>
 <div id="hdr"><table><tr>
     <td class="logo" width="46"><img src="{{ $logo }}" alt="" style="width:40pt;height:40pt;"></td>
-    <td class="brand">CoreX <span>OS</span></td>
+    <td class="brand">{{ $brand }}</td>
     <td class="co"><b>{{ $letterhead['name'] }}</b><br>{{ $letterhead['address'] }}<br>{{ $letterhead['contact'] }}</td>
 </tr></table></div>
 <div id="ftr"><table><tr>
