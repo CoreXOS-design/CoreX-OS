@@ -105,7 +105,19 @@ class RentalVatType extends Model
      */
     public function shortLabel(): string
     {
-        $label = trim((string) preg_replace('/\s+/', ' ', preg_replace('/\bVAT\b/i', '', $this->name)));
+        return self::shortenName((string) $this->name);
+    }
+
+    /**
+     * §14.25 — the selector's wording from a plain type NAME (a frozen
+     * line only keeps the name it was issued with): "Standard VAT" →
+     * Standard, "No VAT" → None, "Custom" unchanged. One place, so the
+     * add-line select and the on-screen VAT column can never word it
+     * differently.
+     */
+    public static function shortenName(string $name): string
+    {
+        $label = trim((string) preg_replace('/\s+/', ' ', preg_replace('/\bVAT\b/i', '', $name)));
 
         return match (true) {
             $label === '' => 'Standard',

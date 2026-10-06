@@ -117,4 +117,91 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->assertStringNotContainsString('title="Archive"', $html);
         $this->assertStringNotContainsString('aria-label="Add line"', $html);
     }
+
+    // ── §14.25 — the on-screen VAT column never shows a dash ─────────────
+
+    private function vatType(string $mode): RentalVatType
+    {
+        return RentalVatType::where('agency_id', $this->agency->id)->where('rate_mode', $mode)->firstOrFail();
+    }
+
+    /** A line exactly as a free-text / no-default-VAT catalogue line is stored: no VAT type at all. */
+    private function addLineWithoutVatType(string $description, ?float $price, bool $general = false): \App\Models\RentalJobCardLine
+    {
+        $service = app(RentalJobCardService::class);
+        $task = $general ? null : $this->card->tasks()->first();
+        $line = $service->addLine($this->card, ['description' => $description, 'quantity' => 1, 'unit_price' => $price], $this->admin, $task);
+        $line->forceFill(['rental_vat_type_id' => null, 'custom_vat_rate' => null])->save();
+
+        return $line;
+    }
+
+    public function test_a_free_text_line_with_no_vat_type_shows_none_not_a_dash_in_a_task_and_in_general(): void
+    {
+        $this->addLineWithoutVatType('Free text in task', 40);
+        $this->addLineWithoutVatType('Free text in general', 25, true);
+
+        $html = $this->html();
+        $this->assertSame(2, substr_count($html, '<span class="truncate" title="None"'), 'both type-less lines show the effective type: None');
+        $this->assertStringNotContainsString('title="—"', $html, 'no VAT cell may fall back to a dash');
+    }
+
+    public function test_a_line_with_no_price_yet_still_shows_its_effective_vat_type(): void
+    {
+        $this->addLineWithoutVatType('No price yet', null);
+        $this->assertSame(1, substr_count($this->html(), '<span class="truncate" title="None"'));
+    }
+
+    public function test_standard_and_custom_lines_show_the_selectors_wording_and_their_rate(): void
+    {
+        $service = app(RentalJobCardService::class);
+        $task = $this->card->tasks()->first();
+        $service->addLine($this->card, ['description' => 'Custom one', 'quantity' => 1, 'unit_price' => 100, 'rental_vat_type_id' => $this->vatType(RentalVatType::RATE_MODE_CUSTOM_PER_LINE)->id, 'custom_vat_rate' => 7.5], $this->admin, $task);
+
+        $html = $this->html();
+        $this->assertStringContainsString('title="Standard (15%)"', $html); // the setUp line
+        $this->assertStringContainsString('title="Custom (7.5%)"', $html);
+    }
+
+    public function test_a_frozen_quote_still_words_each_line_the_same_way(): void
+    {
+        $this->addLineWithoutVatType('Free text frozen', 60);
+        app(\App\Services\Rentals\RentalJobCardVatService::class)->snapshot($this->card->fresh());
+
+        $html = $this->html();
+        $this->assertStringContainsString('title="Standard (15%)"', $html);
+        $this->assertStringContainsString('<span class="truncate" title="None"', $html);
+        $this->assertStringNotContainsString('title="—"', $html);
+    }
+
+    public function test_the_wording_is_the_selectors_wording(): void
+    {
+        $this->assertSame('Standard', RentalVatType::shortenName('Standard VAT'));
+        $this->assertSame('None', RentalVatType::shortenName('No VAT'));
+        $this->assertSame('Custom', RentalVatType::shortenName('Custom'));
+        foreach (RentalVatType::where('agency_id', $this->agency->id)->get() as $type) {
+            $this->assertSame($type->shortLabel(), RentalVatType::shortenName($type->name));
+        }
+    }
+
+    public function test_the_printouts_are_untouched_no_vat_type_column_and_the_vat_amount_still_shown(): void
+    {
+        $bin = trim((string) shell_exec('command -v pdftotext'));
+        if ($bin === '') {
+            $this->markTestSkipped('pdftotext (poppler-utils) is not installed here.');
+        }
+        \App\Models\RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['show_prices_on_printed_job_card' => true]);
+        $this->addLineWithoutVatType('Free text printed', 40);
+        $card = $this->card->fresh();
+
+        foreach (['jobCardPrintPdf', 'jobCardQuotePdf'] as $method) {
+            $path = tempnam(sys_get_temp_dir(), 'va') . '.pdf';
+            file_put_contents($path, app(\App\Services\Rentals\RentalDocumentPdfService::class)->{$method}($card)->output());
+            $text = (string) shell_exec($bin . ' -layout ' . escapeshellarg($path) . ' - 2>/dev/null');
+            @unlink($path);
+            $this->assertStringNotContainsString('VAT type', $text, "{$method}: the printouts carry no VAT type column");
+            $this->assertStringContainsString('Excl VAT', $text, "{$method}: Excl VAT column still there");
+            $this->assertMatchesRegularExpression('/Free text printed.*R40\.00\s+R40\.00\s+R0\.00/', $text, "{$method}: the type-less line prints its VAT amount (R0.00)");
+        }
+    }
 }
