@@ -227,9 +227,16 @@ class AgreementService
         // Section 3 completes itself: every rendering shows the plan and branches the entries select, whatever an older save stored.
         $values = $this->withDerived($values, $calc);
         $values = $this->withMirrors($this->withTakeOn($values, $rr, $calc), $rr);
+        $own = [];
+        foreach (AgreementFields::FOLLOW as $target => $source) {
+            if (!empty($rr['single_entry']) && trim((string) ($values[$target] ?? '')) !== '' && trim((string) $values[$target]) !== trim((string) ($values[$source] ?? ''))) {
+                $own[] = $target;
+            }
+        }
+        $values = $this->withFollow($values, $rr);
 
         return $over + [
-            'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => (string) $doc->contract_ref,
+            'values' => $values, 'rr' => $rr, 'follow_own' => $own, 'rates' => $v->rates_json ?? [], 'ref' => (string) $doc->contract_ref,
             'calc' => $calc,
             'initials' => ['agency' => (string) $a->initials, 'rr' => (string) $r->initials],
             'sigs' => [
@@ -277,6 +284,39 @@ class AgreementService
         return $values;
     }
 
+    /**
+     * Follow (spec §11.20): while the mandate's address / contact number holds nothing of the recipient's own, it IS Part A's value; the recipient's own value
+     * (anything different from Part A) is kept as typed. A value typed equal to Part A is not an override — it keeps following.
+     */
+    private function withFollow(array $values, array $rr): array
+    {
+        if (empty($rr['single_entry'])) {
+            return $values;
+        }
+        foreach (AgreementFields::FOLLOW as $target => $source) {
+            if (trim((string) ($values[$target] ?? '')) === '') {
+                $values[$target] = (string) ($values[$source] ?? '');
+            }
+        }
+
+        return $values;
+    }
+
+    /** Stored mandate address/contact are overrides only: blank, or equal to Part A, means "follow". @return array<string,mixed> */
+    private function normaliseOverrides(array $values, array $rr): array
+    {
+        if (empty($rr['single_entry'])) {
+            return $values;
+        }
+        foreach (AgreementFields::FOLLOW as $target => $source) {
+            if (array_key_exists($target, $values) && trim((string) $values[$target]) === trim((string) ($values[$source] ?? ''))) {
+                $values[$target] = '';
+            }
+        }
+
+        return $values;
+    }
+
     /** Keys the recipient's request may never write: the derived ones, plus the take-on dates when RR set a take-on month. @return string[] */
     private function lockedKeys(array $rr): array
     {
@@ -308,7 +348,7 @@ class AgreementService
         $old = $this->calc($before, $rr, $rates);
         $new = $this->calc($after, $rr, $rates);
         $after = $this->withDerived($after, $new);
-        $after = $this->withMirrors($this->withTakeOn($after, $rr, $new), $rr);
+        $after = $this->normaliseOverrides($this->withMirrors($this->withTakeOn($after, $rr, $new), $rr), $rr);
         $cur = trim((string) ($after['m_amount'] ?? ''));
         $untouched = $cur === '' || ($old['plan'] !== '' && abs((float) str_replace(' ', '', $cur) - $old['total']) < 0.005);
         if ($untouched && $new['plan'] !== '') {
@@ -439,6 +479,7 @@ class AgreementService
             $rates = $locked->wording->rates_json ?? [];
             $incoming = array_diff_key(AgreementFields::clean($values, 'r'), array_flip($this->lockedKeys((array) $locked->rr_data)));
             $data = $this->settle((array) $locked->form_data, array_merge((array) $locked->form_data, $incoming), (array) $locked->rr_data, $rates);
+            $data = $this->withFollow($data, (array) $locked->rr_data); // the signed record holds the effective address / contact number
             $errors = AgreementFields::validateRecipient($data, $rates, !empty($locked->rr_data['single_entry']) ? array_keys(AgreementFields::MIRRORS) : []);
 
             $idNumber = trim((string) ($input['id_number'] ?? '')) ?: (string) $sg->id_number;
