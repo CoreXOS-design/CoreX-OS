@@ -176,6 +176,10 @@ class AgreementCompanyPinningTest extends TestCase
         $this->assertStringContainsString('needs RR Technologies (Pty) Ltd', $received);
         $this->assertStringContainsString('CoreX OS &middot; www.corexweb.co.za', $received);
 
+        $reminder = (new \App\Mail\PlatformEsign\AgreementCountersignReminderMail($doc->fresh('signers'), 2))->render();
+        $this->assertStringContainsString('once RR Technologies (Pty) Ltd countersigns', $reminder);
+        $this->assertStringContainsString('CoreX OS &middot; www.corexweb.co.za', $reminder);
+
         // A brand-new agreement's emails carry the NEW details.
         $new = $this->send($this->owner());
         $this->assertStringContainsString('Newname Holdings (Pty) Ltd has sent you', (new AgreementInviteMail($new->fresh('agency'), $new->signers->first()))->render());

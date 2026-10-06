@@ -107,7 +107,7 @@ class AgreementRenderer
     {
         $token = implode(':', array_filter([$kind, $a, $b], fn ($p) => $p !== ''));
         $label = in_array($kind, AgreementTokens::GUARDED, true) ? AgreementTokens::describe($token) : match ($kind) {
-            'ref' => '“contract reference”', 'auto' => '“' . ($a === 'day' ? 'day of signing' : 'month and year of signing') . '”', 'co' => '“RR Technologies ' . ($a === 'address' ? 'address' : 'name') . '”', default => '“' . $token . '”',
+            'ref' => '“contract reference”', 'auto' => '“' . ($a === 'day' ? 'day of signing' : 'month and year of signing') . '”', 'co' => '“company ' . ($a === 'address' ? 'address' : 'name') . '”', default => '“' . $token . '”',
         };
 
         return '<span class="tok" title="{{' . e($token) . '}}">' . e(trim($label, '“”')) . '</span>';
