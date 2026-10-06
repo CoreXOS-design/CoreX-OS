@@ -115,7 +115,7 @@ final class TemplateTransferValidationTest extends TestCase
     {
         $good = $this->goodPackage();
         $this->assertRefused($this->rewriteZip($good, fn ($e) => $e + ['../../public/evil.php' => '<?php echo 1;']), 'do not belong');
-        $this->assertRefused($this->rewriteZip($good, fn ($e) => $e + ['files/shell.php' => '<?php echo 1;']), 'does not belong in one');
+        $this->assertRefused($this->rewriteZip($good, fn ($e) => $e + ['files/shell.php' => '<?php echo 1;']), 'do not belong');
     }
 
     public function test_not_a_zip_empty_and_oversize_files_are_refused(): void
@@ -144,7 +144,7 @@ final class TemplateTransferValidationTest extends TestCase
         foreach ($attacks as $label => $edit) {
             $this->assertRefused($this->reSealed($good, $edit), 'cannot be imported');
         }
-        $this->assertSame(0, TemplateTransferLog::where('outcome', 'success')->count());
+        $this->assertSame(0, TemplateTransferLog::where('direction', 'import')->where('outcome', 'success')->count());
     }
 
     public function test_ordinary_text_that_looks_a_bit_like_code_is_not_refused(): void
@@ -161,7 +161,7 @@ final class TemplateTransferValidationTest extends TestCase
         $this->assertRefused($this->reSealed($good, fn ($d) => $this->mut($d, fn (&$x) => $x['template']['render_type'] = 'flash')), 'pdf');
         $this->assertRefused($this->reSealed($good, fn ($d) => $this->mut($d, fn (&$x) => $x['template']['category'] = 'commercial')), 'category');
         $this->assertRefused($this->reSealed($good, fn ($d) => $this->mut($d, fn (&$x) => $x['template']['field_mappings'] = 'oops')), 'damaged');
-        $this->assertRefused($this->reSealed($good, fn ($d) => $this->mut($d, fn (&$x) => $x['template']['editor_state'] = ['tagged_html' => '', 'tags' => [], 'mappings' => []] + ['x' => 1])), 'no wording');
+        $this->assertRefused($this->reSealed($good, fn ($d) => $this->mut($d, fn (&$x) => $x['template'] = ['editor_state' => ['tagged_html' => '', 'tags' => [], 'mappings' => []], 'cds_json' => ['sections' => []]] + $x['template'])), 'no wording');
         $this->assertRefused($this->reSealed($good, fn ($d) => $this->mut($d, fn (&$x) => $x['template']['field_mappings']['tag-x'] = ['namedFieldId' => '@nf999'])), 'not in the package');
     }
 

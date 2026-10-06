@@ -29,10 +29,27 @@ trait TransferFixtures
     /** @var int[] template ids whose generated page file must be removed afterwards */
     protected array $bladeIds = [];
 
+    /**
+     * Template ids in these tests start above this. Tracked page snapshots exist for low ids
+     * (cds/template-111.blade.php ...); a fresh test row numbered 112 would otherwise be written
+     * over — and then deleted by tearDown — a committed file. (It happened once; see the spec.)
+     */
+    private const SAFE_ID_FLOOR = 900000;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // An explicit high id moves the table's auto-increment counter past it for good (the row
+        // itself is rolled back with the test transaction, the counter is not).
+        \DB::table('docuperfect_templates')->insert(['id' => self::SAFE_ID_FLOOR, 'name' => 'id anchor', 'template_type' => 'sales', 'render_type' => 'pdf']);
+    }
+
     protected function tearDown(): void
     {
         foreach ($this->bladeIds as $id) {
-            @unlink(resource_path("views/docuperfect/web-templates/cds/template-{$id}.blade.php"));
+            if ($id >= self::SAFE_ID_FLOOR) {   // never touch a committed snapshot
+                @unlink(resource_path("views/docuperfect/web-templates/cds/template-{$id}.blade.php"));
+            }
         }
         parent::tearDown();
     }
@@ -68,6 +85,12 @@ trait TransferFixtures
     protected function webTemplate(Agency $agency, User $owner, array $overrides = []): Template
     {
         $d = json_decode((string) file_get_contents(base_path('database/seeders/data/exclusive-authority-to-sell.json')), true);
+        // The capture stores some columns as JSON *strings* (the seeders insert them raw); a real row holds JSON.
+        foreach (['cds_json', 'fields_json', 'signing_parties', 'editor_state', 'sections', 'field_mappings'] as $col) {
+            if (is_string($d[$col] ?? null) && $d[$col] !== '') {
+                $d[$col] = json_decode($d[$col], true);
+            }
+        }
 
         $nfIds = [];
         foreach ($d['named_field_refs'] as $old => $ref) {
@@ -140,7 +163,7 @@ trait TransferFixtures
             TemplateSignatureZone::create(['template_id' => $t->id, 'page_index' => min($n, $pages - 1), 'x_position' => 10 + $n, 'y_position' => 80, 'width' => 25, 'height' => 6, 'type' => 'signature', 'assigned_parties' => ['owner_party'], 'label' => 'Landlord', 'required' => true, 'sort_order' => $n]);
         }
 
-        return $t;
+        return $t->fresh();   // as a real row reads back, with the column defaults filled in
     }
 
     /** @return array{bytes:string, checksum:string, filename:string, warnings:array} */

@@ -308,6 +308,32 @@ final class TemplateTransferFlowTest extends TestCase
         $this->assertSame(0, TemplateTransferLog::where('outcome', 'success')->where('direction', 'import')->count());
     }
 
+    public function test_an_existing_page_file_for_the_next_template_number_is_never_overwritten(): void
+    {
+        $hfc = $this->agency('Home Finders Coastal');
+        $cape = $this->agency('Cape Town Lettings');
+        $owner = $this->owner();
+        $pkg = $this->export($this->webTemplate($hfc, $owner), $owner)['bytes'];
+
+        // Some ids carry a committed page snapshot. Simulate: a page file already sits at the next id.
+        $next = (int) \DB::select("SHOW TABLE STATUS LIKE 'docuperfect_templates'")[0]->Auto_increment;
+        $this->assertGreaterThanOrEqual(900000, $next);
+        $file = resource_path("views/docuperfect/web-templates/cds/template-{$next}.blade.php");
+        file_put_contents($file, 'SOMEONE ELSES COMMITTED PAGE');
+        $this->bladeIds[] = $next;
+
+        $before = Template::count();
+        try {
+            $this->importInto($pkg, $cape, $owner);
+            $this->fail('expected the import to refuse');
+        } catch (TemplateTransferException $e) {
+            $this->assertStringContainsString('will not be overwritten', $e->getMessage());
+        }
+        $this->assertSame('SOMEONE ELSES COMMITTED PAGE', file_get_contents($file), 'the existing file is untouched');
+        $this->assertSame($before, Template::count());
+        $this->assertSame(1, TemplateTransferLog::where('outcome', 'failed')->count());
+    }
+
     public function test_a_bundle_of_two_round_trips_through_the_screens(): void
     {
         $hfc = $this->agency('Home Finders Coastal');
@@ -446,8 +472,12 @@ final class TemplateTransferFlowTest extends TestCase
         $this->actingAs($owner)->get($base)->assertOk()->assertSee('Cape Town Lettings')->assertSee('Refused');
         $this->actingAs($owner)->get($base . '?search=Exclusive')->assertOk()->assertSee('Exclusive Authority to Sell');
         $this->actingAs($owner)->get($base . '?search=zzzz-nothing')->assertOk()->assertSee('No transfers match these filters');
-        $this->actingAs($owner)->get($base . '?outcome=rejected')->assertOk()->assertSee('Refused')->assertDontSee('Cape Town Lettings');
-        $this->actingAs($owner)->get($base . '?direction_filter=export')->assertOk()->assertDontSee('Cape Town Lettings');
+        // (the owner's sidebar lists every agency, so assert on the row's own checksum, not the agency name)
+        $mark = substr($pkg['checksum'], 0, 12);
+        // ("Refused" also appears in the outcome dropdown, so the refused row is told apart by its upload name)
+        $this->actingAs($owner)->get($base . '?outcome=rejected')->assertOk()->assertSee('pkg.cxpkg')->assertDontSee($mark);
+        $this->actingAs($owner)->get($base . '?direction_filter=export')->assertOk()->assertSee($mark)->assertDontSee('pkg.cxpkg');
+        $this->actingAs($owner)->get($base . '?outcome=success')->assertOk()->assertSee($mark)->assertDontSee('pkg.cxpkg');
         $this->actingAs($owner)->get($base . '?sort=template_name&direction=asc&from=2020-01-01&to=2099-01-01')->assertOk();
         $this->actingAs($owner)->get($base . '?from=not-a-date')->assertOk();
     }

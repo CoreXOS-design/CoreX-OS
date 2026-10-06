@@ -108,7 +108,7 @@ final class TemplatePackageExporter
                 : null,
         ];
         foreach (self::CONTENT_COLUMNS as $col) {
-            $value = $template->{$col};
+            $value = $this->column($template, $col);
             $body[$col] = $value === null ? null : TemplateReferenceMap::toTokens($value, $col, $nf, $fg, $removed);
         }
 
@@ -187,13 +187,29 @@ final class TemplatePackageExporter
         if ($template->render_type !== 'web') {
             return;
         }
-        $editor = is_array($template->editor_state) ? $template->editor_state : [];
-        $cds = is_array($template->cds_json) ? $template->cds_json : [];
+        $editor = $this->column($template, 'editor_state') ?? [];
+        $cds = $this->column($template, 'cds_json') ?? [];
         $hasWording = (is_string($editor['tagged_html'] ?? null) && trim($editor['tagged_html']) !== '')
             || ! empty($cds['sections']);
         if (! $hasWording) {
             throw new TemplateTransferException('This template cannot be exported: its wording is held only in a generated page file, which cannot be moved safely. Open it in the template builder and save it once, then export it again.');
         }
+    }
+
+    /**
+     * A content column as an array. A few legacy rows hold JSON that was encoded twice (the
+     * column then reads back as a string); decode it once more so the package carries the real
+     * structure rather than a string nobody can remap.
+     */
+    private function column(Template $template, string $col): ?array
+    {
+        $value = $template->{$col};
+        if (is_string($value) && $value !== '') {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : null;
+        }
+
+        return is_array($value) ? $value : null;
     }
 
     /** @return string[] distinct non-embedded image sources (max 5) */

@@ -233,7 +233,9 @@ final class TemplatePackageImporter
             Log::error('Template package import failed and was rolled back', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             $this->logFailure($actor, $target, $loaded, 'failed', $e->getMessage());
 
-            throw new TemplateTransferException('The import could not be completed and nothing was created. Nothing in the agency was changed. If it keeps happening, tell the CoreX team.');
+            throw $e instanceof TemplateTransferException
+                ? $e
+                : new TemplateTransferException('The import could not be completed and nothing was created. Nothing in the agency was changed. If it keeps happening, tell the CoreX team.');
         }
 
         try {
@@ -376,7 +378,15 @@ final class TemplatePackageImporter
                 Storage::put($path, $bytes);
             }
         } else {
-            $written[] = resource_path("views/docuperfect/web-templates/cds/template-{$template->id}.blade.php");
+            // Never write over a page file that is already there: some ids carry a committed
+            // snapshot (resources/views/.../cds/template-<id>.blade.php, STANDARDS -1w) and a
+            // freshly numbered template must not replace someone else's file. Refuse; the
+            // transaction rolls back and nothing is created.
+            $pageFile = resource_path("views/docuperfect/web-templates/cds/template-{$template->id}.blade.php");
+            if (is_file($pageFile)) {
+                throw new TemplateTransferException('The import could not be completed: this system already has a page file for the next template number, and it will not be overwritten. Nothing was created. Tell the CoreX team.');
+            }
+            $written[] = $pageFile;
             app(WebTemplateBladeEnsurer::class)->regenerate($template);
         }
 
