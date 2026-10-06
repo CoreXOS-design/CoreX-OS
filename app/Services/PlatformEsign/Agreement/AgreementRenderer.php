@@ -93,7 +93,7 @@ class AgreementRenderer
     {
         if (str_contains($html, 'For the Agency') && str_contains($html, 'For RR Technologies') && str_starts_with($html, '<table')) {
             $html = preg_replace('/^<table>/', '<table class="sigtable">', $html, 1);
-            $html = preg_replace_callback('#<p>(Name|Capacity|Signature|Date|Place):#', fn ($m) => '<p class="sr sr-' . strtolower($m[1]) . '">' . $m[1] . ':', $html);
+            $html = preg_replace_callback('#<p>(Name|Capacity|Signature|Date|Place):#', fn ($m) => '<p class="sr sr-' . strtolower($m[1]) . '"><span class="sr-l">' . $m[1] . ':</span>', $html);
 
             return $html;
         }
@@ -196,6 +196,13 @@ class AgreementRenderer
                 return '<input type="text" class="fld' . ($key === 'm_amount' ? ' num' : '') . '" value="' . e($shown) . '" readonly tabindex="-1" data-derived="1"' . ($key === 'm_amount' ? ' data-mirror="total"' : '') . ' aria-label="' . e($f['label']) . '">'
                     . '<span class="auto-tip" data-screen-only="1">' . ($key === 'm_amount' ? self::AMOUNT_TIP : self::TAKE_ON_TIP) . '</span>';
             }
+            if (!empty($this->ctx['rr']['single_entry']) && isset(AgreementFields::FOLLOW[$key])) {
+                // Starts from (and follows) Part A until the recipient types their own value here; clearing the box makes it follow again.
+                $own = in_array($key, (array) ($this->ctx['follow_own'] ?? []), true);
+                $input = str_replace(' data-field="' . $key . '"', ' data-field="' . $key . '" data-follow="' . e(AgreementFields::FOLLOW[$key]) . '"' . ($own ? ' data-own="1"' : ''), $this->input($key, $f));
+
+                return $input . '<span class="auto-tip" data-screen-only="1">' . e(self::FOLLOW_TIPS[$key]) . '</span>';
+            }
             if (!empty($this->ctx['rr']['single_entry']) && isset(AgreementFields::MIRRORS[$key])) {
                 return $this->mirrorField($key, $f);
             }
@@ -285,10 +292,14 @@ class AgreementRenderer
         'da_branch_code' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_bank'],
         'da_account' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_account'],
         'da_type' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_account_type-current'],
-        'm_address' => ['Fills in automatically from your {link} in section 1.', 'physical address', 'fld-address'],
-        'm_contact' => ['Fills in automatically from the {link} in section 1.', 'billing contact cell', 'fld-billing_cell'],
         'm_place' => ['Fills in automatically from the {link} in section 6.', 'place', 'fld-sig_place'],
         'm_date' => ['Fills in automatically from the {link} in section 6.', 'date', 'fld-sig_date'],
+    ];
+
+    /** Mandate address / contact number: follow Part A but stay editable (Johan 2026-10-06 13:20). Screen only. */
+    public const FOLLOW_TIPS = [
+        'm_address' => 'Filled in from your details above — change it here if the debit order needs a different address.',
+        'm_contact' => 'Filled in from your details above — change it here if the debit order needs a different number.',
     ];
 
     /** The plain sentence of a mirror tip (also what the word-for-word proof strips from the page text). */

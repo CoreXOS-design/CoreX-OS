@@ -57,8 +57,10 @@ class PlatformEsignVerifyWording extends Command
             'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date and collection day (set by RR through the take-on month)',
             'Fills in automatically from your monthly fee in section 3.' => 'beside the mandate Amount',
         ];
-        $where = ['da_holder' => 'section 5 (debit order authority) rows, mirrored from the mandate', 'm_address' => 'the mandate address, mirrored from section 1', 'm_contact' => 'the mandate contact number, mirrored from section 1',
-            'm_place' => 'the mandate place, mirrored from section 6', 'm_date' => 'the mandate date, mirrored from section 6'];
+        foreach (\App\Services\PlatformEsign\Agreement\AgreementRenderer::FOLLOW_TIPS as $key => $text) {
+            $tips[$text] = 'the mandate ' . ($key === 'm_address' ? 'address' : 'contact number') . ' (starts from Part A, stays editable)';
+        }
+        $where = ['da_holder' => 'section 5 (debit order authority) rows, mirrored from the mandate', 'm_place' => 'the mandate place, mirrored from section 6', 'm_date' => 'the mandate date, mirrored from section 6'];
         foreach (array_keys(\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS) as $key) {
             if (\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS[$key] !== null) {
                 $tips[\App\Services\PlatformEsign\Agreement\AgreementRenderer::mirrorTipText($key)] = $where[$key] ?? $where['da_holder'];
