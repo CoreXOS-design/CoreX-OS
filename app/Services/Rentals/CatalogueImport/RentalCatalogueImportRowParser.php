@@ -10,11 +10,13 @@ use OpenSpout\Reader\XLSX\Reader as XlsxReader;
  * template BY COLUMN POSITION, same convention as
  * App\Services\Rentals\TakeOnImport\RentalTakeOnRowParser (itself copied
  * from ContactImportController::streamRows()). Fixed column order: code,
- * description, type, unit, vat_type, price_excl, price_incl.
+ * description, type, unit, vat_type, price_excl, price_incl, cost_excl — the
+ * last (§17.4.4, optional) is APPENDED so a 7-column file from an older
+ * template still reads exactly as before.
  */
 class RentalCatalogueImportRowParser
 {
-    public const COLUMNS = ['code', 'description', 'type', 'unit', 'vat_type', 'price_excl', 'price_incl'];
+    public const COLUMNS = ['code', 'description', 'type', 'unit', 'vat_type', 'price_excl', 'price_incl', 'cost_excl'];
 
     /**
      * @return \Generator<int, array{row_number: int, payload: array<string, mixed>}>

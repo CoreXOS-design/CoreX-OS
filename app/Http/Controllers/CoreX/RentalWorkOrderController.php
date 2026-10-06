@@ -9,8 +9,10 @@ use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalWorkOrder;
+use App\Models\RentalWorkOrderQuote;
 use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderSetting;
+use App\Services\Rentals\RentalApprovalGateService;
 use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalInspectionFollowUpService;
 use App\Services\Rentals\RentalJobCardService;
@@ -124,6 +126,7 @@ class RentalWorkOrderController extends Controller
             'in_progress' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_IN_PROGRESS)->count(),
             'completed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_COMPLETED)->count(),
             'cancelled' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_CANCELLED)->count(),
+            'disputed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_DISPUTED)->count(),
             'overdue' => $woTileBase()->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()))->count(),
         ];
 
@@ -549,10 +552,22 @@ class RentalWorkOrderController extends Controller
             'quotes.supplier', 'quotes.capturedByUser',
         ]);
 
+        $gate = app(RentalApprovalGateService::class);
+
         return view('corex.rental-work-orders.show', [
             'workOrder' => $rentalWorkOrder,
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
             'noApprovalThreshold' => $rentalWorkOrder->spendThreshold(),
+            // BUILD 2 — a pure read of "may work start?" for the screen (it writes nothing), the owner's contacts for the emergency
+            // form, and the agency's external-quote fee settings. The fee is the agency's margin: shown only to staff who can see costs.
+            'proceed' => $gate->authoriseToProceed($rentalWorkOrder, false),
+            'selectedQuote' => $rentalWorkOrder->quotes->firstWhere('is_selected', true),
+            'ownerContacts' => $gate->ownerContacts($rentalWorkOrder),
+            'externalFeeType' => $rentalWorkOrder->external_markup_type ?? RentalWorkOrderSetting::externalQuoteMarkupTypeFor($rentalWorkOrder->agency_id),
+            'externalFeeValue' => $rentalWorkOrder->external_markup_value !== null
+                ? (float) $rentalWorkOrder->external_markup_value
+                : RentalWorkOrderSetting::externalQuoteMarkupValueFor($rentalWorkOrder->agency_id),
+            'canSeeFee' => \App\Services\PermissionService::userHasPermission($request->user(), 'rental_job_cards.view_costs'),
             // §3.4c full-CRUD floor — archived quotes stay reachable with a
             // restore path on this same screen (no separate quotes index).
             'archivedQuotes' => $rentalWorkOrder->quotes()->onlyTrashed()->with('supplier')->get(),
@@ -594,6 +609,12 @@ class RentalWorkOrderController extends Controller
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Work order updated.');
     }
 
+    /**
+     * §17.9.5 — "Send work order to contractor": assigns the selected quote's supplier (reported → ordered, as built; refused
+     * without an authorisation — the owner's approval, the no-approval limit or an emergency agreement) and emails the
+     * contractor the work order PDF, showing the owner approved. Replaces the old "Assign supplier" + plain supplier mail.
+     * Used again later it re-sends the same work order.
+     */
     public function assignSupplier(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
@@ -609,9 +630,70 @@ class RentalWorkOrderController extends Controller
             return back()->withErrors(['rental_work_order' => $e->getMessage()]);
         }
 
-        $service->notifySupplier($rentalWorkOrder->fresh());
+        $mailed = $service->sendContractorWorkOrder($rentalWorkOrder->fresh(), $request->user());
 
-        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Supplier assigned.');
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with(
+            $mailed ? 'success' : 'warning',
+            $mailed
+                ? 'Work order sent to the contractor.'
+                : 'The work order is with this contractor, but they have no email address on file — download the work order PDF and send it to them yourself.',
+        );
+    }
+
+    /**
+     * §17.9.1a — a work order's own override of the agency's fee on an outside contractor's quote (null/blank = inherit the agency
+     * setting). Staff who can price (rental_job_cards.price). Only while the owner has not approved an amount yet — afterwards the
+     * owner-facing figure is fixed and a change would be a variation. Recomputes the fee on this work order's quotes.
+     */
+    public function updateExternalFee(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
+        if ($rentalWorkOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            abort(404);
+        }
+        if ($rentalWorkOrder->hasApprovedBaseline() || in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            return back()->withErrors(['rental_work_order' => 'The owner has already approved an amount for this work order, so the fee can no longer be changed.']);
+        }
+
+        $validated = $request->validate([
+            'external_markup_type' => ['nullable', 'in:' . RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT . ',' . RentalWorkOrderSetting::EXTERNAL_MARKUP_AMOUNT],
+            'external_markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+        ]);
+        $type = $validated['external_markup_type'] ?? null;
+        $value = $validated['external_markup_value'] ?? null;
+        if ($type === RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT && $value !== null && (float) $value > 1000) {
+            return back()->withErrors(['external_markup_value' => 'A percentage fee cannot be more than 1000 %.'])->withInput();
+        }
+        // blank value = inherit the agency setting (both columns cleared); a value needs a type
+        if ($value === null || $value === '') {
+            $type = null;
+            $value = null;
+        } elseif ($type === null) {
+            $type = RentalWorkOrderSetting::externalQuoteMarkupTypeFor($rentalWorkOrder->agency_id);
+        }
+
+        $rentalWorkOrder->forceFill(['external_markup_type' => $type, 'external_markup_value' => $value])->save();
+
+        $selected = null;
+        foreach ($rentalWorkOrder->quotes()->whereNull('rental_job_card_id')->whereNull('superseded_at')->get() as $quote) {
+            $fee = RentalWorkOrderQuote::feeAttributes($rentalWorkOrder, (float) $quote->amount, false);
+            unset($fee['term_text']);
+            $quote->update($fee);
+            if ($quote->is_selected) {
+                $selected = $quote->fresh();
+            }
+        }
+        // the selected quote's owner-facing figure may have moved: run it through the gate again (nothing is approved yet)
+        if ($selected) {
+            $rentalWorkOrder->selectQuote($selected, $request->user());
+        }
+        $rentalWorkOrder->updates()->create([
+            'agency_id' => $rentalWorkOrder->agency_id, 'update_type' => 'note', 'created_by_user_id' => $request->user()->id,
+            'note' => $type === null ? 'Fee on the contractor\'s quote set back to the agency default' : 'Fee on the contractor\'s quote set to ' . ($type === RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT ? rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.') . ' %' : 'R' . number_format((float) $value, 2)) . ' for this work order',
+        ]);
+
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Fee updated.');
     }
 
     /**

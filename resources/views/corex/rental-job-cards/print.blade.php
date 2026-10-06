@@ -86,25 +86,30 @@
     @forelse($jobCard->tasks as $task)
         <div class="box">
             <p class="task-row"><span class="checkbox"></span><strong>{{ $loop->iteration }} - {{ $task->description }}</strong></p>
-            @include('corex.rental-job-cards._pdf-cost-lines-table', ['lines' => $task->lines, 'costsOn' => $costsOn])
+            @include('corex.rental-job-cards._pdf-cost-lines-table', ['lines' => $task->acceptedLines, 'costsOn' => $costsOn])
         </div>
     @empty
         <div class="box"><p class="muted">No tasks listed.</p></div>
     @endforelse
 
-    @php $generalLines = $jobCard->lines->whereNull('rental_job_card_task_id'); @endphp
+    @php $generalLines = $jobCard->lines->filter(fn ($l) => $l->isAccepted())->whereNull('rental_job_card_task_id'); @endphp
     <h2>General</h2>
     <div class="box">
         @include('corex.rental-job-cards._pdf-cost-lines-table', ['lines' => $generalLines, 'costsOn' => $costsOn])
     </div>
 
-    {{-- §17.4.7 — the worker copy shows the COST total only (VAT on cost is Build 1); never the selling total. --}}
+    {{-- §17.4.7 — the worker copy shows COST only (with VAT on cost for a VAT-registered agency); never the selling total, markup or margin. --}}
     @if($costsOn)
+    @php $costVat = $costVat ?? app(\App\Services\Rentals\RentalJobCardVatService::class)->costBreakdown($jobCard); @endphp
     <div class="box totals-box">
         <table>
+            @if($costVat['registered'] && $costVat['subtotalExcl'] !== null)
+                <tr><td colspan="2">Cost (excl VAT)</td><td>R{{ number_format((float) $costVat['subtotalExcl'], 2) }}</td></tr>
+                <tr><td colspan="2">VAT on cost</td><td>R{{ number_format((float) $costVat['totalVat'], 2) }}</td></tr>
+            @endif
             <tr class="total-row">
-                <td colspan="2">Total cost</td>
-                <td>R{{ number_format((float) $jobCard->lines->sum('cost_total'), 2) }}</td>
+                <td colspan="2">{{ $costVat['registered'] ? 'Total cost (incl VAT)' : 'Total cost' }}</td>
+                <td>{{ $costVat['totalIncl'] !== null ? 'R' . number_format((float) $costVat['totalIncl'], 2) : '—' }}</td>
             </tr>
         </table>
     </div>

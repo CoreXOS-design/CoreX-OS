@@ -54,6 +54,11 @@
         </div>
     </div>
 
+    {{-- BUILD 2 (.ai/specs/rental-work-orders.md §17.8.3) — emergency-approved work orders say so on every quote document. --}}
+    @if(!empty($emergencyBanner))
+        <div style="border:1px solid #fdba74;background:#fff7ed;color:#9a3412;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-weight:600;">{{ $emergencyBanner }}</div>
+    @endif
+
     <div class="box">
         <table>
             <tr><td class="label">Property</td><td>{{ $jobCard->property?->buildDisplayAddress() ?? '—' }}</td></tr>
@@ -81,13 +86,14 @@
     @forelse($jobCard->tasks as $task)
         <div class="box">
             <p><strong>{{ $loop->iteration }} - {{ $task->description }}</strong></p>
-            @include('corex.rental-job-cards._pdf-lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat])
+            @include('corex.rental-job-cards._pdf-lines-table', ['lines' => $task->acceptedLines, 'pricesOn' => $pricesOn, 'vat' => $vat])
         </div>
     @empty
         <div class="box"><p class="muted">No tasks.</p></div>
     @endforelse
 
-    @php $generalLines = $jobCard->lines->whereNull('rental_job_card_task_id'); @endphp
+    {{-- §17.4.6 — ACCEPTED lines only: a crew's pending line is on no quote. --}}
+    @php $generalLines = $jobCard->lines->filter(fn ($l) => $l->isAccepted())->whereNull('rental_job_card_task_id'); @endphp
     @if($generalLines->isNotEmpty())
         <h2>General</h2>
         <div class="box">
@@ -114,6 +120,11 @@
             </tr>
         </table>
     </div>
+    @endif
+
+    {{-- §17.11 / R6 — the estimate wording agreed in the agency's settings, snapshotted when the quote was sent. --}}
+    @if(!empty($estimateTerm))
+    <div class="box"><p class="muted" style="font-size: 10px;">{{ $estimateTerm }}</p></div>
     @endif
 
     <h2>Agency contact</h2>

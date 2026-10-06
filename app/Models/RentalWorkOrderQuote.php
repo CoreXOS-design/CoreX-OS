@@ -86,6 +86,40 @@ class RentalWorkOrderQuote extends Model
     }
 
     /**
+     * §17.9.1a — the quote columns an OUTSIDE contractor's quote snapshots at capture/edit: the agency's fee on top
+     * of the contractor's own quote (the work order's own override, else the agency setting), and the estimate-term
+     * wording in force (§17.11). `amount` is never touched. A job card's own quote has no fee. With the fee at 0
+     * (the default) nothing changes: no fee columns, selling_amount stays null (= the quote's own amount).
+     *
+     * @return array<string, mixed>
+     */
+    public static function feeAttributes(RentalWorkOrder $workOrder, float $amount, bool $isJobCardQuote): array
+    {
+        if ($isJobCardQuote) {
+            return [];
+        }
+
+        $type = $workOrder->external_markup_type ?? RentalWorkOrderSetting::externalQuoteMarkupTypeFor($workOrder->agency_id);
+        $value = $workOrder->external_markup_value !== null
+            ? (float) $workOrder->external_markup_value
+            : RentalWorkOrderSetting::externalQuoteMarkupValueFor($workOrder->agency_id);
+
+        $attrs = ['term_text' => RentalWorkOrderSetting::quoteEstimateTermFor($workOrder->agency_id)];
+        if ($value <= 0) {
+            return $attrs + ['fee_type' => null, 'fee_value' => null, 'fee_amount' => 0, 'selling_amount' => null];
+        }
+
+        $fee = $type === RentalWorkOrderSetting::EXTERNAL_MARKUP_AMOUNT ? round($value, 2) : round($amount * $value / 100, 2);
+
+        return $attrs + [
+            'fee_type' => $type,
+            'fee_value' => $value,
+            'fee_amount' => $fee,
+            'selling_amount' => round($amount + $fee, 2),
+        ];
+    }
+
+    /**
      * §17.9.1a — the ONLY figure the approval gate, the owner mails/PDFs and the owner/portal
      * payloads may use: the selling amount when a fee was applied, else the quote's own amount.
      * (The office also sees `amount` and `fee_amount`; the contractor's documents show `amount` only.)

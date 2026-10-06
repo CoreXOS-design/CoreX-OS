@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\RentalJobCard;
+use App\Models\RentalJobCardLine;
 use App\Models\RentalJobCardTask;
 use App\Models\RentalSecureAccessToken;
 use App\Services\Rentals\CrewJobService;
@@ -48,6 +49,11 @@ class CrewJobLinkController extends Controller
             'tick' => route('rentals.crew-job.tick', ['token' => $token, 'task' => '__TASK__']),
             'photos' => route('rentals.crew-job.photos', $token),
             'complete' => route('rentals.crew-job.complete', $token),
+            // §17.5 (Build 1) — the Parts & labour panel's own actions.
+            'line_add' => route('rentals.crew-job.lines.store', $token),
+            'line_update' => route('rentals.crew-job.lines.update', ['token' => $token, 'line' => '__LINE__']),
+            'line_archive' => route('rentals.crew-job.lines.archive', ['token' => $token, 'line' => '__LINE__']),
+            'lines_send' => route('rentals.crew-job.lines.send', $token),
         ];
     }
 
@@ -161,5 +167,111 @@ class CrewJobLinkController extends Controller
         }
 
         return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Thank you — the work has been marked completed. The agency will check it.');
+    }
+    // ───────────── §17.5 (Build 1) — the crew's Parts & labour: add / change / remove a draft, send to the office ─────────────
+
+    /** The validation that is about the REQUEST's shape; what the numbers and words mean is CrewJobService's (it speaks plain language). */
+    private function lineRules(): array
+    {
+        return [
+            'photos' => ['nullable', 'array', 'max:' . CrewJobService::MAX_LINE_PHOTOS],
+            'photos.*' => ['file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+        ];
+    }
+
+    private function lineMessages(): array
+    {
+        return [
+            'photos.max' => 'You can add up to ' . CrewJobService::MAX_LINE_PHOTOS . ' photos to one line.',
+            'photos.*.mimes' => 'Photos must be JPG, PNG, WEBP or HEIC.',
+            'photos.*.max' => 'A photo is too large — each one can be up to 50 MB.',
+        ];
+    }
+
+    public function addLine(Request $request, string $token): RedirectResponse|View
+    {
+        $resolved = $this->resolve($token);
+        if (! $resolved) {
+            return $this->unavailable();
+        }
+        [$record, $card] = $resolved;
+        $request->validate($this->lineRules(), $this->lineMessages());
+
+        try {
+            app(CrewJobService::class)->addLine(
+                $card,
+                $request->only(['type', 'description', 'rental_catalogue_item_id', 'quantity', 'unit', 'unit_cost', 'note', 'is_extra']),
+                array_values($request->file('photos', [])),
+                CrewViewContext::forJobLink($record, $card, $request),
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()])->withInput();
+        } catch (\LogicException) {
+            return $this->unavailable();
+        }
+
+        return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Line added. Press "Send to office" when you have added everything.');
+    }
+
+    public function updateLine(Request $request, string $token, int $line): RedirectResponse|View
+    {
+        $resolved = $this->resolve($token);
+        if (! $resolved) {
+            return $this->unavailable();
+        }
+        [$record, $card] = $resolved;
+        $request->validate($this->lineRules(), $this->lineMessages());
+        // Scoped to THIS card by the query itself — a line id of another card is a 404.
+        $lineModel = RentalJobCardLine::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->whereKey($line)->firstOrFail();
+
+        try {
+            app(CrewJobService::class)->editDraft(
+                $card,
+                $lineModel,
+                $request->only(['type', 'description', 'rental_catalogue_item_id', 'quantity', 'unit', 'unit_cost', 'note']),
+                array_values($request->file('photos', [])),
+                CrewViewContext::forJobLink($record, $card, $request),
+            );
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()]);
+        }
+
+        return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Line changed.');
+    }
+
+    public function archiveLine(Request $request, string $token, int $line): RedirectResponse|View
+    {
+        $resolved = $this->resolve($token);
+        if (! $resolved) {
+            return $this->unavailable();
+        }
+        [$record, $card] = $resolved;
+        $lineModel = RentalJobCardLine::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->whereKey($line)->firstOrFail();
+
+        try {
+            app(CrewJobService::class)->archiveDraft($card, $lineModel, CrewViewContext::forJobLink($record, $card, $request));
+        } catch (\LogicException $e) {
+            return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()]);
+        }
+
+        return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Line removed.');
+    }
+
+    public function sendLines(Request $request, string $token): RedirectResponse|View
+    {
+        $resolved = $this->resolve($token);
+        if (! $resolved) {
+            return $this->unavailable();
+        }
+        [$record, $card] = $resolved;
+        $request->validate(['confirm' => ['accepted']], ['confirm.accepted' => 'Tick the box to confirm before you send.']);
+
+        try {
+            $sent = app(CrewJobService::class)->sendToOffice($card, CrewViewContext::forJobLink($record, $card, $request));
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()]);
+        }
+
+        return redirect()->route('rentals.crew-job.show', $token)->with('success', $sent === 1 ? 'Sent to the office. They will check it and price it.' : "Sent {$sent} lines to the office. They will check them and price them.");
     }
 }

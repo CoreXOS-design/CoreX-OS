@@ -133,6 +133,14 @@
             </div>
         </template>
 
+        @if($canViewCosts ?? false)
+        <div data-catalogue-cost>
+            <label class="prop-label">{{ $costLabel }}</label>
+            <input type="number" name="default_cost" value="{{ old('default_cost', null) }}" step="0.01" min="0" class="prop-input w-full">
+            <p class="text-[11px] mt-1" style="color:var(--text-muted);">What this usually costs the agency. It prefills the cost when the item is added to a job card — the crew never sees it, and nothing is charged from it unless you set a markup.</p>
+        </div>
+        @endif
+
         <div class="flex items-center gap-2">
             <input type="checkbox" id="is_active" name="is_active" value="1" checked class="rounded">
             <label for="is_active" class="prop-label !mb-0">Active</label>

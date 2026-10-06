@@ -19,7 +19,7 @@
     $statusBadgeClass = fn ($status) => match ($status) {
         'completed' => 'ds-badge-success',
         'reported', 'ordered', 'in_progress' => 'ds-badge-info',
-        'cancelled' => 'ds-badge-danger',
+        'cancelled', 'disputed' => 'ds-badge-danger',
         default => 'ds-badge-muted',
     };
 @endphp
@@ -44,7 +44,7 @@
          .ai/specs/rentals-rebuild.md §1.1. First tile = Total. --}}
     @php
         $currentTile = null;
-        foreach (['reported', 'ordered', 'in_progress', 'completed', 'cancelled'] as $s) {
+        foreach (['reported', 'ordered', 'in_progress', 'disputed', 'completed', 'cancelled'] as $s) {
             if (($filters['status'] ?? '') === $s) { $currentTile = $s; break; }
         }
         if (!$currentTile && ($filters['overdue'] ?? false)) { $currentTile = 'overdue'; }
@@ -57,6 +57,8 @@
             'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
             'completed' => ['label' => 'Completed', 'params' => ['status' => 'completed']],
             'cancelled' => ['label' => 'Cancelled', 'params' => ['status' => 'cancelled']],
+            // §17.10 — a tenant said finished work is not complete; the office must resolve it.
+            'disputed' => ['label' => 'Disputed', 'params' => ['status' => 'disputed']],
             'overdue' => ['label' => 'Overdue', 'params' => ['overdue' => 1]],
         ];
         $tileClearParams = ['status' => null, 'overdue' => null, 'page' => null];
@@ -98,7 +100,7 @@
             <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
             <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach(['reported', 'ordered', 'in_progress', 'completed', 'cancelled'] as $s)
+                @foreach(['reported', 'ordered', 'in_progress', 'disputed', 'completed', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
                 @endforeach
             </select>
