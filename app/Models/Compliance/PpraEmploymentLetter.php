@@ -136,6 +136,17 @@ class PpraEmploymentLetter extends Model
     }
 
     /**
+     * THE one rule for the Admin register (sidebar link, list, New letter, show, download, archive/restore):
+     * the user may manage letters for others — `ppra_employment_letters.manage`, ticked per role in Role Manager.
+     * Everyone else uses My Portal → Documents for their own letter. Every admin gate calls this so the sidebar
+     * link, the list and New letter can never disagree again; the own/branch/all narrowing below is separate.
+     */
+    public static function userCanUseAdminRegister(User $user): bool
+    {
+        return $user->hasPermission('ppra_employment_letters.manage');
+    }
+
+    /**
      * OWN / BRANCH / AGENCY visibility for the Admin register — BUILD_STANDARD §1c.
      * Resolved off `ppra_employment_letters.view`'s stored scope
      * (PermissionService::getDataScope). The agency boundary itself is

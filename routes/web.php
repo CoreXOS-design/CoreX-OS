@@ -1259,17 +1259,15 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
 // deliberately NOT nested under admin/ppra-inspection-pack). Create-on-behalf
 // (2026-10-05, Johan) — an admin/principal may start a letter FOR an agent in
 // their own scope; the agent still signs with their own PIN afterward.
-Route::prefix('admin/ppra-employment-letters')->middleware(['auth', 'agency.required', 'permission:ppra_employment_letters.view'])->name('admin.ppra-employment-letters.')->group(function () {
+Route::prefix('admin/ppra-employment-letters')->middleware(['auth', 'agency.required', 'permission:ppra_employment_letters.manage'])->name('admin.ppra-employment-letters.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'index'])->name('index');
     Route::get('/{letter}', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'show'])->whereNumber('letter')->name('show');
     Route::get('/{letter}/download', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'download'])->whereNumber('letter')->middleware('deny_assistant_download')->name('download');
 
-    Route::middleware('permission:ppra_employment_letters.manage')->group(function () {
-        Route::get('/create', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'create'])->name('create');
-        Route::post('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'store'])->name('store');
-        Route::post('/{letter}/archive', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'archive'])->whereNumber('letter')->name('archive');
-        Route::post('/{letter}/restore', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'restore'])->whereNumber('letter')->name('restore');
-    });
+    Route::get('/create', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'create'])->name('create');
+    Route::post('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'store'])->name('store');
+    Route::post('/{letter}/archive', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'archive'])->whereNumber('letter')->name('archive');
+    Route::post('/{letter}/restore', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'restore'])->whereNumber('letter')->name('restore');
 });
 
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====

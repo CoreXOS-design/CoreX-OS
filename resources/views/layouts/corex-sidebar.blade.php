@@ -2097,30 +2097,19 @@
              Payroll/Leave already compute their own: at least one
              permission among everything nested inside.
 
-             `ppra_employment_letters.view` is SCOPE-carrying (own/branch/
-             all), not a plain boolean — every agent is seeded 'own' scope
-             on it so they can see their OWN letter via the SEPARATE
-             My Portal self-service flow (ppra-employment-letters.* —
-             PpraEmploymentLetterController, cc2's concurrent work). The
-             ADMIN register this HR->Documents link opens is a different
-             screen entirely; showing it to an 'own'-scoped agent was a
-             real regression found during this build's own Puppeteer
-             verification (a plain agent saw "HR" in the sidebar) — the
-             PRE-existing sidebar.section.admin wrapper had been masking
-             this by accident (agents never had that section flag either),
-             not by a deliberate scope check. Gate on scope >= branch
-             instead of the bare permission-exists boolean, computed once
-             here and reused by both the outer HR gate and the inner
-             Documents gate below so the two can never disagree (an "HR"
-             button that opens to a Documents-less, Payroll-less empty
-             panel would be its own bug). --}}
+             The ADMIN register this HR->Documents link opens is for users who
+             manage letters for others (`ppra_employment_letters.manage`, set per
+             role in Role Manager) — the SAME rule the route middleware and every
+             controller action use (PpraEmploymentLetter::userCanUseAdminRegister),
+             so the link can never show for someone the register 403s (2026-10-06).
+             Agents use the SEPARATE My Portal self-service flow
+             (ppra-employment-letters.*). Computed once here and reused by both
+             the outer HR gate and the inner Documents gate below so the two can
+             never disagree (an "HR" button that opens to a Documents-less,
+             Payroll-less empty panel would be its own bug). --}}
         @php
             $hrCanSeePayroll = $user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']);
-            $hrCanSeeDocuments = $user && in_array(
-                \App\Services\PermissionService::getDataScope($user, 'ppra_employment_letters'),
-                ['branch', 'all'],
-                true
-            );
+            $hrCanSeeDocuments = $user && \App\Models\Compliance\PpraEmploymentLetter::userCanUseAdminRegister($user);
         @endphp
         @if($hrCanSeePayroll || $hrCanSeeDocuments)
         <div class="corex-nav-divider"></div>
