@@ -271,10 +271,52 @@ class RentalWorkOrder extends Model
         return $this->status === self::STATUS_DISPUTED;
     }
 
+    /** §17.7 / §17.9.4 — the owner already approved an amount for this work order (never true of emergency work). */
+    public function hasApprovedBaseline(): bool
+    {
+        return $this->approved_amount !== null && $this->approval_basis !== self::BASIS_EMERGENCY;
+    }
+
+    /** §17.7.2 — the one variation still waiting on the owner, if any. */
+    public function openVariation(): ?RentalWorkOrderVariation
+    {
+        return $this->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->first();
+    }
+
     /** §17.6.4 — the latest decision row, for the "Why was this approved?" line. */
     public function latestApprovalDecision(): ?RentalApprovalDecision
     {
         return $this->approvalDecisions()->first();
+    }
+
+    /** §17.8.3 — "Approved as emergency work on {date}" for statements and quote PDFs; null unless an un-voided emergency approval stands. */
+    public function emergencyBanner(): ?string
+    {
+        $approval = $this->activeEmergencyApproval();
+
+        return $approval ? 'Approved as emergency work on ' . $approval->approved_at->format('j M Y') : null;
+    }
+
+    /**
+     * §17.9.5 — the line the contractor's work order carries: "Owner approval: approved on {date} — {basis in words}".
+     * Never names the owner or gives their contact details.
+     */
+    public function ownerApprovalLine(): string
+    {
+        $decision = $this->approvalDecisions()
+            ->whereNull('rental_work_order_variation_id')
+            ->whereIn('decision', [RentalApprovalDecision::DECISION_APPROVED, RentalApprovalDecision::DECISION_AUTO_APPROVED, RentalApprovalDecision::DECISION_EMERGENCY_COVERED])
+            ->reorder()->orderByDesc('created_at')->orderByDesc('id')->first();
+
+        $words = match ($decision?->basis ?? $this->approval_basis) {
+            self::BASIS_OWNER_DECISION => 'the owner approved the quote',
+            self::BASIS_NO_APPROVAL_LIMIT => "within the owner's no-approval limit",
+            self::BASIS_VARIATION_TOLERANCE => "within the owner's agreed tolerance",
+            self::BASIS_EMERGENCY => 'emergency work agreed by the owner',
+            default => 'the owner\'s approval is on file',
+        };
+
+        return 'Owner approval: approved' . ($decision ? ' on ' . $decision->created_at->format('j M Y') : '') . ' — ' . $words;
     }
 
     /** §17.6.4 — plain-words label of the current approval basis (null when none recorded yet). */
@@ -432,6 +474,12 @@ class RentalWorkOrder extends Model
             'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
         ])->save();
 
+        // §17.6.4 — the owner's decision is a decision row too, and (when it is an approval) sets the baseline that
+        // later variations are measured against: the selected quote's OWNER-FACING amount.
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->recordOwnerDecision(
+            $this, $decision === self::APPROVAL_APPROVED, $recordedBy, (string) $attributes['evidence_type'], $selectedQuote, $approval->decided_at,
+        );
+
         return $approval;
     }
 
@@ -454,7 +502,7 @@ class RentalWorkOrder extends Model
             throw new \LogicException('This work order is already closed.');
         }
 
-        $quote = $this->quotes()->create(array_merge($attributes, [
+        $quote = $this->quotes()->create(array_merge($attributes, RentalWorkOrderQuote::feeAttributes($this, (float) ($attributes['amount'] ?? 0), ! empty($attributes['rental_job_card_id'])), [
             'agency_id' => $this->agency_id,
             'captured_by_user_id' => $by?->id,
         ]));
@@ -506,17 +554,47 @@ class RentalWorkOrder extends Model
         // deliberate case where a recorded approval is dropped and
         // re-approval is required, because the owner approved a different
         // price/supplier than the one now on the quote.
-        $wasRecordedDecision = in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true);
+        // The gate decides on what the DATABASE says now (an emergency approval or an owner decision recorded a moment ago by another
+        // request must not be missed because this instance was loaded earlier).
+        $this->refresh();
+        $gate = app(\App\Services\Rentals\RentalApprovalGateService::class);
+        $emergency = $gate->isEmergency($this);
+
+        // §17.9.4 — a work order the owner already approved an amount for keeps that approval: a HIGHER quote selected
+        // now opens a variation, a lower or equal one changes nothing. (Older rows approved before approved_amount
+        // existed take the amount their approval was recorded against as the baseline, when it was recorded.)
+        $hasBaseline = ! $emergency && in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_NOT_REQUIRED], true)
+            && $this->approved_amount !== null;
+        if (! $emergency && ! $hasBaseline && $this->owner_approval_status === self::APPROVAL_APPROVED) {
+            $recordedAgainst = $this->approvals()->first()?->quote_amount_at_decision;
+            if ($recordedAgainst !== null) {
+                $this->forceFill(['approved_amount' => $recordedAgainst, 'approval_basis' => $this->approval_basis ?? self::BASIS_OWNER_DECISION])->save();
+                $hasBaseline = true;
+            }
+        }
+
+        // 2026-09-22, Johan — a real recorded decision (approved/declined) is about to be overwritten below when
+        // there is no approved baseline to keep (a declined quote, or an approval recorded before any quote existed).
+        // What is new is telling the agency it happened: log what the prior decision had been recorded against, using
+        // its own snapshot if one exists — an approval from before quote_id_at_decision existed has none, and says so
+        // plainly rather than guessing.
+        $wasRecordedDecision = ! $emergency && ! $hasBaseline
+            && in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true);
         $priorApproval       = $wasRecordedDecision ? $this->approvals()->first() : null;
         $oldStatus            = $this->owner_approval_status;
 
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
         $quote->forceFill(['is_selected' => true])->save();
 
-        $threshold = $this->spendThreshold();
-        $this->forceFill([
-            'owner_approval_status' => (float) $quote->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING,
-        ])->save();
+        $variation = null;
+        if ($emergency) {
+            // §17.8.3 — emergency work is never downgraded to "pending" by a quote or statement: the quote is recorded
+            // and the owner's emergency agreement stands.
+        } elseif ($hasBaseline) {
+            $variation = $gate->assessExternalQuote($this, $quote, $by);
+        } else {
+            $gate->evaluateQuote($this, $quote->ownerFacingAmount(), $by, $quote);
+        }
 
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'quote_selected',
@@ -536,10 +614,12 @@ class RentalWorkOrder extends Model
             ]);
         }
 
-        // AT-445 — .ai/specs/rental-portal-access.md §6. Over the spend
-        // limit — a decision is now waiting in the landlord's portal.
-        if ($this->owner_approval_status === self::APPROVAL_PENDING) {
-            app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyLandlordDecisionNeeded($this);
+        // §17.9.3 — an EXTERNAL quote over the owner's no-approval limit goes to the owner now: one mail through the
+        // agency mailbox, the contractor's document attached, the owner-facing amount and the estimate term. (A job
+        // card's own quote is mailed by RentalJobCardService::sendToOwnerAsQuote(), the same single mail.)
+        if (! $quote->rental_job_card_id && ! $emergency && ! $hasBaseline && $this->owner_approval_status === self::APPROVAL_PENDING
+            && \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($this->agency_id)) {
+            app(\App\Services\Rentals\RentalWorkOrderService::class)->sendOwnerQuote($this, $quote, $by, needsDecision: true);
         }
     }
 
@@ -582,22 +662,27 @@ class RentalWorkOrder extends Model
             'note' => ($wasSelected ? 'Was selected — ' : '') . $this->describeQuote($quote), 'created_by_user_id' => $by->id,
         ]);
 
-        if ($wasSelected && in_array($this->owner_approval_status, [self::APPROVAL_NOT_REQUIRED, self::APPROVAL_PENDING], true)) {
+        if ($wasSelected && in_array($this->owner_approval_status, [self::APPROVAL_NOT_REQUIRED, self::APPROVAL_PENDING], true)
+            && $this->approval_basis !== self::BASIS_EMERGENCY) {
             $oldStatus = $this->owner_approval_status;
 
             $nowSelected = $this->quotes()->where('id', '!=', $quote->id)->where('is_selected', true)->first();
             if ($nowSelected) {
-                $threshold = $this->spendThreshold();
-                $newStatus = (float) $nowSelected->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING;
+                app(\App\Services\Rentals\RentalApprovalGateService::class)->evaluateQuote($this, $nowSelected->ownerFacingAmount(), $by, $nowSelected);
+                $newStatus = $this->owner_approval_status;
                 $reason    = 'now derived from ' . $this->describeQuote($nowSelected);
             } else {
+                // no quote selected: the same baseline a work order starts at — nothing approved, nothing pending
+                $this->forceFill([
+                    'owner_approval_status' => self::APPROVAL_NOT_REQUIRED,
+                    'approved_amount' => null,
+                    'approval_basis' => $this->approval_basis === self::BASIS_LEGACY_GRANDFATHERED ? self::BASIS_LEGACY_GRANDFATHERED : null,
+                ])->save();
                 $newStatus = self::APPROVAL_NOT_REQUIRED;
                 $reason    = 'no quote now selected — same baseline a work order starts at';
             }
 
             if ($newStatus !== $oldStatus) {
-                $this->forceFill(['owner_approval_status' => $newStatus])->save();
-
                 $this->updates()->create([
                     'agency_id' => $this->agency_id, 'update_type' => 'approval_rederived',
                     'from_status' => $oldStatus, 'to_status' => $newStatus,
@@ -649,7 +734,11 @@ class RentalWorkOrder extends Model
         if (in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_DECLINED], true)) {
             throw new \LogicException("Cannot {$action} while owner approval is pending or declined.");
         }
-        if ($cost !== null && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
+        // §17.6/§17.8 — emergency work has no threshold, and a work order with an approved amount is measured against
+        // that amount by RentalCloseGuards::assertFinalCostWithinApproval() (within tolerance → auto-approved and
+        // logged). This older check only guards a work order with no approved baseline at all.
+        if ($cost !== null && $this->approved_amount === null && $this->approval_basis !== self::BASIS_EMERGENCY
+            && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
             throw new \LogicException('The cost of R' . number_format($cost, 2) . ' is above the approval threshold — record the owner\'s approval before ' . $action . '.');
         }
     }
@@ -680,6 +769,9 @@ class RentalWorkOrder extends Model
             throw new \LogicException('This work order is already closed.');
         }
         $this->assertApprovalAllows('assign a supplier');
+        // §17.6.5 — no work goes to a contractor without an authorisation (the owner's approval, the no-approval limit
+        // or an emergency agreement).
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->assertAuthorised($this);
 
         // The approval rides on the selected quote — the supplier actually
         // ordered must be that quote's supplier (audit M1), otherwise the
@@ -722,6 +814,8 @@ class RentalWorkOrder extends Model
         }
 
         $this->assertApprovalAllows('start work');
+        // §17.6.5 — the same authorisation guard as scheduling/starting a job card.
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->assertAuthorised($this);
 
         $fromStatus = $this->status;
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
@@ -850,6 +944,9 @@ class RentalWorkOrder extends Model
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
             'from_status' => $fromStatus, 'to_status' => self::STATUS_CANCELLED, 'created_by_user_id' => $by->id,
         ]);
+
+        // §17.7.2 — cancelling the work order withdraws any request still waiting on the owner.
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this, 'The work order was cancelled.', $by);
     }
 
     /** §3.4 — a free-text elaboration, not tied to a status change. */

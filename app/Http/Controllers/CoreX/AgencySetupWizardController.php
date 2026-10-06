@@ -635,6 +635,10 @@ class AgencySetupWizardController extends Controller
                     'quote_estimate_term' => \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($agency->id),
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
+                    'variation_tolerance_percent' => \App\Models\RentalWorkOrderSetting::variationTolerancePercentFor($agency->id),
+                    'notify_landlord_on_auto_variation' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnAutoVariationFor($agency->id),
+                    'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
+                    'external_quote_markup_value' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($agency->id),
                     // BUILD 2 END
                     // BUILD 3 BEGIN — completion-check keys
                     // BUILD 3 END

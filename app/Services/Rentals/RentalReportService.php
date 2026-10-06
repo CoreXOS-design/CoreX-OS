@@ -1009,7 +1009,8 @@ class RentalReportService
             'faults' => $faults,
             'workOrders' => $workOrders,
             'inspections' => $inspections,
-            'totalWorkOrderAmount' => $workOrders->sum(fn ($w) => $w->quotes->firstWhere('is_selected', true)?->amount ?? $w->cost_amount ?? 0),
+            // BUILD 2 — owner-facing amount (selling): the selected quote's owner-facing figure, never the contractor's own or any cost/margin.
+            'totalWorkOrderAmount' => $workOrders->sum(fn ($w) => $w->quotes->firstWhere('is_selected', true)?->ownerFacingAmount() ?? $w->cost_amount ?? 0),
         ];
     }
 

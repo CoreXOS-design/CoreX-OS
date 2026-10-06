@@ -394,6 +394,7 @@ class RentalJobCardService
         if ($log) {
             $jobCard->logUpdate('line_added', $by, $line->description);
         }
+        $this->assessApproval($jobCard, $by); // BUILD 2 — extra work on an approved job is raised to the owner automatically (§17.7)
 
         return $line;
     }
@@ -537,6 +538,7 @@ class RentalJobCardService
             $by,
             $line->description . ($pricingChanged ? ' (' . implode(', ', array_unique($pricingChanged)) . ')' : ''),
         );
+        $this->assessApproval($jobCard, $by); // BUILD 2 (§17.7)
     }
 
     /**
@@ -562,6 +564,7 @@ class RentalJobCardService
         $line->delete();
         $jobCard->recalcTotal();
         $jobCard->logUpdate('line_archived', $by, $line->description);
+        $this->assessApproval($jobCard, $by); // BUILD 2 (§17.7) — a total back within the approved amount withdraws an open request
     }
 
     public function restoreLine(RentalJobCard $jobCard, int $lineId, User $by): void
@@ -572,6 +575,13 @@ class RentalJobCardService
         $jobCard->recalcTotal();
         $this->freezeLineIfCardFrozen($jobCard, $line->refresh());
         $jobCard->logUpdate('line_added', $by, 'Restored: ' . $line->description);
+        $this->assessApproval($jobCard, $by); // BUILD 2 (§17.7)
+    }
+
+    /** BUILD 2 (§17.6.3) — one call to the gate after any change that can move the accepted total; inert until a quote is approved. */
+    private function assessApproval(RentalJobCard $jobCard, ?User $by): void
+    {
+        app(RentalApprovalGateService::class)->assessAfterLineChange($jobCard, $by);
     }
 
     /**
@@ -736,10 +746,15 @@ class RentalJobCardService
             throw $e;
         }
 
+        // BUILD 2 (§17.16) — the owner gets ONE mail through the agency mailbox path: the quote PDF attached, the
+        // owner-facing amount, the estimate term and — when the amount needs the owner — the "approval needed" wording and
+        // a pointer to the portal. (Replaces the plain RentalWorkOrderOwnerMail and the plain "decision needed" mail.)
         $workOrder = $jobCard->workOrder()->first();
-        app(RentalWorkOrderService::class)->notifyOwner(
+        app(RentalWorkOrderService::class)->sendOwnerQuote(
             $workOrder,
-            $revision > 1 ? \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED : \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_CREATED,
+            $quote->fresh(),
+            $by,
+            needsDecision: $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING,
         );
 
         $jobCard->syncStatusFromWorkOrder();

@@ -298,6 +298,8 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalCrewLinesSubmitted::class, \App\Listeners\Rentals\NotifyAgentOfCrewLines::class);
         // §14.28 (rental-work-orders.md) — the landlord is told when the crew marks a job card's work completed (link OR signed copy).
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
+        // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
+        Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 

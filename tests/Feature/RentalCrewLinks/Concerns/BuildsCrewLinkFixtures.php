@@ -49,6 +49,10 @@ trait BuildsCrewLinkFixtures
         $this->property = Property::forceCreate([
             'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
             'title' => '12 Crew Street', 'status' => 'active', 'listing_type' => 'rental',
+            // §17.6.5 (Build 2) — work is only scheduled / started / completed by the crew once something authorises it. These fixtures are
+            // jobs already under way, so the owner's no-approval limit is set high enough that every fixture job is inside it. Tests about
+            // the approval rules themselves reset it (see BuildsApprovalFixtures::approvalWorld()).
+            'rental_no_approval_spend_threshold' => 1000000,
         ]);
         $this->crew = RentalCrew::create([
             'agency_id' => $this->agency->id, 'name' => 'Team 1', 'email' => 'team1@example.invalid',

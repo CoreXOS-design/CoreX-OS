@@ -84,9 +84,15 @@ class RentalWorkOrderQuoteController extends Controller
         }
         unset($validated['document']);
 
-        $before = [(float) $quote->amount, (int) $quote->agency_service_provider_id];
-        $quote->update($validated);
-        $priceOrSupplierChanged = $before !== [(float) $quote->amount, (int) $quote->agency_service_provider_id];
+        // BUILD 2 (§17.9.1a) — the agency's fee on an outside contractor's quote is recomputed when the amount changes (the estimate
+        // wording snapshotted when the quote was captured stays as it was). The gate sees the OWNER-FACING amount, so a fee change counts as a price change.
+        $before = [$quote->ownerFacingAmount(), (int) $quote->agency_service_provider_id];
+        $fee = $quote->rental_job_card_id ? [] : RentalWorkOrderQuote::feeAttributes($rentalWorkOrder, (float) $validated['amount'], false);
+        if ($quote->term_text) {
+            unset($fee['term_text']);
+        }
+        $quote->update($validated + $fee);
+        $priceOrSupplierChanged = $before !== [$quote->ownerFacingAmount(), (int) $quote->agency_service_provider_id];
 
         // The threshold gate is only as fresh as the amount it last saw —
         // an edit to the SELECTED quote's amount must re-evaluate the gate,
