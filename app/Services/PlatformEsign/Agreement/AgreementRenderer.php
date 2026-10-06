@@ -86,7 +86,7 @@ class AgreementRenderer
         'To (Name of Beneficiary)', 'Abbreviated Shortname to be used'];
 
     /**
-     * Layout hooks (spec §11.21) — classes only, never wording: the Agency / RR Technologies signature table gets equal columns and fixed row heights so
+     * Layout hooks (spec §11.21) — classes only, never wording: the Agency / platform-company signature table gets equal columns and fixed row heights so
      * both blocks line up row by row; each mandate "Label: field" paragraph becomes a row of one aligned grid. Same on screen, preview, RR screen and both PDFs.
      */
     private function alignmentHooks(string $html): string
