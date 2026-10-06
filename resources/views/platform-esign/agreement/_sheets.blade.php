@@ -1,5 +1,5 @@
 {{-- The paginated agreement. $pages (from AgreementPdf::pages), $total, $versionLabel; $interactive (initial button); $staticIni = [page => 'AB · CD'] for read-only views. --}}
-@php $company = app(\App\Services\PlatformEsign\Agreement\AgreementCompany::class); $letterhead = $company->letterhead(); @endphp
+@php $company = \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc ?? null); $letterhead = $company->letterhead(); @endphp
 @foreach($pages as $p)
     <section class="sheet" id="page-{{ $p['no'] }}" data-page="{{ $p['no'] }}" aria-label="Page {{ $p['no'] }} of {{ $total }}">
         <div class="sheet-head">

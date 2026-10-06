@@ -15,7 +15,7 @@
     .cert { page-break-before: always; font-size: 8.6pt; } .cert th, .cert td { border:0; border-bottom:1px solid #e5e7eb; }
 </style></head><body>
 <div id="hdr"><table><tr>
-    <td class="logo"><img src="{{ $logo }}" alt="{{ $brand }}"></td>
+    <td class="logo" style="width:{{ $logoBox['w'] + 8 }}pt;"><img src="{{ $logo }}" alt="{{ $brand }}" width="{{ $logoBox['w'] }}" height="{{ $logoBox['h'] }}" style="width:{{ $logoBox['w'] }}pt; height:{{ $logoBox['h'] }}pt;"></td>
     <td class="co"><b>{{ $letterhead['name'] }}</b><br>{{ $letterhead['address'] }}<br>{{ $letterhead['contact'] }}</td>
 </tr></table></div>
 <div id="ftr">CoreX OS Subscription Agreement &middot; {{ $versionLabel }} &middot; Countersignature and attestation &middot; Page <span class="pn"></span> of {{ $total }}</div>

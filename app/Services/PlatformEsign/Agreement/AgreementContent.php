@@ -29,7 +29,7 @@ class AgreementContent
         if (!$tpl) {
             $tpl = Template::create([
                 'name' => self::TEMPLATE_NAME, 'kind' => 'subscription_agreement', 'source' => 'webdoc', 'body' => null,
-                'roles_json' => [['key' => 'r1', 'label' => 'Agency', 'order' => 1], ['key' => 'r2', 'label' => 'RR Technologies', 'order' => 2]],
+                'roles_json' => [['key' => 'r1', 'label' => 'Agency', 'order' => 1], ['key' => 'r2', 'label' => 'Company', 'order' => 2]],
                 'version' => 1, 'is_active' => true, 'created_by' => $userId,
             ]);
         }

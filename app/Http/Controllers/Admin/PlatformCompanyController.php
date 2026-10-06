@@ -28,9 +28,13 @@ class PlatformCompanyController extends Controller
     }
 
     /** Public asset stream — the current logo (or the built-in CoreX OS asset). Never anything but the logo. */
-    public function logo()
+    public function logo(Request $request)
     {
-        $f = PlatformCompany::current()->logoFile();
+        // `l` = the exact logo version a pinned document was sent with (0 = built-in); absent = the current logo.
+        $company = $request->query->has('l')
+            ? PlatformCompany::fromSnapshot(['logo_id' => (int) $request->query('l') ?: null])
+            : PlatformCompany::current();
+        $f = $company->logoFile();
 
         return response($f['bytes'], 200, [
             'Content-Type'            => $f['mime'],

@@ -28,7 +28,7 @@
     </div>
 
     <div class="agr rounded-md p-5 space-y-3" id="final" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="ds-section-header">Countersign for RR Technologies</div>
+        <div class="ds-section-header">Countersign for {{ \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc)->legalName() }}</div>
         <div class="grid sm:grid-cols-2 gap-3">
             <div><label class="ds-label block mb-1" for="fld-rr_name">Name</label><input class="ds-field w-full" id="fld-rr_name" data-field="rr_name" data-required="1" maxlength="255" value="{{ $rr['rr_name'] ?? '' }}"></div>
             <div><label class="ds-label block mb-1" for="fld-rr_capacity">Capacity</label><input class="ds-field w-full" id="fld-rr_capacity" data-field="rr_capacity" data-required="1" maxlength="255" value="{{ $rr['rr_capacity'] ?? '' }}"></div>

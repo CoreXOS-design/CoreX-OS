@@ -21,7 +21,7 @@
 
     @if($countersign)
         <div class="topbar" style="position:static;border-radius:6px;">
-            <div class="stat">Review everything the agency entered (read-only), then complete RR Technologies’ details, initial every page and sign.</div>
+            <div class="stat">Review everything the agency entered (read-only), then complete {{ \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc)->legalName() }}’s details, initial every page and sign.</div>
             <div class="sp"><span class="stat" id="pages-stat"></span><span class="stat" id="savestate"></span>
                 <button type="button" id="todo-btn" class="btn ghost sm">Outstanding (<span id="todo-count">0</span>)</button></div>
         </div>
@@ -35,7 +35,7 @@
 
         @if($countersign)
             <div class="panel" id="final">
-                <h2 style="margin:0 0 .5rem;font-size:1.05rem;color:#0b2a4a;">Countersign for RR Technologies</h2>
+                <h2 style="margin:0 0 .5rem;font-size:1.05rem;color:#0b2a4a;">Countersign for {{ \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc)->legalName() }}</h2>
                 <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.7rem;">
                     <label for="ini-input" style="font-weight:600;font-size:.88rem;">RR initials</label>
                     <input id="ini-input" class="fld" style="font:inherit;border:1px solid #94a3b8;border-radius:4px;padding:.35rem .5rem;width:6.5em;text-transform:uppercase;" maxlength="5" value="{{ $defaultInitials }}" autocomplete="off">

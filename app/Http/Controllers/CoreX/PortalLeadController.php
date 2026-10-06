@@ -79,6 +79,12 @@ class PortalLeadController extends Controller
      */
     public function poll(Request $request): JsonResponse
     {
+        // No agency context (an owner who has not selected an agency): nothing to show — an empty answer, never an error.
+        if (!$request->user()->effectiveAgencyId()) {
+            return response()->json(['leads' => [], 'server_time' => now()->toIso8601String()]);
+        }
+        abort_unless(app(\App\Services\Features\AgencyFeatureService::class)->enabled('portal-leads'), 404);
+
         $sinceParam = $request->get('since');
         $unshown = PortalLead::query()
             ->visibleTo($request->user())

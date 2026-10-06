@@ -26,7 +26,7 @@ class Document extends Model
         'template_id', 'template_version', 'agency_id', 'title', 'status', 'source', 'body_html_snapshot', 'pdf_path',
         'page_count', 'fields_json', 'sequential', 'expires_at', 'sent_at', 'completed_at', 'declined_at', 'voided_at',
         'voided_by', 'void_reason', 'decline_reason', 'sealed_pdf_path', 'document_hash', 'created_by',
-        'wording_version_id', 'contract_ref', 'form_data', 'rr_data', 'form_rev', 'recipient_note',
+        'wording_version_id', 'contract_ref', 'form_data', 'rr_data', 'form_rev', 'recipient_note', 'company_snapshot',
     ];
 
     protected $casts = [
@@ -34,6 +34,7 @@ class Document extends Model
         'completed_at' => 'datetime', 'declined_at' => 'datetime', 'voided_at' => 'datetime',
         // Spec §11.10 — recipient + RR entries (bank details!) are encrypted at rest.
         'form_data' => 'encrypted:array', 'rr_data' => 'encrypted:array',
+        'company_snapshot' => 'array',
     ];
 
     public function template() { return $this->belongsTo(Template::class, 'template_id')->withTrashed(); }

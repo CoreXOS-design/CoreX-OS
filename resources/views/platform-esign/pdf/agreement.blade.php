@@ -28,7 +28,7 @@
 @include('platform-esign.agreement._css', ['pdf' => true])
 </head><body>
 <div id="hdr"><table><tr>
-    <td class="logo"><img src="{{ $logo }}" alt="{{ $brand }}" style="height:34pt;"></td>
+    <td class="logo" style="width:{{ $logoBox['w'] + 8 }}pt;"><img src="{{ $logo }}" alt="{{ $brand }}" width="{{ $logoBox['w'] }}" height="{{ $logoBox['h'] }}" style="width:{{ $logoBox['w'] }}pt; height:{{ $logoBox['h'] }}pt;"></td>
     <td class="co"><b>{{ $letterhead['name'] }}</b><br>{{ $letterhead['address'] }}<br>{{ $letterhead['contact'] }}</td>
 </tr></table></div>
 <div id="ftr"><table><tr>

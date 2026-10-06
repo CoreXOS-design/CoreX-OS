@@ -7,6 +7,7 @@ use App\Mail\PlatformEsign\AgreementReceivedMail;
 use App\Models\Agency;
 use App\Models\DevSetting;
 use App\Models\Platform\AgencyTimeline;
+use App\Models\Platform\PlatformCompany;
 use App\Models\PlatformEsign\Document;
 use App\Models\PlatformEsign\Initial;
 use App\Models\PlatformEsign\Signer;
@@ -90,6 +91,8 @@ class AgreementService
                 'agency_id' => $agency?->id, 'title' => 'CoreX Subscription Agreement — ' . ($agency?->name ?: $name),
                 'status' => 'sent', 'source' => 'webdoc', 'sequential' => true,
                 'expires_at' => now()->addDays(self::expiryDays())->endOfDay(), 'sent_at' => now(), 'created_by' => $userId,
+                // Pin the company letterhead/party details as they are at send time (spec platform-company-profile §7a).
+                'company_snapshot' => PlatformCompany::current()->snapshot(),
                 'recipient_note' => Str::limit(trim((string) ($d['note'] ?? '')), 490, '') ?: null,
                 'form_data' => $values, 'rr_data' => $rr, 'form_rev' => 0,
             ]);
@@ -98,7 +101,7 @@ class AgreementService
             Signer::create(['document_id' => $doc->id, 'role_key' => 'r1', 'role_label' => 'Agency', 'sign_order' => 1,
                 'name' => $name, 'email' => $email, 'token' => Str::random(48), 'status' => 'pending']);
             // RR's signer row is for the countersign done inside CoreX by an owner — its token is never emailed or served.
-            Signer::create(['document_id' => $doc->id, 'role_key' => 'r2', 'role_label' => 'RR Technologies', 'sign_order' => 2,
+            Signer::create(['document_id' => $doc->id, 'role_key' => 'r2', 'role_label' => AgreementCompany::for($doc)->legalName(), 'sign_order' => 2,
                 'name' => $sender->name, 'email' => strtolower((string) $sender->email), 'token' => Str::random(48), 'status' => 'pending']);
 
             $this->esign->log($doc, 'created', 'Subscription Agreement ' . $version->label() . ' prepared for ' . $name, null, $userId);
@@ -177,6 +180,7 @@ class AgreementService
                 'rr' => (string) ($r->signature_image ?: ($rr['sigR'] ?? '')),
             ],
             'sign_date' => $a->signed_at, 'mask' => false, 'errors' => [], 'doc_id' => $doc->id,
+            'company' => AgreementCompany::for($doc), // the letterhead/party details this document was sent with
         ];
     }
 
@@ -213,8 +217,8 @@ class AgreementService
             'expired' => 'This link has expired. Ask the sender for a new one — everything you entered is kept.',
             'completed' => 'This agreement has been fully signed.',
             'declined' => 'This agreement was declined.',
-            'awaiting_countersign' => 'You have signed this agreement. RR Technologies will countersign it and email you the signed copy.',
-            'wetink_received' => 'We have received your hand-signed copy. RR Technologies will countersign it and email you the signed copy. You can replace the copy below until then.',
+            'awaiting_countersign' => 'You have signed this agreement. ' . AgreementCompany::for($doc)->legalName() . ' will countersign it and email you the signed copy.',
+            'wetink_received' => 'We have received your hand-signed copy. ' . AgreementCompany::for($doc)->legalName() . ' will countersign it and email you the signed copy. You can replace the copy below until then.',
             default => null,
         };
     }
@@ -411,7 +415,7 @@ class AgreementService
             foreach (range(1, $total) as $p) {
                 Initial::firstOrCreate(['signer_id' => $sg->id, 'page_no' => $p], ['document_id' => $locked->id, 'initials' => $ini, 'ip' => $ip, 'created_at' => now()]);
             }
-            $this->esign->log($locked, 'countersigned', 'RR Technologies countersigned by ' . $rr['rr_name'] . ' — all ' . $total . ' pages initialled', $sg, $user->id, $ip);
+            $this->esign->log($locked, 'countersigned', AgreementCompany::for($locked)->legalName() . ' countersigned by ' . $rr['rr_name'] . ' — all ' . $total . ' pages initialled', $sg, $user->id, $ip);
         });
         if ($errors) {
             return $errors;
@@ -576,7 +580,7 @@ class AgreementService
             $sg->forceFill(['name' => $rr['rr_name'], 'status' => 'signed', 'signed_at' => now(), 'typed_name' => $rr['rr_name'], 'signature_image' => $rr['sigR'],
                 'signed_ip' => $ip, 'signed_user_agent' => Str::limit((string) $ua, 480, ''), 'consent_text_snapshot' => EsignService::CONSENT,
                 'email' => strtolower((string) ($user->email ?: $sg->email))])->save();
-            $this->esign->log($locked, 'countersigned', 'RR Technologies countersigned the hand-signed copy by ' . $rr['rr_name'], $sg, $user->id, $ip);
+            $this->esign->log($locked, 'countersigned', AgreementCompany::for($locked)->legalName() . ' countersigned the hand-signed copy by ' . $rr['rr_name'], $sg, $user->id, $ip);
         });
         if ($errors) {
             return $errors;
@@ -590,10 +594,10 @@ class AgreementService
     {
         $files = $doc->wetinkFiles()->whereNull('superseded_at')->get();
         $v = $doc->wording;
-        $co = app(AgreementCompany::class);
+        $co = AgreementCompany::for($doc);
         $data = [
             'doc' => $doc, 'files' => $files, 'rr' => (array) $doc->rr_data, 'versionLabel' => $v->label(), 'consent' => EsignService::CONSENT,
-            'logo' => $co->logoDataUri(), 'brand' => $co->brand(), 'letterhead' => $co->letterhead(),
+            'logo' => $co->logoDataUri(), 'logoBox' => $co->logoBoxPt(), 'brand' => $co->brand(), 'letterhead' => $co->letterhead(),
         ];
         $first = \Barryvdh\DomPDF\Facade\Pdf::loadView('platform-esign.pdf.agreement-attestation', $data + ['total' => '00'])->setPaper('a4')->output();
         $n = AgreementPdf::countPdfPages($first);

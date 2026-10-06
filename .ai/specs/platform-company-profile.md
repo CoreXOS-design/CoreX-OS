@@ -88,12 +88,16 @@ $c = PlatformCompany::current();                 // never null, never an agency
 $c->letterheadHtml(context: 'web'|'pdf');         // header block, self-contained inline styles
 $c->letterheadFooterHtml(context: 'web'|'pdf');   // footer text block
 $c->emailSignatureHtml();                         // sanitised; generated default when none saved
-$c->logoUrl();                                    // absolute, streamed, public (route platform-company.logo)
+$c->logoUrl();                                    // absolute, streamed, public (route platform-company.logo?l=<logo id|0>)
 $c->logoDataUri();                                // base64 data URI — used by the 'pdf' context
 $c->legal_name; $c->trading_name; $c->registration_number; $c->vat_registered; $c->vat_number;
 $c->directors; $c->physical_address; $c->postal_address; $c->email_general; $c->email_support;
 $c->email_accounts; $c->phones; $c->websites; $c->bank_details; $c->strap_line; $c->letterhead_footer;
 ```
+`$c->snapshot()` / `PlatformCompany::fromSnapshot(array)` — the non-sensitive fields + `logo_id` as a plain array, and an unsaved company
+rebuilt from it (every helper above works on it). Used to pin a sent document (§7a). Bank details are never part of a snapshot.
+The public logo route takes `?l=<logo id>` (0 = built-in wordmark) and serves exactly that version (soft-deleted versions included, so a
+pinned document keeps its logo); with no `l` it serves the current logo.
 Presentation helpers (also stable — `AgreementCompany` in Platform E-Sign already calls them):
 `directorNames()`, `phoneList()` (`[{label,number}]`, blank numbers dropped), `websiteList()`, `addressLines('postal'|null)`,
 `emailList()`, `letterheadFooterText()`, `defaultEmailSignatureHtml()`, `PlatformCompany::websiteHref($site)`,
@@ -124,12 +128,31 @@ by design; logos follow Create (upload) / Read / Replace / Archive-by-supersessi
 * **Done here:** `platform-esign/email/{invite,signed}.blade.php` render the company signature + footer through
   `platform-esign/email/_signature.blade.php`.
 * **Already on the interface (cc3):** `Services/PlatformEsign/Agreement/AgreementCompany.php` (letterhead lines, logo, beneficiary address).
-* **Still hard-coded (not touched — other lane's files; routed via the conductor):**
-  `resources/views/platform-esign/email/agreement-invite.blade.php` (signature-less; footer line "CoreX OS · corexos.co.za"; "johan@corexos.co.za"),
-  `…/agreement-received.blade.php` (footer line), `…/pdf/sealed.blade.php:42` ("CoreX OS"),
-  `Agreement/AgreementService.php` (role label / messages "RR Technologies"), `Agreement/AgreementContent.php`,
-  `Agreement/AgreementFields.php`, `Agreement/AgreementSample.php` ("Southbroom"), `resources/legal/subscription-agreement/*.md`
-  (legal wording — pinned per version on purpose, clause B25 prints details exactly as signed; support/contact lines in Part C).
+* **Wired (2026-10-06, cc5):** `AgreementCompany` reads the company record only (no interim constants). The agreement invite and "received"
+  emails (party name, "write to" address, footer), the letterhead on screen + PDF + attestation, the RR signer's role label, the
+  countersign pages, the recipient notices, the audit-trail wording and the pagination sample all come from the company record.
+  A test (`AgreementCompanyPinningTest::test_no_company_detail_is_hardcoded…`) scans `app/Services/PlatformEsign`, its controllers and mail
+  classes and `resources/views/platform-esign` for the company's name/address/phones/emails/registration/websites and fails on any literal.
+* **Deliberately still literal:** `resources/legal/subscription-agreement/*.md` and the stored wording versions (legal wording — pinned per
+  version on purpose; clause B25 prints the details exactly as signed, Part C its support lines); the line in `AgreementContent` that matches
+  the source text "Agency initials … RR Technologies initials"; the "For RR Technologies" hint on the countersign page (quotes the wording's
+  signature-block label); the migration seed. Seen and NOT changed (outside this task): `sealed.blade.php` generic-document meta line "CoreX OS"
+  (product name, not a company detail); the "Awaiting RR countersign" status label in `Document::STATUSES`.
+
+## 7a. Pinning — a sent agreement keeps what it was sent with
+`platform_esign_documents.company_snapshot` (json) is written at send from `PlatformCompany::current()->snapshot()`: legal/trading name,
+registration, VAT, directors, addresses, emails, phones, websites, strap line, footer text, email signature, and the **logo version**
+(`logo_id`; NULL = built-in wordmark). Everything that renders the agreement — recipient page, owner review/countersign pages, the sealed PDF,
+the wet-ink attestation, the invite/received emails, notices, the RR role label — goes through `AgreementCompany::for($doc)`, which reads the
+snapshot. A later edit on the company page (details or logo) never alters a sent or signed contract; **new** agreements pin the record as it is
+at their send. Resend / reminders reuse the pinned snapshot. Agreements sent before the column existed were pinned to the record as it stood
+when the migration ran; a document with no snapshot (should not occur) falls back to the live record.
+
+## 7b. Logo on the contract letterhead
+Screen sheets and PDFs (sealed, wet-ink download, attestation) show the pinned logo at a **fixed 40 px / 34 pt height** with the company
+block (name, address, contact line) beside it. PDF width follows the logo's own proportions, capped at 190 pt (a very wide logo is scaled down
+keeping its proportions so it can never squeeze the company block); screen uses `object-fit: contain` inside a 220 px cap. With no uploaded
+logo the built-in CoreX OS wordmark is used (`public/images/corex-os-logo.svg`).
 
 ## 8. Not applicable
 * Setup Wizard (non-negotiable 10a): this is a platform-owner record, not something an agency configures.
