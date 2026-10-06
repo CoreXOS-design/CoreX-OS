@@ -624,6 +624,9 @@ class AgencySetupWizardController extends Controller
                     'no_approval_spend_threshold' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
                     'completion_requires_photo' => \App\Models\RentalWorkOrderSetting::completionRequiresPhotoFor($agency->id),
                     'overdue_reminder_days' => \App\Models\RentalWorkOrderSetting::overdueReminderDaysFor($agency->id),
+                    // AT-442 (2026-10-04) — both pricing toggles were declared in the config but never named here.
+                    'capture_prices_on_job_cards' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id),
+                    'show_prices_on_printed_job_card' => \App\Models\RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // rental-portal-access.md §10 / rental-work-orders.md §14.27.3 — this source had NO arm,
@@ -656,6 +659,14 @@ class AgencySetupWizardController extends Controller
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
+                    // §43 (2026-10-05) — inspection scheduling notifications; declared in the config, never named here.
+                    'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),
+                    'notify_landlord_enabled' => \App\Models\RentalInspectionSetting::notifyLandlordFor($agency->id),
+                    'notify_inspector_enabled' => \App\Models\RentalInspectionSetting::notifyInspectorFor($agency->id),
+                    'notify_via_mail_enabled' => \App\Models\RentalInspectionSetting::notifyViaMailFor($agency->id),
+                    'notify_via_whatsapp_enabled' => \App\Models\RentalInspectionSetting::notifyViaWhatsappFor($agency->id),
+                    'minimum_notice_days' => \App\Models\RentalInspectionSetting::minimumNoticeDaysFor($agency->id),
+                    'reminder_days_before' => \App\Models\RentalInspectionSetting::reminderDaysBeforeFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own
