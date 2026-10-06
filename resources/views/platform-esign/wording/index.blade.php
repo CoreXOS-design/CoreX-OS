@@ -23,9 +23,9 @@
     @if($errors->has('draft'))<div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-crimson-bg, #fef2f2); color: var(--ds-crimson);">{{ $errors->first('draft') }}</div>@endif
 
     <div class="grid xl:grid-cols-3 gap-5">
-        <div class="xl:col-span-2 space-y-5">
-            <form method="GET" class="rounded-md p-3 flex flex-col lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
-                <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Search version number or change note…" class="ds-field flex-1">
+        <div class="xl:col-span-2 space-y-5 min-w-0">
+            <form method="GET" class="rounded-md p-3 flex flex-wrap gap-2 items-center" style="background: var(--surface); border: 1px solid var(--border);">
+                <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Search version or change note…" class="ds-field flex-1" style="min-width: 12rem;">
                 <select name="status" class="list-header-filter" onchange="this.form.submit()">
                     @foreach(['all' => 'All versions', 'published' => 'Published', 'draft' => 'Draft in progress', 'discarded' => 'Discarded drafts'] as $k => $l)<option value="{{ $k }}" @selected($f['status'] === $k)>{{ $l }}</option>@endforeach
                 </select>
@@ -43,20 +43,19 @@
                             <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('date', 'Dated') !!}</th>
                             <th class="{{ $th }}" style="color: var(--text-muted);">What changed</th>
                             <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('published', 'Published') !!}</th>
-                            <th class="{{ $th }}" style="color: var(--text-muted);">Sent with it</th>
                             <th class="px-4 py-2.5"></th>
                         </tr></thead>
                         <tbody>
                         @forelse($rows as $r)
                             <tr style="border-top: 1px solid var(--border);">
-                                <td class="px-4 py-3 whitespace-nowrap">
+                                <td class="px-4 py-3">
                                     <a href="{{ route('platform-esign.wording.show', $r->id) }}" class="font-semibold" style="color: var(--text-primary);">{{ $r->is_published ? 'Version ' . $r->version : 'Draft' }}</a>
                                     @if($r->is_published && $r->id === $current->id)<span class="ds-badge ds-badge-success ml-1">Current</span>@elseif($r->is_published)<span class="ds-badge ds-badge-default ml-1">Superseded</span>@elseif($r->trashed())<span class="ds-badge ds-badge-default ml-1">Discarded</span>@else<span class="ds-badge ds-badge-orange ml-1">In progress</span>@endif
+                                    @if($r->is_published)<div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $r->documents_count }} {{ \Illuminate\Support\Str::plural('agreement', $r->documents_count) }} sent with it</div>@endif
                                 </td>
                                 <td class="px-4 py-3 whitespace-nowrap" style="color: var(--text-muted);">{{ $r->is_published ? $r->version_date->format('j M Y') : '—' }}</td>
                                 <td class="px-4 py-3" style="color: var(--text-secondary); min-width: 16rem;">{{ $r->change_note ?: ($r->is_published ? '—' : 'Not published yet') }}</td>
                                 <td class="px-4 py-3 text-xs whitespace-nowrap" style="color: var(--text-muted);">@if($r->is_published){{ $r->published_at?->format('j M Y H:i') }}<br>{{ $r->publisher?->name ?? '—' }}@else{{ $r->creator?->name ?? '—' }}<br>started {{ $r->created_at?->format('j M Y') }}@endif</td>
-                                <td class="px-4 py-3 tabular-nums" style="color: var(--text-muted);">{{ $r->documents_count }}</td>
                                 <td class="px-4 py-3 text-right whitespace-nowrap">
                                     <a href="{{ route('platform-esign.wording.show', $r->id) }}" class="corex-btn-outline corex-btn-xs">{{ $r->is_published || $r->trashed() ? 'View' : 'Edit' }}</a>
                                     @if($r->trashed())
@@ -65,7 +64,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="6" class="px-5 py-12 text-center text-sm" style="color: var(--text-muted);">No versions match.@if($f['q'] !== '' || $f['status'] !== 'all' || $f['from'] || $f['to']) <a href="{{ route('platform-esign.wording.index') }}" class="underline" style="color: var(--brand-icon);">Clear the filters</a>.@endif</td></tr>
+                            <tr><td colspan="5" class="px-5 py-12 text-center text-sm" style="color: var(--text-muted);">No versions match.@if($f['q'] !== '' || $f['status'] !== 'all' || $f['from'] || $f['to']) <a href="{{ route('platform-esign.wording.index') }}" class="underline" style="color: var(--brand-icon);">Clear the filters</a>.@endif</td></tr>
                         @endforelse
                         </tbody>
                     </table>
@@ -87,7 +86,7 @@
             </div>
         </div>
 
-        <div class="space-y-5">
+        <div class="space-y-5 min-w-0">
             <div class="rounded-md p-5 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="ds-section-header mb-1">Current version</div>
                 <div class="text-base font-semibold" style="color: var(--text-primary);">{{ $current->label() }}</div>
