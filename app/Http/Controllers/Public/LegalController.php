@@ -58,7 +58,7 @@ final class LegalController extends Controller
         ]);
     }
 
-    // ── CoreX Subscription Agreement — Parts B, C, D (spec §11.13) ─────────
+    // ── CoreX Subscription Agreement — Parts B, C, D (spec §11.14) ─────────
 
     /** The Parts that are published. Never Part A (the signed form), the cover or the debit order mandate. */
     private const PUBLISHED_PARTS = ['part_b' => 'Part B', 'part_c' => 'Part C', 'part_d' => 'Part D'];

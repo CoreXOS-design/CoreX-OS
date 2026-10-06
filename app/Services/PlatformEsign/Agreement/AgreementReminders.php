@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * Link expiry + reminders for Subscription Agreements (spec §11.13). One pass, driven by the scheduled command.
+ * Link expiry + reminders for Subscription Agreements (spec §11.14). One pass, driven by the scheduled command.
  * Every decision re-reads the document's CURRENT state, so a reminder can never go out for an agreement that has
  * since been signed, voided, expired, completed or archived. No entered value is ever put in a reminder.
  */

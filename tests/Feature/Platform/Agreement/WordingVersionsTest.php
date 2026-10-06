@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
- * Subscription Agreement wording editor + versions — spec §11.13. Drafts, clause-level saves, field-marker guard,
+ * Subscription Agreement wording editor + versions — spec §11.14. Drafts, clause-level saves, field-marker guard,
  * immutability, publish, pinning of sent agreements, restore-by-copy, discard/restore, what changed, owner-only.
  */
 class WordingVersionsTest extends TestCase

@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — Subscription Agreement wording: versions, settings, audit (spec §11.13). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — Subscription Agreement wording: versions, settings, audit (spec §11.14). --}}
 @extends('layouts.corex')
 
 @section('corex-content')

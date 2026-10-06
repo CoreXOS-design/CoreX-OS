@@ -295,7 +295,7 @@
             </div>
             <div class="flex flex-wrap gap-2"><a href="{{ route('platform-esign.agreements.create', ['agency' => $agency->id]) }}" class="corex-btn-primary text-xs">Send Subscription Agreement</a><a href="{{ route('platform-esign.documents.create', ['agency' => $agency->id]) }}" class="corex-btn-outline text-xs">Send another contract</a><a href="{{ route('platform-esign.hub') }}" class="corex-btn-outline text-xs">Open Platform E-Sign</a></div>
         </div>
-        {{-- Latest Subscription Agreement for this agency: where it stands, and a one-click re-issue when the link has expired (spec §11.13). --}}
+        {{-- Latest Subscription Agreement for this agency: where it stands, and a one-click re-issue when the link has expired (spec §11.14). --}}
         <div class="px-4 py-3 text-sm flex flex-wrap items-center gap-x-4 gap-y-2" style="border-bottom: 1px solid var(--border);">
             @if($agreementWebdoc)
                 @php $wd = $agreementWebdoc; $wdTone = ['awaiting_countersign' => 'orange', 'wetink_received' => 'orange', 'sent' => 'info', 'in_progress' => 'orange', 'completed' => 'success'][$wd->status] ?? 'default'; @endphp

@@ -1,4 +1,4 @@
-{{-- Wording screens: the document column + field markers + clause editor chrome (spec §11.13). --}}
+{{-- Wording screens: the document column + field markers + clause editor chrome (spec §11.14). --}}
 <style>
     .doc-col { background:#fff; border:1px solid #d9dee8; border-radius:4px; box-shadow:0 1px 3px rgba(15,23,42,.08); padding: 22px 44px; color:#111827; }
     .doc-col.agr { font-size: 14px; }

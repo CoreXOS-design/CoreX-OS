@@ -6,7 +6,7 @@ use App\Models\Agency;
 use App\Models\User;
 
 /**
- * Who the agency's Subscription Agreement is most likely addressed to (spec §11.13): the agency's principal practitioner,
+ * Who the agency's Subscription Agreement is most likely addressed to (spec §11.14): the agency's principal practitioner,
  * falling back to the agency's own email and phone. Only pre-fills the send form — the owner can correct every value.
  */
 class AgreementRecipientPrefill

@@ -9,7 +9,7 @@ use League\CommonMark\Parser\MarkdownParser;
 
 /**
  * Splits a part's Markdown into its clauses (top-level blocks) and joins them back, for the clause-level editor
- * (spec §11.13). Splitting uses the parser's own line positions, so what the editor calls a clause is exactly what the
+ * (spec §11.14). Splitting uses the parser's own line positions, so what the editor calls a clause is exactly what the
  * renderer and the paginator treat as one block. split → join is verified lossless against v1.0 in the tests.
  */
 class AgreementBlocks

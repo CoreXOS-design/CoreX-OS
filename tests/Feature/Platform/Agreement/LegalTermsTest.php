@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * Public terms page /legal — spec §11.13. Parts B, C, D of the current published version, any earlier version at
+ * Public terms page /legal — spec §11.14. Parts B, C, D of the current published version, any earlier version at
  * /legal/v/{n}, never Part A / the cover / the mandate / any agency data; cacheable, indexable, print-friendly.
  */
 class LegalTermsTest extends TestCase

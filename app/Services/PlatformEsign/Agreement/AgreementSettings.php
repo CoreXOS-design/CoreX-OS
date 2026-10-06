@@ -5,7 +5,7 @@ namespace App\Services\PlatformEsign\Agreement;
 use App\Models\DevSetting;
 
 /**
- * Platform settings for Subscription Agreement link expiry and reminders (spec §11.13). Stored as DevSetting values
+ * Platform settings for Subscription Agreement link expiry and reminders (spec §11.14). Stored as DevSetting values
  * (owner-only), edited on the Agreement wording page; defaults here, never hardcoded in the services that use them.
  */
 class AgreementSettings

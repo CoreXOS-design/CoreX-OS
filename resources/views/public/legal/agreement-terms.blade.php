@@ -1,4 +1,4 @@
-{{-- Public, logged-out: CoreX OS Subscription Agreement Parts B, C, D (spec §11.13). $v, $isCurrent, $current, $published, $parts, $letterhead, $logoUrl, $brand. --}}
+{{-- Public, logged-out: CoreX OS Subscription Agreement Parts B, C, D (spec §11.14). $v, $isCurrent, $current, $published, $parts, $letterhead, $logoUrl, $brand. --}}
 <!DOCTYPE html>
 <html lang="en-ZA">
 <head>

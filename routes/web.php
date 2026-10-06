@@ -170,7 +170,7 @@ Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'su
 Route::get('/terms', [\App\Http\Controllers\Public\LegalController::class, 'terms'])
     ->middleware('throttle:60,1')
     ->name('public.terms');
-// CoreX Subscription Agreement — Parts B, C, D published (spec §11.13). Public, no auth; never Part A / the mandate / agency data.
+// CoreX Subscription Agreement — Parts B, C, D published (spec §11.14). Public, no auth; never Part A / the mandate / agency data.
 Route::get('/legal', [\App\Http\Controllers\Public\LegalController::class, 'agreementTerms'])
     ->middleware('throttle:60,1')->name('public.agreement-terms');
 Route::get('/legal/v/{version}', [\App\Http\Controllers\Public\LegalController::class, 'agreementTermsVersion'])
@@ -4306,7 +4306,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
             Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
 
-            // Agreement wording editor + versions + expiry/reminder settings (spec §11.13) — owner / RR side.
+            // Agreement wording editor + versions + expiry/reminder settings (spec §11.14) — owner / RR side.
             Route::prefix('wording')->name('wording.')->group(function () {
                 $w = \App\Http\Controllers\PlatformEsign\AgreementWordingController::class;
                 Route::get('/',                          [$w, 'index'])->name('index');
@@ -4924,15 +4924,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('corex.rentals.contacts.index');
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
-    // The toast poll sits OUTSIDE the agency.required/feature group: with no agency context (an owner who has not picked an
-    // agency) it answers an empty 200, not a 422 — the controller then applies the same feature gate itself.
-    Route::get('real-estate/portal-leads/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])
-        ->middleware('permission:access_portal_leads')->name('corex.portal-leads.poll');
     Route::prefix('real-estate/portal-leads')
         ->middleware(['permission:access_portal_leads', 'agency.required', 'feature:portal-leads'])
         ->name('corex.portal-leads.')
         ->group(function () {
             Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
+            Route::get('/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])->name('poll');
             Route::post('/{portalLead}/mark-notified', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'markNotified'])->name('mark-notified');
         });
 

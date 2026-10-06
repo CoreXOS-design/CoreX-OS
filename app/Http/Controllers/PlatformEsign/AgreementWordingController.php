@@ -19,7 +19,7 @@ use App\Services\PlatformEsign\Agreement\WordingInvalid;
 use Illuminate\Http\Request;
 
 /**
- * Owner-only wording editor for the Subscription Agreement (spec §11.13): versions list, drafts, clause-level section
+ * Owner-only wording editor for the Subscription Agreement (spec §11.14): versions list, drafts, clause-level section
  * editing, rates, preview, publish / discard / restore, "what changed", expiry + reminder settings, audit trail.
  * Owner-only by route middleware AND re-checked here; platform-owned data, no agency scoping applies.
  */

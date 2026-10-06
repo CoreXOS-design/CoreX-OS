@@ -102,7 +102,7 @@ class AgreementRenderer
         };
     }
 
-    /** A grey, labelled marker standing for a field in the wording editor (spec §11.13). */
+    /** A grey, labelled marker standing for a field in the wording editor (spec §11.14). */
     private function chip(string $kind, string $a, string $b): string
     {
         $token = implode(':', array_filter([$kind, $a, $b], fn ($p) => $p !== ''));
