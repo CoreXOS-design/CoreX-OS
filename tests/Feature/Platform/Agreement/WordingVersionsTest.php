@@ -403,10 +403,11 @@ class WordingVersionsTest extends TestCase
     {
         $owner = $this->owner();
         app(AgreementContent::class)->ensureSeeded($owner->id);
-        $good = ['expiry_days' => 45, 'reminder_days' => 2, 'reminder_repeat_days' => 4, 'reminder_max' => 5, 'countersign_reminder_days' => 2];
+        $good = ['expiry_days' => 45, 'access_months' => 18, 'reminder_days' => 2, 'reminder_repeat_days' => 4, 'reminder_max' => 5, 'countersign_reminder_days' => 2];
         $this->actingAs($owner)->post(route('platform-esign.wording.settings'), $good)->assertSessionHasNoErrors();
         $this->assertSame(45, \App\Services\PlatformEsign\Agreement\AgreementSettings::get('expiry_days'));
         $this->assertSame(45, AgreementService::expiryDays());
+        $this->assertSame(18, \App\Services\PlatformEsign\Agreement\AgreementSettings::get('access_months'));
         $this->assertSame(2, AgreementService::reminderDays());
         $this->assertStringContainsString('Link valid for (days): 30 → 45', WordingAudit::where('action', 'settings_changed')->value('detail'));
         $this->actingAs($owner)->post(route('platform-esign.wording.settings'), array_merge($good, ['expiry_days' => 0]))->assertSessionHasErrors('settings');
