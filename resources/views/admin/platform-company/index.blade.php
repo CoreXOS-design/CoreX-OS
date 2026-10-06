@@ -297,7 +297,7 @@ function platformCompanyForm(cfg) {
         preview: cfg.preview, busy: false, dirty: false, timer: null, seq: 0,
         queue() {
             this.dirty = true;
-            window.dispatchEvent(new CustomEvent('pc-dirty'));
+            this.$dispatch('pc-dirty');
             clearTimeout(this.timer);
             this.timer = setTimeout(() => this.refresh(), 450);
         },
