@@ -822,6 +822,13 @@ Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name
     Route::post('/login', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'login'])->name('login');
 });
 
+// ===== Platform company logo (public asset stream) =====
+// The CoreX / RR Technologies logo, streamed so emails, signer pages and PDFs can load it without a login.
+// Serves ONLY the logo (not sensitive). The `v` query is a cache-buster; the current logo is always served.
+// Spec: .ai/specs/platform-company-profile.md §4.
+Route::get('/platform-company/logo', [\App\Http\Controllers\Admin\PlatformCompanyController::class, 'logo'])
+    ->middleware('throttle:120,1')->name('platform-company.logo');
+
 // ===== AT-447 PUBLIC: agency timeline (read-only) + platform contract signing =====
 // Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
 // The shareable link carries the agency name for readability (/agency-timeline/caprivi-realty/<token>); the
