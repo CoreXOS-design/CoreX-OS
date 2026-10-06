@@ -129,7 +129,7 @@ class RentalDocumentPdfService
     }
 
     /** Req #6 — the printable job card: address, access notes, tenant contact, tasks, lines, sign-off lines. */
-    public function jobCardPrintPdf(RentalJobCard $jobCard)
+    public function jobCardPrintPdf(RentalJobCard $jobCard, ?string $crewLinkUrl = null, ?string $crewLinkExpires = null)
     {
         // 2026-10-05 overnight re-verification — rentalFaultReport was
         // missing, so the printable job card could never show which fault
@@ -147,8 +147,22 @@ class RentalDocumentPdfService
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id)
             && \App\Models\RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($jobCard->agency_id);
 
+        // §14.27.1 Q10 — only when "Print with link" minted one: the QR (pure-PHP
+        // endroid/qr-code, no external call) that opens the crew's job link.
+        $crewLinkQr = null;
+        if ($crewLinkUrl) {
+            $crewLinkQr = (new \Endroid\QrCode\Writer\PngWriter())->write(new \Endroid\QrCode\QrCode(
+                data: $crewLinkUrl,
+                errorCorrectionLevel: \Endroid\QrCode\ErrorCorrectionLevel::High,
+                size: 220,
+                margin: 6,
+            ))->getDataUri();
+        }
+
         $pdf = Pdf::loadView('corex.rental-job-cards.print', [
             'jobCard' => $jobCard,
+            'crewLinkQr' => $crewLinkQr,
+            'crewLinkExpires' => $crewLinkExpires,
             'pricesOn' => $pricesOn,
             'vat' => $pricesOn ? app(RentalJobCardVatService::class)->breakdown($jobCard) : ['registered' => false, 'pricesOn' => false, 'groups' => []],
             'vatNumber' => $workOrder?->agency?->vat_no,

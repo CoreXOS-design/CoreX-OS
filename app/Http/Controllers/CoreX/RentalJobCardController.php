@@ -283,6 +283,15 @@ class RentalJobCardController extends Controller
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
 
+        // §14.28 — the crew's per-job link (the newest one not revoked; its raw URL
+        // is never stored, only flashed once by the issuing request) and the
+        // wet-ink signed copies, newest first.
+        $crewLink = \App\Models\RentalSecureAccessToken::withoutGlobalScopes()
+            ->where('rental_job_card_id', $rentalJobCard->id)
+            ->where('purpose', \App\Models\RentalSecureAccessToken::PURPOSE_CREW_JOB_CARD)
+            ->whereNull('revoked_at')
+            ->with('createdByUser')->latest('id')->first();
+
         // §14.21 — every revision of the quote sent from this card (current
         // first), which one is current, and whether the card has changed
         // since it was sent.
@@ -291,6 +300,9 @@ class RentalJobCardController extends Controller
 
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
+            'crewLink' => $crewLink,
+            'crewLinksEnabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id),
+            'signedCopies' => $rentalJobCard->signedCopies()->with('uploadedBy')->get(),
             'quoteRevisions' => $quoteRevisions,
             'currentQuote' => $currentQuote,
             'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote),
@@ -786,7 +798,26 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $pdf = $service->jobCardPrintPdf($rentalJobCard);
+        // §14.27.1 Q10 — "Print with link": a QR on the paper that opens the crew
+        // link. A printed QR is a live credential, so it is minted only on this
+        // explicit request (needs `rental_job_cards.share`), replaces any earlier
+        // link, and is never part of the normal print.
+        $linkUrl = null;
+        $linkExpires = null;
+        if (request()->boolean('with_link')) {
+            abort_unless(request()->user()->hasPermission('rental_job_cards.share'), 403);
+            if ($rentalJobCard->isClosed()) {
+                return back()->withErrors(['crew_link' => 'This job card is closed — a crew link can no longer be created.']);
+            }
+            if (! \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id)) {
+                return back()->withErrors(['crew_link' => 'Crew links are switched off for this agency (Settings → Rental Portal).']);
+            }
+            $issued = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueForJobCard($rentalJobCard, request()->user());
+            $linkUrl = route('rentals.crew-job.show', $issued['raw_token']);
+            $linkExpires = $issued['token']->expires_at?->format('j M Y');
+        }
+
+        $pdf = $service->jobCardPrintPdf($rentalJobCard, $linkUrl, $linkExpires);
 
         return request()->boolean('dl')
             ? $pdf->download($service->jobCardFilename($rentalJobCard))

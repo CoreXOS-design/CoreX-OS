@@ -62,6 +62,14 @@ Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(
     Route::post('/mark-done', [\App\Http\Controllers\ContractorSecureLinkController::class, 'markDone'])->name('rentals.secure-link.mark-done');
 });
 
+// ── Crew per-job secure link (public, no auth) — .ai/specs/rental-work-orders.md §14.28 ──
+Route::prefix('secure/job-cards/{token}')->middleware('throttle:30,1')->group(function () {
+    Route::get('/', [\App\Http\Controllers\CrewJobLinkController::class, 'show'])->name('rentals.crew-job.show');
+    Route::post('/tasks/{task}/tick', [\App\Http\Controllers\CrewJobLinkController::class, 'tick'])->whereNumber('task')->name('rentals.crew-job.tick');
+    Route::post('/photos', [\App\Http\Controllers\CrewJobLinkController::class, 'photos'])->middleware('throttle:60,10')->name('rentals.crew-job.photos');
+    Route::post('/complete', [\App\Http\Controllers\CrewJobLinkController::class, 'complete'])->name('rentals.crew-job.complete');
+});
+
 // ── Tenant/Landlord Portal web shell (public page, session auth via Alpine+fetch) — AT-445 ──
 Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController::class, 'show'])
     ->where('any', '.*')
@@ -3100,6 +3108,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/contractor-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateContractorLinksEnabled'])->name('corex.settings.rental-portal.contractor-links-enabled');
         Route::post('/notify-landlord-on-decision-needed', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnDecisionNeeded'])->name('corex.settings.rental-portal.notify-landlord-on-decision-needed');
         Route::post('/notify-tenant-on-status-change', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyTenantOnStatusChange'])->name('corex.settings.rental-portal.notify-tenant-on-status-change');
+        // §14.27.3 — crew links (rental-work-orders.md): Build 1's five settings.
+        Route::post('/crew-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinksEnabled'])->name('corex.settings.rental-portal.crew-links-enabled');
+        Route::post('/crew-job-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewJobLinkExpiryDays'])->name('corex.settings.rental-portal.crew-job-link-expiry-days');
+        Route::post('/crew-link-show-prices', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowPrices'])->name('corex.settings.rental-portal.crew-link-show-prices');
+        Route::post('/crew-link-show-tenant-contact', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowTenantContact'])->name('corex.settings.rental-portal.crew-link-show-tenant-contact');
+        Route::post('/notify-landlord-on-crew-completion', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnCrewCompletion'])->name('corex.settings.rental-portal.notify-landlord-on-crew-completion');
         Route::post('/crew-photos-visible-to-clients', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPhotosVisibleToClients'])->name('corex.settings.rental-portal.crew-photos-visible-to-clients');
         Route::post('/crew-standing-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewStandingLinkExpiryDays'])->name('corex.settings.rental-portal.crew-standing-link-expiry-days');
         Route::post('/crew-page-recent-completed-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageRecentCompletedDays'])->name('corex.settings.rental-portal.crew-page-recent-completed-days');
@@ -4060,6 +4074,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.restore');
         Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'storePhoto'])
             ->middleware('permission:rental_job_cards.create')->name('corex.rental-job-cards.photos.store');
+
+        // §14.28 — share the card with the crew (no-login per-job link) and file the wet-ink signed copy.
+        Route::post('/{rentalJobCard}/crew-link', [\App\Http\Controllers\CoreX\RentalJobCardCrewLinkController::class, 'issue'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-job-cards.crew-link.issue');
+        Route::delete('/{rentalJobCard}/crew-link', [\App\Http\Controllers\CoreX\RentalJobCardCrewLinkController::class, 'revoke'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-job-cards.crew-link.revoke');
+        Route::post('/{rentalJobCard}/crew-link/email', [\App\Http\Controllers\CoreX\RentalJobCardCrewLinkController::class, 'email'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-job-cards.crew-link.email');
+        Route::post('/{rentalJobCard}/signed-copy', [\App\Http\Controllers\CoreX\RentalJobCardSignedCopyController::class, 'store'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.signed-copy.store');
+        Route::get('/{rentalJobCard}/signed-copy/{copy}', [\App\Http\Controllers\CoreX\RentalJobCardSignedCopyController::class, 'download'])
+            ->whereNumber('copy')->name('corex.rental-job-cards.signed-copy.download');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,

@@ -119,6 +119,16 @@
     </div>
     @endif
 
+    @if(!empty($crewLinkQr))
+    <div class="box" style="display: table; width: 100%;">
+        <div style="display: table-cell; width: 120px; vertical-align: middle;"><img src="{{ $crewLinkQr }}" alt="" style="width: 110px; height: 110px;"></div>
+        <div style="display: table-cell; vertical-align: middle;">
+            <p><strong>Open this job on your phone</strong></p>
+            <p class="muted">Scan the code to see the tasks, add photos and mark the work completed.@if(!empty($crewLinkExpires)) Works until {{ $crewLinkExpires }}, or until the job is closed.@endif Keep this paper private — the code is the key.</p>
+        </div>
+    </div>
+    @endif
+
     <h2>Sign-off</h2>
     <div class="box">
         <div class="signoff">
