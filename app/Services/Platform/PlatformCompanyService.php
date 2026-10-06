@@ -25,6 +25,7 @@ class PlatformCompanyService
         'vat_registered' => 'VAT registered', 'vat_number' => 'VAT number', 'directors' => 'Directors',
         'physical_address' => 'Physical address', 'postal_address' => 'Postal address',
         'email_general' => 'General / admin email', 'email_support' => 'Support email', 'email_accounts' => 'Accounts email',
+        'send_from_address' => 'Sending address (emails are sent from)', 'send_from_name' => 'Sender name (emails are sent as)',
         'phones' => 'Telephone numbers', 'websites' => 'Websites', 'strap_line' => 'Letterhead strap line',
         'letterhead_footer' => 'Letterhead footer', 'email_signature_html' => 'Email signature', 'bank_details' => 'Bank details',
         'logo_id' => 'Logo',
@@ -32,7 +33,7 @@ class PlatformCompanyService
 
     private const SECTION_KEYS = [
         'legal_name', 'trading_name', 'registration_number', 'vat_registered', 'vat_number', 'directors', 'physical_address',
-        'postal_address', 'email_general', 'email_support', 'email_accounts', 'phones', 'websites', 'strap_line',
+        'postal_address', 'email_general', 'email_support', 'email_accounts', 'send_from_address', 'send_from_name', 'phones', 'websites', 'strap_line',
         'letterhead_footer', 'email_signature_html', 'bank_details',
     ];
 
@@ -47,7 +48,7 @@ class PlatformCompanyService
         $out = [];
         $str = fn ($v) => ($t = trim((string) $v)) === '' ? null : $t;
 
-        foreach (['legal_name', 'trading_name', 'registration_number', 'strap_line'] as $k) {
+        foreach (['legal_name', 'trading_name', 'registration_number', 'strap_line', 'send_from_name'] as $k) {
             if (array_key_exists($k, $in)) {
                 $out[$k] = $str($in[$k]);
             }
@@ -65,7 +66,7 @@ class PlatformCompanyService
                 $out[$k] = $k === 'letterhead_footer' ? $str(implode("\n", $lines)) : $str(implode("\n", array_filter($lines, fn ($l) => $l !== '')));
             }
         }
-        foreach (['email_general', 'email_support', 'email_accounts'] as $k) {
+        foreach (['email_general', 'email_support', 'email_accounts', 'send_from_address'] as $k) {
             if (array_key_exists($k, $in)) {
                 $out[$k] = ($v = $str($in[$k])) === null ? null : mb_strtolower($v);
             }

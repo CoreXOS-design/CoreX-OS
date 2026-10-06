@@ -24,7 +24,7 @@ class PlatformCompany extends Model
 
     protected $fillable = [
         'legal_name', 'trading_name', 'registration_number', 'vat_registered', 'vat_number', 'directors',
-        'physical_address', 'postal_address', 'email_general', 'email_support', 'email_accounts', 'phones',
+        'physical_address', 'postal_address', 'email_general', 'email_support', 'email_accounts', 'send_from_address', 'send_from_name', 'phones',
         'websites', 'strap_line', 'letterhead_footer', 'email_signature_html', 'bank_details', 'logo_id',
     ];
 
@@ -48,6 +48,8 @@ class PlatformCompany extends Model
         'physical_address'    => "3123 San Lameer\nR61 Lower South Coast Road\nSouthbroom, KZN\n4277",
         'email_general'       => 'admin@corexos.co.za',
         'email_support'       => 'support@corexos.co.za',
+        'send_from_address'   => 'admin@corexos.co.za',
+        'send_from_name'      => 'CoreX OS — RR Technologies',
         'phones'              => [
             ['label' => 'Telephone', 'number' => '(039) 004 0125'],
             ['label' => 'Cell', 'number' => '076 618 5578'],
@@ -174,6 +176,20 @@ class PlatformCompany extends Model
         }
 
         return implode(' · ', array_filter($parts));
+    }
+
+    /**
+     * The From of every Platform E-Sign / Subscription Agreement email — the company's own sending address and name, never
+     * the box-wide MAIL_FROM_* (that belongs to whichever agency the install was first set up for).
+     * Deliberately NOT pinned to a sent document: it is operational (a mailbox that gets changed), so reminders sent later
+     * always use today's address.
+     */
+    public function mailFrom(): \Illuminate\Mail\Mailables\Address
+    {
+        $address = filter_var(trim((string) $this->send_from_address), FILTER_VALIDATE_EMAIL) ?: static::SEED['send_from_address'];
+        $name = trim((string) $this->send_from_name) ?: static::SEED['send_from_name'];
+
+        return new \Illuminate\Mail\Mailables\Address($address, $name);
     }
 
     public function emailSignatureHtml(): string

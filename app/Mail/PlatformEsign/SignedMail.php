@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 /** The signed, sealed PDF — to every signer and to the CoreX user who sent it. */
 class SignedMail extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable, SendsFromPlatformCompany, SerializesModels;
 
     public function __construct(public Document $doc)
     {
@@ -23,7 +23,7 @@ class SignedMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Signed: ' . $this->doc->title);
+        return $this->platformEnvelope('Signed: ' . $this->doc->title, $this->doc);
     }
 
     public function content(): Content

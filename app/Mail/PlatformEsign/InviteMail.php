@@ -13,7 +13,7 @@ use Illuminate\Queue\SerializesModels;
 /** "Please review and sign" email carrying the signer's own link. Sent via the 'corex' mailer. */
 class InviteMail extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable, SendsFromPlatformCompany, SerializesModels;
 
     public string $signUrl;
 
@@ -24,7 +24,7 @@ class InviteMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: $this->doc->title . ' — please review and sign');
+        return $this->platformEnvelope($this->doc->title . ' — please review and sign', $this->doc);
     }
 
     public function content(): Content
