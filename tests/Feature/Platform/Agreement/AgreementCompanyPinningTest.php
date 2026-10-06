@@ -247,7 +247,7 @@ class AgreementCompanyPinningTest extends TestCase
             'Services/PlatformEsign/Agreement/AgreementContent.php' => ['RR Technologies initials'],   // matches the legal source text
             'views/platform-esign/agreement/review.blade.php'       => ['For RR Technologies'],        // quotes the wording's signature block label
             'Services/PlatformEsign/Agreement/AgreementCompany.php' => ['who RR Technologies is'],
-            'Services/PlatformEsign/Agreement/AgreementRenderer.php' => ['Fixed RR Technologies party details'],
+            'Services/PlatformEsign/Agreement/AgreementRenderer.php' => ['Fixed RR Technologies party details', "'For RR Technologies'"], // 2nd: the contract's own signature-block heading (wording), matched literally
         ];
         $roots = [app_path('Services/PlatformEsign'), app_path('Http/Controllers/PlatformEsign'), app_path('Mail/PlatformEsign'), resource_path('views/platform-esign')];
         $hits = [];
