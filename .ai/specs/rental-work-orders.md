@@ -3380,7 +3380,7 @@ photo upload, mark completed, signed-copy upload) with `@example.invalid` test a
 
 **Acceptance:** (1) crew email/phone save + validate; (2) Generate → URL once; Email → one mail via the agency mailbox path
 (QA1: caught); second Generate kills the first; (3) the link opens on a phone with no login and shows exactly §14.27.5's view;
-(4) crew "Mark work completed" records name/timestamp/IP/device, the card is NOT completed, the landlord mail follows if on;
+(4) crew "Mark work completed" records name/timestamp/IP/device, the card is NOT completed, the landlord mail follows if on — once per card, on the first crew completion only;
 (5) signed copy uploads, supersedes, never deletes, records the same crew completion; (6) crew photos appear on the card;
 (7) agent sign-off + complete kills the link; (8) every action is in the card history.
 
@@ -3398,6 +3398,28 @@ grant); Step 1 = everything else (migration `2026_10_10_110000` signed copies). 
 - **`RentalMailDispatcher`** extends `ComplianceMailDispatcher` (one implementation of the mailbox routing, own class for rentals).
 - **Wizard current values:** `AgencySetupWizardController::currentValues()` gained an explicit `'rental_portal'` arm naming every
   control under that source (it had none, so all six pre-existing portal controls always showed their hardcoded default — §6.2).
+
+**FOLLOW-UP 2026-10-06 (cc4) — landlord email once per job card; wizard gaps.**
+- **One landlord email per job card (decision).** The "work completed" email goes out on the FIRST crew completion by ANY route
+  (crew link, crew page or signed copy) and never again for that card. A later crew completion — a corrected signed-copy
+  re-upload, or the other route arriving second — still records and audits exactly as before (the earlier signed copy is kept and
+  marked Superseded; the sign-off details are overwritten; `crew_completed` is logged) but sends no email; the card's history
+  gets "Landlord not emailed again — they were already told the crew completed this job". "Once" is enforced by
+  `rental_job_cards.landlord_crew_notice_at`, claimed by the listener with ONE conditional `UPDATE ... WHERE landlord_crew_notice_at IS NULL`
+  (atomic — two racing completions cannot both win). The claim is taken at the first completion even if no email goes out (setting off,
+  no landlord address): the first completion is when the landlord is told or not, and a later completion does not reopen that.
+  Migration `2026_10_10_120000` stamps cards whose crew had already completed by link / page / signed copy (they have had their one
+  email); a card whose only sign-off was the office "Worker — done" button is left empty. The link route already refuses a second
+  completion once a sign-off exists, so "signed copy first, crew link second" is refused at the link and, for any route that does
+  reach the event, silent at the listener. Tests: `RentalJobCardCrewCompletionMailTest` (both orders, re-upload, setting-off-then-on, double event).
+- **Wizard current values (§6.2).** `currentValues()` named no arm for `capture_prices_on_job_cards`, `show_prices_on_printed_job_card`
+  (both `rental_work_orders`) or the seven §43 scheduling settings under `rental_inspections` (`notify_tenant_enabled`,
+  `notify_landlord_enabled`, `notify_inspector_enabled`, `notify_via_mail_enabled`, `notify_via_whatsapp_enabled`,
+  `minimum_notice_days`, `reminder_days_before`), so the wizard showed the hardcoded default instead of the agency's saved value.
+  All nine are named now, and `AgencySetupWizardCurrentValuesTest` guards `rental_portal` as well as the other explicit-per-key sources.
+- **Leases-step save test.** A real browser always posts every toggle on the wizard (a hidden `0` is rendered beside every checkbox),
+  so the saver's absent-means-refuse guard cannot be hit from the page; the test posted a hand-written payload that had gone stale.
+  It now starts from the form the page renders, serialised as a browser would, plus the Alpine-built list rows.
   Build 2 appends its four keys to that arm.
 - A signed copy uploaded to a **Completed** card is filed only (no sign-off, no event); a **Cancelled** card refuses it.
 - The public job page uses inline CSS and a few lines of vanilla JS (no Vite bundle), so it loads on a weak phone connection.

@@ -14743,6 +14743,7 @@ CREATE TABLE `rental_job_cards` (
   `worker_sign_off_via` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `worker_sign_off_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `worker_sign_off_device` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `landlord_crew_notice_at` timestamp NULL DEFAULT NULL,
   `agent_signed_off_at` timestamp NULL DEFAULT NULL,
   `agent_signed_off_by_user_id` bigint unsigned DEFAULT NULL,
   `tenant_confirmed_at` timestamp NULL DEFAULT NULL,
@@ -19624,3 +19625,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1577,'2026_10_10_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1578,'2026_10_10_100500_grant_rental_job_cards_share_permission',2);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1579,'2026_10_10_110000_create_rental_job_card_signed_copies_table',3);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1580,'2026_10_09_100000_add_crew_page_settings_to_rental_portal_settings',4);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1581,'2026_10_10_120000_add_landlord_crew_notice_to_rental_job_cards_table',5);

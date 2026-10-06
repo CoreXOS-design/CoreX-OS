@@ -126,6 +126,84 @@ final class RentalJobCardCrewCompletionMailTest extends TestCase
         $this->assertInstanceOf(RentalJobCardCrewCompletedLandlordMail::class, $this->fake->sent[0][1]);
     }
 
+    private function uploadSignedCopy(string $file = 'signed.pdf', string $name = 'Sipho Dlamini'): void
+    {
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.signed-copy.store', $this->card), [
+            'signed_copy' => UploadedFile::fake()->create($file, 10, 'application/pdf'), 'signed_by_name' => $name,
+        ])->assertSessionHasNoErrors();
+    }
+
+    private function crewCompletedLines(): int
+    {
+        return $this->card->updates()->where('update_type', 'crew_completed')->count();
+    }
+
+    // ── Once per job card: the FIRST crew completion by either route emails; nothing after does. ──
+
+    public function test_a_corrected_signed_copy_re_upload_does_not_email_the_landlord_again(): void
+    {
+        $this->linkLandlord();
+
+        $this->uploadSignedCopy('first.pdf');
+        $this->uploadSignedCopy('corrected.pdf', 'Sipho D.');
+
+        $this->assertCount(1, $this->fake->sent, 'one email for the first completion, none for the re-upload');
+        $this->assertSame(2, $this->crewCompletedLines(), 'the re-upload is still audited as a crew completion');
+        $this->assertSame('Sipho D.', $this->card->fresh()->worker_sign_off_name, 'the corrected copy still supersedes the sign-off details');
+        $this->assertSame(2, \App\Models\RentalJobCardSignedCopy::query()->where('rental_job_card_id', $this->card->id)->count(), 'both files are kept');
+        $this->assertSame(1, \App\Models\RentalJobCardSignedCopy::query()->where('rental_job_card_id', $this->card->id)->whereNotNull('superseded_at')->count());
+        $this->assertStringContainsString('not emailed again', $this->card->updates()->where('update_type', 'landlord_notified')->latest('id')->first()->note);
+    }
+
+    public function test_a_signed_copy_after_the_crew_link_completion_does_not_email_again(): void
+    {
+        $this->linkLandlord();
+
+        $this->crewCompletes();
+        $this->uploadSignedCopy();
+
+        $this->assertCount(1, $this->fake->sent);
+        $this->assertSame(2, $this->crewCompletedLines());
+    }
+
+    public function test_a_crew_completion_recorded_after_a_signed_copy_does_not_email_again(): void
+    {
+        $this->linkLandlord();
+        $this->uploadSignedCopy();
+        $this->assertCount(1, $this->fake->sent);
+
+        // The link route refuses a second completion outright (worker_signed_off_at is already set) ...
+        $this->post("{$this->base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1']);
+        // ... and even a completion that does reach the event (any route, now or later) is a no-mail.
+        \App\Events\Rentals\RentalJobCardCrewCompleted::dispatch($this->card->fresh(), 'Sipho Dlamini', RentalJobCard::SIGN_OFF_VIA_CREW_LINK);
+
+        $this->assertCount(1, $this->fake->sent);
+    }
+
+    public function test_the_first_completion_decides_even_when_the_setting_was_off_then(): void
+    {
+        $this->linkLandlord();
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['notify_landlord_on_crew_completion' => false]);
+        $this->crewCompletes();
+
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['notify_landlord_on_crew_completion' => true]);
+        $this->uploadSignedCopy();
+
+        $this->assertCount(0, $this->fake->sent, 'the landlord notice was decided at the first completion');
+    }
+
+    public function test_two_completion_events_for_one_card_claim_the_notice_exactly_once(): void
+    {
+        $this->linkLandlord();
+        $card = $this->card->fresh();
+
+        \App\Events\Rentals\RentalJobCardCrewCompleted::dispatch($card, 'Sipho Dlamini', RentalJobCard::SIGN_OFF_VIA_CREW_PAGE);
+        \App\Events\Rentals\RentalJobCardCrewCompleted::dispatch($card, 'Sipho Dlamini', RentalJobCard::SIGN_OFF_VIA_SIGNED_COPY);
+
+        $this->assertCount(1, $this->fake->sent);
+        $this->assertNotNull($this->card->fresh()->landlord_crew_notice_at);
+    }
+
     public function test_a_landlord_with_no_email_is_noted_not_a_failure(): void
     {
         $this->linkLandlord(null);
