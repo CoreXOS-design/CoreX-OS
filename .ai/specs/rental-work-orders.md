@@ -3062,8 +3062,8 @@ attributes were always empty and the column fell back to the line's OWN VAT type
 from a catalogue item with no default VAT type, simply does not have. (The printouts were fixed for the same reason in
 §14.21 and are untouched.) **Fix:** the column shows the line's EFFECTIVE VAT type — Standard / None / Custom, the add-line
 select's own wording (`RentalVatType::shortenName()`, shared with `shortLabel()` so the two cannot drift) — resolved through
-the VAT service and keyed by line id: `breakdown()['lineFigures'][$line->id]['type_label']` (+ the rate beside it, e.g.
-"Standard (15%)", "Custom (7.5%)"); a line with no VAT type is charged 0% = **None**; a line with no price yet (no
+the VAT service and keyed by line id: `breakdown()['lineFigures'][$line->id]['type_label']` (the cell shows the label only —
+the 84px column cannot hold "Standard (15%)" at 1366 wide — and the tooltip carries the rate, e.g. "Standard (15%)", "Custom (7.5%)"); a line with no VAT type is charged 0% = **None**; a line with no price yet (no
 lineFigures entry) falls back to `RentalJobCardVatService::effectiveTypeLabel($line)`; a frozen (quoted) line words the type
 name it was issued with the same way. Never a dash.
 

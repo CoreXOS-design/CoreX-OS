@@ -66,10 +66,8 @@
                                     $vatRate = $fig['rate'] ?? null;
                                 @endphp
                                 <span class="truncate" title="{{ $vatTypeLabel }}{{ $vatRate ? ' (' . rtrim(rtrim(number_format((float) $vatRate, 2), '0'), '.') . '%)' : '' }}" style="{{ $cell }}">
+                                    {{-- label only in the cell (the 84px column cannot hold "Standard (15%)" at 1366 wide); the rate is in the tooltip --}}
                                     {{ $vatTypeLabel }}
-                                    @if($vatRate)
-                                        <span style="color: var(--text-muted);">({{ rtrim(rtrim(number_format((float) $vatRate, 2), '0'), '.') }}%)</span>
-                                    @endif
                                 </span>
                             @endif
                         @endif
