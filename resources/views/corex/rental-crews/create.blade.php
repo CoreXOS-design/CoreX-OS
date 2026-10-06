@@ -16,6 +16,16 @@
             <label class="prop-label">Name</label>
             <input type="text" name="name" value="{{ old('name') }}" required maxlength="191" placeholder="e.g. Team 1, or a person's name" class="prop-input w-full">
         </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <label class="prop-label">Email</label>
+                <input type="email" name="email" value="{{ old('email') }}" maxlength="191" class="prop-input w-full">
+            </div>
+            <div>
+                <label class="prop-label">Contact number</label>
+                <input type="text" name="phone" value="{{ old('phone') }}" maxlength="30" inputmode="tel" class="prop-input w-full">
+            </div>
+        </div>
         <div>
             <label class="prop-label">Notes</label>
             <textarea name="notes" rows="3" class="prop-input w-full">{{ old('notes') }}</textarea>

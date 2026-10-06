@@ -27,7 +27,11 @@ class RentalCrewController extends Controller
         $query = RentalCrew::query()->withCount('members');
 
         if ($search = trim((string) $request->get('q', ''))) {
-            $query->where('name', 'like', "%{$search}%");
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
+            });
         }
 
         $status = $request->get('status', 'active');
@@ -152,9 +156,17 @@ class RentalCrewController extends Controller
                     ->whereNull('deleted_at')
                     ->ignore($editing?->id),
             ],
+            // §14.27.6 item 1 — where a job card's crew link is sent. Both optional:
+            // a crew with no address can still be sent a link to any address typed.
+            'email' => ['nullable', 'email:rfc', 'max:191'],
+            'phone' => ['nullable', 'string', 'regex:/^[0-9+()\-. ]{5,30}$/'],
             'notes' => ['nullable', 'string'],
             'is_active' => ['nullable', 'boolean'],
+        ], [
+            'phone.regex' => 'The contact number may only contain digits, spaces and + ( ) - . and must be 5 to 30 characters.',
         ]);
+        $data['email'] = isset($data['email']) && trim($data['email']) !== '' ? trim($data['email']) : null;
+        $data['phone'] = isset($data['phone']) && trim($data['phone']) !== '' ? trim($data['phone']) : null;
         $data['is_active'] = $request->boolean('is_active', true);
 
         return $data;

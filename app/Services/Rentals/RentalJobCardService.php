@@ -624,8 +624,16 @@ class RentalJobCardService
      * also cross-referenced onto a linked work order's own
      * rental_work_order_id when one exists, same evidence pipeline either way.
      */
-    public function storePhoto(RentalJobCard $jobCard, UploadedFile $file, string $photoType, User $uploadedBy, ?string $clientKey = null): RentalWorkOrderPhoto
-    {
+    public function storePhoto(
+        RentalJobCard $jobCard,
+        UploadedFile $file,
+        string $photoType,
+        ?User $uploadedBy,
+        ?string $clientKey = null,
+        ?string $caption = null,
+        ?string $uploadedVia = null,
+        bool $log = true,
+    ): RentalWorkOrderPhoto {
         $url = app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
 
         $photo = RentalWorkOrderPhoto::create([
@@ -633,13 +641,19 @@ class RentalJobCardService
             'rental_work_order_id' => $jobCard->rental_work_order_id,
             'rental_job_card_id' => $jobCard->id,
             'photo_type' => $photoType,
+            'caption' => $caption,
+            'uploaded_via' => $uploadedVia ?? ($uploadedBy ? RentalWorkOrderPhoto::VIA_OFFICE : null),
             'storage_path' => $url,
-            'uploaded_by_user_id' => $uploadedBy->id,
+            'uploaded_by_user_id' => $uploadedBy?->id,
             'client_idempotency_key' => $clientKey,
             'file_size_bytes' => $file->getSize(),
         ]);
 
-        $jobCard->logUpdate('photo_added', $uploadedBy, ucfirst(str_replace('_', ' ', $photoType)) . ' photo uploaded');
+        // The crew's own uploads pass $log = false and write one summary line
+        // per submit ('crew_photos_added') instead of one per file.
+        if ($log) {
+            $jobCard->logUpdate('photo_added', $uploadedBy, ucfirst(str_replace('_', ' ', $photoType)) . ' photo uploaded');
+        }
 
         return $photo;
     }
