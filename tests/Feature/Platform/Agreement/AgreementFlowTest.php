@@ -157,7 +157,7 @@ class AgreementFlowTest extends TestCase
         $owner = $this->owner();
         Mail::fake();
         $this->actingAs($owner)->get(route('platform-esign.agreements.create'))->assertOk()->assertSee('Send Subscription Agreement');
-        $res = $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => 'Pat Principal', 'email' => 'pat@caprivi.test']);
+        $res = $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => 'Pat Principal', 'email' => 'pat@caprivi.test', 'take_on_month' => now()->format('Y-m')]);
         $doc = Document::latest('id')->firstOrFail();
         $res->assertRedirect(route('platform-esign.documents.show', $doc->id));
         $this->actingAs($owner)->get(route('platform-esign.documents.show', $doc->id))->assertOk()

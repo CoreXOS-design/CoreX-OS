@@ -48,11 +48,15 @@ class PlatformEsignVerifyWording extends Command
         '/^Number of agents Number of branches( .*)?$/u' => 'Recipient web form only: the labels of the two entries (agents, branches) side by side above the fee table (and the >40 agents note)',
     ];
 
-    /** Screen-only helper text beside the three read-only places of the recipient form (never in a PDF, never wording). */
-    private const SCREEN_TIP = 'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).';
+    /** Screen-only helper text on the recipient form (never in a PDF, never wording): text => where it sits. */
+    private const SCREEN_TIPS = [
+        'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).' => 'beside the plan ticks, the section 1 branches row and the section 3 branches row',
+        'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date (set by RR through the take-on month)',
+    ];
 
     private int $defects = 0;
-    private int $screenTips = 0;
+    /** @var array<string,int> */
+    private array $screenTips = [];
 
     public function handle(AgreementService $svc): int
     {
@@ -76,7 +80,7 @@ class PlatformEsignVerifyWording extends Command
     {
         $uid = (int) ($this->option('user') ?: Document::withoutGlobalScopes()->whereNotNull('created_by')->orderByDesc('id')->value('created_by'));
         Mail::fake();
-        $doc = $svc->send(['name' => 'Wording Proof Throwaway', 'email' => 'wording-proof@example.test', 'cell' => '0820000000'], $uid);
+        $doc = $svc->send(['name' => 'Wording Proof Throwaway', 'email' => 'wording-proof@example.test', 'cell' => '0820000000', 'take_on_month' => now()->format('Y-m')], $uid);
         if ($pin = (string) $this->option('pin')) {
             // send() pins the newest PUBLISHED version; the proof is of the seeded text, so pin the throwaway to it explicitly.
             $v = WordingVersion::withTrashed()->where('template_id', $doc->template_id)->where('version', $pin)->first();
@@ -167,8 +171,12 @@ class PlatformEsignVerifyWording extends Command
             if ($file = $this->option('web-text')) {
                 // The screen-only tips are taken out first (they can sit inside a blank's fill window) and reported as declared additions.
                 $text = preg_replace('/\s+/u', ' ', (string) file_get_contents($file));
-                $this->screenTips = substr_count($text, self::SCREEN_TIP);
-                $actual = AgreementFidelity::fromRendered(str_replace(self::SCREEN_TIP, ' ', $text));
+                $this->screenTips = [];
+                foreach (array_keys(self::SCREEN_TIPS) as $tip) {
+                    $this->screenTips[$tip] = substr_count($text, $tip);
+                    $text = str_replace($tip, ' ', $text);
+                }
+                $actual = AgreementFidelity::fromRendered($text);
                 $ok = $this->report('RECIPIENT WEB PAGE (real browser)', $expected, $actual, $doc, 'web', $summary) && $ok;
             }
 
@@ -265,9 +273,12 @@ class PlatformEsignVerifyWording extends Command
         foreach ($declared as [$d, $why]) {
             $this->line('  declared addition: "' . $d['actual'] . '" — ' . $why);
         }
-        $tips = $kind === 'web' ? $this->screenTips : 0;
-        if ($tips) {
-            $this->line('  declared addition: ' . $tips . ' × "' . self::SCREEN_TIP . '" — Recipient web form only (screen helper text): beside the plan ticks, the section 1 branches row and the section 3 branches row');
+        $tips = 0;
+        foreach ($kind === 'web' ? $this->screenTips : [] as $tip => $n) {
+            if ($n) {
+                $tips += $n;
+                $this->line('  declared addition: ' . $n . ' × "' . $tip . '" — Recipient web form only (screen helper text): ' . self::SCREEN_TIPS[$tip]);
+            }
         }
         $this->listDiffs($defects);
         $summary[$title === 'RECIPIENT WEB PAGE (real browser)' ? 'web' : ($kind === 'wet' ? 'wet-ink PDF' : 'sealed PDF')] = count($defects) . ' differences' . (($declared || $tips) ? ' (+' . (count($declared) + $tips) . ' declared additions)' : '');

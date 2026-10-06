@@ -15,6 +15,7 @@ use App\Models\PlatformEsign\WetinkFile;
 use App\Models\User;
 use App\Services\Platform\AgencyTimelineService;
 use App\Services\PlatformEsign\EsignService;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -61,7 +62,7 @@ class AgreementService
     // ── Send ───────────────────────────────────────────────────────────────
 
     /**
-     * @param array{name:string,email:string,cell?:?string,agency_id?:?int,note?:?string,variation_text?:?string,variation_amount?:?string,plan?:?string} $d
+     * @param array{name:string,email:string,cell?:?string,agency_id?:?int,note?:?string,variation_text?:?string,variation_amount?:?string,plan?:?string,take_on_month?:?string} $d
      * @throws \DomainException
      */
     public function send(array $d, int $userId): Document
@@ -90,11 +91,19 @@ class AgreementService
         $values = AgreementFields::prefillFromAgency($agency) + array_filter([
             'sig_name' => $name, 'billing_name' => $name, 'billing_email' => $email, 'billing_cell' => $cell,
         ], fn ($v) => $v !== '');
+        // Take-on month (spec §11.19): RR sets it; the agreement start date and first billing date are derived from it in ONE place.
+        $takeOn = trim((string) ($d['take_on_month'] ?? ''));
+        if ($takeOn !== '' && !AgreementTakeOn::valid($takeOn)) {
+            throw new \DomainException('Choose a take-on month that is this month or later.');
+        }
         // Optional owner-only override for a negotiated case: the recipient then sees that plan fixed whatever the number of agents.
         $forcedPlan = in_array($d['plan'] ?? '', ['team', 'agency'], true) ? $d['plan'] : '';
-        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount, 'plan_forced' => $forcedPlan], fn ($v) => $v !== '');
+        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount, 'plan_forced' => $forcedPlan, 'take_on_month' => $takeOn], fn ($v) => $v !== '');
+        if ($takeOn !== '') {
+            $values = $values + AgreementTakeOn::values($takeOn);
+        }
 
-        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan) {
+        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan, $takeOn) {
             $doc = Document::create([
                 'template_id' => $tpl->id, 'template_version' => (int) $tpl->version, 'wording_version_id' => $version->id,
                 'agency_id' => $agency?->id, 'title' => 'CoreX Subscription Agreement — ' . ($agency?->name ?: $name),
@@ -114,6 +123,10 @@ class AgreementService
                 'name' => $sender->name, 'email' => strtolower((string) $sender->email), 'token' => Str::random(48), 'status' => 'pending']);
 
             $this->esign->log($doc, 'created', 'Subscription Agreement ' . $version->label() . ' prepared for ' . $name, null, $userId);
+            if ($takeOn !== '') {
+                $t = AgreementTakeOn::derive($takeOn);
+                $this->esign->log($doc, 'take_on_set', 'Take-on month ' . AgreementTakeOn::label($takeOn) . ' set by ' . $sender->name . ' — agreement starts ' . Carbon::parse($t['start_date'])->format('j F Y') . ', billing starts ' . Carbon::parse($t['billing_start'])->format('j F Y'), null, $userId);
+            }
             if ($forcedPlan !== '') {
                 $this->esign->log($doc, 'plan_forced', 'Plan fixed by ' . $sender->name . ' to CoreX ' . ucfirst($forcedPlan) . ' (negotiated) — the recipient sees it fixed', null, $userId);
             }
@@ -213,6 +226,7 @@ class AgreementService
         $calc = $this->calc($values, $rr, $v->rates_json ?? []);
         // Section 3 completes itself: every rendering shows the plan and branches the entries select, whatever an older save stored.
         $values = $this->withDerived($values, $calc);
+        $values = $this->withTakeOn($values, $rr);
 
         return $over + [
             'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => (string) $doc->contract_ref,
@@ -232,6 +246,20 @@ class AgreementService
     public function calc(array $values, array $rr, array $rates): array
     {
         return AgreementPricing::derive($values, $rr, $rates);
+    }
+
+    /** The start date and first billing date follow the take-on month RR set (spec §11.19) — documents sent without one keep what they have. */
+    private function withTakeOn(array $values, array $rr): array
+    {
+        $m = (string) ($rr['take_on_month'] ?? '');
+
+        return preg_match('/^\d{4}-\d{2}$/', $m) ? array_merge($values, AgreementTakeOn::values($m)) : $values;
+    }
+
+    /** Keys the recipient's request may never write: the derived ones, plus the take-on dates when RR set a take-on month. @return string[] */
+    private function lockedKeys(array $rr): array
+    {
+        return array_merge(self::DERIVED_KEYS, !empty($rr['take_on_month']) ? array_keys(AgreementTakeOn::FIELDS) : []);
     }
 
     /** Recipient keys the entries decide — never taken from the recipient's request. */
@@ -259,6 +287,7 @@ class AgreementService
         $old = $this->calc($before, $rr, $rates);
         $new = $this->calc($after, $rr, $rates);
         $after = $this->withDerived($after, $new);
+        $after = $this->withTakeOn($after, $rr);
         $cur = trim((string) ($after['m_amount'] ?? ''));
         $untouched = $cur === '' || ($old['plan'] !== '' && abs((float) str_replace(' ', '', $cur) - $old['total']) < 0.005);
         if ($untouched && $new['plan'] !== '') {
@@ -315,7 +344,7 @@ class AgreementService
             if ($rev !== (int) $locked->form_rev) {
                 throw new AgreementConflict((int) $locked->form_rev, (array) $locked->form_data);
             }
-            $clean = array_diff_key(AgreementFields::clean($input, 'r'), array_flip(self::DERIVED_KEYS));
+            $clean = array_diff_key(AgreementFields::clean($input, 'r'), array_flip($this->lockedKeys((array) $locked->rr_data)));
             $rates = $locked->wording->rates_json ?? [];
             if (!$clean) {
                 return ['rev' => (int) $locked->form_rev, 'calc' => $this->calc((array) $locked->form_data, (array) $locked->rr_data, $rates)];
@@ -387,7 +416,7 @@ class AgreementService
                 throw new \DomainException($reason);
             }
             $rates = $locked->wording->rates_json ?? [];
-            $incoming = array_diff_key(AgreementFields::clean($values, 'r'), array_flip(self::DERIVED_KEYS));
+            $incoming = array_diff_key(AgreementFields::clean($values, 'r'), array_flip($this->lockedKeys((array) $locked->rr_data)));
             $data = $this->settle((array) $locked->form_data, array_merge((array) $locked->form_data, $incoming), (array) $locked->rr_data, $rates);
             $errors = AgreementFields::validateRecipient($data, $rates);
 

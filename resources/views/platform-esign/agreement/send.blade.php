@@ -36,6 +36,18 @@
         </div>
 
         <div>
+            <label class="ds-label block mb-1" for="take_on_month">Take-on month <span style="color: var(--ds-crimson);">*</span></label>
+            <select id="take_on_month" name="take_on_month" required class="ds-field" style="min-width: 14rem;">
+                @foreach($takeOnOptions as $o)
+                    <option value="{{ $o['value'] }}" data-start="{{ $o['start'] }}" data-billing="{{ $o['billing'] }}" @selected(old('take_on_month', $takeOnOptions[0]['value']) === $o['value'])>{{ $o['label'] }}</option>
+                @endforeach
+            </select>
+            @error('take_on_month')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+            <p class="text-sm mt-2" style="color: var(--text-primary);" id="take-on-dates" aria-live="polite"></p>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">The month the agency goes live is free. The agreement starts on the 1st of this month and billing (the first debit) starts on the 1st of the next month. The agency cannot change these dates.</p>
+        </div>
+
+        <div>
             <label class="ds-label block mb-1" for="note">Short note in the email <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
             <textarea id="note" name="note" rows="2" maxlength="490" class="ds-field w-full">{{ old('note') }}</textarea>
         </div>
@@ -74,6 +86,15 @@
         </div>
     </form>
 </div>
+<script>
+// Show the two dates the chosen take-on month gives, before sending.
+(function () {
+    const sel = document.getElementById('take_on_month'), out = document.getElementById('take-on-dates');
+    if (!sel || !out) return;
+    const show = () => { const o = sel.options[sel.selectedIndex]; out.innerHTML = o ? 'Agreement starts <strong>' + o.dataset.start + '</strong> · billing starts <strong>' + o.dataset.billing + '</strong>' : ''; };
+    sel.addEventListener('change', show); show();
+})();
+</script>
 <script>
 // Picking an agency fills the recipient's name / email / cell from the agency's principal (the owner can still correct them).
 // Only fields the owner has not already typed into themselves are replaced.
