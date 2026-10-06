@@ -1,6 +1,6 @@
 # Platform Company Profile (RR Technologies) — Spec
 
-> Status: **Interface built on QA1 (cc5, 2026-10-06); page in the follow-up commit.**
+> Status: **Built and proven on QA1 (cc5, 2026-10-06): interface, owner page, company email signature.** Awaiting Johan's test before Staging.
 > Area: **System Developer** (owner-only), beside Platform E-Sign.
 > Sister specs: `agency-timeline-and-platform-esign.md` (consumer #1: the CoreX Subscription Agreement web
 > document, lane cc3), `agency-onboarding-setup.md` (NOT affected — see §8).
@@ -94,6 +94,11 @@ $c->legal_name; $c->trading_name; $c->registration_number; $c->vat_registered; $
 $c->directors; $c->physical_address; $c->postal_address; $c->email_general; $c->email_support;
 $c->email_accounts; $c->phones; $c->websites; $c->bank_details; $c->strap_line; $c->letterhead_footer;
 ```
+Presentation helpers (also stable — `AgreementCompany` in Platform E-Sign already calls them):
+`directorNames()`, `phoneList()` (`[{label,number}]`, blank numbers dropped), `websiteList()`, `addressLines('postal'|null)`,
+`emailList()`, `letterheadFooterText()`, `defaultEmailSignatureHtml()`, `PlatformCompany::websiteHref($site)`,
+`PlatformCompany::preview(array $attrs)` (unsaved copy for live previews).
+
 `'pdf'` context: print layout, black on white, logo embedded as a data URI (no network fetch from Puppeteer).
 `'web'` context: responsive, logo by URL. Neither ever renders a blank block — missing optional values are omitted,
 never printed as empty labels.
@@ -115,8 +120,16 @@ by design; logos follow Create (upload) / Read / Replace / Archive-by-supersessi
   stripped except the CoreX logo data-URI) before it is stored and again before it is rendered.
 * Bank details: `encrypted` cast; never written to the audit log in clear; never part of the letterhead.
 
-## 7. Consumers / hard-coded leftovers — see the lane report
-`platform-esign/email/{invite,signed}.blade.php` now use the company signature/footer (this build).
+## 7. Consumers / hard-coded leftovers
+* **Done here:** `platform-esign/email/{invite,signed}.blade.php` render the company signature + footer through
+  `platform-esign/email/_signature.blade.php`.
+* **Already on the interface (cc3):** `Services/PlatformEsign/Agreement/AgreementCompany.php` (letterhead lines, logo, beneficiary address).
+* **Still hard-coded (not touched — other lane's files; routed via the conductor):**
+  `resources/views/platform-esign/email/agreement-invite.blade.php` (signature-less; footer line "CoreX OS · corexos.co.za"; "johan@corexos.co.za"),
+  `…/agreement-received.blade.php` (footer line), `…/pdf/sealed.blade.php:42` ("CoreX OS"),
+  `Agreement/AgreementService.php` (role label / messages "RR Technologies"), `Agreement/AgreementContent.php`,
+  `Agreement/AgreementFields.php`, `Agreement/AgreementSample.php` ("Southbroom"), `resources/legal/subscription-agreement/*.md`
+  (legal wording — pinned per version on purpose, clause B25 prints details exactly as signed; support/contact lines in Part C).
 
 ## 8. Not applicable
 * Setup Wizard (non-negotiable 10a): this is a platform-owner record, not something an agency configures.
