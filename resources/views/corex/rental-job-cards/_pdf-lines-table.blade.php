@@ -26,6 +26,7 @@
     <p class="muted">No lines.</p>
 @else
 <table class="lines" style="table-layout: fixed;">
+    <thead>
     <tr>
         <th>Description</th>
         <th style="width: {{ $pricesOn ? '11%' : '16%' }};">Type</th>
@@ -40,6 +41,8 @@
             @endif
         @endif
     </tr>
+    </thead>
+    <tbody>
     @foreach($lines as $line)
     <tr>
         <td>{{ $line->code ? $line->code . ' — ' . $line->description : $line->description }}</td>
@@ -72,5 +75,6 @@
         @endif
     </tr>
     @endif
+    </tbody>
 </table>
 @endif

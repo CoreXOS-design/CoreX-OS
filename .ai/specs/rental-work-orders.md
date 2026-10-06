@@ -2904,6 +2904,68 @@ templates). `RentalJobCardFollowUpsTest`'s three `<th>` assertions relaxed to al
 `parseDateInput`, `agencyTimezone`), `resources/views/corex/rental-job-cards/{print,quote-pdf,_pdf-lines-table,show}.blade.php`,
 the two test files above.
 
+### 14.23 Job card / rental print follow-ups — page margins on every rental PDF, totals box that never splits, pre-filled schedule boxes, quote box on every open card (2026-10-06, Johan: "if they are bugs, fix them")
+
+All four are the follow-ups reported (not changed) at the end of §14.22.
+
+**1. Page margins on the other rental PDFs.** Same root cause as §14.22: dompdf lets an explicit `margin` on
+the `html` box win over `@page`, so a template that declares `@page { margin: … }` AND resets the html box
+prints with NO page margin. Measured with real dompdf + `pdftotext -bbox` (A4 = 595.28pt wide):
+
+| CSS pattern | min x of text | verdict |
+|---|---|---|
+| `html, body { margin:0 }` (or `html { margin:0 }`) | 0.0 | **broken** |
+| `* { margin:0 }` (the star includes `html`) | 0.0 | **broken** (dompdf only) |
+| `body { margin:0 }` only | = the @page margin | fine |
+| no reset | = the @page margin | fine |
+
+Every rental PDF checked (all dompdf unless noted): **broken** = `rental-work-orders/pdf`,
+`rental-fault-reports/pdf`, `rental-notices/pdf`, `leases/pdf/tenancy-report` (all `html, body {margin:0}`).
+**Fine, untouched** = `rental-inspections/report-pdf`, `rental-inventories/report-pdf`,
+`rental-signatures/wet-ink-scan-pdf` (body-only reset), the three `rentals/reports/*` (no @page; measured
+min x 52pt), `rental-applications/pdf` (no @page), `rental-inspections/form-pdf` (`@page margin:0` on purpose
+— a blank scan form with its own layout). `deposit-interest-calculator/pdf` + `pdf-tenant` also carry a
+`* { margin:0 }` reset, but those two are rendered by Puppeteer/Chrome (`convertHtmlToPdf`), which applies
+@page margins regardless — not this bug, not touched.
+**Fix:** the html/body reset is removed from the four templates. Long text: `p, td, th, li, div { word-wrap: break-word }` and, where a
+table holds free text, `table-layout: fixed` with the label column kept, so one long unbroken word (a part
+number, an e-mail, a pasted URL) wraps inside A4 instead of widening a table past the edge.
+The notice PDF's body is agency-written HTML, so it gets the same wrap rules plus `table-layout: fixed` on any
+table inside it (measured: an auto-layout table with one long unbroken word ran to x = 595.6pt, a fixed one stays
+at 566.6pt; a table that sets its own column widths keeps them, one that sets none now splits equally).
+
+**2. Totals box splitting across pages.** The grand totals ("Subtotal / VAT / Total") sit in one `.box`
+`<div>`; with a long card the page break fell inside it (Subtotal+VAT on page 1, Total on page 2).
+**Fix:** that box gets `page-break-inside: avoid` (whole box moves to the next page when it does not fit) on the
+printed job card and the owner quote; the lines table gets a `<thead>` so its header row **repeats on page 2+**
+(dompdf repeats `<thead>` per page) and rows `page-break-inside: avoid` so a line never splits mid-row.
+
+**3. Schedule boxes not pre-filled.** `Set` posts BOTH boxes and blank means "clear", so setting only Due on a
+card that already had a Scheduled date silently erased it. **Fix:** both boxes render the saved values
+(`RentalJobCard::scheduleInputValue()` → `Y-m-d\TH:i` in the **agency timezone**, the same zone the controller
+reads the box in, so Set with nothing touched is an exact no-op round trip); `old()` still wins after a
+refused Set so the typed value is not lost. The header line above the boxes is unchanged.
+
+**4. "Send quote to owner" vanishes once the card is Scheduled.** Root cause: `show.blade.php` (quote box,
+`#jc-quote-box`) only rendered when `$currentQuote` existed OR `status ∈ {draft, quoted}`; `schedule()` moves a
+Draft card straight to Scheduled (and Mark-in-progress to In progress), so a card scheduled before its quote was
+ever sent lost the box for good. The service never had a status rule (`sendToOwnerAsQuote()` refuses only a
+closed card, an empty card and a card whose property has no landlord) and already keeps Scheduled / In progress
+status when it sends. **Rule now:** the quote box (first send and every re-send) is offered on **every open
+card — Draft, Quoted, Approved, Scheduled, In progress**; never on **Completed / Cancelled** (locked, §14.21 —
+view and service both refuse). Sending from Scheduled / In progress does not move the card's status (work is
+already planned); the owner-approval state on the linked work order resets/evaluates exactly as before.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardPrintFollowUpsTest.php` — margins of the four templates
+rendered through real dompdf and every word's x checked against the A4 margins (fails against the old
+templates); long unbroken word inside A4; totals box whole on one page and table header repeated on a multi-page
+card (page text via `pdftotext -f/-l`); schedule boxes carry the saved values and Set-with-one-box-changed keeps
+the other; quote box present on Draft / Quoted / Approved / Scheduled / In progress, absent on Completed /
+Cancelled, and a send from Scheduled keeps status Scheduled.
+
+**Files:** `resources/views/corex/{rental-work-orders/pdf,rental-fault-reports/pdf,rental-notices/pdf,leases/pdf/tenancy-report,rental-job-cards/{print,quote-pdf,_pdf-lines-table,show}}.blade.php`,
+`app/Models/RentalJobCard.php` (`scheduleInputValue`), the test above.
+
 ---
 
 ### 14.23 Job Cards LIST — design-standard rebuild (2026-10-06, Johan; supersedes the list parts of §14.8)
