@@ -225,7 +225,11 @@ class BuyerPipelineController extends Controller
         // search) — not just stateCounts()'s header-pill totals, which never applied
         // agent/search — so the "N more" affordance always reconciles with what a
         // search/agent filter actually narrowed to, not a stale unfiltered count.
-        $columnTotals = (clone $query)->selectRaw('buyer_state, count(*) as cnt')
+        // reorder(): a search adds Contact::scopeSearch()'s name-relevance ORDER BY,
+        // which MySQL's only_full_group_by rejects on a GROUP BY buyer_state
+        // aggregate (live 500 on every Kanban search, 2026-10-05). Order is
+        // meaningless for a count, so drop it here only.
+        $columnTotals = (clone $query)->reorder()->selectRaw('buyer_state, count(*) as cnt')
             ->groupBy('buyer_state')
             ->pluck('cnt', 'buyer_state')
             ->toArray();
