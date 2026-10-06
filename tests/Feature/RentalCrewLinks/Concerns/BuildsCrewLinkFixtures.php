@@ -12,7 +12,10 @@ use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\RentalCrew;
 use App\Models\RentalJobCard;
+use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\PermissionService;
 use App\Services\Rentals\RentalJobCardService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -94,5 +97,25 @@ trait BuildsCrewLinkFixtures
         ]);
         LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $contact->id, 'is_primary' => true]);
         $card->forceFill(['lease_id' => $lease->id])->save();
+    }
+
+    /**
+     * A same-agency 'agent' holding exactly $keyToScope (key => 'own'|'branch'|'all').
+     * Creating ANY grant row makes the agency "seeded", after which the (non-owner)
+     * admin user resolves from role_permissions like everyone else — so the admin is
+     * granted the job-card keys here too, or every admin request would 403.
+     */
+    protected function agentWith(array $keyToScope): User
+    {
+        foreach (['rental_job_cards.view', 'rental_job_cards.create', 'rental_job_cards.share', 'rental_job_cards.sign_off', 'rental_job_cards.cancel', 'rental_job_cards.send_quote'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'admin', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'all']);
+        }
+        Role::firstOrCreate(['name' => 'agent', 'agency_id' => $this->agency->id], ['label' => 'Agent']);
+        foreach ($keyToScope as $key => $scope) {
+            RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => $scope]);
+        }
+        PermissionService::clearCache();
+
+        return User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
     }
 }

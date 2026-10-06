@@ -274,6 +274,31 @@ class RentalJobCard extends Model
         return $this->hasMany(RentalWorkOrderPhoto::class, 'rental_job_card_id')->orderByDesc('created_at');
     }
 
+    /** §14.28 — wet-ink signed copies, newest first; the current one is the first not superseded. */
+    public function signedCopies(): HasMany
+    {
+        return $this->hasMany(RentalJobCardSignedCopy::class)->orderByDesc('uploaded_at')->orderByDesc('id');
+    }
+
+    /**
+     * §14.28 — "Sipho Dlamini — via crew link" for the header chip and the
+     * sign-off row. Null until the worker sign-off exists.
+     */
+    public function crewCompletionLabel(): ?string
+    {
+        if (! $this->worker_signed_off_at) {
+            return null;
+        }
+        $via = match ($this->worker_sign_off_via) {
+            self::SIGN_OFF_VIA_CREW_LINK => 'via crew link',
+            self::SIGN_OFF_VIA_CREW_PAGE => 'via crew page',
+            self::SIGN_OFF_VIA_SIGNED_COPY => 'from signed copy',
+            default => 'recorded by the office',
+        };
+
+        return trim(($this->worker_sign_off_name ?: 'Crew') . ' — ' . $via);
+    }
+
     public function isDeletable(): bool
     {
         return $this->tasks()->doesntExist() && $this->lines()->doesntExist() && $this->updates()->doesntExist();

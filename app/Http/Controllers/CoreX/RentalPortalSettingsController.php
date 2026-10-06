@@ -33,6 +33,13 @@ class RentalPortalSettingsController extends Controller
             'notifyLandlordOnDecisionNeeded' => RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agencyId),
             'notifyTenantOnStatusChange' => RentalPortalSetting::notifyTenantOnStatusChangeFor($agencyId),
             'defaultContractorSecureLinkExpiryDays' => RentalPortalSetting::DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS,
+            // §14.27.3 — crew links.
+            'crewLinksEnabled' => RentalPortalSetting::crewLinksEnabledFor($agencyId),
+            'crewJobLinkExpiryDays' => RentalPortalSetting::crewJobLinkExpiryDaysFor($agencyId),
+            'crewLinkShowPrices' => RentalPortalSetting::crewLinkShowPricesFor($agencyId),
+            'crewLinkShowTenantContact' => RentalPortalSetting::crewLinkShowTenantContactFor($agencyId),
+            'notifyLandlordOnCrewCompletion' => RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agencyId),
+            'defaultCrewJobLinkExpiryDays' => RentalPortalSetting::DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS,
             // rental-work-orders.md §14.27.3 — Build 2 (crew page & client visibility).
             'crewPhotosVisibleToClients' => RentalPortalSetting::crewPhotosVisibleToClientsFor($agencyId),
         ]);
@@ -78,6 +85,50 @@ class RentalPortalSettingsController extends Controller
     public function updateNotifyTenantOnStatusChange(Request $request): RedirectResponse
     {
         return $this->updateToggle($request, 'notify_tenant_on_status_change', 'Tenant status-change notification');
+    }
+
+    // ── §14.27.3 — crew links (rental-work-orders.md §14.28). Each one is its own narrow, has()-guarded saver (onboarding §6.1). ──
+
+    public function updateCrewLinksEnabled(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'crew_links_enabled', 'Crew links');
+    }
+
+    public function updateCrewLinkShowPrices(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'crew_link_show_prices', 'Prices on crew links');
+    }
+
+    public function updateCrewLinkShowTenantContact(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'crew_link_show_tenant_contact', 'Tenant contact on crew links');
+    }
+
+    public function updateNotifyLandlordOnCrewCompletion(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'notify_landlord_on_crew_completion', 'Landlord email on crew completion');
+    }
+
+    /**
+     * The numeric control. Absent = leave the saved value alone (the wizard step
+     * posts a SUBSET of fields — onboarding §6.1); present must be 1-90.
+     */
+    public function updateCrewJobLinkExpiryDays(Request $request): RedirectResponse
+    {
+        if (! $request->has('crew_job_link_expiry_days')) {
+            return redirect()->route('corex.settings.rental-portal.edit');
+        }
+
+        $validated = $request->validate([
+            'crew_job_link_expiry_days' => ['required', 'integer', 'min:1', 'max:90'],
+        ]);
+
+        RentalPortalSetting::updateOrCreate(
+            ['agency_id' => $request->user()->effectiveAgencyId()],
+            ['crew_job_link_expiry_days' => $validated['crew_job_link_expiry_days']],
+        );
+
+        return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew link expiry saved.');
     }
 
     /**
