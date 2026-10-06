@@ -20,11 +20,16 @@ class RentalWorkOrderPhoto extends Model
     public const VIA_CREW_LINK = 'crew_link';
     public const VIA_CREW_PAGE = 'crew_page';
     public const VIA_OFFICE = 'office';
+    /** §17.10.4 — a tenant's "not complete" photo (rental_work_order_photos.photo_type = RentalWorkOrder::PHOTO_DISPUTE). */
+    public const VIA_TENANT = 'tenant';
 
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',
         'rental_job_card_id',
+        // §17.5.1 — the crew line a photo explains / §17.10.4 — the completion round a dispute photo belongs to.
+        'rental_job_card_line_id',
+        'rental_completion_round_id',
         'photo_type',
         'caption',
         'uploaded_via',

@@ -25,10 +25,13 @@ class RentalSecureAccessToken extends Model
     public const PURPOSE_CONTRACTOR_WORK_ORDER = 'contractor_work_order';
     public const PURPOSE_CREW_JOB_CARD = 'crew_job_card';
     public const PURPOSE_CREW_STANDING = 'crew_standing';
+    /** §17.10.3 — the tenant's one-click response link for ONE completion round (Build 3 mints and resolves it). */
+    public const PURPOSE_TENANT_COMPLETION = 'tenant_completion';
 
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',
+        'rental_completion_round_id',
         'rental_job_card_id',
         'rental_crew_id',
         'agency_service_provider_id',
@@ -86,8 +89,17 @@ class RentalSecureAccessToken extends Model
         return match ($this->purpose ?: self::PURPOSE_CONTRACTOR_WORK_ORDER) {
             self::PURPOSE_CREW_JOB_CARD => $this->crewJobCardTargetIsLive(),
             self::PURPOSE_CREW_STANDING => $this->crewStandingTargetIsLive(),
+            // Foundation: never live until Build 3 implements the round's liveness (§17.10.3). Without this arm a
+            // tenant_completion token would fall through to the contractor rule below.
+            self::PURPOSE_TENANT_COMPLETION => false,
             default => $this->contractorTargetIsLive(),
         };
+    }
+
+    /** §17.10.3 — the completion round this token answers (null for every other purpose). */
+    public function completionRound(): BelongsTo
+    {
+        return $this->belongsTo(RentalWorkCompletionRound::class, 'rental_completion_round_id')->withoutGlobalScopes();
     }
 
     private function contractorTargetIsLive(): bool

@@ -58,14 +58,19 @@ class CrewJobService
             ->orderBy('sort_order')->orderBy('id')->get();
 
         $allLines = $tasks->flatMap(fn ($t) => $t->lines)->merge($generalLines);
+        // §17.4.7 — "Crew works on actual costs, not selling." The crew payload reads the COST columns only
+        // (`unit_cost` / `cost_total`) and never `unit_price` / `line_total` (selling), `markup_*`, margin or an owner
+        // amount. A line with no cost recorded simply shows none (never a 0.00). Guarded permanently by
+        // CrewPayloadNeverCarriesSellingTest.
         $lineRow = fn (RentalJobCardLine $l) => array_filter([
             'code' => $l->code,
             'description' => $l->description,
             'quantity' => rtrim(rtrim(number_format((float) $l->quantity, 2, '.', ''), '0'), '.'),
             'unit' => $l->unit,
-            'unit_price' => $ctx->showPrices ? number_format((float) $l->unit_price, 2) : null,
-            'line_total' => $ctx->showPrices ? number_format((float) $l->line_total, 2) : null,
+            'unit_cost' => $ctx->showCosts && $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2) : null,
+            'cost_total' => $ctx->showCosts && $l->cost_total !== null ? number_format((float) $l->cost_total, 2) : null,
         ], fn ($v) => $v !== null && $v !== '');
+        $costedLines = $allLines->filter(fn (RentalJobCardLine $l) => $l->cost_total !== null);
 
         $photos = RentalWorkOrderPhoto::withoutGlobalScopes()
             ->where('rental_job_card_id', $card->id)
@@ -101,8 +106,8 @@ class CrewJobService
             ])->all(),
             'materials' => $allLines->where('type', 'part')->values()->map($lineRow)->all(),
             'labour' => $allLines->where('type', 'labour')->values()->map($lineRow)->all(),
-            'show_prices' => $ctx->showPrices,
-            'total' => $ctx->showPrices ? number_format((float) $allLines->sum('line_total'), 2) : null,
+            'show_costs' => $ctx->showCosts,
+            'cost_total' => $ctx->showCosts && $costedLines->isNotEmpty() ? number_format((float) $costedLines->sum('cost_total'), 2) : null,
             'tenant' => $ctx->showTenantContact ? $this->tenantContact($card) : null,
             'photos' => $photos,
             'crew_completed' => $card->worker_signed_off_at ? [
@@ -110,6 +115,14 @@ class CrewJobService
                 'at' => $card->worker_signed_off_at->copy()->setTimezone($tz)->format('j M Y, H:i'),
                 'via' => $card->worker_sign_off_via,
             ] : null,
+            // §17.21.1 — the three plug-in slots, one provider class per build, so the builds never edit the same
+            // hunk of this method: pricing (Build 1), approval (Build 2), dispute (Build 3). Each returns [] until
+            // its build lands, and renders through its own partial in rentals/crew-link/_job-body.blade.php.
+            'blocks' => [
+                'pricing' => CrewPricingBlock::for($card, $ctx),
+                'approval' => CrewApprovalBlock::for($card, $ctx),
+                'dispute' => CrewDisputeBlock::for($card, $ctx),
+            ],
         ];
     }
 

@@ -199,6 +199,31 @@ class AgreementFeeTableTest extends TestCase
         $this->assertSame('2', $d->form_data['branches_start']);
     }
 
+    public function test_the_entries_and_the_fee_table_are_never_parted_by_a_page_break(): void
+    {
+        $v = app(\App\Services\PlatformEsign\Agreement\AgreementContent::class)->ensureSeeded();
+        $layout = app(\App\Services\PlatformEsign\Agreement\AgreementLayout::class)->ensure($v);
+        $blocks = app(\App\Services\PlatformEsign\Agreement\AgreementRenderer::class)->blocks($v, 'part_a', 'canon');
+        $at = null;
+        foreach ($blocks as $i => $html) {
+            if (str_contains($html, 'keep-next')) {
+                $at = $i;
+            }
+        }
+        $this->assertNotNull($at, 'the entries block exists');
+        $this->assertStringStartsWith('<table', $blocks[$at + 1], 'the fee table follows the entries');
+        $pageOf = function (int $block) use ($layout) {
+            $end = 0;
+            foreach ($layout['parts']['part_a'] as $page => $count) {
+                $end += $count;
+                if ($block < $end) {
+                    return $page;
+                }
+            }
+        };
+        $this->assertSame($pageOf($at), $pageOf($at + 1));
+    }
+
     public function test_the_page_after_a_reload_shows_the_tiered_lines_and_a_plan_that_cannot_be_ticked(): void
     {
         [$doc, $token] = $this->sent();

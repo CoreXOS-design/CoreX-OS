@@ -34,14 +34,20 @@ class RentalJobCard extends Model
     public const STATUS_IN_PROGRESS = 'in_progress';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
+    /**
+     * §17.12 — a tenant reported finished work as not complete (§17.10). An OPEN
+     * state (isClosed() is false): the job is reopened to the crew and the final
+     * sign-off/close is refused until a new completion round is opened.
+     */
+    public const STATUS_DISPUTED = 'disputed';
 
     /**
      * §14.27.5 — the statuses that count as booked work for a crew: Approved,
-     * Scheduled, In progress. Draft and Quoted (still waiting on the owner)
-     * are not shown to a crew. ONE constant, so an agency-wide change later
-     * is a one-line edit.
+     * Scheduled, In progress — and (§17.12) Disputed, because a reopened job must
+     * reach the crew. Draft and Quoted (still waiting on the owner) are not shown
+     * to a crew. ONE constant, so an agency-wide change later is a one-line edit.
      */
-    public const CREW_VISIBLE_STATUSES = [self::STATUS_APPROVED, self::STATUS_SCHEDULED, self::STATUS_IN_PROGRESS];
+    public const CREW_VISIBLE_STATUSES = [self::STATUS_APPROVED, self::STATUS_SCHEDULED, self::STATUS_IN_PROGRESS, self::STATUS_DISPUTED];
 
     /** §14.27.5 — how a worker sign-off ("crew completed") was recorded. */
     public const SIGN_OFF_VIA_CREW_LINK = 'crew_link';
@@ -69,6 +75,11 @@ class RentalJobCard extends Model
         'due_at',
         'access_notes',
         'total_amount',
+        // §17.4 — the agency's own cost (sum of accepted cost_total) and the card-level markups.
+        'total_cost',
+        'markup_all_percent',
+        'markup_parts_percent',
+        'markup_labour_percent',
         'vat_registered_snapshot',
         'vat_capture_mode_snapshot',
         'vat_snapshotted_at',
@@ -100,6 +111,10 @@ class RentalJobCard extends Model
         'scheduled_at' => 'datetime',
         'due_at' => 'datetime',
         'total_amount' => 'decimal:2',
+        'total_cost' => 'decimal:2',
+        'markup_all_percent' => 'decimal:2',
+        'markup_parts_percent' => 'decimal:2',
+        'markup_labour_percent' => 'decimal:2',
         'vat_registered_snapshot' => 'boolean',
         'vat_snapshotted_at' => 'datetime',
         'worker_signed_off_at' => 'datetime',
@@ -205,6 +220,18 @@ class RentalJobCard extends Model
     public function updates(): HasMany
     {
         return $this->hasMany(RentalJobCardUpdate::class)->orderByDesc('created_at');
+    }
+
+    /** §17.5.4 — "ask the crew to price this job" requests, newest first. */
+    public function priceRequests(): HasMany
+    {
+        return $this->hasMany(RentalJobCardPriceRequest::class)->orderByDesc('requested_at')->orderByDesc('id');
+    }
+
+    /** §17.12 — an OPEN dispute reopened this card (§17.10). */
+    public function isDisputed(): bool
+    {
+        return $this->status === self::STATUS_DISPUTED;
     }
 
     /** §14 — quotes sent to the owner from this job card (rental_work_order_quotes.rental_job_card_id). */
@@ -572,6 +599,10 @@ class RentalJobCard extends Model
         $this->assertOpen();
         if (! $this->worker_signed_off_at || ! $this->agent_signed_off_at) {
             throw new \LogicException('Both the worker and the agent must sign off before this job card can be completed.');
+        }
+        // §17.21.1 — the ONE close hook (Build 3 fills the dispute check; inert in the foundation).
+        if ($this->workOrder) {
+            app(\App\Services\Rentals\RentalCloseGuards::class)->assertNotDisputed($this->workOrder);
         }
 
         $fromStatus = $this->status;

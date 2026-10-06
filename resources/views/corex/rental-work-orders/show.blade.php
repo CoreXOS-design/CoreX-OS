@@ -284,6 +284,12 @@
     </div>
     @endif
 
+    {{-- §17.21.1 plug-in slots — one empty partial per build (Build 2 → _approval-panel: "why was this approved?",
+         emergency approval, variation; Build 3 → _completion-panel: contractor reports done, tenant check, dispute).
+         A build may move its include; it edits only its own partial. --}}
+    @include('corex.rental-work-orders._approval-panel')
+    @include('corex.rental-work-orders._completion-panel')
+
     {{-- §3.4a — only for a work order raised directly (no upstream fault
          report already satisfied this). Applies to both assignment paths —
          an internal job card's quote still rides this same gate. --}}

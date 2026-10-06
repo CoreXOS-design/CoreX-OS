@@ -138,7 +138,7 @@
                                     <div class="muted">
                                         @if($m['code']){{ $m['code'] }} · @endif
                                         @if($m['first_date'])needed from {{ $m['first_date'] }} · @endif{{ $m['job_count'] }} {{ $m['job_count'] === 1 ? 'job' : 'jobs' }}
-                                        @if($page['show_prices'] && $m['total_value'] !== null) · R {{ $m['total_value'] }}@endif
+                                        @if($page['show_costs'] && $m['total_value'] !== null) · R {{ $m['total_value'] }}@endif
                                     </div>
                                 </div>
                             </summary>

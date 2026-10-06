@@ -3122,8 +3122,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-work-orders/capture-prices-on-job-cards', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateCapturePricesOnJobCards'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.capture-prices-on-job-cards');
     // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
-    Route::post('/settings/rental-work-orders/show-prices-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowPricesOnPrintedJobCard'])
-        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-prices-on-printed-job-card');
+    Route::post('/settings/rental-work-orders/show-costs-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowCostsOnPrintedJobCard'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-costs-on-printed-job-card');
     // AT-445 — .ai/specs/rental-portal-access.md §7. Tenant/landlord/contractor portal on/off switches.
     Route::prefix('settings/rental-portal')->middleware('permission:rental_portal.manage_settings')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'edit'])->name('corex.settings.rental-portal.edit');
@@ -3136,7 +3136,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // §14.27.3 — crew links (rental-work-orders.md): Build 1's five settings.
         Route::post('/crew-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinksEnabled'])->name('corex.settings.rental-portal.crew-links-enabled');
         Route::post('/crew-job-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewJobLinkExpiryDays'])->name('corex.settings.rental-portal.crew-job-link-expiry-days');
-        Route::post('/crew-link-show-prices', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowPrices'])->name('corex.settings.rental-portal.crew-link-show-prices');
+        Route::post('/crew-link-show-costs', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowCosts'])->name('corex.settings.rental-portal.crew-link-show-costs');
         Route::post('/crew-link-show-tenant-contact', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowTenantContact'])->name('corex.settings.rental-portal.crew-link-show-tenant-contact');
         Route::post('/notify-landlord-on-crew-completion', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnCrewCompletion'])->name('corex.settings.rental-portal.notify-landlord-on-crew-completion');
         Route::post('/crew-photos-visible-to-clients', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPhotosVisibleToClients'])->name('corex.settings.rental-portal.crew-photos-visible-to-clients');
@@ -3962,6 +3962,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalWorkOrder}/quotes/{quote}/download', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'download'])
             ->middleware('deny_assistant_download')->name('corex.rental-work-orders.quotes.download');
     });
+
+    // §17.21.1 — marker blocks: each maintenance-flow build adds ITS routes only between its own markers (wrap them in
+    // their own Route::prefix(...)->group(...) as needed), so the three builds never collide in this file.
+    // BUILD 1 BEGIN — cost & selling, crew parts, estimate term: routes (.ai/specs/rental-work-orders.md §17.21.5)
+    // BUILD 1 END
+    // BUILD 2 BEGIN — approvals & external flow: routes (.ai/specs/rental-work-orders.md §17.21.5)
+    // BUILD 2 END
+    // BUILD 3 BEGIN — flow, completion check & dispute: routes (.ai/specs/rental-work-orders.md §17.21.5)
+    // BUILD 3 END
 
     // AT-442 — the agency's own parts & labour catalogue. Settings-area
     // screen, one key for the whole CRUD surface, same single-key shape

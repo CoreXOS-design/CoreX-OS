@@ -27,7 +27,7 @@ class RentalWorkOrderSettingsController extends Controller
             'noApprovalSpendThreshold' => RentalWorkOrderSetting::spendThresholdFor($agencyId),
             'defaultNoApprovalSpendThreshold' => RentalWorkOrderSetting::DEFAULT_NO_APPROVAL_SPEND_THRESHOLD,
             'capturePricesOnJobCards' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($agencyId),
-            'showPricesOnPrintedJobCard' => RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($agencyId),
+            'showCostsOnPrintedJobCard' => RentalWorkOrderSetting::showCostsOnPrintedJobCardFor($agencyId),
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($agencyId),
             'overdueReminderDays' => RentalWorkOrderSetting::overdueReminderDaysFor($agencyId),
             'defaultOverdueReminderDays' => RentalWorkOrderSetting::DEFAULT_OVERDUE_REMINDER_DAYS,
@@ -91,21 +91,23 @@ class RentalWorkOrderSettingsController extends Controller
      * Conductor's ruling, AT-442 follow-up — the worker's printed copy and
      * the owner's quote PDF are not the same audience; own narrow saver,
      * same has()-guard discipline as updateCapturePricesOnJobCards() above.
+     * §17.4.7 (6 Oct 2026): restated in COST terms — the worker's copy shows
+     * the crew's costs, never selling.
      */
-    public function updateShowPricesOnPrintedJobCard(Request $request): RedirectResponse
+    public function updateShowCostsOnPrintedJobCard(Request $request): RedirectResponse
     {
         $agencyId = $request->user()->effectiveAgencyId();
 
-        if (! $request->has('show_prices_on_printed_job_card')) {
+        if (! $request->has('show_costs_on_printed_job_card')) {
             return redirect()->route('corex.settings.rental-work-orders.edit')
-                ->withErrors(['show_prices_on_printed_job_card' => 'That did not save — please try again.']);
+                ->withErrors(['show_costs_on_printed_job_card' => 'That did not save — please try again.']);
         }
 
         RentalWorkOrderSetting::updateOrCreate(
             ['agency_id' => $agencyId],
-            ['show_prices_on_printed_job_card' => $request->boolean('show_prices_on_printed_job_card')],
+            ['show_costs_on_printed_job_card' => $request->boolean('show_costs_on_printed_job_card')],
         );
 
-        return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Printed job card pricing setting saved.');
+        return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Printed job card cost setting saved.');
     }
 }

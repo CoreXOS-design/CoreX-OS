@@ -36,7 +36,7 @@ class RentalPortalSettingsController extends Controller
             // §14.27.3 — crew links.
             'crewLinksEnabled' => RentalPortalSetting::crewLinksEnabledFor($agencyId),
             'crewJobLinkExpiryDays' => RentalPortalSetting::crewJobLinkExpiryDaysFor($agencyId),
-            'crewLinkShowPrices' => RentalPortalSetting::crewLinkShowPricesFor($agencyId),
+            'crewLinkShowCosts' => RentalPortalSetting::crewLinkShowCostsFor($agencyId),
             'crewLinkShowTenantContact' => RentalPortalSetting::crewLinkShowTenantContactFor($agencyId),
             'notifyLandlordOnCrewCompletion' => RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agencyId),
             'defaultCrewJobLinkExpiryDays' => RentalPortalSetting::DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS,
@@ -99,9 +99,9 @@ class RentalPortalSettingsController extends Controller
         return $this->updateToggle($request, 'crew_links_enabled', 'Crew links');
     }
 
-    public function updateCrewLinkShowPrices(Request $request): RedirectResponse
+    public function updateCrewLinkShowCosts(Request $request): RedirectResponse
     {
-        return $this->updateToggle($request, 'crew_link_show_prices', 'Prices on crew links');
+        return $this->updateToggle($request, 'crew_link_show_costs', 'Costs on crew links');
     }
 
     public function updateCrewLinkShowTenantContact(Request $request): RedirectResponse

@@ -46,7 +46,7 @@ final class CrewJobServiceTest extends TestCase
         return new CrewViewContext(
             agencyId: $this->agency->id, crewId: $this->crew->id, tokenId: $issued['token']->id,
             via: CrewViewContext::VIA_JOB_LINK,
-            showPrices: RentalPortalSetting::crewLinkShowPricesFor($this->agency->id),
+            showCosts: RentalPortalSetting::crewLinkShowCostsFor($this->agency->id),
             showTenantContact: RentalPortalSetting::crewLinkShowTenantContactFor($this->agency->id),
             ip: '203.0.113.9', userAgent: 'TestPhone/1.0', actorLabel: 'via crew link — Team 1',
         );
@@ -67,10 +67,12 @@ final class CrewJobServiceTest extends TestCase
         $this->assertSame('Geyser element', $payload['materials'][0]['description']);
         $this->assertSame('2', $payload['materials'][0]['quantity']);
         $this->assertSame('Plumber hour', $payload['labour'][0]['description']);
-        $this->assertFalse($payload['show_prices']);
+        $this->assertFalse($payload['show_costs']);
         $this->assertArrayNotHasKey('unit_price', $payload['materials'][0]);
         $this->assertArrayNotHasKey('line_total', $payload['labour'][0]);
-        $this->assertNull($payload['total']);
+        $this->assertArrayNotHasKey('unit_cost', $payload['materials'][0]);
+        $this->assertArrayNotHasKey('cost_total', $payload['labour'][0]);
+        $this->assertNull($payload['cost_total']);
         $this->assertNull($payload['tenant']);
         $this->assertNull($payload['crew_completed']);
         $this->assertTrue($payload['is_open']);
@@ -82,22 +84,52 @@ final class CrewJobServiceTest extends TestCase
         $payload = $this->service->payload($card, $this->ctx($card));
 
         $this->assertSame(
-            ['access_notes', 'address', 'agency', 'crew_completed', 'crew_name', 'due_at', 'is_open', 'labour', 'map_url', 'materials', 'photos', 'scheduled_at', 'show_prices', 'status', 'status_label', 'tasks', 'tenant', 'title', 'total'],
+            ['access_notes', 'address', 'agency', 'blocks', 'cost_total', 'crew_completed', 'crew_name', 'due_at', 'is_open', 'labour', 'map_url', 'materials', 'photos', 'scheduled_at', 'show_costs', 'status', 'status_label', 'tasks', 'tenant', 'title'],
             collect(array_keys($payload))->sort()->values()->all(),
         );
     }
 
-    public function test_prices_appear_only_with_the_agency_setting(): void
+    /** §17.21.1 — the three plug-in slots exist from the foundation and are empty until their build lands. */
+    public function test_the_three_plug_in_blocks_exist_and_are_empty_in_the_foundation(): void
     {
         $card = $this->makeJobCard();
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_prices' => true]);
+        $payload = $this->service->payload($card, $this->ctx($card));
+
+        $this->assertSame(['approval' => [], 'dispute' => [], 'pricing' => []], collect($payload['blocks'])->sortKeys()->all());
+    }
+
+    /**
+     * §17.4.7 — "Crew works on actual costs, not selling." The setting shows the COST columns the office entered
+     * and never `unit_price` / `line_total` (the fixtures SELL at 450 x 2 and 300 x 3).
+     */
+    public function test_costs_appear_only_with_the_agency_setting_and_never_the_selling_price(): void
+    {
+        $card = $this->makeJobCard();
+        \App\Models\RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'part')->update(['unit_cost' => 200, 'cost_total' => 400]);
+        \App\Models\RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'labour')->update(['unit_cost' => 120, 'cost_total' => 360]);
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_costs' => true]);
 
         $payload = $this->service->payload($card, $this->ctx($card));
 
-        $this->assertTrue($payload['show_prices']);
-        $this->assertSame('450.00', $payload['materials'][0]['unit_price']);
-        $this->assertSame('900.00', $payload['materials'][0]['line_total']);
-        $this->assertSame('1,800.00', $payload['total']);
+        $this->assertTrue($payload['show_costs']);
+        $this->assertSame('200.00', $payload['materials'][0]['unit_cost']);
+        $this->assertSame('400.00', $payload['materials'][0]['cost_total']);
+        $this->assertSame('760.00', $payload['cost_total']);
+        foreach (['materials', 'labour'] as $group) {
+            $this->assertArrayNotHasKey('unit_price', $payload[$group][0]);
+            $this->assertArrayNotHasKey('line_total', $payload[$group][0]);
+        }
+    }
+
+    public function test_a_card_with_no_costs_recorded_shows_no_cost_total_even_with_the_setting_on(): void
+    {
+        $card = $this->makeJobCard();   // selling prices only — no cost anywhere
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_costs' => true]);
+
+        $payload = $this->service->payload($card, $this->ctx($card));
+
+        $this->assertNull($payload['cost_total']);
+        $this->assertArrayNotHasKey('unit_cost', $payload['materials'][0]);
     }
 
     public function test_tenant_name_and_phone_only_with_the_agency_setting(): void
@@ -137,7 +169,7 @@ final class CrewJobServiceTest extends TestCase
         $ctx = $this->ctx($card);
         $foreign = new CrewViewContext(
             agencyId: $this->agency->id + 999, crewId: $ctx->crewId, tokenId: $ctx->tokenId, via: $ctx->via,
-            showPrices: false, showTenantContact: false, ip: null, userAgent: null, actorLabel: 'x',
+            showCosts: false, showTenantContact: false, ip: null, userAgent: null, actorLabel: 'x',
         );
 
         $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
@@ -444,7 +476,7 @@ final class CrewJobServiceTest extends TestCase
         $id = $this->agency->id;
         $this->assertTrue(RentalPortalSetting::crewLinksEnabledFor($id));
         $this->assertSame(14, RentalPortalSetting::crewJobLinkExpiryDaysFor($id));
-        $this->assertFalse(RentalPortalSetting::crewLinkShowPricesFor($id));
+        $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($id));
         $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id));
         $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
     }

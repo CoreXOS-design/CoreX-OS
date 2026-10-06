@@ -351,6 +351,9 @@ class AgreementRenderer
         if ($what !== 'agents') {
             return '';
         }
+        if ($this->mode === 'canon') {
+            return '<span class="keep-next"></span>'; // layout estimation only: keep this block on the page of the fee table that follows
+        }
         $calc = $this->ctx['calc'];
         $limit = (int) ($this->ctx['rates']['quote_above_agents'] ?? 40);
         if (in_array($this->mode, ['rr', 'preview'], true)) {
