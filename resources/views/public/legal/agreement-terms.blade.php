@@ -14,7 +14,7 @@
     body { margin:0; background:var(--bg); color:var(--text); font-family:'Figtree',-apple-system,'Segoe UI',Roboto,Arial,sans-serif; line-height:1.55; }
     .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px 64px; }
     .letterhead { display:flex; align-items:center; gap:14px; padding:18px 0 12px; border-bottom:2px solid var(--brand); margin-bottom:20px; }
-    .letterhead img { height:44px; width:auto; max-width:230px; flex:none; }
+    .letterhead img { max-width:45%; object-fit:contain; object-position:left center; flex:none; } /* size from PlatformCompany::logoSizePx */
     .letterhead .co { margin-left:auto; text-align:right; font-size:.72rem; line-height:1.45; color:#334155; }
     .letterhead .co b { font-size:.82rem; color:var(--brand); }
     .doc { background:#fff; border:1px solid var(--border); border-radius:6px; padding: 28px 44px 36px; box-shadow:0 1px 3px rgba(15,23,42,.06); }
@@ -57,7 +57,8 @@
 <body>
 <div class="wrap">
     <header class="letterhead">
-        <img src="{{ $logoUrl }}" alt="{{ $brand }}">
+        @php($lg = \App\Services\PlatformEsign\Agreement\AgreementCompany::for(null)->logoSizePx(860))
+        <img src="{{ $logoUrl }}" alt="{{ $brand }}" width="{{ $lg['w'] }}" height="{{ $lg['h'] }}" style="width:{{ $lg['w'] }}px; height:{{ $lg['h'] }}px;">
         <div class="co"><b>{{ $letterhead['name'] }}</b><br>{{ $letterhead['address'] }}<br>{{ $letterhead['contact'] }}</div>
     </header>
 
