@@ -433,9 +433,10 @@ class AgreementRenderer
             $err = !empty($this->ctx['errors'][$key]) ? ' err' : '';
             $copy = $who === 'mandate' ? '<button type="button" class="mini" data-sig-copy="sigA">Use the same signature</button>' : '';
 
-            return '<div class="sigpad' . $err . '" data-sig="' . e($key) . '" data-field="' . e($key) . '" data-required="1"><canvas></canvas>'
-                . '<div class="sigtools"><button type="button" class="mini" data-sig-clear>Clear</button><button type="button" class="mini" data-sig-type>Type it instead</button>' . $copy . '</div>'
-                . '<input type="hidden" name="' . e($key) . '" value="' . e($img) . '"></div>';
+            // <span>s (display:block in the CSS), not <div>s: a block inside a <p> makes the browser close the paragraph early and breaks the signature rows.
+            return '<span class="sigpad' . $err . '" data-sig="' . e($key) . '" data-field="' . e($key) . '" data-required="1"><canvas></canvas>'
+                . '<span class="sigtools"><button type="button" class="mini" data-sig-clear>Clear</button><button type="button" class="mini" data-sig-type>Type it instead</button>' . $copy . '</span>'
+                . '<input type="hidden" name="' . e($key) . '" value="' . e($img) . '"></span>';
         }
 
         return $img !== '' ? '<img class="sigimg" src="' . e($img) . '" alt="Signature">' : '<span class="blank sigline">&nbsp;</span>';
