@@ -260,7 +260,7 @@ class OwnerController extends Controller
     public function create(Request $request)
     {
         $this->owner($request);
-        $templates = Template::where('is_active', true)->orderBy('name')->get();
+        $templates = Template::where('is_active', true)->where('source', '!=', 'webdoc')->orderBy('name')->get();
         $selected = $templates->firstWhere('id', (int) $request->query('template')) ?? $templates->first();
 
         return view('platform-esign.documents.send', [
@@ -290,6 +290,7 @@ class OwnerController extends Controller
         ], ['signers.*.name.required' => 'Every signer needs a name.', 'signers.*.email.required' => 'Every signer needs an email address.', 'signers.*.email.email' => 'Enter a valid email address for each signer.']);
         $data['sequential'] = $request->boolean('sequential');
         $tpl = Template::findOrFail($data['template_id']);
+        abort_if($tpl->isWebdoc(), 404); // web documents are sent from the Subscription Agreement screen
         try {
             $doc = $this->svc->send($tpl, $data, $request->file('attachments', []), $u->id);
         } catch (\DomainException $e) {
@@ -312,7 +313,11 @@ class OwnerController extends Controller
     {
         $u = $this->owner($request);
         try {
-            $this->svc->resend($document, $u->id, (int) $request->input('expiry_days', 14));
+            if ($document->isWebdoc()) {
+                app(\App\Services\PlatformEsign\Agreement\AgreementService::class)->resend($document, $u->id);
+            } else {
+                $this->svc->resend($document, $u->id, (int) $request->input('expiry_days', 14));
+            }
         } catch (\DomainException $e) {
             return back()->withErrors(['action' => $e->getMessage()]);
         }

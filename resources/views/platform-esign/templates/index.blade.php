@@ -54,7 +54,7 @@
                         <td class="px-5 py-4">
                             <div class="font-semibold" style="color: var(--text-primary);">{{ $t->name }}</div>
                             <div class="flex gap-1 mt-1">
-                                <span class="ds-badge ds-badge-info">{{ $t->isPdf() ? 'PDF · ' . $t->page_count . 'p · ' . $t->fields_count . ' fields' : 'Wording' }}</span>
+                                <span class="ds-badge ds-badge-info">{{ $t->isWebdoc() ? 'Web document' : ($t->isPdf() ? 'PDF · ' . $t->page_count . 'p · ' . $t->fields_count . ' fields' : 'Wording') }}</span>
                                 @unless($t->is_active)<span class="ds-badge ds-badge-default">Switched off</span>@endunless
                                 @if($t->trashed())<span class="ds-badge ds-badge-default">Archived</span>@endif
                             </div>
@@ -68,10 +68,15 @@
                             @if($t->trashed())
                                 <form method="POST" action="{{ route('platform-esign.templates.restore', $t->id) }}">@csrf<button class="corex-btn-outline corex-btn-xs">Restore</button></form>
                             @else
+                                @if($t->isWebdoc())
+                                    <a href="{{ route('platform-esign.agreements.create') }}" class="corex-btn-primary corex-btn-xs">Send</a>
+                                @else
                                 <a href="{{ route('platform-esign.documents.create', ['template' => $t->id]) }}" class="corex-btn-primary corex-btn-xs">Send</a>
-                                @if($t->isPdf())<a href="{{ route('platform-esign.templates.fields', $t->id) }}" class="corex-btn-outline corex-btn-xs">Fields</a>
+                                @endif
+                                @if($t->isWebdoc())
+                                @elseif($t->isPdf())<a href="{{ route('platform-esign.templates.fields', $t->id) }}" class="corex-btn-outline corex-btn-xs">Fields</a>
                                 @else<a href="{{ route('platform-esign.templates.preview', $t->id) }}" class="corex-btn-outline corex-btn-xs">Preview</a>@endif
-                                <a href="{{ route('platform-esign.templates.edit', $t->id) }}" class="corex-btn-outline corex-btn-xs">Edit</a>
+                                @unless($t->isWebdoc())<a href="{{ route('platform-esign.templates.edit', $t->id) }}" class="corex-btn-outline corex-btn-xs">Edit</a>@endunless
                                 <form method="POST" action="{{ route('platform-esign.templates.destroy', $t->id) }}" onsubmit="return confirm('Archive this template? Documents already sent are unaffected. You can restore it.');">@csrf @method('DELETE')<button class="corex-btn-outline corex-btn-xs" style="color: var(--ds-crimson);">Archive</button></form>
                             @endif
                             </div>

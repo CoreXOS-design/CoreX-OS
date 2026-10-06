@@ -9,7 +9,7 @@
         $arrow = $sort === $key ? ($dir === 'asc' ? ' ▲' : ' ▼') : '';
         return '<a href="' . e(request()->fullUrlWithQuery(['sort' => $key, 'dir' => $next])) . '">' . e($label) . $arrow . '</a>';
     };
-    $tone = ['draft' => 'default', 'sent' => 'info', 'in_progress' => 'orange', 'completed' => 'success', 'declined' => 'default', 'voided' => 'default', 'expired' => 'default'];
+    $tone = ['awaiting_countersign' => 'orange', 'wetink_received' => 'orange', 'draft' => 'default', 'sent' => 'info', 'in_progress' => 'orange', 'completed' => 'success', 'declined' => 'default', 'voided' => 'default', 'expired' => 'default'];
 @endphp
 <div class="w-full space-y-5">
     @include('platform-esign._header', [
@@ -52,7 +52,7 @@
                         <td class="px-5 py-4 text-xs" style="color: var(--text-secondary);">
                             @foreach($d->signers as $s)<div>{!! $s->status === 'signed' ? '<span style="color: var(--ds-green);">✓</span>' : '<span style="color: var(--text-muted);">○</span>' !!} {{ $s->name }} <span style="color: var(--text-muted);">({{ $s->role_label }})</span></div>@endforeach
                         </td>
-                        <td class="px-5 py-4"><span class="ds-badge ds-badge-{{ $tone[$d->status] ?? 'default' }}">{{ \App\Models\PlatformEsign\Document::STATUSES[$d->status] ?? $d->status }}</span>@if($d->trashed()) <span class="ds-badge ds-badge-default">Archived</span>@endif</td>
+                        <td class="px-5 py-4"><span class="ds-badge ds-badge-{{ $tone[$d->status] ?? 'default' }}">{{ $d->statusLabel() }}</span>@if($d->trashed()) <span class="ds-badge ds-badge-default">Archived</span>@endif</td>
                         <td class="px-5 py-4 whitespace-nowrap" style="color: var(--text-muted);">{{ $d->sent_at?->format('j M Y') ?? '—' }}</td>
                         <td class="px-5 py-4 whitespace-nowrap" style="color: var(--text-muted);">{{ $d->completed_at?->format('j M Y') ?? '—' }}</td>
                         <td class="px-5 py-4 text-right"><a href="{{ route('platform-esign.documents.show', $d->id) }}" class="corex-btn-outline corex-btn-xs">Open</a></td>

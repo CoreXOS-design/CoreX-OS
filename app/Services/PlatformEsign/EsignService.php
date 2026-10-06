@@ -456,7 +456,7 @@ class EsignService
     }
 
     /** Seal, store the PDF, email copies, tell the timeline. */
-    private function complete(Document $doc): void
+    public function complete(Document $doc): void
     {
         try {
             $pdf = $this->seal->build($doc->fresh(['signers', 'events', 'agency', 'values']));
