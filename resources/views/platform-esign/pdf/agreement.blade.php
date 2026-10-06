@@ -15,7 +15,7 @@
     #ftr table { width:100%; border-collapse: collapse; }
     #ftr td { padding:0; vertical-align: top; }
     #ftr .r { text-align:right; }
-    #ftr .ini { display:inline-block; min-width: 26pt; border: 0.6pt solid #64748b; padding: 1pt 4pt; text-align:center; font-weight: bold; color:#0b2a4a; }
+    #ftr .ini { display:inline-block; width: 28pt; height: 12pt; line-height: 12pt; border: 0.6pt solid #64748b; padding: 0 2pt; text-align:center; vertical-align: middle; font-weight: bold; color:#0b2a4a; }
     .pn:before { content: counter(page); }
     .pg { page-break-after: always; }
     .pg.last { page-break-after: auto; }

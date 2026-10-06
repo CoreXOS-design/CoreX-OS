@@ -38,6 +38,7 @@ class PlatformEsignVerifyWording extends Command
         {--web-text= : file holding the browser text of the recipient page (scripts/verify-agreement-web-text.cjs)}
         {--seal : sign both sides (mail faked) and check the sealed PDF}
         {--cleanup : retire the throwaway agreement afterwards}
+        {--save-pdfs= : also write the wet-ink and sealed PDFs of the throwaway into this folder (wet.pdf, sealed.pdf)}
         {--source-dir= : read the two source files from this folder instead of resources/legal (agreement.md, netcash-mandate.md)}';
 
     protected $description = 'Word-for-word proof: recipient page, wet-ink PDF and sealed PDF against the signed-off Subscription Agreement text.';
@@ -48,11 +49,29 @@ class PlatformEsignVerifyWording extends Command
         '/^Number of agents Number of branches( .*)?$/u' => 'Recipient web form only: the labels of the two entries (agents, branches) side by side above the fee table (and the >40 agents note)',
     ];
 
-    /** Screen-only helper text beside the three read-only places of the recipient form (never in a PDF, never wording). */
-    private const SCREEN_TIP = 'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).';
+    /** Screen-only helper text on the recipient form (never in a PDF, never wording): text => where it sits. */
+    private function screenTips(): array
+    {
+        $tips = [
+            'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).' => 'beside the plan ticks, the section 1 branches row and the section 3 branches row',
+            'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date and collection day (set by RR through the take-on month)',
+            'Fills in automatically from your monthly fee in section 3.' => 'beside the mandate Amount',
+        ];
+        $where = ['da_holder' => 'section 5 (debit order authority) rows, mirrored from the mandate', 'm_address' => 'the mandate address, mirrored from section 1', 'm_contact' => 'the mandate contact number, mirrored from section 1',
+            'm_place' => 'the mandate place, mirrored from section 6', 'm_date' => 'the mandate date, mirrored from section 6'];
+        foreach (array_keys(\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS) as $key) {
+            if (\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS[$key] !== null) {
+                $tips[\App\Services\PlatformEsign\Agreement\AgreementRenderer::mirrorTipText($key)] = $where[$key] ?? $where['da_holder'];
+            }
+        }
+
+        return $tips;
+    }
 
     private int $defects = 0;
-    private int $screenTips = 0;
+
+    /** @var array<string,int> */
+    private array $screenTips = [];
 
     public function handle(AgreementService $svc): int
     {
@@ -76,7 +95,7 @@ class PlatformEsignVerifyWording extends Command
     {
         $uid = (int) ($this->option('user') ?: Document::withoutGlobalScopes()->whereNotNull('created_by')->orderByDesc('id')->value('created_by'));
         Mail::fake();
-        $doc = $svc->send(['name' => 'Wording Proof Throwaway', 'email' => 'wording-proof@example.test', 'cell' => '0820000000'], $uid);
+        $doc = $svc->send(['name' => 'Wording Proof Throwaway', 'email' => 'wording-proof@example.test', 'cell' => '0820000000', 'take_on_month' => now()->format('Y-m')], $uid);
         if ($pin = (string) $this->option('pin')) {
             // send() pins the newest PUBLISHED version; the proof is of the seeded text, so pin the throwaway to it explicitly.
             $v = WordingVersion::withTrashed()->where('template_id', $doc->template_id)->where('version', $pin)->first();
@@ -167,14 +186,22 @@ class PlatformEsignVerifyWording extends Command
             if ($file = $this->option('web-text')) {
                 // The screen-only tips are taken out first (they can sit inside a blank's fill window) and reported as declared additions.
                 $text = preg_replace('/\s+/u', ' ', (string) file_get_contents($file));
-                $this->screenTips = substr_count($text, self::SCREEN_TIP);
-                $actual = AgreementFidelity::fromRendered(str_replace(self::SCREEN_TIP, ' ', $text));
+                $this->screenTips = [];
+                foreach (array_keys($this->screenTips()) as $tip) {
+                    $this->screenTips[$tip] = substr_count($text, $tip);
+                    $text = str_replace($tip, ' ', $text);
+                }
+                $actual = AgreementFidelity::fromRendered($text);
                 $ok = $this->report('RECIPIENT WEB PAGE (real browser)', $expected, $actual, $doc, 'web', $summary) && $ok;
             }
 
             $signer = $svc->agencySigner($doc);
             $layout = app(\App\Services\PlatformEsign\Agreement\AgreementLayout::class)->ensure($doc->wording);
             $wet = $svc->wetCopy($doc, $signer, null);
+            if ($dir = $this->option('save-pdfs')) {
+                @mkdir($dir, 0775, true);
+                file_put_contents(rtrim($dir, '/') . '/wet.pdf', $wet);
+            }
             $this->line('  wet-ink footer, page 1: ' . trim(preg_replace('/\s+/', ' ', AgreementFidelity::pdfFooterText($wet))));
             $actual = AgreementFidelity::fromRendered(AgreementFidelity::pdfText($wet, (int) $layout['total']), true);
             $ok = $this->report('WET-INK DOWNLOAD PDF', $expected, $actual, $doc, 'wet', $summary) && $ok;
@@ -221,6 +248,10 @@ class PlatformEsignVerifyWording extends Command
         }
         $fresh = Document::withoutGlobalScopes()->with(['wording', 'signers'])->findOrFail($doc->id);
         $pdf = $svc->sealedPdf($fresh);
+        if ($dir = $this->option('save-pdfs')) {
+            @mkdir($dir, 0775, true);
+            file_put_contents(rtrim($dir, '/') . '/sealed.pdf', $pdf);
+        }
         $layout = app(\App\Services\PlatformEsign\Agreement\AgreementLayout::class)->ensure($fresh->wording);
         $actual = AgreementFidelity::fromRendered(AgreementFidelity::pdfText($pdf, (int) $layout['total']), true);
         $this->line('  sealed PDF footer, page 1: ' . trim(preg_replace('/\s+/', ' ', AgreementFidelity::pdfFooterText($pdf))));
@@ -265,9 +296,12 @@ class PlatformEsignVerifyWording extends Command
         foreach ($declared as [$d, $why]) {
             $this->line('  declared addition: "' . $d['actual'] . '" — ' . $why);
         }
-        $tips = $kind === 'web' ? $this->screenTips : 0;
-        if ($tips) {
-            $this->line('  declared addition: ' . $tips . ' × "' . self::SCREEN_TIP . '" — Recipient web form only (screen helper text): beside the plan ticks, the section 1 branches row and the section 3 branches row');
+        $tips = 0;
+        foreach ($kind === 'web' ? $this->screenTips : [] as $tip => $n) {
+            if ($n) {
+                $tips += $n;
+                $this->line('  declared addition: ' . $n . ' × "' . $tip . '" — Recipient web form only (screen helper text): ' . $this->screenTips()[$tip]);
+            }
         }
         $this->listDiffs($defects);
         $summary[$title === 'RECIPIENT WEB PAGE (real browser)' ? 'web' : ($kind === 'wet' ? 'wet-ink PDF' : 'sealed PDF')] = count($defects) . ' differences' . (($declared || $tips) ? ' (+' . (count($declared) + $tips) . ' declared additions)' : '');
