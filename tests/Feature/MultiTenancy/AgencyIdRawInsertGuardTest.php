@@ -40,6 +40,10 @@ class AgencyIdRawInsertGuardTest extends TestCase
         'app/Services/DealV2/DealPipelineService.php:deal_step_instance_dependencies',      // $dependencyRows[] => $deal->agency_id
         'app/Http/Controllers/Settings/Prospecting/BuyerMatchTiersController.php:buyer_match_tiers', // $payload['agency_id'] = $agencyId
         'app/Http/Controllers/FeedbackReportController.php:feedback_reports',               // array_merge($data, ['agency_id' => ...])
+        'app/Models/PropertySettingItem.php:property_setting_items',                       // $insert['agency_id'] = $agencyId (provisionDefaultsFor row builder)
+        'app/Services/Deal/Dr1PipelineService.php:deal_step_instance_dependencies',         // $dependencyRows[] => $deal->agency_id
+        'app/Services/DealV2/DealStructureAssembler.php:deal_step_instance_dependencies',   // $depRows[] => $agencyId
+        'app/Http/Controllers/Dr2/PipelineController.php:deal_step_instance_dependencies',  // array_map row => $deal->agency_id
     ];
 
     public function test_no_raw_insert_into_agency_scoped_table_omits_agency_id(): void
