@@ -74,7 +74,7 @@ class RentalJobCardController extends Controller
             'hasAny' => $list->hasAny(),
             'showArchived' => $request->boolean('archived'),
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(['id', 'name']),
-            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue']),
+            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue', 'needs_pricing']),
             'filteredProperty' => $propertyId ? Property::find($propertyId) : null,
             'tileCounts' => $list->tileCounts(),
             'resolvedScope' => $list->resolvedScope(),
@@ -103,6 +103,7 @@ class RentalJobCardController extends Controller
             'q' => $request->get('q'),
             'status' => $request->get('status'),
             'overdue' => $request->boolean('overdue'),
+            'needs_pricing' => $request->boolean('needs_pricing'),
             'rental_crew_id' => $request->get('rental_crew_id'),
             'property_id' => $request->get('property_id'),
             'from' => $dateFrom,
@@ -142,72 +143,33 @@ class RentalJobCardController extends Controller
      * job card can end up pointed at another property's lease. Resolved
      * only inside the user's own scope.
      */
-    public function create(Request $request): View
+    public function create(Request $request): RedirectResponse
     {
-        $user = $request->user();
-
-        $lease = $request->get('lease_id') ? Lease::query()->visibleTo($user, null)->find($request->get('lease_id')) : null;
-        $faultReport = $request->get('fault_report_id') ? RentalFaultReport::findOrFail($request->get('fault_report_id')) : null;
-        $workOrder = $request->get('rental_work_order_id')
-            ? \App\Models\RentalWorkOrder::query()->visibleTo($user, null)->find($request->get('rental_work_order_id'))
-            : null;
-        $inspection = $request->get('rental_inspection_id')
-            ? \App\Models\RentalInspection::query()->visibleTo($user, null)->find($request->get('rental_inspection_id'))
-            : null;
-        $lease = $lease ?? $faultReport?->lease ?? $workOrder?->lease ?? $inspection?->lease;
-
-        $property = $lease
-            ? $lease->property
-            : ($faultReport?->property ?? $workOrder?->property ?? $inspection?->property
-                ?? ($request->get('property_id') ? Property::visibleTo($user)->find($request->get('property_id')) : null));
-
-        $observationIds = array_filter((array) $request->get('observation_ids', []));
-        $observations = $observationIds
-            ? \App\Models\RentalInspectionObservation::query()->whereIn('id', $observationIds)->with(['item.room'])->get()
-            : collect();
-
-        $draftTasks = [];
-        if ($faultReport) {
-            $draftTasks[] = $faultReport->title;
-        }
-        if ($workOrder && !$faultReport) {
-            $draftTasks[] = $workOrder->title;
-        }
-        foreach ($observations as $observation) {
-            $room = $observation->item?->room?->label ?? 'General';
-            $item = $observation->item?->label ?? 'Unknown item';
-            $desc = "{$room} — {$item} (" . ucfirst(str_replace('_', ' ', $observation->condition)) . ')';
-            if ($observation->notes) {
-                $desc .= ' — ' . $observation->notes;
+        // BUILD 3 BEGIN — §17.3.1: "New Job Card" is an ALIAS. There is exactly ONE creation form for maintenance
+        // work — the work-order create form with "Internal crew" preselected — and one rule: no job card ever exists
+        // without its work order. Everything the old screen understood (a lease, a property, an inspection's marked
+        // items) is carried across; a fault report goes to its own "Create work order" form, and an existing
+        // work order to its own screen (a work order already owns its job card).
+        if ($faultId = $request->get('fault_report_id')) {
+            $fault = RentalFaultReport::query()->visibleTo($request->user(), null)->find($faultId);
+            if ($fault) {
+                return redirect()->route('corex.rental-fault-reports.show', $fault)
+                    ->with('success', 'Use “Create work order” on this fault report — it creates the work order and the job card together.');
             }
-            $draftTasks[] = $desc;
+        }
+        if ($workOrderId = $request->get('rental_work_order_id')) {
+            $workOrder = \App\Models\RentalWorkOrder::query()->visibleTo($request->user(), null)->find($workOrderId);
+            if ($workOrder) {
+                return redirect()->route('corex.rental-work-orders.show', $workOrder);
+            }
         }
 
-        // A job card is always created within the AUTHENTICATED user's own
-        // agency, regardless of which property ends up picked (the
-        // searchable picker resolves client-side, so a fresh /create with
-        // no prefill has no $property yet at all) — resolve pricesOn/VAT
-        // off the user's own agency, not $property?->agency, so the draft
-        // screen's catalogue/VAT controls are correct from the first paint
-        // instead of silently empty until a property happens to be chosen.
-        $agency = $property?->agency ?? $user->agency;
+        $carry = $request->only(['property_id', 'lease_id', 'rental_inspection_id', 'observation_ids', 'combine']);
 
-        return view('corex.rental-job-cards.show', [
-            'jobCard' => null,
-            'property' => $property,
-            'lease' => $lease,
-            'faultReport' => $faultReport,
-            'workOrder' => $workOrder,
-            'draftTasks' => $draftTasks,
-            'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
-            'catalogueItemTypes' => $agency ? RentalCatalogueItemType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect(),
-            'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
-            'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
-            'vatTypes' => $agency?->vat_registered
-                ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get()
-                : collect(),
-            'vatRegistered' => (bool) $agency?->vat_registered,
-        ]);
+        return redirect()->route('corex.rental-work-orders.create', array_merge($carry, [
+            'assignment_type' => \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
+        ]));
+        // BUILD 3 END
     }
 
     public function store(Request $request, RentalJobCardService $service): RedirectResponse
@@ -271,8 +233,10 @@ class RentalJobCardController extends Controller
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
             'property', 'lease.tenants.contact', 'crew.members', 'assignedUser',
-            'tasks.lines.catalogueItem', 'tasks.lines.vatType',
-            'lines.catalogueItem', 'lines.vatType', // includes General (task-less) lines
+            // §17.4.6 — the task tables show ACCEPTED lines only; the crew's pending lines get their own block (_pricing-panel).
+            'tasks.acceptedLines.catalogueItem', 'tasks.acceptedLines.vatType',
+            'lines.catalogueItem', 'lines.vatType', // every live line incl. General (task-less) ones; readers filter to accepted
+            'priceRequests',
             'rentalFaultReport',
             'photos.uploadedBy',
             // §15 (AT-447) — "From inspection <type> <date>" back-link,
@@ -298,6 +262,18 @@ class RentalJobCardController extends Controller
         $quoteRevisions = $rentalJobCard->quoteRevisions()->get();
         $currentQuote = $quoteRevisions->first(fn ($q) => $q->superseded_at === null);
 
+        // §17.15 — what THIS user may see and do about money. Cost, margin and the crew's raw figures are rendered server-side
+        // only for `view_costs`; selling edits, markup and accepting crew lines need `price`.
+        $user = $request->user();
+        $pricesOnForCard = RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id);
+        $canViewCosts = $pricesOnForCard && $user->hasPermission('rental_job_cards.view_costs');
+        $canPrice = $pricesOnForCard && $user->hasPermission('rental_job_cards.price');
+        $vatService = app(RentalJobCardVatService::class);
+        $pricingService = app(\App\Services\Rentals\RentalPricingService::class);
+        $awaitingLines = $rentalJobCard->lines->where('office_status', RentalJobCardLine::OFFICE_AWAITING)->values();
+        $awaitingPhotos = $awaitingLines->isEmpty() ? collect() : \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
+            ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->orderBy('id')->get()->groupBy('rental_job_card_line_id');
+
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
             'crewLink' => $crewLink,
@@ -306,8 +282,17 @@ class RentalJobCardController extends Controller
             'quoteRevisions' => $quoteRevisions,
             'currentQuote' => $currentQuote,
             'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote),
-            'generalLines' => $rentalJobCard->generalLines()->with(['catalogueItem', 'vatType'])->get(),
-            'pricesOn' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id),
+            'generalLines' => $rentalJobCard->generalLines()->accepted()->with(['catalogueItem', 'vatType'])->get(),
+            'pricesOn' => $pricesOnForCard,
+            // §17.4.5 / §17.15 — cost + margin are absent (not hidden) without `view_costs`.
+            'canViewCosts' => $canViewCosts,
+            'canPrice' => $canPrice,
+            'costVat' => $canViewCosts ? $vatService->costBreakdown($rentalJobCard) : null,
+            'margin' => $canViewCosts ? $pricingService->marginFor($rentalJobCard) : null,
+            'awaitingLines' => $awaitingLines,
+            'awaitingPhotos' => $awaitingPhotos,
+            'openPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN),
+            'submittedPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_SUBMITTED),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(),
@@ -315,7 +300,8 @@ class RentalJobCardController extends Controller
             'catalogueItemTypes' => RentalCatalogueItemType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
-            'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
+            // A crew's own discarded draft was never the office's line: it is not offered for restore.
+            'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->where('office_status', '!=', RentalJobCardLine::OFFICE_CREW_DRAFT)->get(),
             // Agency VAT set-up (2026-10-05) — the totals block and per-line
             // VAT type picker. vatTypes empty when the agency isn't VAT
             // registered: the view renders no selector at all in that case.
@@ -576,9 +562,13 @@ class RentalJobCardController extends Controller
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['nullable', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'unit_cost' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'markup_type' => ['nullable', 'in:percent,amount'],
+            'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
+        $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         if (empty($validated['rental_catalogue_item_id']) && empty($validated['description'])) {
             return back()->withErrors(['rental_job_card' => 'Pick a catalogue item or type a description.']);
@@ -617,9 +607,14 @@ class RentalJobCardController extends Controller
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['sometimes', 'required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'unit_cost' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'markup_type' => ['nullable', 'in:percent,amount'],
+            'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
+            'back_to_auto' => ['nullable', 'boolean'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
+        $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         try {
             $service->updateLine($rentalJobCard, $line, $validated, $request->user());
@@ -669,6 +664,12 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
+        // BUILD 2 (§17.7.1) — "re-send drops the approval" (§14.21) applies only BEFORE the owner has approved. After approval
+        // any increase goes through the variation path, raised automatically when lines change.
+        if ($rentalJobCard->workOrder?->hasApprovedBaseline()) {
+            return back()->withErrors(['rental_job_card' => 'The owner has already approved this job — extra work goes to the owner automatically as a variation, so there is nothing to re-send.']);
+        }
+
         try {
             $service->sendToOwnerAsQuote($rentalJobCard, $request->user(), $pdfService);
         } catch (\LogicException $e) {
@@ -713,6 +714,22 @@ class RentalJobCardController extends Controller
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
+
+        // BUILD 3 BEGIN — §17.10.1: the office's "Worker — done" is one of the routes that reports work done, and
+        // it dispatches no crew event — so it opens the completion round directly. Never breaks the sign-off.
+        if ($rentalJobCard->rental_work_order_id && $rentalJobCard->workOrder) {
+            try {
+                app(\App\Services\Rentals\RentalCompletionService::class)->openRound($rentalJobCard->workOrder, [
+                    'reported_by_label' => $validated['worker_sign_off_name'] ?? ($rentalJobCard->crew?->name ?: 'The crew'),
+                    'reported_via' => \App\Models\RentalWorkCompletionRound::VIA_OFFICE,
+                    'reported_by_user_id' => $request->user()->id,
+                    'rental_job_card_id' => $rentalJobCard->id,
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Completion round could not be opened from the office sign-off', ['job_card_id' => $rentalJobCard->id, 'error' => $e->getMessage()]);
+            }
+        }
+        // BUILD 3 END
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Worker sign-off recorded.');
     }
@@ -873,6 +890,25 @@ class RentalJobCardController extends Controller
      * anything left with neither a catalogue item nor a description) —
      * never a 500 on a stray empty row the client-side builder emitted.
      */
+    /**
+     * §17.15 — enforcement behind the screen, not just on it: a user without `rental_job_cards.price` cannot type a selling
+     * price, a markup or "back to automatic" (a hand-crafted POST is dropped here); cost needs `price` AND `view_costs`
+     * (nobody edits a figure they are not allowed to see). Keys that are ABSENT stay absent, so the service leaves them alone.
+     */
+    private function withoutPricingTheUserMayNotSet(array $validated, ?\App\Models\User $user): array
+    {
+        if (! $user || ! $user->hasPermission('rental_job_cards.price')) {
+            unset($validated['unit_price'], $validated['markup_type'], $validated['markup_value'], $validated['back_to_auto'], $validated['unit_cost']);
+
+            return $validated;
+        }
+        if (! $user->hasPermission('rental_job_cards.view_costs')) {
+            unset($validated['unit_cost']);
+        }
+
+        return $validated;
+    }
+
     private function validatedLineAttributes(array $line): array
     {
         $agencyId = auth()->user()->agency_id;
@@ -888,6 +924,7 @@ class RentalJobCardController extends Controller
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
-        return $validator->valid();
+        // The create screen's draft lines carry a typed price at most; cost/markup are set on the saved card.
+        return $this->withoutPricingTheUserMayNotSet($validator->valid(), auth()->user());
     }
 }

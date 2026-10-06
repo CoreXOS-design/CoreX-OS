@@ -263,6 +263,8 @@ final class CrewPageActionsTest extends TestCase
     public function test_the_agent_signoff_then_closes_the_card_and_the_link_into_it_dies(): void
     {
         $this->post($this->url('/complete'), ['full_name' => 'Sipho Dlamini', 'confirm' => '1']);
+        // Build 3 (§17.10.9): card and work order close together, so the owner's approval for this cost must exist.
+        $this->card->fresh()->workOrder->forceFill(['owner_approval_status' => \App\Models\RentalWorkOrder::APPROVAL_APPROVED])->save();
         $this->card->fresh()->agentSignOff($this->admin);
         app(\App\Services\Rentals\RentalJobCardService::class)->complete($this->card->fresh(), $this->admin);
 

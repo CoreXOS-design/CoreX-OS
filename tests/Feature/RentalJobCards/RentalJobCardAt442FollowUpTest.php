@@ -436,11 +436,27 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 100], $this->admin);
 
+        $fake = new class extends \App\Services\Rentals\RentalMailDispatcher {
+            public array $sent = [];
+
+            public function __construct() {}
+
+            public function send(?string $recipientEmail, \App\Mail\Signatures\BaseSignatureMail $mail): void
+            {
+                $this->sent[] = [$recipientEmail, $mail];
+            }
+        };
+        $this->app->instance(\App\Services\Rentals\RentalMailDispatcher::class, $fake);
+
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))->assertRedirect();
 
         $jobCard->refresh();
         $this->assertNotSame(\App\Models\RentalJobCard::STATUS_DRAFT, $jobCard->status);
-        Mail::assertQueued(\App\Mail\Rentals\RentalWorkOrderOwnerMail::class);
+        // BUILD 2 (§17.16) — the quote reaches the landlord through the agency mailbox path, never a plain queued Mailable.
+        Mail::assertNothingQueued();
+        $this->assertCount(1, $fake->sent);
+        $this->assertInstanceOf(\App\Mail\Rentals\RentalOwnerQuoteMail::class, $fake->sent[0][1]);
+        $this->assertSame($landlord->email, $fake->sent[0][0]);
     }
 
     public function test_an_outside_supplier_work_order_owner_notification_never_mails_a_tenant(): void

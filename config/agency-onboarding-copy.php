@@ -455,10 +455,20 @@ return [
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowCostsOnPrintedJobCard'],
             // §17.21.1 — each maintenance-flow build adds ITS savers (own narrow saver per setting, has()-guarded) between its markers.
             // BUILD 1 BEGIN — pricing savers (default markups, estimate term)
+            // §17.14 / §17.11 — own narrow savers, has()-guarded (a key absent from this step's POST is never touched).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateDefaultMarkups'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateQuoteEstimateTerm'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals savers (tolerance, auto-variation mail, external-quote fee)
+            // §17.14 — ONE narrow saver for the four approvals controls below; every field is has()-guarded in it, so a wizard step that posts
+            // only a subset can never reset a setting it did not render (agency-onboarding-setup.md §6.1).
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateApprovals'],
             // BUILD 2 END
             // BUILD 3 BEGIN — completion-check savers (enabled, window, dispute mail, notify crew)
+            // ONE narrow saver for the four tenant-completion-check settings: each field is written only when it is present
+            // in the request (has()-guarded; the toggles post a hidden "0" companion), so a wizard step that renders a subset
+            // can never wipe the others (onboarding spec §6.1). It refuses 403 itself without rental_work_orders.manage_settings.
+            ['controller' => \App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'method' => 'update'],
             // BUILD 3 END
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
@@ -698,10 +708,55 @@ return [
              'affects' => 'How quickly stalled repairs are flagged. 3 days is the default — lower it to chase contractors harder, raise it if your jobs routinely take longer.'],
             // §17.21.1 — each maintenance-flow build adds ITS controls (explain + affects) between its markers.
             // BUILD 1 BEGIN — pricing controls
+            ['key' => 'default_parts_markup_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 1000, 'step' => 0.5,
+             'label' => 'Default markup on parts (%)',
+             'explain' => 'When your crew or office records what a part actually cost you, CoreX adds this percentage on top to arrive at the price the owner is charged — unless the office sets a price or a different markup for that line or for the whole job.',
+             'affects' => 'The price an owner sees for every part on a quote. 0 % (the default) charges the owner exactly what the part cost you; for example 20 % turns a R100 part into R120. Each job card can still override it.'],
+            ['key' => 'default_labour_markup_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 1000, 'step' => 0.5,
+             'label' => 'Default markup on labour (%)',
+             'explain' => 'The same idea for labour: the percentage added on top of what the work cost you to arrive at the price the owner is charged, unless the office sets something else for that line or job.',
+             'affects' => 'The price an owner sees for every labour line on a quote. 0 % (the default) charges the owner exactly what the labour cost you; each job card can still override it.'],
+            ['key' => 'quote_estimate_term', 'source' => 'rental_work_orders', 'type' => 'textarea', 'default' => '',
+             'label' => 'Estimate wording on owner quotes',
+             'explain' => 'The short paragraph printed on every quote sent to an owner, telling them the quote is an estimate and what happens if the real cost turns out different. Leave it as it is to use the standard wording, or rewrite it in your own words.',
+             'affects' => 'The wording the owner reads at the bottom of the quote PDF and in the quote email. The wording in force on the day a quote is sent is kept with that quote, so changing it later never alters a quote already sent.'],
             // BUILD 1 END
-            // BUILD 2 BEGIN — approvals controls
+            // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
+            ['key' => 'variation_tolerance_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 100, 'step' => 0.5,
+             'label' => 'Extra work the owner is not asked about (% above what they approved)',
+             'explain' => 'When a repair turns out to need extra work after the owner has approved the quote, this is how far the new total may rise above the approved amount before the owner is asked again. Each property can have its own figure, agreed with its owner; this is the starting point for any property that has none.',
+             'affects' => 'Whether small extras go ahead straight away (and the owner is told) or always wait for the owner. 0 means every increase is put to the owner first — the safe starting point for a new agency. Emergency work and the owner\'s no-approval limit are unaffected.'],
+            ['key' => 'notify_landlord_on_auto_variation', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the owner when extra work is approved automatically',
+             'explain' => 'When extra work falls within the owner\'s agreed terms it goes ahead without asking them. This sends the owner an information email saying what was added and the new total.',
+             'affects' => 'Whether the owner hears about every automatic extra, or only about the ones that need their decision. On by default.'],
+            ['key' => 'external_quote_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
+             'options' => ['percent' => 'A percentage of the contractor\'s quote', 'amount' => 'A fixed amount (R)'],
+             'label' => 'Your fee on an outside contractor\'s quote — how it is worked out',
+             'explain' => 'If your agency adds its own fee on top of an outside contractor\'s quote, choose whether it is a percentage of the quote or a fixed amount.',
+             'affects' => 'How the figure below is applied. It does nothing while the fee is 0.'],
+            ['key' => 'external_quote_markup_value', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'step' => 0.01,
+             'label' => 'Your fee on an outside contractor\'s quote (0 = no fee)',
+             'explain' => 'The fee your agency adds to an outside contractor\'s quote before it goes to the owner. The owner sees one total; your office sees the contractor\'s quote, your fee and the total. A single work order can override it.',
+             'affects' => 'The amount the owner is asked to approve for outside work. 0 (the default) means the owner is asked to approve exactly what the contractor quoted.'],
             // BUILD 2 END
-            // BUILD 3 BEGIN — completion-check controls
+            // BUILD 3 BEGIN — completion-check controls (.ai/specs/rental-work-orders.md §17.10, §17.14)
+            ['key' => 'tenant_completion_check_enabled', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Ask the tenant to check finished work',
+             'explain' => 'When your crew (or a contractor) reports a repair job done, CoreX emails the tenant a link to say whether the work is done, or still wrong — with photos if it is wrong. The tenant can answer from the email or from the tenant portal.',
+             'affects' => 'Whether tenants are asked at all. On: a tenant who says the work is not complete puts the job into a "Disputed" state that your office must resolve before it can be closed. Off: nobody is asked and no job ever waits on a tenant. On by default.'],
+            ['key' => 'completion_response_window_days', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 30, 'step' => 1,
+             'label' => 'Days the tenant has to answer',
+             'explain' => 'How many days a tenant has to confirm finished work, or say it is not complete, before CoreX treats their silence as "accepted". The window is fixed when the work is reported done — changing it later never moves a check that is already open.',
+             'affects' => 'How long a finished job sits waiting for a tenant. 5 days suits most agencies — lower it to close jobs sooner, raise it for tenants who are slow to reply. After the window the tenant\'s link says the period has ended, and any later complaint is a new fault report.'],
+            ['key' => 'notify_landlord_on_dispute', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the owner when a tenant says work is not complete',
+             'explain' => 'When a tenant tells you finished work is still wrong, CoreX can email the property owner the tenant\'s words and photos, and tell them your office is arranging a fix.',
+             'affects' => 'Whether the owner hears about a dispute straight away, or only when your agent tells them. On by default — owners usually prefer to hear it from you first.'],
+            ['key' => 'dispute_notify_crew_immediately', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Send a disputed job straight back to the crew',
+             'explain' => 'When a tenant says work is not complete, the office normally looks at the complaint first and presses "Send back to crew". Switch this on and CoreX emails your crew a fresh job link, with the tenant\'s note and photos, the moment the tenant disputes the work.',
+             'affects' => 'Whether a disputed job reaches the crew automatically or waits for an office decision. Off by default so no one is sent back on a complaint the office has not read. A contractor is always sent back by the office, never automatically.'],
             // BUILD 3 END
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,

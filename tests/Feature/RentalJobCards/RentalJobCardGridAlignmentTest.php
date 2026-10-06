@@ -67,9 +67,16 @@ final class RentalJobCardGridAlignmentTest extends TestCase
 
     public function test_header_saved_row_and_add_row_use_the_same_grid_style(): void
     {
-        $grid = RentalJobCardLineGrid::gridStyle(true, true);
+        // This admin holds every permission (unseeded agency), so it sees the Cost and Margin columns too (§17.4.5): the grid
+        // the page renders is the 'showCost' one. A viewer without `rental_job_cards.view_costs` gets the plain one (below).
+        $grid = RentalJobCardLineGrid::gridStyle(true, true, true);
         // header + saved row + add row (+ the General block's three) all carry the one grid style
         $this->assertGreaterThanOrEqual(3, substr_count($this->html(), 'style="' . $grid), 'header, saved row and add row must render from the one grid style string');
+        $this->assertSame(
+            'minmax(0,70px) minmax(60px,1fr) 72px 52px 44px 62px 70px 66px 62px 28px',
+            implode(' ', RentalJobCardLineGrid::columns(true, true, true)),
+            'with costs: a compact grid (so it fits 1366 px) with Cost before the selling price and Margin after VAT',
+        );
         $this->assertSame(
             'minmax(0,100px) minmax(70px,1fr) 90px 64px 50px 84px 84px 36px',
             implode(' ', RentalJobCardLineGrid::columns(true, true)),

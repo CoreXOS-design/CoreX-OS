@@ -288,6 +288,34 @@ class RentalPortalScopeService
             ->get();
     }
 
+    /** BUILD 2 (§17.7.4) — requests for extra work waiting for THIS owner's decision (their properties only; explicit agency + soft-delete filters). */
+    public function landlordPendingVariations(Contact $contact)
+    {
+        return \App\Models\RentalWorkOrderVariation::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->where('status', \App\Models\RentalWorkOrderVariation::STATUS_AWAITING_OWNER)
+            ->whereIn('rental_work_order_id', RentalWorkOrder::withoutGlobalScopes()
+                ->where('agency_id', $contact->agency_id)->whereNull('deleted_at')
+                ->whereIn('property_id', $this->landlordPropertyIds($contact))->select('id'))
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** BUILD 2 — one variation on THIS owner's properties, or null (never another owner's, another agency's, or an archived work order's). */
+    public function landlordVariation(Contact $contact, int $variationId): ?\App\Models\RentalWorkOrderVariation
+    {
+        return $this->landlordPendingVariationsQuery($contact)->find($variationId);
+    }
+
+    private function landlordPendingVariationsQuery(Contact $contact)
+    {
+        return \App\Models\RentalWorkOrderVariation::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereIn('rental_work_order_id', RentalWorkOrder::withoutGlobalScopes()
+                ->where('agency_id', $contact->agency_id)->whereNull('deleted_at')
+                ->whereIn('property_id', $this->landlordPropertyIds($contact))->select('id'));
+    }
+
     public function landlordFaultReports(Contact $contact)
     {
         return RentalFaultReport::withoutGlobalScopes()
@@ -337,6 +365,39 @@ class RentalPortalScopeService
             ->orderByDesc('id')
             ->get();
     }
+
+    // BUILD 3 BEGIN — work orders & completion rounds for the tenant (rental-work-orders.md §17.3.5, §17.10.10) ───────
+    // The portal's "Jobs" are work orders now. A tenant sees work orders on THEIR OWN live lease(s); a round id (or a work
+    // order id) from another tenant, lease or agency resolves to null — a 404 at the controller. Global scopes are
+    // stripped (a portal request has no staff user), so agency_id and deleted_at are pinned explicitly.
+
+    public function tenantWorkOrders(Contact $contact)
+    {
+        return RentalWorkOrder::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('lease_id', $this->tenantLeaseIds($contact))
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    /** The round this tenant may answer: the work order must be theirs, and the round must be its newest. */
+    public function tenantCompletionRound(Contact $contact, int $workOrderId, ?int $roundId = null): ?\App\Models\RentalWorkCompletionRound
+    {
+        $workOrder = $this->tenantWorkOrder($contact, $workOrderId);
+        if (! $workOrder) {
+            return null;
+        }
+
+        $query = \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->where('rental_work_order_id', $workOrder->id);
+
+        return $roundId !== null
+            ? $query->whereKey($roundId)->first()
+            : $query->orderByDesc('round_no')->first();
+    }
+    // BUILD 3 END
 
     // ── Job cards — rental-work-orders.md §14.29 ────────────────────────
     // A tenant sees cards on THEIR OWN lease(s); a landlord sees cards on THEIR

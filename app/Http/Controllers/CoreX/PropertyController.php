@@ -2788,12 +2788,8 @@ class PropertyController extends Controller
             'commission_percent' => 'nullable|numeric|min:0|max:100',
             'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
             'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
-            // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29
-            // — "per property, populated to the leases screen." The single
-            // editable place a landlord's no-approval spend limit lives; the
-            // lease screen only ever reads through to this column. Null
-            // (cleared) means "use the agency default."
-            'rental_no_approval_spend_threshold' => 'nullable|numeric|min:0',
+            // BUILD 2 (.ai/specs/rental-work-orders.md §17.6.2) — the no-approval limit is no longer accepted here: it is edited,
+            // with its history, through RentalPropertyWorkTermsController (the "Work terms agreed with the owner" panel).
             // .ai/specs/rentals-faults-work-orders.md §3 — so the tenant-facing
             // fault first-aid screen can tell a tenant exactly where to look.
             'rental_main_water_valve_location' => 'nullable|string|max:255',

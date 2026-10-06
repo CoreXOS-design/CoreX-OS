@@ -47,7 +47,7 @@ class RentalSecureAccessTokenService
      *
      * @return array{token: RentalSecureAccessToken, raw_token: string}
      */
-    public function issueForJobCard(RentalJobCard $jobCard, User $by): array
+    public function issueForJobCard(RentalJobCard $jobCard, ?User $by): array
     {
         $hadLive = RentalSecureAccessToken::withoutGlobalScopes()
             ->where('rental_job_card_id', $jobCard->id)->whereNull('revoked_at')->exists();
@@ -65,7 +65,7 @@ class RentalSecureAccessTokenService
             $by,
             'Crew link created' . ($hadLive ? ' (replaces the earlier link)' : '') . ($expires ? ' — valid until ' . $expires->format('j M Y') : ''),
         );
-        RentalJobCardLinkIssued::dispatch($jobCard, $issued['token']->id, $by->id);
+        RentalJobCardLinkIssued::dispatch($jobCard, $issued['token']->id, $by?->id);
 
         return $issued;
     }
@@ -113,7 +113,7 @@ class RentalSecureAccessTokenService
      *
      * @return array{token: RentalSecureAccessToken, raw_token: string}
      */
-    public function issue(Model $target, string $purpose, User $by, ?int $expiryDays): array
+    public function issue(Model $target, string $purpose, ?User $by, ?int $expiryDays): array
     {
         $attributes = $this->targetAttributes($target, $purpose);
 
@@ -127,7 +127,7 @@ class RentalSecureAccessTokenService
                 'purpose' => $purpose,
                 'token_hash' => RentalSecureAccessToken::hashToken($rawToken),
                 'expires_at' => $expiryDays !== null ? now()->addDays($expiryDays) : null,
-                'created_by_user_id' => $by->id,
+                'created_by_user_id' => $by?->id,
             ]);
 
             return ['token' => $token, 'raw_token' => $rawToken];
@@ -140,6 +140,25 @@ class RentalSecureAccessTokenService
             ->where($this->targetColumn($target), $target->getKey())
             ->whereNull('revoked_at')
             ->update(['revoked_at' => now()]);
+    }
+
+    /**
+     * §17.10.3 — mint the tenant's one-click response link for a completion round (Build 3). One live link per round
+     * (issuing again replaces it); it expires 7 days after the response window ends, so a late click still reaches
+     * the polite "the response period has ended" page rather than a dead end. No CoreX user mints it (the work is
+     * reported by the crew), so `created_by_user_id` stays null.
+     *
+     * @return array{token: RentalSecureAccessToken, raw_token: string}
+     */
+    public function issueForCompletionRound(\App\Models\RentalWorkCompletionRound $round): array
+    {
+        $issued = $this->issue($round, RentalSecureAccessToken::PURPOSE_TENANT_COMPLETION, null, null);
+
+        $expires = ($round->window_ends_at ?? now()->addDays(\App\Models\RentalWorkOrderSetting::completionResponseWindowDaysFor($round->agency_id)))
+            ->copy()->addDays(7);
+        $issued['token']->forceFill(['expires_at' => $expires])->save();
+
+        return $issued;
     }
 
     /**
@@ -221,7 +240,8 @@ class RentalSecureAccessTokenService
             $target instanceof RentalWorkOrder => 'rental_work_order_id',
             $target instanceof RentalJobCard => 'rental_job_card_id',
             $target instanceof RentalCrew => 'rental_crew_id',
-            default => throw new \InvalidArgumentException('A secure link can only target a work order, a job card or a crew.'),
+            $target instanceof \App\Models\RentalWorkCompletionRound => 'rental_completion_round_id',
+            default => throw new \InvalidArgumentException('A secure link can only target a work order, a job card, a crew or a completion round.'),
         };
     }
 
@@ -233,6 +253,7 @@ class RentalSecureAccessTokenService
             RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER => 'rental_work_order_id',
             RentalSecureAccessToken::PURPOSE_CREW_JOB_CARD => 'rental_job_card_id',
             RentalSecureAccessToken::PURPOSE_CREW_STANDING => 'rental_crew_id',
+            RentalSecureAccessToken::PURPOSE_TENANT_COMPLETION => 'rental_completion_round_id',
             default => throw new \InvalidArgumentException("Unknown secure link purpose '{$purpose}'."),
         };
         if ($column !== $expected) {

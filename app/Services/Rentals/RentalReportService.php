@@ -80,8 +80,11 @@ class RentalReportService
             RentalWorkOrder::STATUS_REPORTED,
             RentalWorkOrder::STATUS_ORDERED,
             RentalWorkOrder::STATUS_IN_PROGRESS,
+            RentalWorkOrder::STATUS_DISPUTED,
         ]],
         'in_progress' => ['label' => 'In progress', 'statuses' => [RentalWorkOrder::STATUS_IN_PROGRESS]],
+        // §17.17 (BUILD 3) — a tenant said finished work is not complete; the office must resolve it.
+        'disputed' => ['label' => 'Disputed', 'statuses' => [RentalWorkOrder::STATUS_DISPUTED]],
         // "overdue" is not a status — it's computed (open + reported_at older than the
         // agency's own overdue_reminder_days setting, RentalWorkOrder::scopeOverdue()).
         'overdue' => ['label' => 'Overdue', 'statuses' => [], 'overdue' => true],
@@ -318,7 +321,8 @@ class RentalReportService
 
         $query = RentalWorkOrder::query()
             ->visibleTo($user, $scope)
-            ->with(['property', 'lease.tenants.contact', 'supplier', 'quotes']);
+            // BUILD 3 — §17.17: completion rounds, variations and (for margin) the job card, loaded once for the whole report.
+            ->with(['property', 'lease.tenants.contact', 'supplier', 'quotes', 'completionRounds', 'variations', 'jobCard']);
 
         if ($period['from']) {
             $query->where('reported_at', '>=', $period['from']);
@@ -397,14 +401,24 @@ class RentalReportService
             default => null,
         };
 
-        $rows = $orders->map(function (RentalWorkOrder $w) {
+        // BUILD 3 — §17.17: cost and margin are the agency's own and need `rental_job_cards.view_costs`; without it
+        // the margin columns are not just hidden, they are never built.
+        $canViewCosts = $user->hasPermission('rental_job_cards.view_costs');
+        $pricing = $canViewCosts ? app(RentalPricingService::class) : null;
+
+        $rows = $orders->map(function (RentalWorkOrder $w) use ($canViewCosts, $pricing) {
             $selectedQuote = $w->quotes->firstWhere('is_selected', true);
             $amount = $selectedQuote?->amount ?? $w->cost_amount;
             $daysOpen = $w->reported_at
                 ? ($w->completed_at ?? $w->cancelled_at ?? now())->diffInDays($w->reported_at)
                 : null;
 
-            return [
+            $liveVariations = $w->variations->where('status', '!=', \App\Models\RentalWorkOrderVariation::STATUS_WITHDRAWN);
+            $agreedExtra = $liveVariations->whereIn('status', [
+                \App\Models\RentalWorkOrderVariation::STATUS_APPROVED, \App\Models\RentalWorkOrderVariation::STATUS_AUTO_APPROVED,
+            ])->sum('extra_amount');
+
+            $row = [
                 '_model' => $w,
                 'date_raised' => optional($w->reported_at)->format('Y-m-d'),
                 'property' => $w->property?->buildDisplayAddress() ?? '—',
@@ -414,7 +428,23 @@ class RentalReportService
                 'status' => $this->humanize($w->status),
                 'paid_by' => $w->paid_by ? $this->humanize($w->paid_by) : '—',
                 'days_open' => $daysOpen,
+                // BUILD 3 — the approval basis (an emergency shows as such), variations, tenant-check rounds and disputes.
+                'approval_basis' => $w->approvalBasisLabel() ?? '—',
+                'variation_count' => $liveVariations->count(),
+                'variation_extra_amount' => $agreedExtra > 0 ? (float) $agreedExtra : null,
+                'rounds' => $w->completionRounds->count(),
+                'disputes' => $w->completionRounds->where('outcome', \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED)->count(),
             ];
+
+            if ($canViewCosts) {
+                // Margin only for an internal job whose card carries a recorded cost (excl-VAT basis); blank — never a forced zero.
+                $card = $w->jobCard;
+                $margin = $card && $card->total_cost !== null ? $pricing->marginFor($card) : null;
+                $row['margin_amount'] = $margin ? (float) $margin['marginExcl'] : null;
+                $row['margin_pct'] = $margin && $margin['marginPct'] !== null ? (float) $margin['marginPct'] : null;
+            }
+
+            return $row;
         });
 
         $sort = $params['sort'] ?? 'date_raised';
@@ -423,13 +453,23 @@ class RentalReportService
 
         [$rows, $groups] = $this->applyGrouping($rows, $params['group_by'] ?? null, $groupLabel);
 
+        $columns = [
+            'date_raised' => 'Date raised', 'property' => 'Property', 'supplier' => 'Supplier',
+            'trade' => 'Trade', 'quoted_amount' => 'Quoted amount', 'status' => 'Status',
+            'paid_by' => 'Paid by', 'days_open' => 'Days open',
+            'approval_basis' => 'Approval basis', 'variation_count' => 'Variations', 'variation_extra_amount' => 'Extra agreed (R)',
+            'rounds' => 'Tenant checks', 'disputes' => 'Disputes',
+        ];
+        $sumKeys = ['quoted_amount', 'days_open', 'variation_count', 'variation_extra_amount', 'rounds', 'disputes'];
+        if ($canViewCosts) {
+            $columns['margin_amount'] = 'Margin (R, excl VAT)';
+            $columns['margin_pct'] = 'Margin %';
+            $sumKeys[] = 'margin_amount';
+        }
+
         return [
-            'columns' => [
-                'date_raised' => 'Date raised', 'property' => 'Property', 'supplier' => 'Supplier',
-                'trade' => 'Trade', 'quoted_amount' => 'Quoted amount', 'status' => 'Status',
-                'paid_by' => 'Paid by', 'days_open' => 'Days open',
-            ],
-            'sumKeys' => ['quoted_amount', 'days_open'],
+            'columns' => $columns,
+            'sumKeys' => $sumKeys,
             'rows' => $rows,
             'groups' => $groups,
             'count' => $orders->count(),
@@ -526,9 +566,17 @@ class RentalReportService
             default => null,
         };
 
-        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered) {
-            $labourHours = (float) $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
-            $partsUsed = $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_PART)
+        // §17.17 — cost, margin and the "lines without cost" count exist ONLY for a user who may see them; without
+        // `rental_job_cards.view_costs` those columns are absent from the report entirely (so from every export/print variant).
+        $canViewCosts = $user->hasPermission('rental_job_cards.view_costs');
+        $pricing = $canViewCosts ? app(RentalPricingService::class) : null;
+        $costVat = $canViewCosts ? ($vatService ?? app(RentalJobCardVatService::class)) : null;
+
+        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered, $canViewCosts, $pricing, $costVat) {
+            // §17.4.6 — a crew's pending line is not work done and not money: ACCEPTED lines only.
+            $lines = $c->lines->filter(fn ($l) => $l->isAccepted());
+            $labourHours = (float) $lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
+            $partsUsed = $lines->where('type', \App\Models\RentalCatalogueItem::TYPE_PART)
                 ->map(fn ($l) => $l->description . ($l->quantity ? " ({$l->quantity})" : ''))
                 ->implode(', ');
 
@@ -543,8 +591,19 @@ class RentalReportService
                 // "never a forced zero" (spec §4.3) — null (not 0) when the
                 // agency hasn't priced this card yet, so the Blade/export
                 // layer renders it blank rather than "R 0.00".
-                'total_cost' => $c->total_amount !== null ? (float) $c->total_amount : null,
+                // §17.17 — this is SELLING (what the owner is charged), formerly mislabelled "Total cost". The agency's own cost is
+                // `total_cost` below, view_costs only.
+                'total_selling' => $c->total_amount !== null ? (float) $c->total_amount : null,
             ];
+
+            if ($canViewCosts) {
+                $m = $pricing->marginFor($c);
+                $hasCost = $m['marginableLines'] > 0 || ($costVat->costBreakdown($c)['costedLines'] ?? 0) > 0;
+                $row['total_cost'] = $hasCost ? $m['costExcl'] : null;
+                $row['total_margin'] = $m['marginableLines'] > 0 ? $m['marginExcl'] : null;
+                $row['margin_pct'] = $m['marginPct'] !== null ? number_format($m['marginPct'], 1) . ' %' : '—';
+                $row['lines_without_cost'] = $m['linesWithoutCost'];
+            }
 
             if ($vatRegistered) {
                 $breakdown = $vatService->breakdown($c);
@@ -565,12 +624,24 @@ class RentalReportService
         $columns = [
             'date' => 'Date', 'property' => 'Property', 'crew_member' => 'Crew member',
             'labour_hours' => 'Labour hours', 'parts_used' => 'Parts used', 'status' => 'Status',
-            'total_cost' => 'Total cost',
         ];
-        $sumKeys = ['labour_hours', 'total_cost'];
+        $sumKeys = ['labour_hours'];
         if ($vatRegistered) {
-            $columns += ['total_excl' => 'Total (excl VAT)', 'total_vat' => 'VAT', 'total_incl' => 'Total (incl VAT)'];
+            // For a VAT-registered agency the three VAT columns ARE the selling price; no separate "as captured" column.
+            $columns += ['total_excl' => 'Selling (excl VAT)', 'total_vat' => 'VAT', 'total_incl' => 'Selling (incl VAT)'];
             $sumKeys = array_merge($sumKeys, ['total_excl', 'total_vat', 'total_incl']);
+        } else {
+            $columns += ['total_selling' => 'Selling'];
+            $sumKeys[] = 'total_selling';
+        }
+        if ($canViewCosts) {
+            $columns += [
+                'total_cost' => $vatRegistered ? 'Cost (excl VAT)' : 'Cost',
+                'total_margin' => 'Margin (R, excl VAT)',
+                'margin_pct' => 'Margin %',
+                'lines_without_cost' => 'Lines without cost',
+            ];
+            $sumKeys = array_merge($sumKeys, ['total_cost', 'total_margin', 'lines_without_cost']);
         }
 
         return [
@@ -978,7 +1049,8 @@ class RentalReportService
             'faults' => $faults,
             'workOrders' => $workOrders,
             'inspections' => $inspections,
-            'totalWorkOrderAmount' => $workOrders->sum(fn ($w) => $w->quotes->firstWhere('is_selected', true)?->amount ?? $w->cost_amount ?? 0),
+            // BUILD 2 — owner-facing amount (selling): the selected quote's owner-facing figure, never the contractor's own or any cost/margin.
+            'totalWorkOrderAmount' => $workOrders->sum(fn ($w) => $w->quotes->firstWhere('is_selected', true)?->ownerFacingAmount() ?? $w->cost_amount ?? 0),
         ];
     }
 

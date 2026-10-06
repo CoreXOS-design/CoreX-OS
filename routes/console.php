@@ -339,6 +339,8 @@ Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOver
 // .ai/specs/rental-work-orders.md §4/§6 — "a tracking way to keep track of
 // work orders," Johan's own words, the overdue half.
 Schedule::command('notifications:scan-rental-work-orders')->everyThirtyMinutes()->withoutOverlapping();
+// .ai/specs/rental-work-orders.md §17.10.8 (BUILD 3) — silence = accepted: a tenant completion check nobody answered inside its window is settled daily.
+Schedule::command('rentals:settle-completion-rounds')->daily()->withoutOverlapping();
 // Contact birthdays are no longer scanned per-contact — they are delivered as a
 // single "Birthdays today" section in the 06:30 daily digest below (one email
 // per user, never one email per birthday). See SendCalendarDigests.

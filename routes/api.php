@@ -229,6 +229,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/job-cards/{jobCard}', [ClientTenantRentalsController::class, 'jobCardShow'])->name('job-cards.show');
             // §17.21.1 — Build 3 only (tenant: work-orders index, completion-response).
             // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)
+            // §17.3.5 — the portal's Jobs are work orders: the tenant's list, and their answer to "is this finished?".
+            Route::get('/work-orders', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantIndex'])->name('work-orders.index');
+            Route::post('/work-orders/{workOrder}/completion-response', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'completionResponse'])->name('work-orders.completion-response');
             // BUILD 3 END
         });
 
@@ -251,8 +254,11 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/decisions', [ClientLandlordRentalsController::class, 'decisions'])->name('decisions.index');
             // §17.21.1 — Build 2 (variation decision, decisions list) and Build 3 (work-orders/{id}) add routes only between their own markers.
             // BUILD 2 BEGIN — landlord variation decision (.ai/specs/rental-work-orders.md §17.21.5)
+            // §17.7.4 — approve / decline extra work beyond the owner's agreed terms (body: decision, revision, note). The open ones are listed by GET decisions above.
+            Route::post('/variations/{variation}/decision', [ClientLandlordRentalsController::class, 'variationDecision'])->name('variations.decision');
             // BUILD 2 END
             // BUILD 3 BEGIN — landlord work-order show (.ai/specs/rental-work-orders.md §17.21.5)
+            Route::get('/work-orders/{workOrder}', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordShow'])->whereNumber('workOrder')->name('work-orders.show');
             // BUILD 3 END
         });
     });

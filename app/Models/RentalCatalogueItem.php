@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * FROM an agency-configurable list each (RentalCatalogueItemType/
  * RentalCatalogueUnit — Pastel-style enhancement, 2026-10-05).
  *
- * `default_price` is ALWAYS the excl-VAT amount, regardless of the agency's
+ * `default_price` (and, §17.4.4, `default_cost`) is ALWAYS the excl-VAT amount, regardless of the agency's
  * capture mode — "store unambiguously" (Johan). When the agency types
  * prices incl-VAT, the create/edit form converts what was typed down to
  * excl before saving (RentalCatalogueItemController); when a job card line
@@ -47,6 +47,8 @@ class RentalCatalogueItem extends Model
         'description',
         'rental_catalogue_unit_id',
         'default_price',
+        // §17.4.4 — what a part/labour item usually COSTS the agency (same always-excl-VAT rule as default_price). Prefills the cost on a new line; nothing is derived from it silently.
+        'default_cost',
         'default_rental_vat_type_id',
         'default_custom_vat_rate',
         'is_active',
@@ -56,6 +58,7 @@ class RentalCatalogueItem extends Model
 
     protected $casts = [
         'default_price' => 'decimal:2',
+        'default_cost' => 'decimal:2',
         'default_custom_vat_rate' => 'decimal:2',
         'is_active' => 'boolean',
         'sort_order' => 'integer',

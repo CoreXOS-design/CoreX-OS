@@ -57,8 +57,17 @@ class RentalJobCardTask extends Model
         return $this->hasMany(RentalJobCardLine::class, 'rental_job_card_task_id')->orderBy('sort_order')->orderBy('id');
     }
 
+    /** §17.4.6 — the lines that count (accepted); lines() above is every live line, for the office's own "awaiting" block. */
+    public function acceptedLines(): HasMany
+    {
+        return $this->lines()->accepted();
+    }
+
+    /** Selling subtotal of the ACCEPTED lines only (§17.4.6). Reads the loaded relation when present, else queries. */
     public function subtotal(): float
     {
-        return (float) $this->lines->sum('line_total');
+        $lines = $this->relationLoaded('lines') ? $this->lines->where('office_status', RentalJobCardLine::OFFICE_ACCEPTED) : $this->acceptedLines()->get();
+
+        return (float) $lines->sum('line_total');
     }
 }

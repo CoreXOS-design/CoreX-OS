@@ -146,7 +146,12 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $workOrder->fresh()->owner_approval_status);
     }
 
-    public function test_changing_the_price_of_the_selected_quote_requires_re_approval(): void
+    /**
+     * BUILD 2 (.ai/specs/rental-work-orders.md §17.9.4) supersedes audit M1's "a price change drops the approval": once the owner has
+     * approved an amount, a HIGHER price is a variation for the extra (the approval stands for what the owner agreed); the owner is asked
+     * about the difference only. A change on a work order with NO approved amount still re-evaluates from scratch.
+     */
+    public function test_changing_the_price_of_the_selected_quote_after_approval_raises_a_variation_for_the_extra(): void
     {
         $supplier = $this->supplier();
         $workOrder = $this->workOrder();
@@ -159,7 +164,13 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
             'detail_text' => 'price went up',
         ])->assertRedirect();
 
-        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $workOrder->fresh()->owner_approval_status);
+        $fresh = $workOrder->fresh();
+        $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $fresh->owner_approval_status, 'what the owner approved stays approved');
+        $this->assertSame('20000.00', $fresh->approved_amount);
+        $variation = $fresh->openVariation();
+        $this->assertNotNull($variation, 'the extra waits for the owner');
+        $this->assertSame('10000.00', $variation->extra_amount);
+        $this->assertSame('30000.00', $variation->new_total);
     }
 
     public function test_the_assigned_supplier_must_be_the_selected_quotes_supplier(): void
