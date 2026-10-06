@@ -379,6 +379,7 @@ class PlatformEsignVerifyWording extends Command
                     $add($v);
                     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $v)) {
                         $add(date('j F Y', strtotime((string) $v)));
+                        $add(date('F Y', strtotime((string) $v))); // the take-on month is shown without a day
                     }
                 }
             }

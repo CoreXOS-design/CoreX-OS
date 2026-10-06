@@ -45,7 +45,7 @@ class AgreementFields
             'agents'          => $r('Number of agents (seats) at start', 'int', true, 3),
             'extra_branches'  => $r('Additional branches', 'int', true, 3),
             // §4
-            'start_date'      => $r('Start date', 'date'),
+            'start_date'      => $r('Take On Month', 'date'),
             'term'            => $r('Initial term', 'radio', true, 20, ['one_month' => '1 month', 'other' => 'Other']),
             'term_months'     => $r('Initial term (months)', 'int', false, 3),
             // §5

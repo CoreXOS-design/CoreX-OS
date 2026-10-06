@@ -188,7 +188,8 @@ class AgreementRenderer
                 // Start date, first collection date, collection day, mandate Amount: set by RR through the take-on month (spec §11.19) — shown, never typed.
                 $v = $this->value($key);
                 $shown = match ($key) {
-                    'start_date', 'm_first_payment' => $this->date($v),
+                    'start_date' => $v === '' ? '' : $this->monthYear($v), // "October 2026" — the take-on month, no day
+                    'm_first_payment' => $this->date($v),
                     'm_amount' => $v === '' ? '' : 'R ' . AgreementPricing::number((float) $v),
                     default => $v,
                 };
@@ -228,7 +229,7 @@ class AgreementRenderer
         }
         $shown = match ($f['type']) {
             'radio', 'select' => $f['options'][$v] ?? $v,
-            'date' => $this->date($v),
+            'date' => ($key === 'start_date' && !empty($this->ctx['rr']['take_on_month'])) ? $this->monthYear($v) : $this->date($v),
             'money' => 'R ' . (is_numeric($v) ? AgreementPricing::number((float) $v) : $v),
             default => $v,
         };
@@ -239,6 +240,16 @@ class AgreementRenderer
         }
 
         return '<span class="val">' . nl2br(e($shown)) . '</span>';
+    }
+
+    /** "October 2026" — the take-on month shown without a day. */
+    private function monthYear(string $iso): string
+    {
+        try {
+            return Carbon::parse($iso)->format('F Y');
+        } catch (\Throwable) {
+            return $iso;
+        }
     }
 
     private function date(string $iso): string
