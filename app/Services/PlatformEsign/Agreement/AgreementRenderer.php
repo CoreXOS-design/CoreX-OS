@@ -21,6 +21,10 @@ use League\CommonMark\Renderer\HtmlRenderer;
 class AgreementRenderer
 {
     private const TOKEN = '/\{\{(f|o|q|rate|amt|rr|sig|ini|ref|auto|ctl|co)(?::([a-z0-9_]+))?(?::([a-z0-9_]+))?\}\}/';
+    /** Screen-only helper text beside the dates RR sets (never in a PDF; a declared addition of the proof). */
+    public const TAKE_ON_TIP = 'Set by CoreX as agreed for your take-on month.';
+    public const AMOUNT_TIP = 'Fills in automatically from your monthly fee in section 3.';
+
     private const LINE_APPLIES = ['team' => ['team_seats'], 'agency' => ['agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches']];
 
     /** @var array<string,mixed> */
@@ -71,7 +75,57 @@ class AgreementRenderer
         // Tables written as "|||" have an empty header row — drop it so it does not render as a blank bar.
         $html = preg_replace('#<thead>\s*<tr>(\s*<th[^>]*>\s*</th>)+\s*</tr>\s*</thead>#', '', $html);
 
-        return preg_replace_callback(self::TOKEN, fn ($m) => $this->token($m[1], $m[2] ?? '', $m[3] ?? ''), $html);
+        $html = $this->alignmentHooks($html);
+        $html = preg_replace_callback(self::TOKEN, fn ($m) => $this->token($m[1], $m[2] ?? '', $m[3] ?? ''), $html);
+
+        return $this->isForm() ? $this->gatherTips($html) : $html;
+    }
+
+    /** Mandate rows laid out on one grid: label text => true. The text and its order are untouched — only classes and spans are added. */
+    private const MANDATE_ROWS = ['Address', 'Bank Name', 'Branch Name and Town', 'Branch Number', 'Account Number', 'Type of Account', 'Date', 'Contact Number', 'Amount',
+        'To (Name of Beneficiary)', 'Abbreviated Shortname to be used'];
+
+    /**
+     * Layout hooks (spec §11.21) — classes only, never wording: the Agency / RR Technologies signature table gets equal columns and fixed row heights so
+     * both blocks line up row by row; each mandate "Label: field" paragraph becomes a row of one aligned grid. Same on screen, preview, RR screen and both PDFs.
+     */
+    private function alignmentHooks(string $html): string
+    {
+        if (str_contains($html, 'For the Agency') && str_contains($html, 'For RR Technologies') && str_starts_with($html, '<table')) {
+            $html = preg_replace('/^<table>/', '<table class="sigtable">', $html, 1);
+            $html = preg_replace_callback('#<p>(Name|Capacity|Signature|Date|Place):#', fn ($m) => '<p class="sr sr-' . strtolower($m[1]) . '">' . $m[1] . ':', $html);
+
+            return $html;
+        }
+        if (preg_match('#^<p>Given by <em>\(name of Accountholder\):\s*(.*)</em></p>$#s', $html, $m)) {
+            return '<p class="mf"><span class="mf-l">Given by <em>(name of Accountholder):</em></span> <span class="mf-v">' . $m[1] . '</span></p>';
+        }
+        if (preg_match('#^<p>(' . implode('|', array_map(fn ($l) => preg_quote($l, '#'), self::MANDATE_ROWS)) . '):\s*(.*)</p>$#s', $html, $m)) {
+            return '<p class="mf"><span class="mf-l">' . $m[1] . ':</span> <span class="mf-v">' . $m[2] . '</span></p>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Screen-only tips: inside a mandate grid row they sit in their own third column (same line, equal row heights); inside a sentence
+     * (first payment date / collection day) they move to the end of the paragraph so the printed sentence still reads straight through.
+     */
+    private function gatherTips(string $html): string
+    {
+        $tip = '#<span class="auto-tip"[^>]*>.*?</span>#s';
+
+        return preg_replace_callback('#<p( class="mf")?>(.*?)</p>#s', function ($m) use ($tip) {
+            if (!preg_match_all($tip, $m[2], $found)) {
+                return $m[0];
+            }
+            $body = preg_replace($tip, '', $m[2]);
+            if ($m[1] !== '') {
+                return '<p class="mf">' . $body . ' <span class="mf-t">' . implode(' ', $found[0]) . '</span></p>';
+            }
+
+            return '<p>' . $body . ' <span class="tip-end">' . implode(' ', $found[0]) . '</span></p>';
+        }, $html);
     }
 
     // ── tokens ─────────────────────────────────────────────────────────────
@@ -130,6 +184,21 @@ class AgreementRenderer
             return '';
         }
         if ($this->isForm()) {
+            if (isset(AgreementTakeOn::FIELDS[$key]) && !empty($this->ctx['rr']['take_on_month'])) {
+                // Start date, first collection date, collection day, mandate Amount: set by RR through the take-on month (spec §11.19) — shown, never typed.
+                $v = $this->value($key);
+                $shown = match ($key) {
+                    'start_date', 'm_first_payment' => $this->date($v),
+                    'm_amount' => $v === '' ? '' : 'R ' . AgreementPricing::number((float) $v),
+                    default => $v,
+                };
+
+                return '<input type="text" class="fld' . ($key === 'm_amount' ? ' num' : '') . '" value="' . e($shown) . '" readonly tabindex="-1" data-derived="1"' . ($key === 'm_amount' ? ' data-mirror="total"' : '') . ' aria-label="' . e($f['label']) . '">'
+                    . '<span class="auto-tip" data-screen-only="1">' . ($key === 'm_amount' ? self::AMOUNT_TIP : self::TAKE_ON_TIP) . '</span>';
+            }
+            if (!empty($this->ctx['rr']['single_entry']) && isset(AgreementFields::MIRRORS[$key])) {
+                return $this->mirrorField($key, $f);
+            }
             if ($key === 'branches') {
                 // Entered once, in section 3 beside the number of agents; this row of the original form just shows it.
                 return '<input type="text" class="fld num" value="' . e($this->value('branches')) . '" readonly tabindex="-1" data-derived="1" data-mirror="branches" aria-label="' . e($f['label']) . '">' . $this->tip();
@@ -203,7 +272,56 @@ class AgreementRenderer
     private function tip(bool $float = false): string
     {
         return '<span class="auto-tip' . ($float ? ' auto-tip-float' : '') . '" data-screen-only="1">Fills in automatically — enter your number of agents and branches in the '
-            . '<a href="#fld-agents" data-goto-agents="1">Monthly fee at start</a> section (section 3).</span>';
+            . '<a href="#fld-agents" data-goto="fld-agents">Monthly fee at start</a> section (section 3).</span>';
+    }
+
+    /**
+     * Single entry (spec §11.20): a value typed in one place (the mandate, or Part A) is shown read-only in the other. Per target:
+     * [tip sentence with {link}, link text, id of the field it is typed in, whether this field carries the tip]. Screen only.
+     */
+    public const MIRROR_TIPS = [
+        'da_holder' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_holder'],
+        'da_bank' => null, // the bank and branch code share one row — the tip sits after the branch code
+        'da_branch_code' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_bank'],
+        'da_account' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_account'],
+        'da_type' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_account_type-current'],
+        'm_address' => ['Fills in automatically from your {link} in section 1.', 'physical address', 'fld-address'],
+        'm_contact' => ['Fills in automatically from the {link} in section 1.', 'billing contact cell', 'fld-billing_cell'],
+        'm_place' => ['Fills in automatically from the {link} in section 6.', 'place', 'fld-sig_place'],
+        'm_date' => ['Fills in automatically from the {link} in section 6.', 'date', 'fld-sig_date'],
+    ];
+
+    /** The plain sentence of a mirror tip (also what the word-for-word proof strips from the page text). */
+    public static function mirrorTipText(string $key): string
+    {
+        [$sentence, $link] = self::MIRROR_TIPS[$key];
+
+        return str_replace('{link}', $link, $sentence);
+    }
+
+    private function mirrorField(string $key, array $f): string
+    {
+        $source = AgreementFields::MIRRORS[$key];
+        $v = $this->value($key);
+        $sf = AgreementFields::schema()[$source];
+        $shown = match ($sf['type']) {
+            'radio', 'select' => $sf['options'][$v] ?? '',
+            'date' => $v === '' ? '' : $this->date($v),
+            default => $v,
+        };
+        $attrs = ' data-mirror-of="' . e($source) . '"' . ($sf['type'] === 'date' ? ' data-format="date"' : '')
+            . (in_array($sf['type'], ['radio', 'select'], true) ? " data-map='" . e(json_encode($sf['options'], JSON_UNESCAPED_UNICODE), ENT_QUOTES) . "'" : '');
+        $tip = '';
+        if ($spec = self::MIRROR_TIPS[$key] ?? null) {
+            $link = '<a href="#' . e($spec[2]) . '" data-goto="' . e($spec[2]) . '">' . e($spec[1]) . '</a>';
+            $tip = '<span class="auto-tip" data-screen-only="1">' . str_replace('{link}', $link, e($spec[0])) . '</span>';
+        }
+        $common = ' readonly tabindex="-1" data-derived="1"' . $attrs . ' aria-label="' . e($f['label']) . '"';
+        if ($sf['type'] === 'textarea') {
+            return '<textarea class="fld" rows="2"' . $common . '>' . e($shown) . '</textarea>' . $tip;
+        }
+
+        return '<input type="text" class="fld" value="' . e($shown) . '"' . $common . '>' . $tip;
     }
 
     private function option(string $key, string $val): string
@@ -223,7 +341,7 @@ class AgreementRenderer
                     . '<label class="opt" title="Chosen automatically from the number of agents"><input type="radio" name="plan" value="' . e($val) . '" data-field="plan" data-derived="1"' . ($on ? ' checked' : '') . ' disabled><span class="tick"></span></label>';
             }
 
-            return '<label class="opt' . $err . '"><input type="radio" name="' . e($key) . '" value="' . e($val) . '" data-field="' . e($key) . '"' . ($f['required'] ? ' data-required="1"' : '') . ($on ? ' checked' : '') . $locked . '><span class="tick"></span></label>';
+            return '<label class="opt' . $err . '"><input type="radio" id="fld-' . e($key) . '-' . e($val) . '" name="' . e($key) . '" value="' . e($val) . '" data-field="' . e($key) . '"' . ($f['required'] ? ' data-required="1"' : '') . ($on ? ' checked' : '') . $locked . '><span class="tick"></span></label>';
         }
         if ($this->mode === 'canon') {
             return '<span class="box">☐</span>';
@@ -315,9 +433,10 @@ class AgreementRenderer
             $err = !empty($this->ctx['errors'][$key]) ? ' err' : '';
             $copy = $who === 'mandate' ? '<button type="button" class="mini" data-sig-copy="sigA">Use the same signature</button>' : '';
 
-            return '<div class="sigpad' . $err . '" data-sig="' . e($key) . '" data-field="' . e($key) . '" data-required="1"><canvas></canvas>'
-                . '<div class="sigtools"><button type="button" class="mini" data-sig-clear>Clear</button><button type="button" class="mini" data-sig-type>Type it instead</button>' . $copy . '</div>'
-                . '<input type="hidden" name="' . e($key) . '" value="' . e($img) . '"></div>';
+            // <span>s (display:block in the CSS), not <div>s: a block inside a <p> makes the browser close the paragraph early and breaks the signature rows.
+            return '<span class="sigpad' . $err . '" data-sig="' . e($key) . '" data-field="' . e($key) . '" data-required="1"><canvas></canvas>'
+                . '<span class="sigtools"><button type="button" class="mini" data-sig-clear>Clear</button><button type="button" class="mini" data-sig-type>Type it instead</button>' . $copy . '</span>'
+                . '<input type="hidden" name="' . e($key) . '" value="' . e($img) . '"></span>';
         }
 
         return $img !== '' ? '<img class="sigimg" src="' . e($img) . '" alt="Signature">' : '<span class="blank sigline">&nbsp;</span>';

@@ -216,34 +216,50 @@ new migration added silently doesn't exist yet in every OTHER lane's test
 runs, which reads as an unrelated, confusing test failure somewhere else
 entirely.
 
-**How, exactly** (do this in a worktree — never against `/corex-qa1`
-directly, and never point your default `DB_DATABASE` at a test schema
-permanently):
+**How, exactly (rewritten 2026-10-06 — the old recipe below this heading is gone):** run the one
+script, from your worktree root, with no arguments:
 
 ```bash
-DB_DATABASE=hfc_dash_test_<your lane number> php8.2 artisan migrate:fresh --force
-DB_DATABASE=hfc_dash_test_<your lane number> php8.2 artisan schema:dump
+scripts/schema-dump.sh
 ```
 
-Then **strip the `DEFINER` clauses** — `schema:dump` bakes in whichever DB
-user happened to run it, which breaks the load for every other user (see
-non-negotiable #12a's own writeup of this exact gotcha):
+That is the ONLY sanctioned way to produce `database/schema/mysql-schema.sql`. **Never hand-edit the
+snapshot, and never run a bare `artisan schema:dump` (or `migrate:fresh` + `schema:dump`) against your own lane's
+test schema.** Both were the source of the 2026-10-06 breakage: hand edits left charset noise and a
+missing migration's tables; dumps of a lane schema picked up the lane-test bookkeeping table
+(`_corex_lane_test_fingerprint`). If a merge conflicts on the snapshot, do not merge it by hand — take
+either side, then regenerate with the script.
 
-```bash
-sed -i 's/\/\*!50017 DEFINER=`[^`]*`@`[^`]*`\*\/ //g' database/schema/mysql-schema.sql
-grep -c "DEFINER=" database/schema/mysql-schema.sql   # must print 0
-```
+What the script does that the old recipe did not (details in its own header comment):
+- Builds its OWN scratch schema on the tests-only MySQL instance (never QA1's, Staging's or any real
+  database; it refuses to run without `/root/.lanetest-mysql-credentials`) and drops it afterwards.
+- Migrates it **from scratch** (`--schema-path` points at nothing, so the old snapshot is not loaded first).
+- **Carries the reference rows the migrations insert.** `artisan schema:dump` writes structure plus the
+  `migrations` rows and NO table data, so a data-seeding migration was recorded as "already run" while
+  the rows it inserted were absent — the three 2026-10-06 failures (`AgencyTimelineTest` "defaults are
+  seeded by the migration", `AgreementFlowTest` "full flow", `PlatformEsignTest` "auto links and ticks
+  the timeline step") were exactly that. Only GLOBAL rows are carried (tables with no `agency_id`, or
+  rows where `agency_id IS NULL`); agency 1's (HFC's) backfilled rows and the `agencies` row are
+  deliberately left out, because a test creating its own agency must start from an empty tenant space.
+  `roles` and `role_permissions` are left out too: test fixtures make a user with a role NAME and no role
+  row, and populated system roles 403 them (proved: 70 `RentalCrewLinks` failures, gone when cleared).
+  The script prints the tables it carried; its `SKIP_DATA_TABLES_RE` comment lists every exclusion and why.
+  When a test fails only because a starting-data table is empty (or only because it is not), fix that
+  in the script's lists — never by editing the snapshot.
+- Strips `DEFINER` clauses (#12a) and the redundant column `CHARACTER SET` a `->change()`d enum dumps
+  with; refuses a dump containing the bookkeeping table; runs `check-schema-snapshot.sh`; writes a temp
+  file and moves it into place only on success (a failure leaves the existing snapshot untouched).
+- Takes ~20 minutes (every migration runs, one by one) and holds the tests-instance setup lock the whole
+  time, so other lanes' cold bootstraps wait for it (warm test runs do not). Needs your worktree's OWN
+  `vendor/` (`composer install` inside it — never a symlink). So run it **once per batch of merged
+  migrations, not once per migration**: migrations newer than the snapshot are applied on top by
+  `lane-test.sh` anyway, data-seeding ones included, so a snapshot a few migrations behind costs seconds,
+  not correctness.
 
-Verify the migrations you added actually landed in the dump before
-committing — `grep` for a column/table name only that migration introduces;
-don't just trust that the command ran:
-
-```bash
-grep -c "<your new column name>" database/schema/mysql-schema.sql
-```
-
-Commit `database/schema/mysql-schema.sql` in the SAME commit as the
-migration, exactly as non-negotiable #12a already says.
+After regenerating, verify what you added actually landed — `grep` for a table/column only your migration
+introduces — and commit the snapshot (alone, or with the migration). **A lane test schema built from an
+OLDER snapshot does not get the new reference rows:** after merging a regenerated snapshot, run
+`scripts/lane-test.sh --fresh <your test file>` once to rebuild your schema from it.
 
 **A slow load is not the same problem as a stale snapshot — don't confuse
 them.** Loading the snapshot via `mysql-schema.sql .......... DONE` can
@@ -1121,6 +1137,12 @@ worktree with no `TEST_DB_DATABASE` silently fell back to the bare shared `hfc_d
   files are cosmetic, so a stale label can never block anyone. A lane still on an OLDER copy of the script
   holds the setup lock for its whole run — merge `origin/QA1` to get the new behaviour.
 - The truncated-snapshot guard (Standard −1x/ `check-schema-snapshot.sh`) is unchanged and runs first.
+- **Missing `node_modules` fails fast (2026-10-06).** A fresh worktree has no `node_modules`; the Word-import tests
+  shell out to mammoth and otherwise die with an opaque HTTP 500 after the whole queue + schema wait. Before any
+  lock, `lane-test.sh` now checks: if `node_modules/mammoth` is absent AND a selected test file references the
+  Word-import code (`mammoth` / `DocxParser` / `DocumentImporter` / `ImporterAi` / `CorexDocumentRenderer`), it stops with one line
+  naming the test and the fix — `ln -s /corex-qa1/node_modules node_modules` (read-only use; never `npm install` through
+  it). Runs that don't touch Word import (e.g. `tests/Feature/Platform`) are unaffected; `LANE_TEST_SKIP_NODE_CHECK=1` bypasses.
 
 Raising `MAX_SLOTS` is a one-line change; do it only while `free -g` shows real headroom (the box runs with swap full).
 

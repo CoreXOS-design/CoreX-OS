@@ -89,7 +89,7 @@ class AgencyScreenSendTest extends TestCase
         $owner = $this->owner();
         [$agency, $timeline] = $this->agencyWithTimeline();
 
-        $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => 'Pat Principal', 'email' => 'pat@throwaway.invalid', 'agency_id' => $agency->id])->assertRedirect();
+        $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => 'Pat Principal', 'email' => 'pat@throwaway.invalid', 'agency_id' => $agency->id, 'take_on_month' => now()->format('Y-m')])->assertRedirect();
         $doc = Document::where('agency_id', $agency->id)->firstOrFail();
         $this->assertSame($doc->id, (int) $timeline->fresh()->agreement_document_id);
 
