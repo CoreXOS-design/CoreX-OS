@@ -46,6 +46,7 @@ class Document extends Model
 
     public function wording() { return $this->belongsTo(WordingVersion::class, 'wording_version_id'); }
     public function initialsRows(): HasMany { return $this->hasMany(Initial::class, 'document_id'); }
+    public function wetinkFiles(): HasMany { return $this->hasMany(WetinkFile::class, 'document_id')->orderBy('id'); }
 
     public function isWebdoc(): bool
     {
@@ -64,6 +65,9 @@ class Document extends Model
             }
             if ($this->status === 'awaiting_countersign') {
                 return 'Signed by agency — awaiting RR countersign';
+            }
+            if ($this->status === 'wetink_received') {
+                return 'Signed copy received (wet ink) — awaiting RR countersign';
             }
             if ($this->status === 'completed') {
                 return 'Completed';
