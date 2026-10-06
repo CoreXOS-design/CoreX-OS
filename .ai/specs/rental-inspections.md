@@ -7042,3 +7042,63 @@ in the same second (batch/backfill/scheduling) tied and the Out showed "first in
 
 Files: `app/Models/RentalInspection.php` (`chainTailFor`, `inferredPredecessorFor`),
 `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php`.
+
+---
+
+## 44a. Public report link stops working when the inspection is archived or cancelled (2026-10-06, cc1 — BUILT, security fix)
+
+**Found while measuring the module against Johan's standard** (see the §45 gap report): an archived or
+cancelled inspection's public report link (`/rental-inspection-report/{token}` — the QR/link on the PDF and in
+the completion email) kept serving the full report (photos, signatures, tenant names, property) for the rest of
+the link's 90-day expiry. Cause: `RentalInspection::findByPublicToken()` runs `withoutGlobalScopes()` (an
+unauthenticated caller has no agency context), which also strips `SoftDeletes`, and it never looked at `status`.
+`destroy()` and `cancel()` never revoked the token.
+
+**The rule (Johan's ruling, 6 Oct):** the link must stop working the moment the inspection is **archived**
+(soft-deleted) or **cancelled**, and work again if it is **restored**; the standard "this link isn't available"
+page, never a stack trace; signed/expiry rules otherwise unchanged.
+
+**Fix — one place, deliberately not a token wipe.** `findByPublicToken()` now also requires
+`deleted_at IS NULL` and `status != 'cancelled'`. The token is NOT cleared on archive/cancel, so restoring an
+archived inspection revives the SAME link (and the QR already printed on its PDF) — clearing it would have
+broken that. Expiry, revoke (clears the token) and regenerate (replaces it) behave exactly as before; an
+expired, revoked or replaced token stays dead after a restore. The unavailable page is the existing uniform one
+(`rental-inspections.public.unavailable`): an archived/cancelled link looks identical to a wrong or expired one,
+so a stranger cannot tell which. Cancelled is terminal today (no un-cancel path exists), so "restored" applies
+to archived; the rule is status-based, so it would apply to any future un-cancel.
+
+`RentalInspection::publicLinkIsAvailable()` (new) = token unexpired AND not archived AND not cancelled, used
+only for what the agent's inspection page DISPLAYS: a cancelled inspection no longer shows "Live until …" but
+"The link is switched off while this inspection is cancelled." `publicLinkIsValid()` is deliberately left
+token-only — `SignedDocumentDistributionService::ensurePublicLink()` uses it to decide whether to generate a
+token and must never overwrite one (breaking the printed QR) merely because an inspection is archived.
+
+**Class sweep — every public/tokenised route that can expose inspection data:**
+
+| Route | Lookup | Status |
+|---|---|---|
+| `GET /rental-inspection-report/{token}` (`rental-inspections.public.show`) | `findByPublicToken()` | **Fixed** (via the shared lookup) |
+| `GET /rental-inspection-report/{token}/signatures/{signature}/{kind}` (`rental-inspections.public.signature-file`) — the only file route under the link (signature image / wet-ink scan) | `findByPublicToken()` | **Fixed** (same lookup; 404 when archived/cancelled) |
+| Contractor secure links, crew job links, crew page (`rentals.secure-link.*`, `rentals.crew-job.*`, `rentals.crew-page.*`) | own tokens | Checked: expose no inspection data (`inspection` appears only in a docblock) — nothing to change |
+| Authenticated routes (`corex.rental-inspections.*`, signature file, PDFs, scans) | route binding + guard | Not public; archived inspections already 404 through binding |
+| `GET /rental-inventory-report/{token}` (+ buyer-acceptance POST) | `RentalInventory::findByPublicToken()` | **Same defect, NOT changed (different module — reported, awaiting Johan's go)** |
+
+**Reported, not changed:**
+1. **Inventory public link has the identical gap** — `RentalInventory::findByPublicToken()` (`app/Models/RentalInventory.php:641-647`, `withoutGlobalScopes()`, no `deleted_at`/status check) and `RentalInventoryPublicController::show()`/`storeBuyerAcceptance()`; an archived inventory's report (and the unauthenticated buyer-acceptance write) stays live. The identical two-line change fixes it; it is another module, so it waits for an explicit go.
+2. **Photos on the public page are static public-disk URLs**, not served under the token (`rental-inspections/public/show.blade.php:177-181`, `storage_path`). The page stops showing them, but a photo URL someone already holds keeps working until the file is removed — they are unguessable capability URLs shared with the agent's own screens. Making them revocable needs a token-gated photo route (every photo streamed through PHP) — a design call for Johan, not done here.
+3. The unavailable page returns HTTP 200 (`RentalInspectionPublicController.php:35-44`); a dead link would be more correct as 404/410. Unchanged (behaviour change on every dead-link case).
+4. The property Inspections tab builds a share URL from the chain tail's token in JS (`properties/show.blade.php:7507-7509`); not changed.
+5. `RentalInspectionController::printForSignature()` still mints a public link on a GET for a cancelled inspection (`:642-644`, no cancelled check); the link is now dead on arrival, but the state change on GET remains.
+
+**Tests** (`tests/Feature/RentalInspections/RentalInspectionPublicLinkLifecycleTest.php`, 15 tests; the existing
+`RentalInspectionPublicLinkTest.php` still passes, 8): archived page · archived signature file · cancelled page ·
+cancelled signature file · restored page and file (same token) · archive → restore → archive again · archive and
+restore through the agent's own HTTP routes · token not cleared by archiving · expired/revoked/replaced tokens
+stay dead after a restore · archived link identical to a never-issued token (same status, same text) · agency B's
+live link unaffected by agency A's archive · agent screen no longer calls a cancelled link live. With the model fix
+reverted, 12 of the 15 fail (the 3 that still pass guard rules that did not change); with it, 23/23 pass.
+
+Files: `app/Models/RentalInspection.php` (`findByPublicToken`, `publicLinkIsAvailable`),
+`resources/views/corex/rental-inspections/show.blade.php` (link status text),
+`tests/Feature/RentalInspections/RentalInspectionPublicLinkLifecycleTest.php`. No migration, no setting, no
+permission, no route change.
