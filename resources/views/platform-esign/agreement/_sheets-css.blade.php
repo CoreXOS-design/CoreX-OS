@@ -37,6 +37,9 @@
     .agr .mini { appearance:none; border:1px solid #94a3b8; background:#f8fafc; border-radius:4px; font-size:.7rem; padding:2px 8px; cursor:pointer; color:#0b2a4a; }
     .agr .ctl { background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px; padding:.6rem .8rem; }
     .agr .ctl .fld { width: 6em; margin-left:.4rem; }
+    .agr .ctl-pair { display:flex; flex-wrap:wrap; gap:.6rem 1.6rem; align-items:center; }
+    .agr .ctl-item { white-space:nowrap; }
+    .agr .fld[data-derived] { background:#f3f4f6; color:#374151; cursor:default; }
     .agr .ctl-note { display:block; font-size:.78rem; color:#92400e; margin-top:.25rem; }
     .agr .masked { cursor: pointer; }
     .agr [data-calc] { font-variant-numeric: tabular-nums; }

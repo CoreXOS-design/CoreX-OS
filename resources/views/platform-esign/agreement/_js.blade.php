@@ -31,10 +31,18 @@
     }
     function label(key) { var e = els(key)[0]; return (C.labels && C.labels[key]) || (e && e.getAttribute('aria-label')) || key; }
 
-    // ── live pricing (mirrors AgreementPricing; the server recomputes) ─────
+    // ── live pricing (mirrors AgreementPricing::derive; the server recomputes) ─────
     function money(n) { var w = Math.abs(n % 1) < 1e-9; var s = (w ? n.toFixed(0) : n.toFixed(2)); var p = s.split('.'); p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return p.join('.'); }
+    var lastPlan = '';
     function calc() {
-        var R = C.rates, plan = val('plan'), agents = parseInt(val('agents') || '0', 10) || 0, extra = parseInt(val('extra_branches') || '0', 10) || 0, vari = parseFloat(C.variation || '0') || 0;
+        if (mode !== 'form') { return 0; } // RR/preview screens print the server's figures; there are no entries here to recalculate from
+        var R = C.rates, agents = parseInt(val('agents') || '0', 10) || 0, branches = parseInt(val('branches') || '0', 10) || 0, vari = parseFloat(C.variation || '0') || 0;
+        // section 3 completes itself: 1–10 agents → CoreX Team, more → CoreX Agency (unless the sender fixed the plan); extra branches = branches − 1 (Agency only)
+        var plan = C.forcedPlan || (agents < 1 ? '' : (agents <= R.team_max_seats ? 'team' : 'agency'));
+        var extra = plan === 'agency' ? Math.max(branches - 1, 0) : 0;
+        lastPlan = plan; setVal('plan', plan);
+        if (els('branches_start').length) { setVal('branches_start', val('branches')); }
+        $$('[data-mirror="branches"]').forEach(function (m) { m.value = val('branches'); });
         var L = { team_seats: [0, R.team_seat], agency_base: [0, R.agency_base], agency_t1: [0, R.agency_t1], agency_t2: [0, R.agency_t2], agency_t3: [0, R.agency_t3], branches: [0, R.branch] };
         if (plan === 'team') { L.team_seats[0] = agents; }
         else if (plan === 'agency') {
@@ -47,7 +55,7 @@
         var applies = plan === 'team' ? ['team_seats'] : (plan === 'agency' ? ['agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches'] : []);
         $$('[data-calc]').forEach(function (s) {
             var d = s.getAttribute('data-calc').split(':'), kind = d[0], key = d[1], t = '';
-            if (kind === 'q' && !s.matches('[data-calc-line]')) { t = applies.indexOf(key) > -1 ? String(L[key][0]) : ''; }
+            if (kind === 'q') { t = applies.indexOf(key) > -1 ? String(L[key][0]) : ''; }
             else if (kind === 'amt') { if (key === 'total') { t = plan ? money(sub - vari) : ''; } else { t = applies.indexOf(key) > -1 ? money(L[key][0] * L[key][1]) : ''; } }
             else if (kind === 'note') { t = (plan === 'agency' && agents > R.quote_above_agents) ? ('For more than ' + R.quote_above_agents + ' agents a quoted rate is recorded under “Agreed variations” — we will confirm it with you.') : ''; }
             if (s.tagName !== 'INPUT') { s.textContent = t; }
@@ -58,19 +66,14 @@
     // ── mirrors: nothing typed twice (spec §11.4) ──────────────────────────
     var MIRROR = { m_holder: 'da_holder', m_address: 'address', m_bank: 'da_bank', m_branch_no: 'da_branch_code', m_account: 'da_account', m_account_type: 'da_type', m_contact: 'billing_cell', m_amount: '@total', m_place: 'sig_place', branches_start: 'branches' };
     var touched = {};
-    function mirrorSource(src) { return src === '@total' ? (val('plan') ? String(Math.round(calc() * 100) / 100) : '') : val(src); }
+    function mirrorSource(src) { if (src !== '@total') { return val(src); } var t = calc(); return lastPlan ? String(Math.round(t * 100) / 100) : ''; }
     function applyMirrors(initial) {
         Object.keys(MIRROR).forEach(function (t) {
             if (!els(t).length) return;
             var cur = val(t), s = mirrorSource(MIRROR[t]);
             if (initial && cur !== '' && cur !== s) { touched[t] = true; }
-            if (!touched[t] && s !== '' && cur !== s) { setVal(t, s); pending[t] = s; }
+            if (!touched[t] && s !== '' && cur !== s) { setVal(t, s); if (t !== 'branches_start') { pending[t] = s; } }
         });
-        if (els('extra_branches').length) {
-            var bs = parseInt(val('branches_start') || '0', 10) || 0, want = bs > 0 ? String(Math.max(bs - 1, 0)) : '';
-            if (initial && val('extra_branches') !== '' && val('extra_branches') !== want) { touched.extra_branches = true; }
-            if (!touched.extra_branches && want !== '' && val('extra_branches') !== want) { setVal('extra_branches', want); pending.extra_branches = want; }
-        }
         var today = (function () { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); })();
         ['sig_date', 'm_date'].forEach(function (k) { if (els(k).length && !val(k)) { setVal(k, today); pending[k] = today; } });
         if (els('m_day').length && !val('m_day')) { setVal('m_day', '1'); pending.m_day = '1'; }
@@ -103,7 +106,6 @@
         var t = e.target, key = t.getAttribute && t.getAttribute('data-field');
         if (!key) { return; }
         if (e.isTrusted && MIRROR[key] !== undefined) { touched[key] = true; }
-        if (e.isTrusted && key === 'extra_branches') { touched.extra_branches = true; }
         t.classList && t.classList.remove('err');
         if (mode === 'form') { pending[key] = val(key); }
         if (key === 'sig_name' && !C.initials && $('#ini-input') && !$('#ini-input').dataset.edited) { $('#ini-input').value = initialsOf(val('sig_name')); }
@@ -263,7 +265,8 @@
     // ── boot ───────────────────────────────────────────────────────────────
     $$('.sigpad').forEach(initPad);
     if (mode === 'form') { applyMirrors(true); }
-    calc(); paintInitials(); outstanding();
+    if (mode === 'form') { calc(); } // the other screens show the server's own figures — they have no entries to recalculate from
+    paintInitials(); outstanding();
     if (mode === 'form' && Object.keys(pending).length) { queue(); }
     window.addEventListener('beforeunload', function () { if (mode === 'form' && Object.keys(pending).length) { navigator.sendBeacon && 0; } });
 })();

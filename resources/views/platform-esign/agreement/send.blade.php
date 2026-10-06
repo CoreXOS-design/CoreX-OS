@@ -55,6 +55,19 @@
             <p class="text-xs mt-2" style="color: var(--text-muted);">Set before sending, so the monthly total and the debit order amount are what the agency actually signs. To change it later, void this one and send again.</p>
         </details>
 
+        <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('plan')) open @endif>
+            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Fix the plan <span class="font-normal" style="color: var(--text-muted);">(optional — only for a negotiated case)</span></summary>
+            <div class="mt-3">
+                <label class="ds-label block mb-1" for="plan">Plan</label>
+                <select id="plan" name="plan" class="ds-field">
+                    <option value="">Automatic — CoreX Team up to 10 agents, CoreX Agency above that</option>
+                    <option value="team" @selected(old('plan') === 'team')>Always CoreX Team</option>
+                    <option value="agency" @selected(old('plan') === 'agency')>Always CoreX Agency</option>
+                </select>
+                <p class="text-xs mt-2" style="color: var(--text-muted);">Normally the plan follows the number of agents the recipient enters. Fixing it is recorded in the agreement's history and the recipient sees the plan fixed.</p>
+            </div>
+        </details>
+
         <div class="flex flex-wrap items-center gap-3 pt-1">
             <button class="corex-btn-primary" type="submit">Send Subscription Agreement</button>
             <span class="text-xs" style="color: var(--text-muted);">The link is valid for {{ $expiryDays }} days. You can resend it or copy the link afterwards.</span>
