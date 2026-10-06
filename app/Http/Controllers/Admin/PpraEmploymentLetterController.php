@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Compliance\PpraEmploymentLetter;
+use App\Models\Compliance\PpraEmploymentLetterFile;
 use App\Models\User;
 use App\Services\Compliance\PpraEmploymentLetterPdfService;
 use App\Services\Compliance\PpraEmploymentLetterService;
@@ -28,9 +29,10 @@ use Symfony\Component\HttpFoundation\Response;
  * PpraEmploymentLetter::scopeVisibleTo() (§1c) on every action below,
  * including direct-URL-by-id access to show/download.
  *
- * Signing is always self-service — the agent and the principal each sign
- * with their own PIN, never an admin on their behalf. Create-on-behalf
- * (2026-10-05, Johan) lets an admin/principal START a letter for an agent
+ * Wet-ink flow (spec §20, 2026-10-06): there is no electronic signing. The letter is printed, signed on paper and the
+ * signed copy is uploaded — from here or from the agent's My Portal; both go through
+ * PpraEmploymentLetterService::attachSignedCopy() so it is ONE record on both screens.
+ * Create-on-behalf (2026-10-05, Johan) lets an admin/principal START a letter for an agent
  * in their own scope; the agent-picker is bounded by the SAME own/branch/
  * all scope as the list (ppra_employment_letters.view's stored scope), and
  * the created letter runs through the identical missing-data validation and
@@ -103,7 +105,7 @@ class PpraEmploymentLetterController extends Controller
         $letter = $service->create($agent, $user, $principalId);
 
         return redirect()->route('admin.ppra-employment-letters.show', $letter->id)
-            ->with('success', 'Letter started for ' . $agent->name . ' — they will sign it themselves from My Portal.');
+            ->with('success', 'Letter started for ' . $agent->name . ' — print it, have it signed, then upload the signed copy.');
     }
 
     /**
@@ -150,7 +152,7 @@ class PpraEmploymentLetterController extends Controller
 
         $query = PpraEmploymentLetter::query()
             ->visibleTo($user)
-            ->with(['user', 'principal', 'branch']);
+            ->with(['user', 'principal', 'branch', 'files', 'currentFile']);
 
         if ($showArchived) {
             $query->onlyTrashed();
@@ -164,7 +166,7 @@ class PpraEmploymentLetterController extends Controller
         }
 
         if ($status = $request->input('status')) {
-            $query->where('status', $status);
+            $query->withStatusGroup((string) $status);
         }
 
         if ($agentId = $request->input('agent_id')) {
@@ -212,7 +214,7 @@ class PpraEmploymentLetterController extends Controller
             'years'        => $years,
             'filters'      => $request->only(['search', 'status', 'agent_id', 'branch_id', 'year', 'date_from', 'date_to', 'sort']),
             'showArchived' => $showArchived,
-            'statuses'     => PpraEmploymentLetter::STATUSES,
+            'statuses'     => PpraEmploymentLetter::FILTER_STATUSES,
         ]);
     }
 
@@ -222,10 +224,10 @@ class PpraEmploymentLetterController extends Controller
         $this->assertAdminAccess($user);
 
         $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)
-            ->with(['user', 'principal', 'branch', 'createdBy'])
+            ->with(['user', 'principal', 'branch', 'createdBy', 'files.uploader'])
             ->findOrFail($letter);
 
-        return view('admin.ppra-employment-letters.show', ['letter' => $record]);
+        return view('admin.ppra-employment-letters.show', ['letter' => $record, 'files' => $record->files]);
     }
 
     public function download(Request $request, int $letter, PpraEmploymentLetterPdfService $pdfService): Response
@@ -238,6 +240,7 @@ class PpraEmploymentLetterController extends Controller
         $filename = 'PPRA-Confirmation-of-Employment-' . $record->id . '.pdf';
         $inline = $request->boolean('inline', true); // the admin detail page always previews inline by default
 
+        // LEGACY: a letter signed through the retired PIN ceremony keeps the PDF baked at the time, untouched.
         if ($record->isSigned() && $record->signed_pdf_path && Storage::exists($record->signed_pdf_path)) {
             return $inline
                 ? Storage::response($record->signed_pdf_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"'])
@@ -245,9 +248,51 @@ class PpraEmploymentLetterController extends Controller
         }
 
         $agency = \App\Models\Agency::withoutGlobalScopes()->find($record->agency_id);
-        $pdfPath = $pdfService->generate($record, $record->user, $record->principal, $agency, $record->agent_signature_image, null);
+        // Printed for wet-ink signing: signature lines stay empty.
+        $pdfPath = $pdfService->generate($record, $record->user, $record->principal, $agency, null, null);
 
         return response()->download($pdfPath, $filename, [], $inline ? 'inline' : 'attachment')->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Upload the wet-ink signed copy of any letter in the manager's scope (spec §20). The letter is resolved through
+     * visibleTo() — out of scope or another agency's letter is a 404; an archived letter takes no upload.
+     */
+    public function uploadSignedCopy(Request $request, int $letter, PpraEmploymentLetterService $service): RedirectResponse
+    {
+        $user = $request->user();
+        $this->assertAdminAccess($user);
+
+        $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)->findOrFail($letter);
+
+        if ($record->trashed()) {
+            return back()->with('error', 'This letter is archived — restore it before uploading a signed copy.');
+        }
+
+        $request->validate([
+            'signed_copy' => ['required', 'file', 'mimes:' . PpraEmploymentLetterService::UPLOAD_MIMES, 'max:' . PpraEmploymentLetterService::MAX_UPLOAD_KB],
+        ], [
+            'signed_copy.required' => 'Choose the signed letter to upload.',
+            'signed_copy.mimes'    => 'The signed copy must be a PDF, JPG or PNG file.',
+            'signed_copy.max'      => 'The signed copy must be 10 MB or smaller.',
+            'signed_copy.uploaded' => 'The file could not be uploaded — it may be larger than 10 MB.',
+        ]);
+
+        $service->attachSignedCopy($record, $request->file('signed_copy'), $user, PpraEmploymentLetterFile::VIA_ADMIN);
+
+        return back()->with('success', 'Signed copy uploaded and filed.');
+    }
+
+    /** Stream one signed copy (current or superseded) — manage + visibleTo(), then the shared streamer. */
+    public function signedCopy(Request $request, int $letter, int $file, PpraEmploymentLetterService $service): Response
+    {
+        $user = $request->user();
+        $this->assertAdminAccess($user);
+
+        $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)->findOrFail($letter);
+        $scan   = $record->files()->whereKey($file)->firstOrFail();
+
+        return $service->streamSignedCopy($scan, $request->boolean('inline'));
     }
 
     public function archive(Request $request, int $letter): RedirectResponse

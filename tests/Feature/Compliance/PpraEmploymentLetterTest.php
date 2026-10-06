@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Compliance;
 
-use App\Mail\Compliance\PpraEmploymentLetterPrincipalNotificationMail;
-use App\Mail\Compliance\PpraEmploymentLetterSignedMail;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Compliance\PpraEmploymentLetter;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
-use App\Services\AgentSignatureService;
 use App\Services\Compliance\PpraEmploymentLetterService;
 use App\Services\Compliance\PractitionerFfcRosterService;
 use App\Services\PermissionService;
@@ -26,27 +23,23 @@ use Tests\TestCase;
  * PPRA FFC renewal — Confirmation of Employment letter.
  * .ai/specs/ppra-ffc-employment-letter.md
  *
- * Mirrors EvaluationCertificateSignTest's shape (same PIN mechanism,
- * AgentSignatureService, role_permissions unseeded → PermissionService
- * fails open per that test's own documented convention — agent='own',
- * branch_manager='branch', admin='all' for scopeVisibleTo()).
+ * Wet-ink flow (spec §20): create → download/print → sign on paper → upload the signed copy. role_permissions
+ * unseeded → PermissionService fails open per EvaluationCertificateSignTest's documented convention — agent='own',
+ * branch_manager='branch', admin='all' for scopeVisibleTo(). The wet-ink upload/replace/scoping tests are in
+ * PpraEmploymentLetterWetInkTest.
  */
 final class PpraEmploymentLetterTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
-
     private Agency $agency;
     private Branch $branch;
-    private AgentSignatureService $signatures;
 
     protected function setUp(): void
     {
         parent::setUp();
         Storage::fake();
         Mail::fake();
-        $this->signatures = app(AgentSignatureService::class);
         $this->agency = Agency::create(['name' => 'Southern Cape Realty', 'slug' => 'southern-cape-realty', 'ppra_number' => 'F999999']);
         $this->branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Hermanus']);
     }
@@ -81,8 +74,7 @@ final class PpraEmploymentLetterTest extends TestCase
     {
         $scopes = ['agent' => 'own', 'branch_manager' => 'branch', 'admin' => 'all', 'office_admin' => 'own'];
         foreach ($scopes as $role => $scope) {
-            foreach (['access_my_portal', 'ppra_employment_letters.view', 'ppra_employment_letters.create',
-                      'ppra_employment_letters.sign_as_principal'] as $key) {
+            foreach (['access_my_portal', 'ppra_employment_letters.view', 'ppra_employment_letters.create'] as $key) {
                 RolePermission::create(['role' => $role, 'permission_key' => $key, 'scope' => $scope, 'agency_id' => $this->agency->id]);
             }
         }
@@ -95,89 +87,37 @@ final class PpraEmploymentLetterTest extends TestCase
         PermissionService::clearCache();
     }
 
-    private function withSavedSignature(User $user, string $pin): void
-    {
-        $this->actingAs($user);
-        $this->signatures->save($user, self::PNG, self::PNG, $pin);
-    }
+    // ── The wet-ink flow ─────────────────────────────────────────────────────
 
-    // ── The full signing flow ────────────────────────────────────────────────
-
-    public function test_full_signing_flow_draft_to_signed(): void
+    public function test_create_and_download_the_letter_for_wet_ink_signing(): void
     {
         $agent = $this->user();
-        $this->withSavedSignature($agent, '1111');
-        $principal = $this->principal();
-        $this->withSavedSignature($principal, '2222');
-
-        $create = $this->actingAs($agent)->post(route('ppra-employment-letters.store'));
-        $create->assertRedirect();
-
-        $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
-        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_AGENT_SIGNATURE, $letter->status);
-        $this->assertSame($principal->id, $letter->principal_user_id);
-        $this->assertSame($this->branch->id, $letter->branch_id);
-
-        // Unsigned preview downloads a real PDF with no exception.
-        $this->actingAs($agent)
-            ->get(route('ppra-employment-letters.download', $letter))
-            ->assertOk()
-            ->assertHeader('content-type', 'application/pdf');
-
-        // Agent signs.
-        $this->actingAs($agent)
-            ->post(route('ppra-employment-letters.sign-as-agent', $letter), ['pin' => '1111'])
-            ->assertRedirect();
-
-        $letter->refresh();
-        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE, $letter->status);
-        $this->assertNotNull($letter->agent_signed_at);
-        $this->assertSame('127.0.0.1', $letter->agent_signed_ip);
-        $this->assertNull($letter->signed_pdf_path);
-
-        Mail::assertSent(PpraEmploymentLetterPrincipalNotificationMail::class, fn ($m) => $m->hasTo($principal->email));
-
-        // Principal signs.
-        $this->actingAs($principal)
-            ->post(route('ppra-employment-letters.sign-as-principal', $letter), ['pin' => '2222'])
-            ->assertRedirect();
-
-        $letter->refresh();
-        $this->assertSame(PpraEmploymentLetter::STATUS_SIGNED, $letter->status);
-        $this->assertNotNull($letter->principal_signed_at);
-        $this->assertNotNull($letter->signed_pdf_path);
-        Storage::assertExists($letter->signed_pdf_path);
-        $this->assertStringStartsWith('%PDF', Storage::get($letter->signed_pdf_path));
-
-        Mail::assertSent(PpraEmploymentLetterSignedMail::class, fn ($m) => $m->hasTo($agent->email));
-        $this->assertDatabaseHas('notifications', [
-            'type'          => 'ppra_employment_letter.signed',
-            'notifiable_id' => $agent->id,
-        ]);
-
-        // The signed PDF is now immutable — download streams the FILED artifact.
-        $this->actingAs($agent)
-            ->get(route('ppra-employment-letters.download', $letter))
-            ->assertOk()
-            ->assertHeader('content-type', 'application/pdf');
-    }
-
-    public function test_wrong_pin_is_rejected_and_letter_untouched(): void
-    {
-        $agent = $this->user();
-        $this->withSavedSignature($agent, '1111');
         $this->principal();
 
-        $this->actingAs($agent)->post(route('ppra-employment-letters.store'));
+        $this->actingAs($agent)->post(route('ppra-employment-letters.store'))->assertRedirect();
+
         $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
+        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_SIGNED_COPY, $letter->status);
+        $this->assertSame('Awaiting signed copy', PpraEmploymentLetter::statusLabel($letter->status));
+        $this->assertSame($this->branch->id, $letter->branch_id);
 
         $this->actingAs($agent)
-            ->post(route('ppra-employment-letters.sign-as-agent', $letter), ['pin' => '0000'])
-            ->assertRedirect();
+            ->get(route('ppra-employment-letters.download', $letter))
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
 
-        $letter->refresh();
-        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_AGENT_SIGNATURE, $letter->status);
+        // No electronic signing, no emails — the letter is printed and signed on paper.
+        Mail::assertNothingSent();
         $this->assertNull($letter->agent_signed_at);
+        $this->assertNull($letter->signed_pdf_path);
+    }
+
+    public function test_the_pin_sign_routes_are_gone(): void
+    {
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('ppra-employment-letters.sign-as-agent'));
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('ppra-employment-letters.sign-as-principal'));
+        $this->assertNull(collect(\Illuminate\Support\Facades\Artisan::all())->get('ppra-employment-letters:send-reminders'), 'the reminder job is retired');
+        $this->assertNotContains('ppra_employment_letters.sign_as_principal', array_column(config('corex-permissions.permissions'), 'key'));
     }
 
     // ── Missing merge data ───────────────────────────────────────────────────
@@ -185,7 +125,6 @@ final class PpraEmploymentLetterTest extends TestCase
     public function test_missing_merge_data_blocks_letter_creation(): void
     {
         $agent = $this->user(['id_number' => null, 'ffc_number' => null]);
-        $this->withSavedSignature($agent, '1111');
         $this->principal();
 
         $this->actingAs($agent)->post(route('ppra-employment-letters.store'))->assertRedirect();
@@ -242,48 +181,12 @@ final class PpraEmploymentLetterTest extends TestCase
         $this->assertSame($p2->id, $letter->principal_user_id);
     }
 
-    // ── Agent-is-principal: self-sign-both, no email round-trip ──────────────
-
-    public function test_agent_who_is_the_principal_signs_both_blocks_with_no_round_trip_email(): void
-    {
-        $agent = $this->user([
-            'designation'               => 'Principal',
-            'is_principal_practitioner' => true,
-        ]);
-        $this->withSavedSignature($agent, '1234');
-
-        $this->actingAs($agent)->post(route('ppra-employment-letters.store'))->assertRedirect();
-        $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
-        $this->assertSame($agent->id, $letter->principal_user_id);
-
-        $this->actingAs($agent)
-            ->post(route('ppra-employment-letters.sign-as-agent', $letter), ['pin' => '1234'])
-            ->assertRedirect();
-
-        $letter->refresh();
-        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE, $letter->status);
-        // No principal email — the agent IS the principal, sitting right there.
-        Mail::assertNotSent(PpraEmploymentLetterPrincipalNotificationMail::class);
-
-        // Still goes through the second PIN step for the audit trail, same user.
-        $this->actingAs($agent)
-            ->post(route('ppra-employment-letters.sign-as-principal', $letter), ['pin' => '1234'])
-            ->assertRedirect();
-
-        $letter->refresh();
-        $this->assertSame(PpraEmploymentLetter::STATUS_SIGNED, $letter->status);
-        $this->assertNotNull($letter->agent_signed_at);
-        $this->assertNotNull($letter->principal_signed_at);
-    }
-
     // ── Cancel / archive ─────────────────────────────────────────────────────
 
-    public function test_agent_can_cancel_an_unsigned_letter_and_signed_cannot_be_cancelled(): void
+    public function test_agent_can_cancel_a_letter_with_no_signed_copy_but_not_one_with_a_copy_filed(): void
     {
         $agent = $this->user();
-        $this->withSavedSignature($agent, '1111');
-        $principal = $this->principal();
-        $this->withSavedSignature($principal, '2222');
+        $this->principal();
 
         $this->actingAs($agent)->post(route('ppra-employment-letters.store'));
         $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
@@ -291,12 +194,12 @@ final class PpraEmploymentLetterTest extends TestCase
         $this->actingAs($agent)->post(route('ppra-employment-letters.cancel', $letter))->assertRedirect();
         $this->assertSoftDeleted('ppra_employment_letters', ['id' => $letter->id]);
 
-        // A signed letter cannot be cancelled this way.
+        // A letter with a signed copy filed cannot be cancelled this way.
         $letter2 = app(PpraEmploymentLetterService::class)->create($agent, $agent, null);
-        $this->actingAs($agent)->post(route('ppra-employment-letters.sign-as-agent', $letter2), ['pin' => '1111']);
-        $this->actingAs($principal)->post(route('ppra-employment-letters.sign-as-principal', $letter2->fresh()), ['pin' => '2222']);
-        $letter2->refresh();
-        $this->assertTrue($letter2->isSigned());
+        $this->actingAs($agent)->post(route('ppra-employment-letters.upload', $letter2), [
+            'signed_copy' => \Illuminate\Http\UploadedFile::fake()->create('signed.pdf', 20, 'application/pdf'),
+        ]);
+        $this->assertTrue($letter2->fresh()->isSignedCopyFiled());
 
         $this->actingAs($agent)->post(route('ppra-employment-letters.cancel', $letter2))->assertStatus(409);
     }
@@ -520,7 +423,6 @@ final class PpraEmploymentLetterTest extends TestCase
 
         $this->assertTrue($officeAdmin->hasPermission('ppra_employment_letters.view'));
         $this->assertTrue($officeAdmin->hasPermission('ppra_employment_letters.create'));
-        $this->assertTrue($officeAdmin->hasPermission('ppra_employment_letters.sign_as_principal'));
 
         // The pre-existing grant for this role is untouched — merge is additive-only.
         $this->assertTrue($officeAdmin->hasPermission('communications.view'));
@@ -530,13 +432,11 @@ final class PpraEmploymentLetterTest extends TestCase
 
     // ── Admin create-on-behalf (bug #3, 2026-10-05) ──────────────────────────
 
-    public function test_admin_creates_letter_on_behalf_and_agent_signs_with_own_pin(): void
+    public function test_admin_creates_letter_on_behalf_and_it_awaits_the_signed_copy(): void
     {
         $this->seedLetterGrants(['agent', 'admin']);
         $agent = $this->user();
-        $this->withSavedSignature($agent, '4444');
         $principal = $this->principal();
-        $this->withSavedSignature($principal, '5555');
 
         $admin = $this->user(['role' => 'admin']);
 
@@ -545,17 +445,10 @@ final class PpraEmploymentLetterTest extends TestCase
         $store->assertRedirect();
 
         $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
-        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_AGENT_SIGNATURE, $letter->status);
+        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_SIGNED_COPY, $letter->status);
         $this->assertSame($admin->id, $letter->created_by_user_id);
         $this->assertSame($principal->id, $letter->principal_user_id);
-
-        // The agent signs with THEIR OWN PIN — the admin never touches a signature.
-        $this->actingAs($agent)
-            ->post(route('ppra-employment-letters.sign-as-agent', $letter), ['pin' => '4444'])
-            ->assertRedirect();
-
-        $letter->refresh();
-        $this->assertSame(PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE, $letter->status);
+        Mail::assertNothingSent();
     }
 
     public function test_admin_create_on_behalf_blocks_missing_merge_data(): void
@@ -702,7 +595,7 @@ final class PpraEmploymentLetterTest extends TestCase
         $letterHolder = $this->user(['role' => 'viewer', 'ffc_number' => null]); // not in picker but has a letter
         PpraEmploymentLetter::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'user_id' => $letterHolder->id,
-            'principal_user_id' => $letterHolder->id, 'status' => PpraEmploymentLetter::STATUS_SIGNED,
+            'principal_user_id' => $letterHolder->id, 'status' => PpraEmploymentLetter::STATUS_AWAITING_SIGNED_COPY,
             'created_by_user_id' => $letterHolder->id,
         ]);
         Role::create(['name' => 'admin', 'label' => 'Admin', 'agency_id' => $this->agency->id]);

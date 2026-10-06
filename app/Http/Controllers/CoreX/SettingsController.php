@@ -1486,7 +1486,6 @@ class SettingsController extends Controller
 
         $data = $request->validate([
             'ppra_employment_letter_address_block' => ['nullable', 'string', 'max:2000'],
-            'ppra_employment_letter_reminder_days'  => ['required', 'integer', 'min:0', 'max:60'],
         ]);
 
         $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->effectiveAgencyId());
@@ -1496,7 +1495,6 @@ class SettingsController extends Controller
 
         $agency->update([
             'ppra_employment_letter_address_block' => $data['ppra_employment_letter_address_block'] ?? null,
-            'ppra_employment_letter_reminder_days'  => $data['ppra_employment_letter_reminder_days'],
         ]);
 
         return redirect()->route('corex.settings', ['s' => 'ppra-employment-letter-settings'])

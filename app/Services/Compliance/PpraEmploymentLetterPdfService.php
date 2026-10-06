@@ -21,11 +21,10 @@ use Carbon\Carbon;
  * overrides when the letter belongs to a branch. Same GeneratesPdfViaPuppeteer trait as every other
  * PPRA PDF.
  *
- * Unsigned stages render a live preview with EMPTY signature lines (never blank merge-field
- * placeholders — every merge field is validated present before a letter can even be created). The
- * signed PDF, once baked by PpraEmploymentLetterService::signAsPrincipal(), is stored and never
- * regenerated — generate() here is only ever called for the unsigned preview and for the one-time
- * final bake, so letters already signed keep the layout they were signed in.
+ * The letter is printed for wet-ink signing (spec §20): the callers pass NO signature images, so the signature
+ * lines are always EMPTY (never blank merge-field placeholders — every merge field is validated present before a
+ * letter can even be created). A legacy PIN-signed letter keeps the PDF baked at the time (signed_pdf_path), which
+ * is streamed as-is and never regenerated.
  */
 class PpraEmploymentLetterPdfService
 {
@@ -91,13 +90,13 @@ class PpraEmploymentLetterPdfService
     }
 
     /**
-     * The letter's dateline: the agent's own signing date once they've
-     * signed (frozen from that point on, including after the principal
-     * signs), otherwise today — never blank. "5 October 2026" (no leading zero).
+     * The letter's dateline: the day the letter was CREATED, on every print (wet-ink flow — a reprint on another
+     * day must not change the date). "5 October 2026" (no leading zero).
      */
     private function letterDate(PpraEmploymentLetter $letter): string
     {
-        $date = $letter->agent_signed_at ?? Carbon::now();
+        // Wet-ink flow (spec §20): fixed to the day the letter was created — never the day it happens to be printed.
+        $date = $letter->created_at ?? Carbon::now();
 
         return $date->format('j F Y');
     }

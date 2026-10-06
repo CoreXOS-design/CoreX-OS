@@ -4,27 +4,24 @@ declare(strict_types=1);
 
 namespace App\Services\Compliance;
 
-use App\Mail\Compliance\PpraEmploymentLetterPrincipalNotificationMail;
-use App\Mail\Compliance\PpraEmploymentLetterSignedMail;
 use App\Models\Agency;
 use App\Models\Compliance\PpraEmploymentLetter;
+use App\Models\Compliance\PpraEmploymentLetterFile;
 use App\Models\User;
-use App\Services\AgentSignatureService;
-use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * PPRA FFC renewal — Confirmation of Employment letter.
  * .ai/specs/ppra-ffc-employment-letter.md
  *
- * The fixed-order, two-signer PIN ceremony: agent signs first, then the
- * agency's resolved principal. Built on AgentSignatureService (the PIN
- * mechanism) exactly like EvaluationCertificateController — deliberately
- * NOT the canon web/CDS e-sign pipeline, which has no PIN concept and no
- * fixed-specific-signer routing (see the 2026-10-05 investigation report).
+ * WET-INK FLOW (spec §20, 2026-10-06): the letter is created, printed, signed in wet ink outside CoreX and the signed
+ * copy is uploaded from either screen. attachSignedCopy() is the ONE write path and streamSignedCopy() the ONE read
+ * path for those scans. The earlier PIN-signing ceremony (two-step, AgentSignatureService) is retired.
  */
 class PpraEmploymentLetterService
 {
@@ -107,7 +104,7 @@ class PpraEmploymentLetterService
     }
 
     /**
-     * Create a new letter directly in awaiting_agent_signature — every
+     * Create a new letter directly in awaiting_signed_copy — every
      * merge field was already validated present by the caller
      * (missingFieldsFor()) before this is ever called.
      */
@@ -133,117 +130,88 @@ class PpraEmploymentLetterService
             'principal_user_id'  => $principalUserId,
             'branch_id'          => $agent->effectiveBranchId(),
             'created_by_user_id' => $actor->id,
-            'status'             => PpraEmploymentLetter::STATUS_AWAITING_AGENT_SIGNATURE,
+            'status'             => PpraEmploymentLetter::STATUS_AWAITING_SIGNED_COPY,
         ]);
     }
 
-    /**
-     * Bake the agent's signature (PIN-unlocked image already resolved by the
-     * caller), move to awaiting_principal_signature, and — unless the agent
-     * IS the resolved principal (self-sign-both case, no round-trip needed)
-     * — email the principal that a letter awaits their signature.
-     */
-    public function signAsAgent(PpraEmploymentLetter $letter, User $agent, string $signatureImage, string $ip): void
-    {
-        $letter->agent_signature_image = $signatureImage;
-        $letter->agent_signed_at       = now();
-        $letter->agent_signed_ip       = $ip;
-        $letter->status                = PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE;
-        $letter->save();
+    /** Largest signed copy accepted, in KB — the existing staff-document rule (AgentPortalController::uploadDocument). */
+    public const MAX_UPLOAD_KB = 10240;
 
-        if ((int) $letter->principal_user_id === (int) $letter->user_id) {
-            return; // self-sign-both — the agent is about to sign the principal block themselves.
-        }
+    /** File kinds accepted for a signed copy (validation `mimes:` list). */
+    public const UPLOAD_MIMES = 'pdf,jpg,jpeg,png';
 
-        $this->notifyPrincipal($letter);
-    }
+    /** Private (non-public) disk the scans are written to. */
+    public const DISK = 'local';
 
     /**
-     * Bake the principal's signature, finalise the immutable signed PDF,
-     * move to signed, and notify the agent (in-app + email).
+     * THE one write path for a signed copy — used by both the My Portal and the Admin controller, so an upload on
+     * either screen is the same record on the other. One DB transaction: store the file, add the row, mark the letter
+     * "Signed copy filed". A re-upload adds a NEW row (it becomes Current); earlier rows are never touched, so they
+     * stay as superseded history. Refuses an archived letter. The caller has already checked access.
      */
-    public function signAsPrincipal(PpraEmploymentLetter $letter, User $principal, string $signatureImage, string $ip): void
+    public function attachSignedCopy(PpraEmploymentLetter $letter, UploadedFile $file, User $actor, string $via): PpraEmploymentLetterFile
     {
-        $agent  = User::withoutGlobalScopes()->find($letter->user_id);
-        $agency = Agency::withoutGlobalScopes()->find($letter->agency_id);
+        abort_if($letter->trashed(), 409, 'This letter is archived — a signed copy cannot be uploaded to it.');
+        abort_unless(in_array($via, [PpraEmploymentLetterFile::VIA_ADMIN, PpraEmploymentLetterFile::VIA_PORTAL], true), 500);
 
-        $letter->principal_signature_image = $signatureImage;
-        $letter->principal_signed_at       = now();
-        $letter->principal_signed_ip       = $ip;
-        $letter->status                    = PpraEmploymentLetter::STATUS_SIGNED;
+        $ext  = strtolower($file->guessExtension() ?: $file->getClientOriginalExtension() ?: 'pdf');
+        $path = 'ppra-employment-letters/' . $letter->agency_id . '/' . $letter->id . '/signed-copies/' . Str::random(40) . '.' . $ext;
 
-        $pdfPath = $this->pdf->generate(
-            $letter,
-            $agent,
-            $principal,
-            $agency,
-            $letter->agent_signature_image,
-            $signatureImage,
-        );
+        $record = null;
+        try {
+            $record = DB::transaction(function () use ($letter, $file, $actor, $via, $path) {
+                Storage::disk(self::DISK)->put($path, (string) file_get_contents($file->getRealPath()));
 
-        $storedPath = 'ppra-employment-letters/' . $agency->id . '/' . $letter->id . '-signed.pdf';
-        Storage::put($storedPath, file_get_contents($pdfPath));
-        @unlink($pdfPath);
+                $row = PpraEmploymentLetterFile::create([
+                    'agency_id'           => $letter->agency_id,
+                    'letter_id'           => $letter->id,
+                    'path'                => $path,
+                    'original_name'       => mb_substr($file->getClientOriginalName(), 0, 250),
+                    'size'                => (int) $file->getSize(),
+                    'mime'                => $file->getMimeType(),
+                    'uploaded_by_user_id' => $actor->id,
+                    'uploaded_via'        => $via,
+                ]);
 
-        $letter->signed_pdf_path = $storedPath;
-        $letter->save();
+                $letter->status = PpraEmploymentLetter::STATUS_SIGNED_COPY_FILED;
+                $letter->save();
 
-        $this->notifyAgentSigned($letter, $agent, $principal);
+                return $row;
+            });
+        } catch (\Throwable $e) {
+            Storage::disk(self::DISK)->delete($path); // roll the file back with the rows
+            throw $e;
+        }
+
+        $letter->unsetRelation('files')->unsetRelation('currentFile');
+
+        Log::info('ppra-employment-letter: signed copy filed', [
+            'letter' => $letter->id, 'file' => $record->id, 'by' => $actor->id, 'via' => $via,
+        ]);
+
+        return $record;
     }
 
-    /** Email + in-app notify the agent that their letter is fully signed. Non-fatal. */
-    private function notifyAgentSigned(PpraEmploymentLetter $letter, User $agent, User $principal): void
+    /**
+     * THE one read path for a signed copy — both screens' download actions call this AFTER their own access check.
+     * Streams from the private disk; never a public URL.
+     */
+    public function streamSignedCopy(PpraEmploymentLetterFile $file, bool $inline = false): Response
     {
-        try {
-            DatabaseNotification::create([
-                'id'              => (string) Str::uuid(),
-                'type'            => 'ppra_employment_letter.signed',
-                'notifiable_type' => User::class,
-                'notifiable_id'   => $agent->id,
-                'data'            => [
-                    'title'      => 'Your PPRA employment letter is signed',
-                    'message'    => $principal->name . ' signed your Confirmation of Employment letter — it is ready to download.',
-                    'action_url' => route('agent.portal') . '#documents',
-                    'letter_id'  => $letter->id,
-                ],
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('ppra-employment-letter: agent in-app notification failed', ['letter' => $letter->id, 'error' => $e->getMessage()]);
-        }
+        abort_unless(Storage::disk(self::DISK)->exists($file->path), 404, 'The signed copy file is missing.');
 
-        if (! $agent->email) {
-            return;
-        }
+        $name = trim(str_replace(['"', "\r", "\n", '/', '\\'], '_', $file->original_name)) ?: ('signed-copy-' . $file->id);
+        $headers = ['Content-Type' => $file->mime ?: 'application/octet-stream'];
 
-        try {
-            Mail::to($agent->email)->send(new PpraEmploymentLetterSignedMail($letter, $agent, $principal));
-        } catch (\Throwable $e) {
-            Log::warning('ppra-employment-letter: agent signed email failed', ['letter' => $letter->id, 'error' => $e->getMessage()]);
-        }
+        return $inline
+            ? Storage::disk(self::DISK)->response($file->path, $name, $headers + ['Content-Disposition' => 'inline; filename="' . $name . '"'])
+            : Storage::disk(self::DISK)->download($file->path, $name, $headers);
     }
 
-    /** Email the resolved principal that a letter awaits their signature. Non-fatal. Updates reminder_last_sent_at. */
-    public function notifyPrincipal(PpraEmploymentLetter $letter): void
-    {
-        $principal = User::withoutGlobalScopes()->find($letter->principal_user_id);
-        $agent     = User::withoutGlobalScopes()->find($letter->user_id);
-
-        if (! $principal || ! $principal->email || ! $agent) {
-            return;
-        }
-
-        try {
-            Mail::to($principal->email)->send(new PpraEmploymentLetterPrincipalNotificationMail($letter, $agent, $principal));
-            $letter->forceFill(['reminder_last_sent_at' => now()])->save();
-        } catch (\Throwable $e) {
-            Log::warning('ppra-employment-letter: principal notification failed', ['letter' => $letter->id, 'error' => $e->getMessage()]);
-        }
-    }
-
-    /** Cancel/archive an unsigned letter — soft delete only, never hard. */
+    /** Cancel/archive a letter that has no signed copy yet — soft delete only, never hard. */
     public function cancel(PpraEmploymentLetter $letter): void
     {
-        abort_if($letter->isSigned(), 409, 'A signed letter cannot be archived from here — use the Admin register.');
+        abort_unless($letter->isCancellableByAgent(), 409, 'A letter with a signed copy filed cannot be archived from here — use the Admin register.');
 
         $letter->delete();
     }

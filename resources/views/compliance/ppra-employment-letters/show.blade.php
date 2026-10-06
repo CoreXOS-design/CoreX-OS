@@ -13,8 +13,8 @@
     @if(session('success'))
     <div class="rounded-md" style="font-size:0.8125rem; color:var(--ds-green); background:color-mix(in srgb, var(--ds-green) 10%, transparent); padding:10px 14px; margin-bottom:16px;">{{ session('success') }}</div>
     @endif
-    @if(session('error'))
-    <div class="rounded-md" style="font-size:0.8125rem; color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); padding:10px 14px; margin-bottom:16px;">{{ session('error') }}</div>
+    @if(session('error') || $errors->has('signed_copy'))
+    <div class="rounded-md" style="font-size:0.8125rem; color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); padding:10px 14px; margin-bottom:16px;">{{ $errors->first('signed_copy') ?: session('error') }}</div>
     @endif
 
     <div style="border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:20px;">
@@ -25,39 +25,14 @@
         </div>
     </div>
 
-    @if($canSignAgentNow)
     <div style="border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
-        <h3 style="font-size:0.9375rem; font-weight:700; color:var(--text-primary); margin:0 0 8px;">Sign as the agent</h3>
-        @if(! $savedSigConfigured)
-        <p style="font-size:0.8125rem; color:var(--ds-amber);">Set up your saved signature and signing PIN in <a href="{{ route('agent.portal') }}#profile" style="text-decoration:underline;">My Portal</a> first.</p>
-        @else
-        <form method="POST" action="{{ route('ppra-employment-letters.sign-as-agent', $letter) }}">
-            @csrf
-            <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">Signing PIN</label>
-            <input type="password" name="pin" inputmode="numeric" maxlength="20" style="width:160px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; margin-bottom:10px;" required>
-            <br>
-            <button type="submit" class="corex-btn-primary">Sign &amp; send to principal</button>
-        </form>
-        @endif
+        <h3 style="font-size:0.9375rem; font-weight:700; color:var(--text-primary); margin:0 0 8px;">Signed copy</h3>
+        @include('compliance.ppra-employment-letters._signed-copies', [
+            'letter'        => $letter,
+            'uploadUrl'     => $canUpload ? route('ppra-employment-letters.upload', $letter) : null,
+            'scanRouteName' => 'ppra-employment-letters.signed-copy',
+        ])
     </div>
-    @endif
-
-    @if($canSignPrincipalNow)
-    <div style="border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
-        <h3 style="font-size:0.9375rem; font-weight:700; color:var(--text-primary); margin:0 0 8px;">Sign as principal</h3>
-        @if(! $savedSigConfigured)
-        <p style="font-size:0.8125rem; color:var(--ds-amber);">Set up your saved signature and signing PIN in <a href="{{ route('agent.portal') }}#profile" style="text-decoration:underline;">My Portal</a> first.</p>
-        @else
-        <form method="POST" action="{{ route('ppra-employment-letters.sign-as-principal', $letter) }}">
-            @csrf
-            <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">Signing PIN</label>
-            <input type="password" name="pin" inputmode="numeric" maxlength="20" style="width:160px; padding:8px 10px; border:1px solid var(--border); border-radius:6px; margin-bottom:10px;" required>
-            <br>
-            <button type="submit" class="corex-btn-primary">Sign &amp; finalise</button>
-        </form>
-        @endif
-    </div>
-    @endif
 
     @if($isAgent && $letter->isCancellableByAgent())
     <form method="POST" action="{{ route('ppra-employment-letters.cancel', $letter) }}" onsubmit="return confirm('Archive this letter? You can start a new one any time.');">

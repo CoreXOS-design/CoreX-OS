@@ -11,6 +11,8 @@ use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -24,15 +26,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * time while the letter is unsigned — this model stores only what the
  * signing ceremony itself produces.
  *
- * Status machine: draft -> awaiting_agent_signature -> (agent signs, PIN)
- * -> awaiting_principal_signature -> (principal signs, PIN) -> signed.
- * A freshly created letter is persisted directly as
- * awaiting_agent_signature, never left sitting in draft — every merge
- * field is validated present BEFORE the row is created (missing-data
- * blocks happen pre-creation, see PpraEmploymentLetterService), so there is
- * nothing left to "draft" once a row exists. STATUS_DRAFT is kept in the
- * enum for forward compatibility with the status machine named in the
- * spec; no code path persists it today.
+ * WET-INK FLOW (spec §20, 2026-10-06): PIN signing is retired. A letter is printed, signed in wet ink outside CoreX and
+ * the signed copy is uploaded: awaiting_signed_copy -> signed_copy_filed (first upload; stays filed on re-upload). The
+ * scans live in ppra_employment_letter_files, reached only through files()/currentFile(). The legacy statuses
+ * (draft, awaiting_agent_signature, awaiting_principal_signature, signed) stay in the enum for letters created under
+ * the PIN ceremony and display sensibly — see statusLabel().
  */
 class PpraEmploymentLetter extends Model
 {
@@ -43,13 +41,32 @@ class PpraEmploymentLetter extends Model
     public const STATUS_DRAFT                      = 'draft';
     public const STATUS_AWAITING_AGENT_SIGNATURE    = 'awaiting_agent_signature';
     public const STATUS_AWAITING_PRINCIPAL_SIGNATURE = 'awaiting_principal_signature';
+    /** LEGACY: the PIN-signed, system-baked letter. No new letter ever reaches it. */
     public const STATUS_SIGNED                     = 'signed';
+    public const STATUS_AWAITING_SIGNED_COPY       = 'awaiting_signed_copy';
+    public const STATUS_SIGNED_COPY_FILED          = 'signed_copy_filed';
 
     public const STATUSES = [
         self::STATUS_DRAFT,
         self::STATUS_AWAITING_AGENT_SIGNATURE,
         self::STATUS_AWAITING_PRINCIPAL_SIGNATURE,
         self::STATUS_SIGNED,
+        self::STATUS_AWAITING_SIGNED_COPY,
+        self::STATUS_SIGNED_COPY_FILED,
+    ];
+
+    /** Every status that means "still waiting for the wet-ink signed copy" — the new one plus the pre-wet-ink leftovers. */
+    public const AWAITING_COPY_STATUSES = [
+        self::STATUS_AWAITING_SIGNED_COPY,
+        self::STATUS_DRAFT,
+        self::STATUS_AWAITING_AGENT_SIGNATURE,
+        self::STATUS_AWAITING_PRINCIPAL_SIGNATURE,
+    ];
+
+    /** The statuses offered in the Admin register's status filter (the legacy ones fold into these two). */
+    public const FILTER_STATUSES = [
+        self::STATUS_AWAITING_SIGNED_COPY,
+        self::STATUS_SIGNED_COPY_FILED,
     ];
 
     /**
@@ -75,7 +92,7 @@ class PpraEmploymentLetter extends Model
         'principal_signed_at',
         'principal_signed_ip',
         'signed_pdf_path',
-        'reminder_last_sent_at',
+        'reminder_last_sent_at', // LEGACY — the reminder job is retired (spec §20)
     ];
 
     protected $casts = [
@@ -109,30 +126,46 @@ class PpraEmploymentLetter extends Model
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
-    public function isDraft(): bool
+    /** Every uploaded signed copy, newest first (the first is the current one). ONE record both screens read. */
+    public function files(): HasMany
     {
-        return $this->status === self::STATUS_DRAFT;
+        return $this->hasMany(PpraEmploymentLetterFile::class, 'letter_id')->orderByDesc('id');
     }
 
-    public function isAwaitingAgentSignature(): bool
+    /** The current signed copy — the most recently uploaded row. */
+    public function currentFile(): HasOne
     {
-        return $this->status === self::STATUS_AWAITING_AGENT_SIGNATURE;
+        return $this->hasOne(PpraEmploymentLetterFile::class, 'letter_id')->latestOfMany();
     }
 
-    public function isAwaitingPrincipalSignature(): bool
+    public function isAwaitingSignedCopy(): bool
     {
-        return $this->status === self::STATUS_AWAITING_PRINCIPAL_SIGNATURE;
+        return in_array($this->status, self::AWAITING_COPY_STATUSES, true);
     }
 
+    public function isSignedCopyFiled(): bool
+    {
+        return $this->status === self::STATUS_SIGNED_COPY_FILED;
+    }
+
+    /** LEGACY: signed through the retired PIN ceremony (its baked PDF is at signed_pdf_path). */
     public function isSigned(): bool
     {
         return $this->status === self::STATUS_SIGNED;
     }
 
-    /** A letter the signing agent may still cancel/archive themselves — never once signed. */
+    /** The agent may archive their own letter until its signed copy is filed (or it was legacy PIN-signed). */
     public function isCancellableByAgent(): bool
     {
-        return ! $this->isSigned();
+        return $this->isAwaitingSignedCopy();
+    }
+
+    /** Statuses that mean "awaiting the signed copy" (new + legacy leftovers), for the Admin status filter. */
+    public function scopeWithStatusGroup(Builder $query, string $status): Builder
+    {
+        return $status === self::STATUS_AWAITING_SIGNED_COPY
+            ? $query->whereIn('status', self::AWAITING_COPY_STATUSES)
+            : $query->where('status', $status);
     }
 
     /**
@@ -170,11 +203,15 @@ class PpraEmploymentLetter extends Model
 
     public static function statusLabel(string $status): string
     {
+        // Neutral wording — these labels show on the Admin list for someone else's letter. The pre-wet-ink statuses
+        // (letters made under the retired PIN ceremony) read as "waiting for the signed copy", which is what they now are.
         return match ($status) {
-            self::STATUS_DRAFT                       => 'Draft',
-            self::STATUS_AWAITING_AGENT_SIGNATURE     => 'Awaiting your signature',
-            self::STATUS_AWAITING_PRINCIPAL_SIGNATURE => 'Awaiting principal signature',
-            self::STATUS_SIGNED                       => 'Signed',
+            self::STATUS_AWAITING_SIGNED_COPY,
+            self::STATUS_DRAFT,
+            self::STATUS_AWAITING_AGENT_SIGNATURE,
+            self::STATUS_AWAITING_PRINCIPAL_SIGNATURE => 'Awaiting signed copy',
+            self::STATUS_SIGNED_COPY_FILED            => 'Signed copy filed',
+            self::STATUS_SIGNED                       => 'Signed (electronic)',
             default                                   => ucfirst(str_replace('_', ' ', $status)),
         };
     }

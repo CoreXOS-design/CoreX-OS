@@ -21,6 +21,12 @@
         </div>
     @endif
 
+    @if(session('error') || $errors->has('signed_copy'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, #c41e3a 10%, transparent); color:#c41e3a; border:1px solid color-mix(in srgb, #c41e3a 25%, transparent);">
+            {{ $errors->first('signed_copy') ?: session('error') }}
+        </div>
+    @endif
+
     <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
@@ -103,6 +109,7 @@
                         <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Principal</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Status</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Created</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Signed copy</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
@@ -118,6 +125,14 @@
                             </span>
                         </td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $letter->created_at->format('d M Y') }}</td>
+                        <td class="px-4 py-3">
+                            @include('compliance.ppra-employment-letters._signed-copies', [
+                                'letter'        => $letter,
+                                'uploadUrl'     => route('admin.ppra-employment-letters.upload', $letter->id),
+                                'scanRouteName' => 'admin.ppra-employment-letters.signed-copy',
+                                'showHistory'   => false,
+                            ])
+                        </td>
                         <td class="px-4 py-3 text-right">
                             <a href="{{ route('admin.ppra-employment-letters.show', $letter->id) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View</a>
                             @if($letter->trashed())
