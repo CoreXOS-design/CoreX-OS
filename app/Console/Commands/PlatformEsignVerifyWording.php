@@ -70,6 +70,9 @@ class PlatformEsignVerifyWording extends Command
         return $tips;
     }
 
+    /** The recipient address `--prepare` gives its throwaway; the only agreement `--seal` / `--cleanup` will touch. */
+    public const THROWAWAY_EMAIL = 'wording-proof@example.test';
+
     private int $defects = 0;
 
     /** @var array<string,int> */
@@ -77,6 +80,13 @@ class PlatformEsignVerifyWording extends Command
 
     public function handle(AgreementService $svc): int
     {
+        // The throwaway machinery creates, signs and retires REAL agreements (a real contract reference, signed PDFs, deleted files).
+        // It is for QA/staging only: on a production box none of it runs, whatever the other options say.
+        if (app()->environment('production') && ($this->option('prepare') || $this->option('seal') || $this->option('cleanup'))) {
+            $this->error('Refused: --prepare, --seal and --cleanup create, sign and retire real agreements and never run in production. Use --stored (read-only) here.');
+
+            return self::FAILURE;
+        }
         if ($this->option('prepare')) {
             return $this->prepare($svc);
         }
@@ -179,6 +189,12 @@ class PlatformEsignVerifyWording extends Command
     private function documentChecks(AgreementService $svc): bool
     {
         $doc = Document::withoutGlobalScopes()->with(['wording', 'signers'])->findOrFail((int) $this->option('doc'));
+        if (($this->option('seal') || $this->option('cleanup')) && !$this->isThrowaway($doc)) {
+            // --seal signs with sample data and --cleanup deletes the stored files: never on an agreement a person actually sent or signed.
+            $this->error('Refused: document ' . ($doc->contract_ref ?: $doc->id) . ' is not a throwaway made by --prepare (its recipient is not ' . self::THROWAWAY_EMAIL . '). --seal and --cleanup only ever touch those.');
+
+            return false;
+        }
         [$agr, $man] = $this->sourceFiles();
         $expected = AgreementFidelity::sourceTokens($agr, $man);
         $this->info('— Document ' . $doc->contract_ref . ' pinned to wording ' . $doc->wording->label() . ' —');
@@ -220,6 +236,15 @@ class PlatformEsignVerifyWording extends Command
         $this->info('RESULT — ' . implode(' · ', array_map(fn ($k, $v) => $k . ': ' . $v, array_keys($summary), $summary)));
 
         return $ok;
+    }
+
+    /** Made by --prepare: the agency recipient is the proof address and nobody else has signed it. */
+    private function isThrowaway(Document $doc): bool
+    {
+        $agency = $doc->signers->firstWhere('role_key', 'r1');
+
+        return $agency !== null && strtolower((string) $agency->email) === self::THROWAWAY_EMAIL
+            && $doc->signers->where('role_key', 'r1')->count() === 1;
     }
 
     private function seal(AgreementService $svc, Document $doc, array $expected, array &$summary): bool

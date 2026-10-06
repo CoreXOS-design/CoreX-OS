@@ -63,8 +63,11 @@ class LegalTermsTest extends TestCase
         $this->assertStringContainsString('name="robots" content="index, follow"', $res->getContent());
         $this->assertStringContainsString('<link rel="canonical" href="' . route('public.agreement-terms') . '">', $res->getContent());
         $this->assertStringContainsString('@media print', $res->getContent());
-        $this->assertStringContainsString('public', $res->headers->get('Cache-Control'));
-        $this->assertStringContainsString('max-age=300', $res->headers->get('Cache-Control'));
+        // The response carries session cookies, so it is revalidated (ETag) and never shared-cacheable.
+        $cc = (string) $res->headers->get('Cache-Control');
+        $this->assertStringNotContainsString('public', $cc);
+        $this->assertStringContainsString('private', $cc);
+        $this->assertStringContainsString('no-cache', $cc);
         $this->assertNotEmpty($res->headers->get('ETag'));
     }
 
@@ -91,7 +94,10 @@ class LegalTermsTest extends TestCase
         $this->assertStringContainsString('name="robots" content="noindex, follow"', $old->getContent());
         $old->assertSee('The current version is');
 
-        $this->get('/legal/v/1.1')->assertRedirect(route('public.agreement-terms'))->assertStatus(301);
+        // A temporary redirect that is never stored: "current" changes when a newer version is published, so a cached permanent
+        // redirect would hide the earlier version from everyone who ever followed this link.
+        $redirect = $this->get('/legal/v/1.1')->assertRedirect(route('public.agreement-terms'))->assertStatus(302);
+        $this->assertStringContainsString('no-store', (string) $redirect->headers->get('Cache-Control'));
         $this->get('/legal/v/9.9')->assertNotFound();
         $this->get('/legal/v/abc')->assertNotFound();
     }

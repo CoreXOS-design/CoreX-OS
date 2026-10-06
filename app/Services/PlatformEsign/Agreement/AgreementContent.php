@@ -4,6 +4,8 @@ namespace App\Services\PlatformEsign\Agreement;
 
 use App\Models\PlatformEsign\Template;
 use App\Models\PlatformEsign\WordingVersion;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Seeds the CoreX Subscription Agreement (spec §11.3) from the two signed-off source files, turning blanks into field tokens.
@@ -26,12 +28,37 @@ class AgreementContent
     /**
      * Idempotent: makes sure the template + the seed version 1.0 exist, and returns the CURRENT published version
      * (v1.0 until the owner publishes a newer one in the wording editor, spec §11.14). Safe on every request.
+     *
+     * Once any version is published this is a plain read — no writes on the (anonymous) public /legal request. The very first
+     * seed on a fresh environment runs under a lock and re-checks inside it, so two simultaneous first visitors cannot both create
+     * the template.
      */
     public function ensureSeeded(?int $userId = null): WordingVersion
     {
-        $this->seedV1($userId);
+        if ($current = self::current()) {
+            return $current;
+        }
+        try {
+            $lock = Cache::lock('platform-esign:seed-agreement', 30);
+        } catch (\Throwable) {
+            $lock = null; // a cache store without locks: fall back to the unlocked path (the unique key on the version still guards a duplicate)
+        }
+        if (!$lock) {
+            $this->seedV1($userId);
 
-        return self::current() ?? $this->seedV1($userId);
+            return self::current() ?? $this->seedV1($userId);
+        }
+
+        try {
+            return $lock->block(10, function () use ($userId) {
+                $this->seedV1($userId); // re-checks for an existing template/version itself
+
+                return self::current() ?? $this->seedV1($userId);
+            });
+        } catch (LockTimeoutException) {
+            // Someone else is seeding right now: use what they created.
+            return self::current() ?? throw new \RuntimeException('The agreement wording is being set up — try again in a moment.');
+        }
     }
 
     /** The newest published version (what a new agreement pins and /legal shows), or null before the first seed. */

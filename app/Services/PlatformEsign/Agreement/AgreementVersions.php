@@ -213,23 +213,27 @@ class AgreementVersions
         $errors = [];
         $out = [];
         foreach (self::RATE_FIELDS as $key => [$label, $kind]) {
-            $raw = trim(str_replace([' ', ','], ['', '.'], (string) ($input[$key] ?? '')));
+            $entered = trim((string) ($input[$key] ?? ''));
+            if (str_contains($entered, ',')) {
+                // "1,49" could be R1.49 or R149 — never guess with money. Spaces as thousands separators and a dot for cents are fine.
+                $errors[] = $label . ': please do not use a comma — write cents with a dot and no thousands separator (for example 1495 or 295.50).';
+                continue;
+            }
+            $raw = preg_replace('/[\s\x{00A0}]+/u', '', $entered);
             $ok = $kind === 'int' ? preg_match('/^\d{1,4}$/', $raw) : preg_match('/^\d{1,7}(\.\d{1,2})?$/', $raw);
             if (!$ok) {
                 $errors[] = $label . ' must be ' . ($kind === 'int' ? 'a whole number.' : 'an amount in rand (for example 1495 or 295.50).');
                 continue;
             }
+            if ((float) $raw <= 0.0) {
+                $errors[] = $label . ' must be more than zero' . ($kind === 'money' ? ' — a price of R0 would put a free agreement on the contract.' : '.');
+                continue;
+            }
             $out[$key] = $kind === 'int' ? (int) $raw : (fmod((float) $raw, 1.0) === 0.0 ? (int) $raw : (float) $raw);
         }
         if (!$errors) {
-            if ($out['agency_t1_max'] < 1) {
-                $errors[] = 'The first seat tier must cover at least one seat.';
-            }
             if ($out['agency_t2_max'] <= $out['agency_t1_max']) {
                 $errors[] = 'The second tier must end at a higher seat number than the first.';
-            }
-            if ($out['team_max_seats'] < 1) {
-                $errors[] = 'The CoreX Team plan must allow at least one seat.';
             }
         }
         if ($errors) {
@@ -256,6 +260,8 @@ class AgreementVersions
             }
             $errors = array_merge($errors, AgreementTokens::validate($md, (array) $draft->rates_json, $label));
             $errors = array_merge($errors, AgreementTokens::compare((string) ($draft->parent?->content_json[$part] ?? $this->current()->content_json[$part] ?? ''), $md, $label));
+            // The Rates tab and the plain words of the contract (tier breakpoints, quote threshold, worked example, left-over old prices) must agree.
+            $errors = array_merge($errors, AgreementConsistency::check($md, (array) $draft->rates_json, (array) ($draft->parent?->rates_json ?? $this->current()->rates_json), $label));
         }
 
         return $errors;
@@ -277,25 +283,64 @@ class AgreementVersions
         return array_map('floatval', $r);
     }
 
+    /** "1.10" is not "1.1": the canonical spelling of a version number (no leading zeros, no trailing ".0" patch), or null when it is not a version number. */
+    public static function canonicalVersion(string $v): ?string
+    {
+        if (!preg_match('/^(\d{1,3})\.(\d{1,3})(?:\.(\d{1,3}))?$/', $v, $m)) {
+            return null;
+        }
+
+        return (int) $m[1] . '.' . (int) $m[2] . (isset($m[3]) && (int) $m[3] > 0 ? '.' . (int) $m[3] : '');
+    }
+
+    /** How far ahead of today a version date may be set (the page and every PDF footer print this date). */
+    public const MAX_DAYS_AHEAD = 30;
+
     /**
      * Publish the draft as an immutable version.
      *
+     * @param int|null $seenRev the draft revision the owner reviewed on screen (publish refuses when the draft has moved on since);
+     *                          null = the revision as loaded now (service callers that did not show the owner a screen)
      * @throws WordingInvalid|\DomainException
      */
-    public function publish(WordingVersion $draft, string $version, string $date, string $note, int $userId): WordingVersion
+    public function publish(WordingVersion $draft, string $version, string $date, string $note, int $userId, ?int $seenRev = null): WordingVersion
     {
         $version = trim($version);
         $note = trim($note);
+        if ($seenRev !== null) {
+            $fresh = WordingVersion::drafts()->whereKey($draft->id)->value('rev');
+            if ($fresh === null) {
+                throw new \DomainException('This draft is no longer open for publishing.');
+            }
+            if ((int) $fresh !== $seenRev) {
+                throw new AgreementConflict((int) $fresh, []);
+            }
+        }
         $errors = $this->problems($draft);
-        if (!preg_match('/^\d{1,3}\.\d{1,3}(\.\d{1,3})?$/', $version)) {
+        $canonical = self::canonicalVersion($version);
+        if ($canonical === null) {
             $errors[] = 'The version number must look like 1.1 (digits and dots).';
-        } elseif (WordingVersion::withTrashed()->where('template_id', $draft->template_id)->where('version', $version)->whereKeyNot($draft->id)->exists()) {
-            $errors[] = 'Version ' . $version . ' already exists — versions are never reused. Choose another number.';
+        } elseif ($canonical !== $version) {
+            $errors[] = 'Write the version number as ' . $canonical . ' (no leading zeros or extra “.0”) — 1.00 and 1.0 would be two versions with the same meaning.';
+        } else {
+            $published = WordingVersion::withTrashed()->where('template_id', $draft->template_id)->where('is_published', true)->whereKeyNot($draft->id)->pluck('version')->all();
+            $taken = array_filter($published, fn ($x) => self::canonicalVersion((string) $x) === $canonical);
+            $numeric = array_values(array_filter($published, fn ($x) => self::canonicalVersion((string) $x) !== null));
+            usort($numeric, 'version_compare');
+            $top = $numeric ? end($numeric) : null;
+            if ($taken) {
+                $errors[] = 'Version ' . $version . ' already exists — versions are never reused. Choose another number.';
+            } elseif ($top !== null && version_compare($canonical, (string) $top, '<=')) {
+                $errors[] = 'Version ' . $version . ' is not higher than the latest published version (' . $top . ') — a new version must have a higher number. Use at least ' . $this->nextVersion() . '.';
+            }
         }
         try {
             $d = Carbon::createFromFormat('Y-m-d', $date);
-            if (!$d || $d->format('Y-m-d') !== $date || $d->year < 2026 || $d->gt(now()->addYear())) {
+            if (!$d || $d->format('Y-m-d') !== $date || $d->year < 2026) {
                 throw new \InvalidArgumentException();
+            }
+            if ($d->startOfDay()->gt(now()->addDays(self::MAX_DAYS_AHEAD)->endOfDay())) {
+                $errors[] = 'The version date cannot be more than ' . self::MAX_DAYS_AHEAD . ' days in the future — it is printed on the public terms page and on every agreement sent.';
             }
         } catch (\Throwable) {
             $errors[] = 'Enter a valid version date.';
@@ -314,7 +359,8 @@ class AgreementVersions
         }
 
         // Calibrate pagination now (a real PDF render) so the version is ready to use and never calibrates on a recipient's request.
-        $revSeen = (int) $draft->rev;
+        // The revision the owner reviewed is the one that gets published: the lock below refuses if the draft moved on while this ran.
+        $revSeen = $seenRev ?? (int) $draft->rev;
         $draft->layout_json = null;
         $layout = $this->layout->compute($draft);
 

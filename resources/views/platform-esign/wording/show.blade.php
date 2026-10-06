@@ -80,6 +80,8 @@
                 @endif
                 <form method="POST" action="{{ route('platform-esign.wording.publish', $v->id) }}" class="space-y-3" onsubmit="return confirm('Publish this version? It becomes the version every NEW agreement uses, and it can never be changed or deleted afterwards.');">
                     @csrf
+                    {{-- The revision of the draft this page showed: publishing is refused if the draft was saved elsewhere since. --}}
+                    <input type="hidden" name="rev" value="{{ $v->rev }}">
                     <div class="grid grid-cols-2 gap-3">
                         <div><label class="ds-label block mb-1" for="pub-version">Version number</label><input id="pub-version" name="version" value="{{ old('version', $suggested) }}" class="ds-field w-full" maxlength="12" required></div>
                         <div><label class="ds-label block mb-1" for="pub-date">Version date</label><input id="pub-date" type="date" name="version_date" value="{{ old('version_date', now()->toDateString()) }}" class="ds-field w-full" required></div>
