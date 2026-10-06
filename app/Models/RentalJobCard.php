@@ -211,10 +211,41 @@ class RentalJobCard extends Model
         return $this->hasMany(RentalJobCardLine::class)->orderBy('sort_order')->orderBy('id');
     }
 
-    /** Lines with no task — the built-in "General" group (e.g. a call-out fee). */
+    /**
+     * §17.2 / §17.4.6 — the ONLY lines that count in a total, a document, a signature, a materials list or a report.
+     * lines() still returns every live line (a crew's draft and a line awaiting the office included) because the office
+     * screen has to show those too, in their own block; every reader of money or work-to-do reads THIS instead.
+     */
+    public function acceptedLines(): HasMany
+    {
+        return $this->lines()->accepted();
+    }
+
+    /** Lines with no task — the built-in "General" group (e.g. a call-out fee). Every state; see acceptedLines(). */
     public function generalLines(): HasMany
     {
         return $this->lines()->whereNull('rental_job_card_task_id');
+    }
+
+    /** §17.5.3 — crew-added lines that have been sent to the office and wait for Accept / Reject (never counted anywhere). */
+    public function awaitingOfficeLines(): HasMany
+    {
+        return $this->lines()->where('office_status', RentalJobCardLine::OFFICE_AWAITING);
+    }
+
+    /** §17.5.4 — the one request still open for the crew to answer, if any. */
+    public function openPriceRequest(): ?RentalJobCardPriceRequest
+    {
+        return $this->priceRequests()->where('status', RentalJobCardPriceRequest::STATUS_OPEN)->first();
+    }
+
+    /** §17.5.5 — "Needs pricing": an open request, or crew lines the office has not yet decided. */
+    public function scopeNeedsPricing(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q) {
+            $q->whereHas('priceRequests', fn ($r) => $r->where('status', RentalJobCardPriceRequest::STATUS_OPEN))
+                ->orWhereHas('lines', fn ($l) => $l->where('office_status', RentalJobCardLine::OFFICE_AWAITING));
+        });
     }
 
     public function updates(): HasMany
@@ -274,9 +305,10 @@ class RentalJobCard extends Model
 
         $payload = [
             'title' => $this->title,
-            'tasks' => $this->tasks()->with('lines')->get()
+            // §17.4.6 — accepted lines only: a crew's pending line is not on the quote, so it must not flip "changed since sent".
+            'tasks' => $this->tasks()->with(['lines' => fn ($q) => $q->accepted()])->get()
                 ->map(fn ($t) => [$t->description, $t->lines->map($lineData)->all()])->all(),
-            'general' => $this->generalLines()->get()->map($lineData)->all(),
+            'general' => $this->generalLines()->accepted()->get()->map($lineData)->all(),
         ];
 
         return hash('sha256', json_encode($payload));
@@ -393,6 +425,13 @@ class RentalJobCard extends Model
                     'signed_copy_uploaded' => 'Signed copy uploaded',
                     'signed_copy_superseded' => 'Signed copy superseded',
                     'landlord_notified' => 'Landlord notified',
+                    'pricing_requested' => 'Crew asked to price the job',
+                    'pricing_submitted' => 'Crew sent their prices',
+                    'crew_lines_sent' => 'Crew sent parts and labour to the office',
+                    'crew_line_accepted' => 'Crew line accepted',
+                    'crew_line_rejected' => 'Crew line not accepted',
+                    'markup_set' => 'Markup set',
+                    'line_priced' => 'Line priced',
                     'archived' => 'Archived',
                     'restored' => 'Restored',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
@@ -406,10 +445,20 @@ class RentalJobCard extends Model
         return $entries->sortBy('at')->values();
     }
 
-    /** Recalculates total_amount from live, non-archived lines. Never trusts a client-sent total. */
+    /**
+     * Recalculates total_amount (SELLING) and total_cost (the agency's own cost) from live, non-archived,
+     * ACCEPTED lines (§17.4.6). Never trusts a client-sent total. total_cost stays null while no accepted line has a
+     * cost recorded — "never a forced zero" — and is the sum of the costed lines otherwise.
+     */
     public function recalcTotal(): void
     {
-        $this->forceFill(['total_amount' => $this->lines()->sum('line_total')])->save();
+        $accepted = $this->acceptedLines();
+        $hasCost = (clone $accepted)->whereNotNull('cost_total')->exists();
+
+        $this->forceFill([
+            'total_amount' => (clone $accepted)->sum('line_total'),
+            'total_cost' => $hasCost ? (clone $accepted)->sum('cost_total') : null,
+        ])->save();
     }
 
     public function archive(User $by): void
@@ -443,6 +492,19 @@ class RentalJobCard extends Model
         }
     }
 
+    /**
+     * .ai/specs/rental-work-orders.md §17.6.5 — work does not start (or get scheduled, or get completed by the crew)
+     * without an authorisation. The ONE place the decision lives is RentalApprovalGateService; this only enforces it.
+     * $refusal overrides the gate's own plain-language message (the crew gets a shorter one).
+     */
+    private function assertAuthorisedToProceed(?string $refusal = null): void
+    {
+        $decision = app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseCard($this);
+        if (! $decision->authorised) {
+            throw new \LogicException($refusal ?? $decision->note);
+        }
+    }
+
     private function assertOpen(): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
@@ -463,16 +525,16 @@ class RentalJobCard extends Model
     }
 
     /**
-     * §14 — scheduling moves draft/approved straight to 'scheduled'. Johan's
-     * brief does not require approval before scheduling can be SET (an
-     * agent may book a crew member's time while a quote is still pending) —
-     * only the quote/approval gate (sendToOwnerAsQuote()/applyApprovalResult())
-     * governs whether the OWNER has signed off, which is tracked
-     * independently via the linked work order's owner_approval_status.
+     * §14 — scheduling moves draft/quoted/approved to 'scheduled'. §17.6.5 (Build 2): a job is only scheduled once something authorises
+     * it — the owner's approval, the owner's no-approval limit, or an emergency agreement (RentalApprovalGateService decides; this only
+     * enforces it). Pricing visits are not scheduled: the crew's price request goes to the crew link directly (§17.5.4).
      */
     public function schedule(?\DateTimeInterface $scheduledAt, ?\DateTimeInterface $dueAt, User $by): void
     {
         $this->assertOpen();
+        // §17.6.5 (replaces the 2026-10 note above): a job is not scheduled until the owner's approval, the no-approval
+        // limit or an emergency agreement covers it. (Pricing visits are not scheduled — the crew link serves them.)
+        $this->assertAuthorisedToProceed();
         $fromStatus = $this->status;
 
         $this->forceFill([
@@ -510,6 +572,7 @@ class RentalJobCard extends Model
     public function start(User $by): void
     {
         $this->assertOpen();
+        $this->assertAuthorisedToProceed();
         $fromStatus = $this->status;
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
         $this->logUpdate('status_change', $by, null, $fromStatus, self::STATUS_IN_PROGRESS);
@@ -549,6 +612,7 @@ class RentalJobCard extends Model
     public function recordCrewCompletion(string $name, string $via, ?string $ip, ?string $device, ?User $by = null): void
     {
         $this->assertOpen();
+        $this->assertAuthorisedToProceed('This job has not been approved by the owner — contact the office.');
         $this->forceFill([
             'worker_signed_off_at' => now(),
             'worker_signed_off_by_user_id' => $by?->id,
@@ -576,6 +640,68 @@ class RentalJobCard extends Model
         ])->save();
         $this->logUpdate('sign_off', $by, 'Agent — checked');
     }
+
+    // ---- BUILD 3 BEGIN — dispute reopening (§17.10.6/§17.10.7, §17.21.5): the two methods below are Build 3's only ----
+
+    /**
+     * §17.10.6 — a tenant reported the finished work as not complete. The card becomes `disputed` (an OPEN state, so the
+     * crew can reach it again); a completed card is reopened (`completed_at` cleared). The worker and agent sign-offs
+     * are given up so they can be given again — and returned here as a snapshot, so the dispute round keeps what
+     * the earlier sign-offs were. A cancelled card is never reopened.
+     *
+     * @return array<string, mixed> the sign-off details that were reset
+     */
+    public function reopenForDispute(string $tenantNote): array
+    {
+        if ($this->status === self::STATUS_CANCELLED) {
+            throw new \LogicException('This job card was cancelled — it cannot be reopened.');
+        }
+
+        $snapshot = [
+            'status_before' => $this->status,
+            'completed_at' => $this->completed_at?->toIso8601String(),
+            'worker_signed_off_at' => $this->worker_signed_off_at?->toIso8601String(),
+            'worker_sign_off_name' => $this->worker_sign_off_name,
+            'worker_sign_off_via' => $this->worker_sign_off_via,
+            'worker_signed_off_by_user_id' => $this->worker_signed_off_by_user_id,
+            'agent_signed_off_at' => $this->agent_signed_off_at?->toIso8601String(),
+            'agent_signed_off_by_user_id' => $this->agent_signed_off_by_user_id,
+        ];
+
+        $fromStatus = $this->status;
+        $this->forceFill([
+            'status' => self::STATUS_DISPUTED,
+            'completed_at' => null,
+            'worker_signed_off_at' => null,
+            'worker_signed_off_by_user_id' => null,
+            'worker_sign_off_name' => null,
+            'worker_sign_off_via' => null,
+            'worker_sign_off_ip' => null,
+            'worker_sign_off_device' => null,
+            'agent_signed_off_at' => null,
+            'agent_signed_off_by_user_id' => null,
+        ])->save();
+
+        $this->logUpdate('dispute_opened', null, 'Tenant reported the work as not complete: ' . $tenantNote, $fromStatus, self::STATUS_DISPUTED);
+        if ($fromStatus === self::STATUS_COMPLETED) {
+            $this->logUpdate('reopened', null, 'Reopened — the earlier worker and agent sign-offs must be given again');
+        }
+
+        return $snapshot;
+    }
+
+    /** §17.10.7 — the crew (or the office) reported the work done again: back to `in_progress`. */
+    public function returnFromDispute(): void
+    {
+        if ($this->status !== self::STATUS_DISPUTED) {
+            return;
+        }
+
+        $this->update(['status' => self::STATUS_IN_PROGRESS]);
+        $this->logUpdate('status_change', null, 'Work reported done again after a tenant dispute', self::STATUS_DISPUTED, self::STATUS_IN_PROGRESS);
+    }
+
+    // ---- BUILD 3 END ----
 
     /** Tenant confirmation is recorded BY THE AGENT for now — AT-442 brief; tenant login is AT-445. */
     public function tenantConfirm(?string $note, User $by): void
@@ -627,6 +753,11 @@ class RentalJobCard extends Model
             'cancel_reason' => $reason,
         ])->save();
         $this->logUpdate('status_change', $by, $reason, $fromStatus, self::STATUS_CANCELLED);
+
+        // §17.7.2 — cancelling the card withdraws any request still waiting on the owner.
+        if ($this->workOrder) {
+            app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this->workOrder, 'The job card was cancelled.', $by);
+        }
     }
 
     /**

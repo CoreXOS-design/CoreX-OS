@@ -36,7 +36,7 @@ use Illuminate\Support\Facades\Storage;
  */
 class RentalJobCardService
 {
-    public function __construct(private RentalJobCardVatService $vat)
+    public function __construct(private RentalJobCardVatService $vat, private RentalPricingService $pricing)
     {
     }
 
@@ -90,6 +90,38 @@ class RentalJobCardService
                 $property = Property::findOrFail($attributes['property_id']);
             }
 
+            // BUILD 3 BEGIN — §17.3.1: no job card ever exists without its work order. A card created with no work
+            // order named is given one HERE, up front (linked to the fault report when there is one — through
+            // the SAME fromFaultReport() gate every "Create work order" uses), never lazily at "send quote".
+            $createdWorkOrder = null;
+            if (!$workOrder) {
+                if ($faultReport) {
+                    $workOrder = app(RentalWorkOrderService::class)->fromFaultReport($faultReport, $by, [
+                        'title' => $attributes['title'],
+                        'description' => $attributes['access_notes'] ?? $attributes['title'],
+                    ]);
+                    $workOrder->forceFill(['assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL])->save();
+                } else {
+                    $workOrder = RentalWorkOrder::create([
+                        'agency_id' => $property->agency_id,
+                        'branch_id' => $property->branch_id,
+                        'property_id' => $property->id,
+                        'lease_id' => $leaseId,
+                        'assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL,
+                        'title' => $attributes['title'],
+                        'description' => $attributes['title'],
+                        'status' => RentalWorkOrder::STATUS_REPORTED,
+                        'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
+                        'reported_by_user_id' => $by->id,
+                        'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
+                        'reported_at' => now(),
+                        'created_by_user_id' => $by->id,
+                    ]);
+                    $createdWorkOrder = $workOrder;
+                }
+            }
+            // BUILD 3 END
+
             $jobCard = RentalJobCard::create([
                 'agency_id' => $property->agency_id,
                 'branch_id' => $property->branch_id,
@@ -127,6 +159,12 @@ class RentalJobCardService
             }
 
             $jobCard->recalcTotal();
+
+            // BUILD 3 — one creation announcement, same on every path (§17.3.4). A fault-raised work order
+            // announced itself inside fromFaultReport().
+            if ($createdWorkOrder) {
+                app(RentalWorkOrderService::class)->announceCreated($createdWorkOrder);
+            }
 
             return $jobCard->fresh(['tasks.lines', 'lines']);
         });
@@ -174,6 +212,10 @@ class RentalJobCardService
             'reported_at' => now(),
             'created_by_user_id' => $by->id,
         ]);
+
+        // BUILD 3 — §17.3.4 / §17.23 defect #5: this path never fired `rental_work_order.created`. Every creation
+        // path now calls the same announceCreated().
+        app(RentalWorkOrderService::class)->announceCreated($workOrder);
 
         return $this->createJobCard($workOrder, $attributes, $by);
     }
@@ -295,8 +337,13 @@ class RentalJobCardService
      * "General" group. $log — false during createStandalone()'s own bulk
      * build, so a single Save doesn't write one history row per line; true
      * for every line added one at a time after the card already exists.
+     *
+     * §17.4 — a line also carries COST (`unit_cost`, typed or the catalogue's default cost) and optionally a line markup
+     * (`markup_type`/`markup_value`); its SELLING is resolved by RentalPricingService unless the office typed a price.
+     * The caller (the controller) decides who may set those keys (`rental_job_cards.price` / `.view_costs`); the crew's own
+     * lines come through CrewJobService with `origin` / `office_status` set and never carry selling.
      */
-    public function addLine(RentalJobCard $jobCard, array $attributes, User $by, ?RentalJobCardTask $task = null, bool $log = true): RentalJobCardLine
+    public function addLine(RentalJobCard $jobCard, array $attributes, ?User $by, ?RentalJobCardTask $task = null, bool $log = true): RentalJobCardLine
     {
         $jobCard->assertContentEditable();
         $catalogueItem = isset($attributes['rental_catalogue_item_id'])
@@ -306,11 +353,31 @@ class RentalJobCardService
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
         $quantity = (float) ($attributes['quantity'] ?? 1);
         $agency = $jobCard->agency ?? \App\Models\Agency::withoutGlobalScopes()->find($jobCard->agency_id);
-        // Pastel-style enhancement, 2026-10-05 — a catalogue item's default
-        // price is always stored excl-VAT; converted here to whatever the
-        // agency currently captures on job card lines (RentalJobCardVatService).
-        $catalogueDefaultPrice = $catalogueItem && $agency ? $this->vat->catalogueDefaultPriceForLine($catalogueItem, $agency) : $catalogueItem?->default_price;
-        $unitPrice = $pricesOn ? ($attributes['unit_price'] ?? $catalogueDefaultPrice) : null;
+
+        // §17.4.2 — who made the line and where it stands with the office. The office adds ACCEPTED lines; the crew's own
+        // entries (CrewJobService) arrive as crew_draft with their origin, and only those callers set these keys.
+        $origin = $attributes['origin'] ?? RentalJobCardLine::ORIGIN_OFFICE;
+        $officeStatus = $attributes['office_status'] ?? RentalJobCardLine::OFFICE_ACCEPTED;
+        $isOfficeLine = $origin === RentalJobCardLine::ORIGIN_OFFICE;
+        $present = fn (string $key): bool => array_key_exists($key, $attributes) && $attributes[$key] !== null && $attributes[$key] !== '';
+
+        // COST (§17.4.2/§17.4.4): what was typed, else the catalogue item's default cost for an office line — never invented.
+        // The crew is never shown a catalogue cost (§17.5.1), so a crew line takes only what the crew typed.
+        $unitCost = null;
+        if ($pricesOn) {
+            if ($present('unit_cost')) {
+                $unitCost = round((float) $attributes['unit_cost'], 2);
+            } elseif ($isOfficeLine && $catalogueItem && $agency) {
+                $unitCost = $this->vat->catalogueDefaultCostForLine($catalogueItem, $agency);
+            }
+        }
+
+        // SELLING: a price the office typed is `manual`. Left blank, the §17.4.3 rules resolve it (the catalogue default price is
+        // rule 5, so a picked item still prices itself exactly as before). Crew lines carry no selling at all.
+        $typedPrice = $pricesOn && $isOfficeLine && $present('unit_price') ? round((float) $attributes['unit_price'], 2) : null;
+        $markupType = $pricesOn && $isOfficeLine && $present('markup_type') && $present('markup_value')
+            && in_array($attributes['markup_type'], [RentalJobCardLine::MARKUP_PERCENT, RentalJobCardLine::MARKUP_AMOUNT], true)
+            ? $attributes['markup_type'] : null;
 
         // VAT type — the agent's explicit pick on this line, else the
         // catalogue item's own default, else the agency's default type.
@@ -338,19 +405,38 @@ class RentalJobCardService
             'description' => $attributes['description'] ?? $catalogueItem?->description ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->catalogueUnit?->name,
             'quantity' => $quantity,
-            'unit_price' => $unitPrice,
-            'line_total' => $unitPrice !== null ? round($quantity * (float) $unitPrice, 2) : null,
+            'unit_price' => $typedPrice,
+            'line_total' => $typedPrice !== null ? round($quantity * $typedPrice, 2) : null,
+            'selling_basis' => RentalJobCardLine::BASIS_MANUAL,
+            'unit_cost' => $unitCost,
+            'cost_total' => $unitCost !== null ? round($quantity * $unitCost, 2) : null,
+            'markup_type' => $markupType,
+            'markup_value' => $markupType !== null ? round((float) $attributes['markup_value'], 2) : null,
+            'origin' => $origin,
+            'office_status' => $officeStatus,
+            'crew_note' => $attributes['crew_note'] ?? null,
+            'crew_added_by_label' => $attributes['crew_added_by_label'] ?? null,
+            'crew_added_at' => $attributes['crew_added_at'] ?? null,
+            'rental_job_card_price_request_id' => $attributes['rental_job_card_price_request_id'] ?? null,
             'rental_vat_type_id' => $vatTypeId,
             'custom_vat_rate' => $customVatRate,
             'sort_order' => (int) ($jobCard->lines()->max('sort_order') ?? 0) + 1,
-            'created_by_user_id' => $by->id,
+            'created_by_user_id' => $by?->id,
         ]);
+
+        // An office line is priced straight away by the one resolver; a crew line stays unpriced until the office accepts it.
+        if ($pricesOn && $isOfficeLine) {
+            $line->setRelation('jobCard', $jobCard);
+            $this->pricing->repriceLine($line);
+            $line->refresh();
+        }
 
         $jobCard->recalcTotal();
         $this->freezeLineIfCardFrozen($jobCard, $line);
         if ($log) {
             $jobCard->logUpdate('line_added', $by, $line->description);
         }
+        $this->assessApproval($jobCard, $by); // BUILD 2 — extra work on an approved job is raised to the owner automatically (§17.7)
 
         return $line;
     }
@@ -389,11 +475,69 @@ class RentalJobCardService
 
         $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id);
         $has = fn (string $key): bool => array_key_exists($key, $attributes);
+        $filled = fn ($v): bool => $v !== null && $v !== '';
 
         $quantity = $has('quantity') && $attributes['quantity'] !== null ? (float) $attributes['quantity'] : (float) $line->quantity;
-        $unitPrice = $pricesOn
-            ? ($has('unit_price') ? $attributes['unit_price'] : $line->unit_price)
-            : null;
+
+        // ---- §17.4 pricing keys. A key ABSENT leaves that figure alone (the caller strips what the user may not set). ----
+        $pricingChanged = [];
+        $unitPrice = $pricesOn ? $line->unit_price : null;
+        $basis = $line->selling_basis;
+        $markupType = $line->markup_type;
+        $markupValue = $line->markup_value;
+        $unitCost = $line->unit_cost;
+
+        if ($pricesOn && $has('unit_cost')) {
+            $newCost = $filled($attributes['unit_cost']) ? round((float) $attributes['unit_cost'], 2) : null;
+            if (($newCost === null) !== ($unitCost === null) || ($newCost !== null && abs($newCost - (float) $unitCost) > 0.004)) {
+                $pricingChanged[] = 'cost';
+            }
+            $unitCost = $newCost;
+        }
+
+        if ($pricesOn && $has('markup_type')) {
+            // A set markup replaces a typed price (rule 2 comes after rule 1, so the typed price must go); a blank clears it.
+            if ($filled($attributes['markup_type']) && $filled($attributes['markup_value'] ?? null)
+                && in_array($attributes['markup_type'], [RentalJobCardLine::MARKUP_PERCENT, RentalJobCardLine::MARKUP_AMOUNT], true)) {
+                $markupType = $attributes['markup_type'];
+                $markupValue = round((float) $attributes['markup_value'], 2);
+                $unitPrice = null;
+                $pricingChanged[] = 'markup';
+            } else {
+                if ($markupType !== null) {
+                    $pricingChanged[] = 'markup';
+                }
+                $markupType = null;
+                $markupValue = null;
+            }
+        }
+
+        if ($pricesOn && ! empty($attributes['back_to_auto'])) {
+            // "Back to automatic": drop the typed price and the line markup so rules 3-6 apply again.
+            $markupType = null;
+            $markupValue = null;
+            $unitPrice = null;
+            $pricingChanged[] = 'automatic';
+        } elseif ($pricesOn && $has('unit_price')) {
+            // The edit form pre-fills the CURRENT selling price (even an auto-priced one), so only a value that
+            // differs from the stored price counts as the office typing a price; a blank means back to automatic.
+            if ($filled($attributes['unit_price'])) {
+                $typed = round((float) $attributes['unit_price'], 2);
+                if ($line->unit_price === null || abs($typed - (float) $line->unit_price) > 0.004) {
+                    $unitPrice = $typed;
+                    $basis = RentalJobCardLine::BASIS_MANUAL;
+                    $markupType = null;
+                    $markupValue = null;
+                    $pricingChanged[] = 'selling';
+                }
+            } elseif ($line->unit_price !== null) {
+                $unitPrice = null;
+                $pricingChanged[] = 'automatic';
+            }
+        }
+        if ($unitPrice === null && $line->unit_price !== null && ! in_array('selling', $pricingChanged, true)) {
+            $basis = RentalJobCardLine::BASIS_MANUAL; // the resolver below sets the real basis
+        }
 
         $changes = [
             'description' => $has('description') && $attributes['description'] !== null ? $attributes['description'] : $line->description,
@@ -401,6 +545,11 @@ class RentalJobCardService
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $unitPrice !== null ? round($quantity * (float) $unitPrice, 2) : null,
+            'unit_cost' => $pricesOn ? $unitCost : null,
+            'cost_total' => $pricesOn && $unitCost !== null ? round($quantity * (float) $unitCost, 2) : null,
+            'markup_type' => $markupType,
+            'markup_value' => $markupValue,
+            'selling_basis' => $basis,
             'rental_vat_type_id' => $has('rental_vat_type_id') ? $attributes['rental_vat_type_id'] : $line->rental_vat_type_id,
             'custom_vat_rate' => $has('custom_vat_rate') ? $attributes['custom_vat_rate'] : $line->custom_vat_rate,
         ];
@@ -417,11 +566,21 @@ class RentalJobCardService
             $changes['code'] = $catalogueItem?->code;
         }
 
+        // Quantity (or any figure) changing re-derives an auto-priced line's selling; a typed price follows quantity only.
         $line->forceFill($changes)->save();
+        if ($pricesOn && $line->isAccepted()) {
+            $line->setRelation('jobCard', $jobCard);
+            $this->pricing->repriceLine($line);
+        }
 
         $jobCard->recalcTotal();
         $this->freezeLineIfCardFrozen($jobCard, $line->refresh());
-        $jobCard->logUpdate('line_changed', $by, $line->description);
+        $jobCard->logUpdate(
+            $pricingChanged ? 'line_priced' : 'line_changed',
+            $by,
+            $line->description . ($pricingChanged ? ' (' . implode(', ', array_unique($pricingChanged)) . ')' : ''),
+        );
+        $this->assessApproval($jobCard, $by); // BUILD 2 (§17.7)
     }
 
     /**
@@ -447,6 +606,7 @@ class RentalJobCardService
         $line->delete();
         $jobCard->recalcTotal();
         $jobCard->logUpdate('line_archived', $by, $line->description);
+        $this->assessApproval($jobCard, $by); // BUILD 2 (§17.7) — a total back within the approved amount withdraws an open request
     }
 
     public function restoreLine(RentalJobCard $jobCard, int $lineId, User $by): void
@@ -457,6 +617,13 @@ class RentalJobCardService
         $jobCard->recalcTotal();
         $this->freezeLineIfCardFrozen($jobCard, $line->refresh());
         $jobCard->logUpdate('line_added', $by, 'Restored: ' . $line->description);
+        $this->assessApproval($jobCard, $by); // BUILD 2 (§17.7)
+    }
+
+    /** BUILD 2 (§17.6.3) — one call to the gate after any change that can move the accepted total; inert until a quote is approved. */
+    private function assessApproval(RentalJobCard $jobCard, ?User $by): void
+    {
+        app(RentalApprovalGateService::class)->assessAfterLineChange($jobCard, $by);
     }
 
     /**
@@ -521,8 +688,19 @@ class RentalJobCardService
             throw new \LogicException('This job card is closed — a quote can no longer be sent.');
         }
 
-        if ($jobCard->lines()->doesntExist()) {
+        // §17.4.6 — only ACCEPTED lines are on a quote: crew lines still awaiting the office do not count as "a line".
+        if ($jobCard->acceptedLines()->doesntExist()) {
             throw new \LogicException('Add at least one line before sending this job card to the owner as a quote.');
+        }
+
+        // §17.4.3 — a line with no cost and no price has no selling yet (blank, never 0): price every line first.
+        if (\App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id)) {
+            $unpriced = $jobCard->acceptedLines()->whereNull('line_total')->count();
+            if ($unpriced > 0) {
+                throw new \LogicException($unpriced === 1
+                    ? 'Price every line first — one line has no price yet.'
+                    : "Price every line first — {$unpriced} lines have no price yet.");
+            }
         }
 
         // AT-442 follow-up (item 8) — an owner quote must NEVER be addressed
@@ -548,12 +726,16 @@ class RentalJobCardService
         $this->vat->snapshot($jobCard);
         $jobCard->refresh();
 
-        $pdf = $pdfService->jobCardQuotePdf($jobCard, $revision);
+        // §17.11 — the estimate wording in force RIGHT NOW is printed on the PDF and snapshotted onto the quote, so a later
+        // settings edit or reprint never changes what the owner was shown.
+        $estimateTerm = \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($jobCard->agency_id);
+
+        $pdf = $pdfService->jobCardQuotePdf($jobCard, $revision, $estimateTerm);
         $path = 'rental-job-card-quotes/' . $jobCard->id . '/' . now()->timestamp . '-rev' . $revision . '.pdf';
         Storage::disk('local')->put($path, $pdf->output());
 
         try {
-            $quote = DB::transaction(function () use ($jobCard, $by, $path, $revision, $previousRevision) {
+            $quote = DB::transaction(function () use ($jobCard, $by, $path, $revision, $previousRevision, $estimateTerm) {
                 // The landlord pays the VAT-inclusive figure, so that is both
                 // the quote amount AND the figure the no-approval spend
                 // threshold compares against (RentalWorkOrder::selectQuote())
@@ -566,6 +748,7 @@ class RentalJobCardService
                     'content_signature' => $jobCard->quoteContentSignature(),
                     'agency_service_provider_id' => null,
                     'amount' => $this->vat->inclusiveTotal($jobCard),
+                    'term_text' => $estimateTerm,
                     'quote_date' => now()->toDateString(),
                     'document_storage_path' => $path,
                     'detail_text' => 'Quote generated from job card #' . $jobCard->id . ($revision > 1 ? " — Rev {$revision} (replaces Rev {$previousRevision})" : ''),
@@ -605,10 +788,15 @@ class RentalJobCardService
             throw $e;
         }
 
+        // BUILD 2 (§17.16) — the owner gets ONE mail through the agency mailbox path: the quote PDF attached, the
+        // owner-facing amount, the estimate term and — when the amount needs the owner — the "approval needed" wording and
+        // a pointer to the portal. (Replaces the plain RentalWorkOrderOwnerMail and the plain "decision needed" mail.)
         $workOrder = $jobCard->workOrder()->first();
-        app(RentalWorkOrderService::class)->notifyOwner(
+        app(RentalWorkOrderService::class)->sendOwnerQuote(
             $workOrder,
-            $revision > 1 ? \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED : \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_CREATED,
+            $quote->fresh(),
+            $by,
+            needsDecision: $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING,
         );
 
         $jobCard->syncStatusFromWorkOrder();
@@ -633,6 +821,7 @@ class RentalJobCardService
         ?string $caption = null,
         ?string $uploadedVia = null,
         bool $log = true,
+        ?int $lineId = null,
     ): RentalWorkOrderPhoto {
         $url = app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
 
@@ -640,6 +829,8 @@ class RentalJobCardService
             'agency_id' => $jobCard->agency_id,
             'rental_work_order_id' => $jobCard->rental_work_order_id,
             'rental_job_card_id' => $jobCard->id,
+            // §17.5.1 — the crew line this photo explains (an extra); null for an ordinary job photo.
+            'rental_job_card_line_id' => $lineId,
             'photo_type' => $photoType,
             'caption' => $caption,
             'uploaded_via' => $uploadedVia ?? ($uploadedBy ? RentalWorkOrderPhoto::VIA_OFFICE : null),
@@ -676,24 +867,31 @@ class RentalJobCardService
         $this->vat->snapshot($jobCard);
         $jobCard->refresh();
 
-        $jobCard->complete($by);
+        // §17.10.9 / §17.23 defect #1 — the card and its work order close TOGETHER or not at all. The
+        // work-order refusal (an open tenant dispute, a missing completed photo, an approval that still
+        // blocks the cost) is no longer swallowed: a silently half-closed job (card closed, work order
+        // open) cannot coexist with the reopen-on-dispute rule. The transaction rolls the card's own close
+        // back, and the caller (controller / mobile) shows the message.
+        try {
+            DB::transaction(function () use ($jobCard, $by) {
+                $jobCard->complete($by);
 
-        $workOrder = $jobCard->workOrder;
-        if ($workOrder && $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED) {
-            try {
-                $workOrder->complete($by, [
-                    'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
-                    // VAT-inclusive — the actual amount the owner pays, same
-                    // figure the quote/threshold already used.
-                    'cost_amount' => $this->vat->inclusiveTotal($jobCard),
-                    'completion_notes' => 'Completed via job card #' . $jobCard->id,
-                ]);
-            } catch (\LogicException) {
-                // e.g. agency requires a completed photo — the job card is
-                // still marked complete (worker+agent both signed off); the
-                // linked work order stays open until that evidence is added
-                // via the existing photo upload on the work order itself.
-            }
+                $workOrder = $jobCard->workOrder;
+                if ($workOrder && $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED) {
+                    $workOrder->complete($by, [
+                        'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
+                        // VAT-inclusive — the actual amount the owner pays, same
+                        // figure the quote/threshold already used.
+                        'cost_amount' => $this->vat->inclusiveTotal($jobCard),
+                        'completion_notes' => 'Completed via job card #' . $jobCard->id,
+                    ]);
+                }
+            });
+        } catch (\Throwable $e) {
+            // The rolled-back close must not linger in the in-memory card the caller still holds.
+            $jobCard->refresh();
+
+            throw $e;
         }
     }
 }

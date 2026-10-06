@@ -82,15 +82,27 @@ final class RentalWorkOrderSettingTest extends TestCase
         $this->assertSame(350.0, RentalWorkOrderSetting::spendThresholdFor($this->agency->id));
     }
 
-    public function test_property_override_is_saved_through_the_rental_details_endpoint(): void
+    /** BUILD 2 (§17.6.2) — the limit moved to its own panel/route (with history); the rental-details endpoint no longer accepts it. */
+    public function test_property_override_is_saved_through_the_work_terms_endpoint(): void
     {
         $property = $this->property();
 
-        $this->actingAs($this->admin)->put(route('corex.properties.rental-details.update', $property), [
-            'rental_no_approval_spend_threshold' => 3000,
+        $this->actingAs($this->admin)->put(route('corex.properties.rental-work-terms.update', $property), [
+            'no_approval_limit' => 3000,
         ])->assertRedirect();
 
         $this->assertSame(3000.0, (float) $property->fresh()->rental_no_approval_spend_threshold);
+    }
+
+    public function test_the_rental_details_endpoint_ignores_the_threshold_field(): void
+    {
+        $property = $this->property(['rental_no_approval_spend_threshold' => 1800]);
+
+        $this->actingAs($this->admin)->put(route('corex.properties.rental-details.update', $property), [
+            'rental_no_approval_spend_threshold' => 99999,
+        ])->assertRedirect();
+
+        $this->assertSame(1800.0, (float) $property->fresh()->rental_no_approval_spend_threshold, 'only the work-terms panel can change it');
     }
 
     /** BUILD_STANDARD §2 — optional-and-empty must clear gracefully, not 500 or silently keep a stale value. */
@@ -98,8 +110,8 @@ final class RentalWorkOrderSettingTest extends TestCase
     {
         $property = $this->property(['rental_no_approval_spend_threshold' => 3000]);
 
-        $this->actingAs($this->admin)->put(route('corex.properties.rental-details.update', $property), [
-            'rental_no_approval_spend_threshold' => '',
+        $this->actingAs($this->admin)->put(route('corex.properties.rental-work-terms.update', $property), [
+            'no_approval_limit' => '',
         ])->assertRedirect();
 
         $this->assertNull($property->fresh()->rental_no_approval_spend_threshold);

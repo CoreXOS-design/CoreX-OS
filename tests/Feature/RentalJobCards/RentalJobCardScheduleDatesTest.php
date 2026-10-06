@@ -63,7 +63,12 @@ final class RentalJobCardScheduleDatesTest extends TestCase
 
     private function card(string $title = 'Schedule job'): RentalJobCard
     {
-        return $this->service->createForProperty($this->property, ['title' => $title], $this->admin);
+        $card = $this->service->createForProperty($this->property, ['title' => $title], $this->admin);
+        // BUILD 2 (§17.6.5) — a job is only scheduled once something authorises it. These tests are about the DATES, so the card carries one
+        // small priced line, comfortably inside this agency's no-approval limit (R100,000), which is all the gate needs.
+        $this->service->addLine($card, ['type' => 'part', 'description' => 'Washer', 'quantity' => 1, 'unit_price' => 100], $this->admin);
+
+        return $card->fresh();
     }
 
     private function set(RentalJobCard $card, array $data)

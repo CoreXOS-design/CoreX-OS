@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\RentalCrewLinkEvent;
 use App\Models\RentalJobCard;
+use App\Models\RentalJobCardLine;
 use App\Models\RentalJobCardTask;
 use App\Models\RentalSecureAccessToken;
 use App\Services\Rentals\CrewJobService;
@@ -176,6 +177,109 @@ class CrewPageController extends Controller
         return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Marked as completed. The office has been told.');
     }
 
+    // ───────────── §17.5 (Build 1) — Parts & labour from the crew page: same service, `crew_page` context ─────────────
+
+    private function lineRules(): array
+    {
+        return [
+            'photos' => ['nullable', 'array', 'max:' . CrewJobService::MAX_LINE_PHOTOS],
+            'photos.*' => ['file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+        ];
+    }
+
+    private function lineMessages(): array
+    {
+        return [
+            'photos.max' => 'You can add up to ' . CrewJobService::MAX_LINE_PHOTOS . ' photos to one line.',
+            'photos.*.mimes' => 'Photos must be JPG, PNG, WEBP or HEIC.',
+            'photos.*.max' => 'A photo is too large — each one can be up to 50 MB.',
+        ];
+    }
+
+    public function addLine(Request $request, string $token, int $card): RedirectResponse|JsonResponse|Response
+    {
+        [$record, $jobCard] = $this->resolveCard($token, $card);
+        if (! $record || ! $jobCard) {
+            return $this->unavailable();
+        }
+        $request->validate($this->lineRules(), $this->lineMessages());
+
+        try {
+            $line = $this->jobs->addLine(
+                $jobCard,
+                $request->only(['type', 'description', 'rental_catalogue_item_id', 'quantity', 'unit', 'unit_cost', 'note', 'is_extra']),
+                array_values($request->file('photos', [])),
+                CrewViewContext::forCrewPage($record, $jobCard, $request),
+            );
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->withErrors(['crew' => $e->getMessage()])->withInput();
+        }
+        $this->logAction($record, $jobCard, 'Added a ' . $line->type . ' line (draft): ' . $line->description, $request);
+
+        return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Line added. Press "Send to office" when you have added everything.');
+    }
+
+    public function updateLine(Request $request, string $token, int $card, int $line): RedirectResponse|Response
+    {
+        [$record, $jobCard] = $this->resolveCard($token, $card);
+        if (! $record || ! $jobCard) {
+            return $this->unavailable();
+        }
+        $request->validate($this->lineRules(), $this->lineMessages());
+        $lineModel = RentalJobCardLine::withoutGlobalScopes()->where('rental_job_card_id', $jobCard->id)->whereKey($line)->firstOrFail();
+
+        try {
+            $this->jobs->editDraft(
+                $jobCard,
+                $lineModel,
+                $request->only(['type', 'description', 'rental_catalogue_item_id', 'quantity', 'unit', 'unit_cost', 'note']),
+                array_values($request->file('photos', [])),
+                CrewViewContext::forCrewPage($record, $jobCard, $request),
+            );
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->withErrors(['crew' => $e->getMessage()]);
+        }
+        $this->logAction($record, $jobCard, 'Changed a draft line: ' . $lineModel->description, $request);
+
+        return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Line changed.');
+    }
+
+    public function archiveLine(Request $request, string $token, int $card, int $line): RedirectResponse|Response
+    {
+        [$record, $jobCard] = $this->resolveCard($token, $card);
+        if (! $record || ! $jobCard) {
+            return $this->unavailable();
+        }
+        $lineModel = RentalJobCardLine::withoutGlobalScopes()->where('rental_job_card_id', $jobCard->id)->whereKey($line)->firstOrFail();
+
+        try {
+            $this->jobs->archiveDraft($jobCard, $lineModel, CrewViewContext::forCrewPage($record, $jobCard, $request));
+        } catch (\LogicException $e) {
+            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->withErrors(['crew' => $e->getMessage()]);
+        }
+        $this->logAction($record, $jobCard, 'Removed a draft line: ' . $lineModel->description, $request);
+
+        return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Line removed.');
+    }
+
+    public function sendLines(Request $request, string $token, int $card): RedirectResponse|Response
+    {
+        [$record, $jobCard] = $this->resolveCard($token, $card);
+        if (! $record || ! $jobCard) {
+            return $this->unavailable();
+        }
+        $request->validate(['confirm' => ['accepted']], ['confirm.accepted' => 'Tick the box to confirm before you send.']);
+
+        try {
+            $sent = $this->jobs->sendToOffice($jobCard, CrewViewContext::forCrewPage($record, $jobCard, $request));
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->withErrors(['crew' => $e->getMessage()]);
+        }
+        $this->logAction($record, $jobCard, "Sent {$sent} part/labour line" . ($sent === 1 ? '' : 's') . ' to the office', $request);
+
+        return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', $sent === 1 ? 'Sent to the office. They will check it and price it.' : "Sent {$sent} lines to the office. They will check them and price them.");
+    }
+
     /** @return array{0: ?RentalSecureAccessToken, 1: ?RentalJobCard} */
     private function resolveCard(string $token, int $cardId): array
     {
@@ -193,6 +297,11 @@ class CrewPageController extends Controller
             'tick' => route('rentals.crew-page.tick', [$token, $cardId, '__TASK__']),
             'photos' => route('rentals.crew-page.photos', [$token, $cardId]),
             'complete' => route('rentals.crew-page.complete', [$token, $cardId]),
+            // §17.5 (Build 1) — the Parts & labour panel's own actions.
+            'line_add' => route('rentals.crew-page.lines.store', [$token, $cardId]),
+            'line_update' => route('rentals.crew-page.lines.update', ['token' => $token, 'card' => $cardId, 'line' => '__LINE__']),
+            'line_archive' => route('rentals.crew-page.lines.archive', ['token' => $token, 'card' => $cardId, 'line' => '__LINE__']),
+            'lines_send' => route('rentals.crew-page.lines.send', [$token, $cardId]),
         ];
     }
 

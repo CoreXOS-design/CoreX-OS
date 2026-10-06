@@ -3,6 +3,8 @@
 
 @section('corex-content')
 @php
+    // Owner-level only (spec: esign-template-transfer.md §2) — never shown to agency admins.
+    $canTransfer = $user->isOwnerRole() && $user->hasPermission('templates.transfer');
     $hasActiveFilters = request('search')
         || (request('status', 'active') !== 'active')
         || request('category')
@@ -59,6 +61,15 @@
             </svg>
             <div class="flex-1">{{ $errors->first() }}</div>
         </div>
+    @endif
+
+    @if($canTransfer)
+    <form id="tplExportForm" method="POST" action="{{ route('docuperfect.templates.exportSelected') }}" class="rounded-md px-4 py-2 flex flex-wrap items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+        @csrf
+        <span class="text-xs" style="color: var(--text-muted);">Tick templates below to move them to another system or agency.</span>
+        <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5">Export selected</button>
+        <a href="{{ route('docuperfect.template-transfer.index') }}" class="text-xs underline" style="color: var(--text-muted);">Import a package</a>
+    </form>
     @endif
 
     {{-- Filter bar --}}
@@ -184,7 +195,7 @@
                 <div class="corex-template-card rounded-md p-4 flex flex-col transition-all duration-300"
                      style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start justify-between mb-1">
-                        <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);">{{ $tpl->name }}</div>
+                        <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);">@if($canTransfer)<input type="checkbox" name="ids[]" value="{{ $tpl->id }}" form="tplExportForm" class="mr-1.5 align-middle" aria-label="Select {{ $tpl->name }} for export">@endif{{ $tpl->name }}</div>
                         <div class="flex items-center gap-1 ml-2 flex-shrink-0">
                             @if($tpl->category === 'sales')
                             <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Sales</span>
@@ -240,6 +251,7 @@
                                 @csrf
                                 <button class="corex-btn-outline text-xs px-3 py-1.5">Copy</button>
                             </form>
+                            @if($canTransfer)<a href="{{ route('docuperfect.templates.export', $tpl->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Export package</a>@endif
                             <form method="POST" action="{{ route('docuperfect.templates.archive', $tpl->id) }}" class="inline" onsubmit="return confirm('Archive this template?');">
                                 @csrf
                                 <button class="corex-btn-outline text-xs px-3 py-1.5">Archive</button>
@@ -289,7 +301,7 @@
                                     @endif
                                 </td>
                                 <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">
-                                    {{ $tpl->name }}
+                                    @if($canTransfer)<input type="checkbox" name="ids[]" value="{{ $tpl->id }}" form="tplExportForm" class="mr-1.5 align-middle" aria-label="Select {{ $tpl->name }} for export">@endif{{ $tpl->name }}
                                     @if($tpl->is_esign)
                                         <span class="ds-badge ml-1" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">E-Sign</span>
                                     @endif
@@ -331,6 +343,7 @@
                                                 @csrf
                                                 <button class="corex-btn-outline text-xs px-2 py-1">Copy</button>
                                             </form>
+                                            @if($canTransfer)<a href="{{ route('docuperfect.templates.export', $tpl->id) }}" class="corex-btn-outline text-xs px-2 py-1">Export</a>@endif
                                         @endif
                                         <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Delete this template? It will be removed from your lists. Nothing is erased — it moves to Archived, where you can restore it yourself any time.');">
                                             @csrf

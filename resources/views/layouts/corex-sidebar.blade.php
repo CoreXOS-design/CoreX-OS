@@ -1854,6 +1854,11 @@
                 <a href="{{ route('docuperfect.settings.types') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.settings.types*') ? 'active' : '' }}">Document Types</a>
                 <a href="{{ route('docuperfect.import.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.import.*') ? 'active' : '' }}">Import Document</a>
                 @endpermission
+                @if(auth()->user()->isOwnerRole())
+                @permission('templates.transfer')
+                <a href="{{ route('docuperfect.template-transfer.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.template-transfer.*') ? 'active' : '' }}">Template Packages</a>
+                @endpermission
+                @endif
                 @permission('view_agency_documents')
                 <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
                 @endpermission

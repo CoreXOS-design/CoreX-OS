@@ -20,6 +20,12 @@
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
+    {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
+        </div>
+    @endif
 
     <div class="flex items-center justify-between">
         <div>
@@ -40,15 +46,12 @@
             </span>
         </div>
         <div class="flex items-center gap-2">
-            {{-- AT-439 Part 3, item 5 — "Raise work order" (AT-442) is a
-                 primary header action once approved via the agency-appoints
-                 route, not buried inside the Owner approval card below. The
-                 toggle target (#raise-work-order-form) still lives in that
-                 card — a plain DOM id reference, so relocating the BUTTON
-                 here doesn't need the form to move with it. --}}
+            {{-- §17.3 (R0) — ONE "Create work order" action, in the header. Shown whenever the gate allows it
+                 (reported, awaiting approval, or approved with the agency-appoints route); the form it opens
+                 (#raise-work-order-form) still lives in the Owner approval card below. --}}
             @permission('rental_fault_reports.raise_work_order')
-                @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_APPROVED && $faultReport->approval_route === \App\Models\RentalFaultReport::ROUTE_AGENCY_APPOINTS)
-                    <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Raise work order</button>
+                @if($faultReport->workOrderBlockReason() === null)
+                    <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Create work order</button>
                 @endif
             @endpermission
             <a href="{{ route('corex.rental-fault-reports.pdf', $faultReport) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
@@ -75,7 +78,20 @@
                 <div><span style="color: var(--text-muted);">From inspection:</span> <a href="{{ route('corex.rental-inspections.show', $faultReport->reportedInspectionObservation->inspection) }}" class="underline">{{ ucfirst(str_replace('_', '-', $faultReport->reportedInspectionObservation->inspection->type)) }}-inspection {{ $faultReport->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $faultReport->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }}</a></div>
             @endif
             @if($faultReport->workOrder)
-                <div><span style="color: var(--text-muted);">Work order:</span> <a href="{{ route('corex.rental-work-orders.show', $faultReport->rental_work_order_id) }}" class="underline">#{{ $faultReport->rental_work_order_id }}</a></div>
+                {{-- §17.12 — the fault's chips are derived read-only from the linked work order. --}}
+                <div><span style="color: var(--text-muted);">Work order:</span> <a href="{{ route('corex.rental-work-orders.show', $faultReport->rental_work_order_id) }}" class="underline">#{{ $faultReport->rental_work_order_id }}</a>
+                    <span class="ds-badge {{ $faultReport->workOrder->status === \App\Models\RentalWorkOrder::STATUS_DISPUTED ? 'ds-badge-danger' : 'ds-badge-muted' }}">{{ ucfirst(str_replace('_', ' ', $faultReport->workOrder->status)) }}</span>
+                    @if($faultReport->workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
+                        <span class="ds-badge ds-badge-info">Awaiting owner approval</span>
+                    @endif
+                    @if($faultReport->workOrder->approval_basis === \App\Models\RentalWorkOrder::BASIS_EMERGENCY)
+                        <span class="ds-badge ds-badge-danger">Emergency approved</span>
+                    @endif
+                    @php $faultRound = $faultReport->workOrder->latestCompletionRound(); @endphp
+                    @if($faultRound && $faultRound->isAwaitingTenant())
+                        <span class="ds-badge ds-badge-info">Tenant check — answer due {{ $faultRound->window_ends_at?->format('j M') ?? 'by phone' }}</span>
+                    @endif
+                </div>
             @endif
             @if($faultReport->owner_approval_status !== \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
                 <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($faultReport->owner_approval_status) }}{{ $faultReport->approval_route ? ' — ' . str_replace('_', ' ', ucfirst($faultReport->approval_route)) : '' }}</div>
@@ -164,18 +180,23 @@
             </ul>
         @endif
 
-        {{-- §3a.1/§0c — the agency_appoints route, once approved: raising the
-             actual work order is a distinct, agency-timed decision, never
-             automatic on approval alone. --}}
-        {{-- AT-439 Part 3, item 5 — the toggle button for this form now lives
-             in the page header (a primary action, not buried here); this
-             form is still the same #raise-work-order-form that button
-             targets. --}}
+        {{-- §17.3 (R0) — "Create work order": who does the work (Internal crew is the default), the title and the
+             description (pre-filled from the fault) and, for an outside contractor, the trade. Internal creates the work
+             order AND its job card and lands on the card; External creates the work order only. --}}
         @permission('rental_fault_reports.raise_work_order')
-            @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_APPROVED && $faultReport->approval_route === \App\Models\RentalFaultReport::ROUTE_AGENCY_APPOINTS)
-                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="hidden space-y-3 pt-2">
+            @if($faultReport->workOrderBlockReason() === null)
+                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="hidden space-y-3 pt-2" x-data="{ who: '{{ old('assignment_type', \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) }}' }">
                     @csrf
                     <div>
+                        <label class="text-xs font-medium">Who does the work?</label>
+                        <div class="flex flex-wrap gap-4 mt-1 text-sm">
+                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}" x-model="who"> Internal crew</label>
+                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}" x-model="who"> External contractor</label>
+                        </div>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'">Creates the work order and a job card for your maintenance crew.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="who !== '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'" x-cloak>Creates the work order. You then capture the contractor's quote and send them the work order.</p>
+                    </div>
+                    <div x-show="who !== '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'" x-cloak>
                         <label class="text-xs font-medium">Trade type</label>
                         <select name="trade_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                             <option value="">— Not yet known —</option>
@@ -186,14 +207,16 @@
                     </div>
                     <div>
                         <label class="text-xs font-medium">Title</label>
-                        <input type="text" name="title" required maxlength="191" value="{{ $faultReport->title }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <input type="text" name="title" required maxlength="191" value="{{ old('title', $faultReport->title) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                     </div>
                     <div>
                         <label class="text-xs font-medium">Description</label>
-                        <textarea name="description" required rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $faultReport->description }}</textarea>
+                        <textarea name="description" required rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('description', $faultReport->description) }}</textarea>
                     </div>
-                    <button type="submit" class="corex-btn-primary text-xs">Raise work order</button>
+                    <button type="submit" class="corex-btn-primary text-xs">Create work order</button>
                 </form>
+            @elseif(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_DECLINED, \App\Models\RentalFaultReport::STATUS_OWNER_HANDLING], true))
+                <p class="text-xs" style="color: var(--text-muted);">{{ $faultReport->workOrderBlockReason() }}</p>
             @endif
         @endpermission
 

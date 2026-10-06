@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\RentalJobCards;
 
-use App\Mail\Rentals\RentalWorkOrderOwnerMail;
+use App\Mail\Rentals\RentalOwnerQuoteMail;
+use App\Mail\Signatures\BaseSignatureMail;
+use App\Services\Rentals\RentalMailDispatcher;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Contact;
@@ -308,9 +310,37 @@ final class RentalJobCardFollowUpsTest extends TestCase
         $this->assertArrayHasKey($raw->id, $breakdown['lineFigures']);
     }
 
+    /** BUILD 2 (§17.16) — owner mails go through RentalMailDispatcher (the agency mailbox path), never a plain Mailable. */
+    private function fakeDispatcher(): object
+    {
+        $fake = new class extends RentalMailDispatcher {
+            public array $sent = [];
+
+            public function __construct() {}
+
+            public function send(?string $recipientEmail, BaseSignatureMail $mail): void
+            {
+                $this->sent[] = [$recipientEmail, $mail];
+            }
+        };
+        $this->app->instance(RentalMailDispatcher::class, $fake);
+
+        return $fake;
+    }
+
+    /**
+     * §14.21 is the rule for a quote the owner has NOT approved yet (BUILD 2, §17.7.1: once an amount is approved — by the owner or the
+     * no-approval limit — extra work goes through the variation path instead). The limit is set low so these quotes are genuinely pending.
+     */
+    private function lowerTheLimit(): void
+    {
+        RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['no_approval_spend_threshold' => 50]);
+    }
+
     public function test_first_send_is_rev_1_and_resend_creates_rev_2_superseding_rev_1_without_deleting_it(): void
     {
         Mail::fake();
+        $this->lowerTheLimit();
         $card = $this->card();
         $this->line($card, 'One', 100);
 
@@ -355,9 +385,10 @@ final class RentalJobCardFollowUpsTest extends TestCase
         $this->assertStringContainsString('/quotes/' . $rev1->id . '/download', $html, 'The superseded revision stays viewable.');
     }
 
-    public function test_resend_does_not_carry_over_an_acceptance_of_the_old_revision(): void
+    public function test_after_the_owner_approved_extra_work_raises_a_variation_instead_of_a_resend(): void
     {
         Mail::fake();
+        $fake = $this->fakeDispatcher();
         // Over-the-limit quote so the owner genuinely has to approve it.
         RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['no_approval_spend_threshold' => 50]);
         $card = $this->card();
@@ -368,22 +399,32 @@ final class RentalJobCardFollowUpsTest extends TestCase
 
         $workOrder->recordApproval($this->admin, ['decision' => RentalWorkOrder::APPROVAL_APPROVED, 'evidence_type' => 'note', 'evidence_text' => 'Owner said yes to Rev 1']);
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $workOrder->fresh()->owner_approval_status);
+        $this->assertSame('115.00', $workOrder->fresh()->approved_amount, 'the baseline is the owner-facing (VAT-inclusive) figure the owner approved');
         $card->refresh();
         $card->forceFill(['status' => RentalJobCard::STATUS_APPROVED])->save();
 
+        $this->travel(2)->seconds(); // the extra line is clearly later than the approval
         $this->line($card, 'Extra', 40);
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertRedirect();
 
-        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $workOrder->fresh()->owner_approval_status, 'Rev 1 approval no longer applies — the owner must approve Rev 2.');
-        $this->assertSame(RentalJobCard::STATUS_QUOTED, $card->fresh()->status, 'An Approved card goes back to Quoted on re-send.');
-        $this->assertDatabaseHas('rental_work_order_updates', ['rental_work_order_id' => $workOrder->id, 'update_type' => 'approval_superseded']);
-        // The recorded decision itself is history and stays on file.
+        // The approval STANDS (it is not superseded); the extra goes to the owner as a variation, automatically.
+        $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $workOrder->fresh()->owner_approval_status);
+        $variation = $workOrder->fresh()->openVariation();
+        $this->assertNotNull($variation);
+        $this->assertSame('46.00', $variation->extra_amount);
+        $this->assertSame('161.00', $variation->new_total);
+        $this->assertDatabaseMissing('rental_work_order_updates', ['rental_work_order_id' => $workOrder->id, 'update_type' => 'approval_superseded']);
         $this->assertSame(1, $workOrder->approvals()->count());
+
+        // And the re-send button is refused: there is nothing to re-send.
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasErrors('rental_job_card');
+        $this->assertSame(1, $card->quoteRevisions()->count());
+        $this->assertNotEmpty($fake->sent);
     }
 
     public function test_a_superseded_revision_cannot_be_selected_again(): void
     {
         Mail::fake();
+        $this->lowerTheLimit();
         $card = $this->card();
         $this->line($card, 'One', 100);
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertRedirect();
@@ -401,24 +442,33 @@ final class RentalJobCardFollowUpsTest extends TestCase
     public function test_resend_emails_only_the_landlord_a_revised_quote_notice(): void
     {
         Mail::fake();
+        $fake = $this->fakeDispatcher();
+        $this->lowerTheLimit();
         $card = $this->card();
         $this->line($card, 'One', 100);
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertRedirect();
         $this->line($card, 'Two', 100);
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertRedirect();
 
-        Mail::assertQueued(RentalWorkOrderOwnerMail::class, fn ($m) => $m->stage === RentalWorkOrderOwnerMail::STAGE_CREATED && $m->hasTo('can.assurance@gmail.com'));
-        Mail::assertQueued(RentalWorkOrderOwnerMail::class, function ($m) {
-            return $m->stage === RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED
-                && $m->hasTo('can.assurance@gmail.com')
-                && str_contains($m->envelope()->subject, 'Revised quote');
-        });
-        Mail::assertQueuedCount(2);
+        // Two owner mails, both to the landlord only, both through the dispatcher (a plain Mailable would land in Mail::fake()).
+        Mail::assertNothingSent();
+        Mail::assertNothingQueued();
+        $this->assertCount(2, $fake->sent);
+        foreach ($fake->sent as [$to, $mail]) {
+            $this->assertSame('can.assurance@gmail.com', $to);
+            $this->assertInstanceOf(RentalOwnerQuoteMail::class, $mail);
+        }
+        // over the (lowered) limit, so each is the "your approval is needed" form of the quote mail; the second says it is revised in its body
+        $this->assertStringContainsString('Your approval is needed', $fake->sent[0][1]->envelope()->subject);
+        $this->assertStringContainsString('Your approval is needed', $fake->sent[1][1]->envelope()->subject);
 
-        $html = (new RentalWorkOrderOwnerMail(RentalWorkOrder::findOrFail($card->fresh()->rental_work_order_id), RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED, 'Jane'))->render();
-        $this->assertStringContainsString('Revised Quote', $html);
+        // Over the limit: the owner is told their approval is needed; the revised mail says it replaces the earlier one.
+        $html = $fake->sent[1][1]->render();
         $this->assertStringContainsString('Rev 2', $html);
         $this->assertStringContainsString('replaces the quote you received earlier', $html);
+        $this->assertStringContainsString('approval', strtolower($html));
+        // Selling figures only: never a cost or a margin word on an owner mail.
+        $this->assertStringNotContainsStringIgnoringCase('margin', html_entity_decode(strip_tags((string) preg_replace('#<style.*?</style>#si', '', $html)), ENT_QUOTES));
     }
 
     public function test_a_closed_card_cannot_send_or_resend_a_quote(): void

@@ -321,6 +321,15 @@ by oversight — do not reinstate them without asking:
   (whether approving a rental application adds "Tenant" to the contact's types), not a signup-time
   decision. Configured on Settings → Rental Applications → "Tag Contact as Tenant on Approval".
 
+- **The owner's work terms per rental property** (`properties.rental_no_approval_spend_threshold` and
+  `properties.rental_variation_tolerance_percent`, maintenance-flow Build 2, 6 Oct 2026 —
+  `.ai/specs/rental-work-orders.md` §17.6.2 / §17.14). Per-owner agreements, edited on the property's
+  Rental tab ("Work terms agreed with the owner", own permission, append-only history) — not an
+  agency-wide onboarding choice (same ruling as the other per-property overrides). The **agency
+  defaults** they inherit ARE in the wizard (Rentals step: variation tolerance %, the owner email on
+  an auto-approved extra, the fee on an outside contractor's quote — type and value; saver
+  `RentalWorkOrderSettingsController::updateApprovals`, every field `has()`-guarded).
+
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 
 - **P24 / Private Property portal *credentials* and the `p24_enabled` / `pp_enabled` /

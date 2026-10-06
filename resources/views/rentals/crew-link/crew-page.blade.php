@@ -7,7 +7,7 @@
 @php
     $brand = $page['agency']['colors']['default'] ?? '#0b2a4a';
     $button = $page['agency']['colors']['button'] ?? '#00b4d8';
-    $total = count($page['today']) + count($page['upcoming']) + count($page['unscheduled']);
+    $total = count($page['to_price'] ?? []) + count($page['today']) + count($page['upcoming']) + count($page['unscheduled']);
     $jobUrl = fn ($id) => route('rentals.crew-page.job', [$token, $id]);
 @endphp
 <!DOCTYPE html>
@@ -71,6 +71,19 @@
             </div>
         @endif
 
+        {{-- §17.5.4 — jobs the office has asked this crew to PRICE (Draft/Quoted: not booked work yet). Open one to add parts and labour with their cost, then "Send to office". --}}
+        @if(count($page['to_price'] ?? []))
+            <h2 class="sec">To price <span class="n">{{ count($page['to_price']) }}</span></h2>
+            @foreach($page['to_price'] as $j)
+                <a class="job" href="{{ $jobUrl($j['id']) }}" data-job-id="{{ $j['id'] }}" data-group="to-price">
+                    <div class="ttl">{{ $j['title'] }}</div>
+                    @if($j['address'] !== '')<div class="addr">{{ $j['address'] }}</div>@endif
+                    @if($j['access_notes'])<div class="acc"><strong>Access:</strong> {{ $j['access_notes'] }}</div>@endif
+                    <div style="margin-top:7px;"><span class="chip warn">The office asked you to price this job</span></div>
+                </a>
+            @endforeach
+        @endif
+
         @if(count($page['today']))
             <h2 class="sec">Today <span class="n">{{ count($page['today']) }}</span></h2>
             @foreach($page['today'] as $j)
@@ -81,6 +94,7 @@
                     @if($j['access_notes'])<div class="acc"><strong>Access:</strong> {{ $j['access_notes'] }}</div>@endif
                     <div style="margin-top:7px;">
                         <span class="chip">{{ $j['status_label'] }}</span>
+                        @if(!empty($j['to_price']))<span class="chip warn">Price requested</span>@endif
                         @if($j['overdue'])<span class="chip warn">Overdue</span>@endif
                         @if($j['crew_completed'])<span class="chip ok">Work completed</span>@endif
                         @if($j['due'])<span class="chip">Due {{ $j['due'] }}</span>@endif

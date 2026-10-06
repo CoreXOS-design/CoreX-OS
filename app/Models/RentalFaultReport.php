@@ -448,6 +448,13 @@ class RentalFaultReport extends Model
         $note = $attributes['outcome_note'] ?? null;
         $repairedAt = $attributes['repaired_at'] ?? null;
 
+        // §17.10.6 — a fault's "repaired" outcome waits for the tenant check: it cannot be saved while the linked work
+        // order is disputed, or while its latest completion round is still waiting for the tenant. Other outcomes
+        // (not repaired, owner declined, …) are unaffected.
+        if (in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true) && $this->rental_work_order_id) {
+            $this->assertTenantCheckAllowsRepairedOutcome();
+        }
+
         // §4.4 — self-explanatory in a way not_repaired/tenant_liable are not;
         // no note required, same treatment 'repaired' itself already gets.
         if (!in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_RESOLVED_BY_FIRST_AID], true) && empty($note)) {
@@ -481,6 +488,50 @@ class RentalFaultReport extends Model
         // the action they just took themselves is noise, not news.
         if ($outcome !== self::OUTCOME_RESOLVED_BY_FIRST_AID) {
             app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
+        }
+    }
+
+    /**
+     * §17.3.2 — why a work order CANNOT be created from this fault report right now, in words a non-technical user
+     * understands; null when it can. The one place the "Create work order" gate lives, so the screen (button hidden,
+     * reason shown) and RentalWorkOrderService::fromFaultReport() can never disagree.
+     *
+     * Allowed: reported, awaiting_approval, or approved with the agency_appoints route. Refused: declined (the owner
+     * said no), owner_handling (the owner is doing it), work_order_raised, resolved, cancelled.
+     */
+    public function workOrderBlockReason(): ?string
+    {
+        if ($this->rental_work_order_id !== null || $this->status === self::STATUS_WORK_ORDER_RAISED) {
+            return 'A work order has already been created for this fault report.';
+        }
+
+        return match ($this->status) {
+            self::STATUS_DECLINED => 'The owner declined this repair, so a work order cannot be created from it.',
+            self::STATUS_OWNER_HANDLING => 'The owner is handling this repair themselves, so no work order is needed.',
+            self::STATUS_RESOLVED => 'This fault report is already resolved.',
+            self::STATUS_CANCELLED => 'This fault report was cancelled.',
+            self::STATUS_APPROVED => $this->approval_route === self::ROUTE_AGENCY_APPOINTS
+                ? null
+                : 'The owner has not asked the agency to arrange this repair, so a work order cannot be created from it.',
+            self::STATUS_REPORTED, self::STATUS_AWAITING_APPROVAL => null,
+            default => 'A work order cannot be created from this fault report in its current state.',
+        };
+    }
+
+    /** §17.10.6 — the guard behind setOutcome(): refuses "repaired" while the tenant has not settled the finished work. */
+    private function assertTenantCheckAllowsRepairedOutcome(): void
+    {
+        $workOrder = RentalWorkOrder::withoutGlobalScopes()->find($this->rental_work_order_id);
+        if (! $workOrder) {
+            return;
+        }
+        if ($workOrder->hasOpenDispute()) {
+            throw new \LogicException('The tenant has reported the work as not complete — the repair cannot be marked as done until it is put right and the tenant checks it again.');
+        }
+        $round = $workOrder->latestCompletionRound();
+        if ($round && $round->isAwaitingTenant()) {
+            $due = $round->window_ends_at ? ' (answer due ' . $round->window_ends_at->format('j M Y') . ')' : '';
+            throw new \LogicException("Waiting for the tenant to check the finished work{$due} — the repair can be marked as done once they answer, or when their time to answer runs out.");
         }
     }
 

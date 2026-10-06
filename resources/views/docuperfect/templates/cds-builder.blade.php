@@ -60,6 +60,14 @@
     </div>
 @endif
 
+@if(($sourceTemplateId ?? null) && auth()->user()->isOwnerRole() && auth()->user()->hasPermission('templates.transfer'))
+    {{-- Template packages (owner only) — spec: .ai/specs/esign-template-transfer.md §9 --}}
+    <div class="mx-4 mt-3 rounded-md px-4 py-2 text-xs flex items-center gap-3 flex-wrap" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
+        <a href="{{ route('docuperfect.templates.export', $sourceTemplateId) }}" class="corex-btn-outline text-xs px-3 py-1.5">Export package</a>
+        <span>Downloads the last SAVED version of this template as a package you can import on another system or agency.</span>
+    </div>
+@endif
+
 <div class="flex flex-col h-full overflow-hidden"
      x-data="cdsEditor()"
      x-init="init()">

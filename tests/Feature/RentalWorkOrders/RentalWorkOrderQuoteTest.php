@@ -136,7 +136,18 @@ final class RentalWorkOrderQuoteTest extends TestCase
             'detail_text' => 'revised quote',
         ])->assertRedirect();
 
-        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $workOrder->fresh()->owner_approval_status);
+        // BUILD 2 (§17.9.4) — a higher quote AFTER an approved amount exists no longer resets the approval: it opens a variation for the
+        // extra only (R400 approved -> R900 now = R500 extra, awaiting the owner), and the work order cannot go to the contractor
+        // until the owner has approved the revised quote.
+        $fresh = $workOrder->fresh();
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $fresh->owner_approval_status);
+        $this->assertSame('400.00', $fresh->approved_amount);
+        $variation = $fresh->openVariation();
+        $this->assertNotNull($variation);
+        $this->assertSame('500.00', $variation->extra_amount);
+        $this->assertSame('900.00', $variation->new_total);
+        $this->assertSame(\App\Models\RentalWorkOrderVariation::ORIGIN_EXTERNAL_QUOTE, $variation->origin);
+        $this->assertFalse(app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($fresh, false)->authorised);
     }
 
     // ── Full CRUD / input-space ─────────────────────────────────────

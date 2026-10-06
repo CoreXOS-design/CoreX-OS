@@ -95,7 +95,15 @@ final class CrewJobServiceTest extends TestCase
         $card = $this->makeJobCard();
         $payload = $this->service->payload($card, $this->ctx($card));
 
-        $this->assertSame(['approval' => [], 'dispute' => [], 'pricing' => []], collect($payload['blocks'])->sortKeys()->all());
+        // Build 2 (approval) and Build 3 (dispute) are still empty. Build 1's pricing block (§17.5) is live: a card with no crew lines
+        // of its own has the panel's plain shape — an empty line list, no open request, and the catalogue as NAMES only.
+        $blocks = collect($payload['blocks'])->sortKeys()->all();
+        $this->assertSame([], $blocks['approval']);
+        $this->assertSame([], $blocks['dispute']);
+        $this->assertSame(['catalogue', 'draft_count', 'lines', 'photo_limit', 'prices_on', 'request'], collect($blocks['pricing'])->keys()->sort()->values()->all());
+        $this->assertSame([], $blocks['pricing']['lines']);
+        $this->assertNull($blocks['pricing']['request']);
+        $this->assertSame(0, $blocks['pricing']['draft_count']);
     }
 
     /**
@@ -334,11 +342,16 @@ final class CrewJobServiceTest extends TestCase
         $card = $this->makeJobCard();
         $this->service->markCompleted($card, 'Sipho Dlamini', true, $this->ctx($card));
 
+        // Build 3 (§17.10.9, defect #1): the card and its work order now close TOGETHER — a work order the owner has not yet
+        // approved for this cost refuses, and the refusal surfaces instead of leaving a closed card on an open work order.
+        $card->workOrder->forceFill(['owner_approval_status' => \App\Models\RentalWorkOrder::APPROVAL_APPROVED])->save();
+
         $card = $card->fresh();
         $card->agentSignOff($this->admin);
         app(\App\Services\Rentals\RentalJobCardService::class)->complete($card->fresh(), $this->admin);
 
         $this->assertSame(RentalJobCard::STATUS_COMPLETED, $card->fresh()->status);
+        $this->assertSame(\App\Models\RentalWorkOrder::STATUS_COMPLETED, $card->fresh()->workOrder->status);
     }
 
     public function test_office_worker_sign_off_is_recorded_as_via_office(): void

@@ -229,6 +229,8 @@ final class MaintenanceFlowFoundationTest extends TestCase
     public function test_work_terms_resolve_property_then_agency_default_then_constant_and_say_where_from(): void
     {
         $gate = app(RentalApprovalGateService::class);
+        // the crew fixtures give their property a very high limit (so jobs under way are authorised) — this test starts from "none"
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => null])->save();
         $property = $this->property->fresh();
 
         $terms = $gate->termsFor($property);
@@ -268,46 +270,39 @@ final class MaintenanceFlowFoundationTest extends TestCase
 
     // ── service shells: signatures final, behaviour inert ───────────────
 
-    public function test_the_gate_is_inert_until_build_two(): void
+    /** Build 2 landed (§17.21.3): the gate is real now — covered end to end by RentalApprovalGateServiceTest. This only keeps the signatures honest. */
+    public function test_the_gate_signatures_are_the_foundations_final_ones(): void
     {
         $gate = app(RentalApprovalGateService::class);
         $wo = $this->workOrder();
-        $card = $this->makeJobCard();
 
-        $decision = $gate->authoriseToProceed($wo);
-        $this->assertInstanceOf(GateDecision::class, $decision);
-        $this->assertTrue($decision->authorised);
-        $this->assertNull($gate->assessAfterLineChange($card, $this->admin));
-        $this->assertSame(0, RentalApprovalDecision::withoutGlobalScopes()->count(), 'the inert gate writes no decision rows');
-
-        foreach ([
-            fn () => $gate->evaluateQuote($wo, 100.0, $this->admin),
-            fn () => $gate->evaluateVariation($wo, 100.0, $this->admin),
-            fn () => $gate->recordEmergency($wo, [], $this->admin),
-        ] as $call) {
-            try {
-                $call();
-                $this->fail('a not-yet-built gate method must refuse loudly');
-            } catch (\LogicException $e) {
-                $this->assertStringContainsString('Build 2', $e->getMessage());
-            }
-        }
+        $this->assertInstanceOf(GateDecision::class, $gate->authoriseToProceed($wo, false));
+        $this->assertInstanceOf(GateDecision::class, $gate->evaluateVariation($wo, 100.0, $this->admin, false));
+        $this->assertNull($gate->assessAfterLineChange($this->makeJobCard(), $this->admin), 'no approved amount yet: nothing to measure a variation against');
     }
 
-    public function test_the_completion_service_is_inert_until_build_three(): void
+    public function test_the_completion_service_is_live_since_build_three(): void
     {
+        // Build 3 (§17.10) filled this shell: openRound() opens a real round, settleSilent() settles, sendBack() refuses
+        // anything that is not disputed. The behaviour itself is proven in CompletionRoundTest / DisputeLifecycleTest /
+        // SettleSilentRoundsCommandTest — here only that the foundation's "inert" contract is retired.
         $service = app(RentalCompletionService::class);
         $wo = $this->workOrder();
 
-        $this->assertNull($service->openRound($wo, ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']));
-        $this->assertSame(0, $service->settleSilent());
-        $this->assertSame(0, \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()->count());
+        $round = $service->openRound($wo, ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
+        $this->assertSame(1, $round->round_no);
+        $this->assertSame(0, $service->settleSilent(), 'no tenant check was asked, so nothing is due to settle');
 
         $this->expectException(\LogicException::class);
         $service->sendBack($wo, $this->admin);
     }
 
-    public function test_the_pricing_service_reads_neutrally_and_refuses_writes_until_build_one(): void
+    /**
+     * Was "reads neutrally and refuses writes until Build 1" — Build 1 (§17.4) has landed, so the shell is now live. What the
+     * foundation promised still holds and is what this pins: a pre-existing, hand-priced line is left EXACTLY as it was by the
+     * resolver, a reprice and a card markup, and no cost is ever invented for it (the full rule set is RentalPricingServiceTest).
+     */
+    public function test_the_pricing_service_leaves_a_legacy_hand_priced_line_exactly_as_it_was(): void
     {
         $pricing = app(RentalPricingService::class);
         $card = $this->makeJobCard();
@@ -317,22 +312,31 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $this->assertSame(450.0, $resolved->unitPrice);
         $this->assertSame(900.0, $resolved->lineTotal);
         $this->assertSame(RentalJobCardLine::BASIS_MANUAL, $resolved->basis);
-        $this->assertSame(0, $pricing->marginFor($card)['linesWithoutCost']);
+        $this->assertSame(2, $pricing->marginFor($card->load('lines'))['linesWithoutCost'], 'both legacy lines have no cost recorded');
 
-        $pricing->repriceCard($card);   // inert
+        $pricing->repriceCard($card);
         $this->assertSame('900.00', $line->fresh()->line_total);
 
-        $this->expectException(\LogicException::class);
-        $pricing->applyJobMarkup($card, 'parts', 20.0, $this->admin);
+        $pricing->applyJobMarkup($card, 'parts', 20.0, $this->admin);   // no longer refuses — and still never touches a typed price
+        $this->assertSame('900.00', $line->fresh()->line_total);
+        $this->assertNull($line->fresh()->cost_total, 'no cost is ever back-filled or invented');
     }
 
-    public function test_the_close_guards_refuse_nothing_in_the_foundation(): void
+    public function test_the_dispute_guard_is_live_since_build_three_and_the_cost_guard_ignores_unapproved_work(): void
     {
         $guards = app(RentalCloseGuards::class);
         $wo = $this->workOrder(['status' => RentalWorkOrder::STATUS_DISPUTED]);
 
-        $guards->assertNotDisputed($wo);
-        $guards->assertFinalCostWithinApproval($wo, 99999.0, $this->admin);
+        // Build 3 (§17.10.9) — a disputed work order cannot be closed.
+        try {
+            $guards->assertNotDisputed($wo);
+            $this->fail('a disputed work order must not be closable');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('resolve the dispute first', $e->getMessage());
+        }
+        $guards->assertNotDisputed($this->workOrder());   // a normal one passes
+
+        $guards->assertFinalCostWithinApproval($wo, 99999.0, $this->admin);   // Build 2: no approved amount, so nothing to measure against
         $this->assertTrue($wo->hasOpenDispute());
         $this->assertFalse($this->workOrder()->hasOpenDispute());
     }
@@ -389,7 +393,7 @@ final class MaintenanceFlowFoundationTest extends TestCase
         }
     }
 
-    public function test_the_tenant_completion_token_purpose_is_never_live_until_build_three(): void
+    public function test_a_tenant_completion_token_with_no_round_is_never_live(): void
     {
         $token = RentalSecureAccessToken::create([
             'agency_id' => $this->agency->id, 'rental_work_order_id' => $this->workOrder()->id,
