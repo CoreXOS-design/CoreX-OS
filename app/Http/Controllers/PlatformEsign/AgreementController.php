@@ -81,6 +81,12 @@ class AgreementController extends Controller
         $this->owner($request);
         $doc = $this->webdoc($id);
         abort_unless(in_array($doc->status, ['awaiting_countersign', 'wetink_received'], true) && !$doc->trashed(), 404);
+        if ($doc->status === 'wetink_received') {
+            return view('platform-esign.agreement.countersign-wetink', [
+                'doc' => $doc, 'files' => $doc->wetinkFiles()->get(), 'rr' => ['rr_name' => (string) $request->user()->name, 'rr_capacity' => 'Director', 'rr_date' => now()->toDateString()] + (array) $doc->rr_data,
+                'versionLabel' => $doc->wording->label(),
+            ]);
+        }
 
         return view('platform-esign.agreement.review', $this->reviewData($doc, 'rr', true));
     }
@@ -90,10 +96,12 @@ class AgreementController extends Controller
         $u = $this->owner($request);
         $doc = $this->webdoc($id);
         $data = $request->validate([
-            'values' => 'required|array', 'initials' => 'required|string|max:12', 'pages' => 'required|array',
+            'values' => 'required|array', 'initials' => 'nullable|string|max:12', 'pages' => 'nullable|array',
         ]);
         try {
-            $errors = $this->svc->countersign($doc, $u, $data['values'], $data['initials'], $data['pages'], $request->ip(), $request->userAgent());
+            $errors = $doc->status === 'wetink_received'
+                ? $this->svc->countersignWetInk($doc, $u, $data['values'], $request->ip(), $request->userAgent())
+                : $this->svc->countersign($doc, $u, $data['values'], (string) ($data['initials'] ?? ''), (array) ($data['pages'] ?? []), $request->ip(), $request->userAgent());
         } catch (\DomainException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -117,6 +125,17 @@ class AgreementController extends Controller
         }
 
         return response()->json(['value' => $value])->header('Cache-Control', 'no-store');
+    }
+
+    /** One uploaded hand-signed file, streamed to an owner (never a public URL). */
+    public function wetinkFile(Request $request, int $id, int $file)
+    {
+        $this->owner($request);
+        $doc = $this->webdoc($id);
+        $f = $doc->wetinkFiles()->findOrFail($file);
+        abort_unless(\Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
+
+        return \Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
     }
 
     private function reviewData(Document $doc, string $mode, bool $countersign): array

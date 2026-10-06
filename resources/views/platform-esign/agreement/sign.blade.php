@@ -36,6 +36,21 @@
         </div>
     </div>
 
+    <div class="panel" id="wetink" style="font-size:.9rem;">
+        <strong>Prefer to sign by hand?</strong>
+        <span style="color:#475569;">Download the agreement as it stands (your entries so far are printed in), sign and initial every page in ink, then upload a photo or scan.</span>
+        @if(session('agr_notice'))<div style="margin-top:.5rem;color:#166534;font-weight:600;">{{ session('agr_notice') }}</div>@endif
+        @if($errors->any())<div style="margin-top:.5rem;color:#b91c1c;">{{ $errors->first() }}</div>@endif
+        <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:.6rem;">
+            <a class="btn ghost sm" style="text-decoration:none;display:inline-block;" href="{{ route('platform-esign.agreement.wet-copy', $token) }}">Download to sign by hand</a>
+            <form method="POST" action="{{ route('platform-esign.agreement.upload', $token) }}" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;">
+                @csrf
+                <input type="file" name="files[]" multiple required accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" aria-label="Signed pages (PDF, JPG or PNG, up to 10 MB each)">
+                <button type="submit" class="btn sm">Upload signed copy</button>
+            </form>
+        </div>
+    </div>
+
     @include('platform-esign.agreement._sheets', ['pages' => $pages, 'total' => $total, 'versionLabel' => $versionLabel, 'interactive' => true])
 
     <div class="panel" id="final">

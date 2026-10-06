@@ -10,12 +10,15 @@ use App\Models\Platform\AgencyTimeline;
 use App\Models\PlatformEsign\Document;
 use App\Models\PlatformEsign\Initial;
 use App\Models\PlatformEsign\Signer;
+use App\Models\PlatformEsign\WetinkFile;
 use App\Models\User;
 use App\Services\Platform\AgencyTimelineService;
 use App\Services\PlatformEsign\EsignService;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -210,7 +213,8 @@ class AgreementService
             'expired' => 'This link has expired. Ask the sender for a new one — everything you entered is kept.',
             'completed' => 'This agreement has been fully signed.',
             'declined' => 'This agreement was declined.',
-            'awaiting_countersign', 'wetink_received' => 'You have signed this agreement. RR Technologies will countersign it and email you the signed copy.',
+            'awaiting_countersign' => 'You have signed this agreement. RR Technologies will countersign it and email you the signed copy.',
+            'wetink_received' => 'We have received your hand-signed copy. RR Technologies will countersign it and email you the signed copy. You can replace the copy below until then.',
             default => null,
         };
     }
@@ -370,8 +374,8 @@ class AgreementService
         $errors = [];
         DB::transaction(function () use ($doc, $user, $rrInput, $initials, $pages, $ip, $ua, &$errors) {
             $locked = Document::whereKey($doc->id)->lockForUpdate()->firstOrFail();
-            if ($locked->status !== 'awaiting_countersign' && $locked->status !== 'wetink_received') {
-                throw new \DomainException('This agreement is not waiting for a countersignature.');
+            if ($locked->status !== 'awaiting_countersign') {
+                throw new \DomainException('This agreement is not waiting for a countersignature on the electronic copy.');
             }
             // RR can only write RR-side fields, and never the variation fields (set at send, spec §11.7).
             $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount']));
@@ -423,6 +427,9 @@ class AgreementService
     public function sealedPdf(Document $doc): string
     {
         $doc->loadMissing(['signers', 'events', 'agency', 'wording']);
+        if ($this->isWetInk($doc)) {
+            return $this->wetInkAttestation($doc);
+        }
         $layout = $this->layout->ensure($doc->wording);
         [$bin, $pages] = $this->pdf->renderWithTotal($doc->wording, $layout, 'pdf', $this->context($doc), [
             'doc' => $doc, 'consent' => EsignService::CONSENT, 'pages_initialled' => $layout['total'],
@@ -432,6 +439,166 @@ class AgreementService
         }
 
         return $bin;
+    }
+
+    // ── Wet-ink option (spec §11.8, phase c) ───────────────────────────────
+
+    public const WET_MAX_KB = 10240;
+    public const WET_MAX_FILES = 12;
+    public const WET_MIMES = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png'];
+
+    /** A document the agency signed by hand: it has uploaded files and no electronic signature. */
+    public function isWetInk(Document $doc): bool
+    {
+        return !$this->agencySigner($doc)->signature_image && $doc->wetinkFiles()->whereNull('superseded_at')->exists();
+    }
+
+    private function wetGuard(Document $doc, Signer $signer): void
+    {
+        $reason = $this->blockedReason($doc, $signer);
+        if ($reason && $doc->status !== 'wetink_received') {
+            throw new \DomainException($reason);
+        }
+    }
+
+    /** The PDF to sign by hand: the values typed so far, blank initial and signature lines (audited). */
+    public function wetCopy(Document $doc, Signer $signer, ?string $ip): string
+    {
+        $doc->loadMissing('wording');
+        $this->wetGuard($doc, $signer);
+        $layout = $this->layout->ensure($doc->wording);
+        $ctx = $this->context($doc, ['initials' => [], 'sigs' => [], 'sign_date' => null]);
+        [$bin] = $this->pdf->renderWithTotal($doc->wording, $layout, 'wet', $ctx);
+        $this->esign->log($doc, 'wetcopy_downloaded', 'Printable copy downloaded to sign by hand', $signer, null, $ip);
+
+        return $bin;
+    }
+
+    /**
+     * The agency uploads its hand-signed copy (one batch = one or more files). A new batch supersedes the previous one;
+     * nothing is ever deleted.
+     *
+     * @param UploadedFile[] $files
+     * @throws \DomainException
+     */
+    public function uploadWetInk(Document $doc, Signer $signer, array $files, ?string $ip): int
+    {
+        $this->wetGuard($doc, $signer);
+        $files = array_values(array_filter($files, fn ($f) => $f instanceof UploadedFile));
+        if (!$files) {
+            throw new \DomainException('Choose the signed pages to upload (PDF, JPG or PNG).');
+        }
+        if (count($files) > self::WET_MAX_FILES) {
+            throw new \DomainException('Upload at most ' . self::WET_MAX_FILES . ' files at a time — combine the pages into one PDF if you can.');
+        }
+        $checked = [];
+        foreach ($files as $f) {
+            if (!$f->isValid()) {
+                throw new \DomainException('“' . $f->getClientOriginalName() . '” could not be uploaded. Try again.');
+            }
+            if ($f->getSize() > self::WET_MAX_KB * 1024) {
+                throw new \DomainException('“' . $f->getClientOriginalName() . '” is larger than ' . (self::WET_MAX_KB / 1024) . ' MB.');
+            }
+            $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($f->getRealPath());
+            if (!isset(self::WET_MIMES[$mime])) {
+                throw new \DomainException('“' . $f->getClientOriginalName() . '” is not a PDF, JPG or PNG file.');
+            }
+            $checked[] = [$f, $mime];
+        }
+
+        DB::transaction(function () use ($doc, $signer, $checked, $ip) {
+            $locked = Document::whereKey($doc->id)->lockForUpdate()->firstOrFail();
+            if ($locked->wetinkFiles()->count() + count($checked) > 60) {
+                throw new \DomainException('Too many files have been uploaded for this agreement. Ask the sender for help.');
+            }
+            $batch = (int) $locked->wetinkFiles()->max('batch') + 1;
+            $old = $locked->wetinkFiles()->whereNull('superseded_at')->get();
+            foreach ($old as $o) {
+                $o->update(['superseded_at' => now()]);
+            }
+            if ($old->isNotEmpty()) {
+                $this->esign->log($locked, 'wetink_superseded', $old->count() . ' earlier file' . ($old->count() === 1 ? '' : 's') . ' superseded by a new upload', $signer, null, $ip);
+            }
+            $bytes = 0;
+            foreach ($checked as [$f, $mime]) {
+                $path = $f->storeAs('platform-esign/documents/' . $locked->id . '/wetink', Str::random(24) . '.' . self::WET_MIMES[$mime], EsignService::DISK);
+                WetinkFile::create(['document_id' => $locked->id, 'batch' => $batch, 'original_name' => Str::limit(basename($f->getClientOriginalName()), 200, ''),
+                    'stored_path' => $path, 'mime' => $mime, 'size' => (int) $f->getSize(), 'sha256' => hash_file('sha256', $f->getRealPath()), 'uploaded_ip' => $ip]);
+                $bytes += (int) $f->getSize();
+            }
+            $locked->update(['status' => 'wetink_received']);
+            $sg = Signer::whereKey($signer->id)->first();
+            $sg->forceFill(['status' => 'signed', 'signed_at' => now(), 'typed_name' => ((array) $locked->form_data)['sig_name'] ?? $sg->name, 'signed_ip' => $ip])->save();
+            $this->esign->log($locked, 'wetink_uploaded', 'Signed copy uploaded: ' . count($checked) . ' file' . (count($checked) === 1 ? '' : 's') . ', ' . number_format($bytes / 1024, 0) . ' KB', $signer, null, $ip);
+        });
+
+        $fresh = $doc->fresh(['signers', 'agency']);
+        $sender = $fresh->created_by ? User::withoutGlobalScopes()->where('id', $fresh->created_by)->value('email') : null;
+        if ($sender) {
+            try {
+                Mail::mailer('corex')->to($sender)->send(new AgreementReceivedMail($fresh, true));
+            } catch (\Throwable $e) {
+                Log::error('Platform e-sign wet-ink received mail failed', ['document_id' => $doc->id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return count($checked);
+    }
+
+    /**
+     * RR countersigns a hand-signed agreement electronically on the attestation page (no page initials — RR did not sign the scan).
+     *
+     * @return array<string,string> errors (empty = countersigned and sealed)
+     */
+    public function countersignWetInk(Document $doc, User $user, array $rrInput, ?string $ip, ?string $ua): array
+    {
+        $errors = [];
+        DB::transaction(function () use ($doc, $user, $rrInput, $ip, $ua, &$errors) {
+            $locked = Document::whereKey($doc->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== 'wetink_received' || !$locked->wetinkFiles()->whereNull('superseded_at')->exists()) {
+                throw new \DomainException('This agreement is not waiting for a countersignature on a hand-signed copy.');
+            }
+            $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount']));
+            $rr = array_merge((array) $locked->rr_data, $clean);
+            foreach (['rr_name' => 'Name', 'rr_capacity' => 'Capacity', 'rr_place' => 'Place', 'rr_date' => 'Date', 'sigR' => 'Signature'] as $k => $label) {
+                if (trim((string) ($rr[$k] ?? '')) === '') {
+                    $errors[$k] = $label . ' is required.';
+                }
+            }
+            if ($errors) {
+                return;
+            }
+            $sg = Signer::where('document_id', $locked->id)->where('role_key', 'r2')->lockForUpdate()->firstOrFail();
+            $locked->rr_data = $rr;
+            $locked->status = 'completed';
+            $locked->completed_at = now();
+            $locked->save();
+            $sg->forceFill(['name' => $rr['rr_name'], 'status' => 'signed', 'signed_at' => now(), 'typed_name' => $rr['rr_name'], 'signature_image' => $rr['sigR'],
+                'signed_ip' => $ip, 'signed_user_agent' => Str::limit((string) $ua, 480, ''), 'consent_text_snapshot' => EsignService::CONSENT,
+                'email' => strtolower((string) ($user->email ?: $sg->email))])->save();
+            $this->esign->log($locked, 'countersigned', 'RR Technologies countersigned the hand-signed copy by ' . $rr['rr_name'], $sg, $user->id, $ip);
+        });
+        if ($errors) {
+            return $errors;
+        }
+        $this->esign->complete($doc->fresh());
+
+        return [];
+    }
+
+    private function wetInkAttestation(Document $doc): string
+    {
+        $files = $doc->wetinkFiles()->whereNull('superseded_at')->get();
+        $v = $doc->wording;
+        $co = app(AgreementCompany::class);
+        $data = [
+            'doc' => $doc, 'files' => $files, 'rr' => (array) $doc->rr_data, 'versionLabel' => $v->label(), 'consent' => EsignService::CONSENT,
+            'logo' => $co->logoDataUri(), 'brand' => $co->brand(), 'letterhead' => $co->letterhead(),
+        ];
+        $first = \Barryvdh\DomPDF\Facade\Pdf::loadView('platform-esign.pdf.agreement-attestation', $data + ['total' => '00'])->setPaper('a4')->output();
+        $n = AgreementPdf::countPdfPages($first);
+
+        return \Barryvdh\DomPDF\Facade\Pdf::loadView('platform-esign.pdf.agreement-attestation', $data + ['total' => $n])->setPaper('a4')->output();
     }
 
     // ── Sensitive values ───────────────────────────────────────────────────

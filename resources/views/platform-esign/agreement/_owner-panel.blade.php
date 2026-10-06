@@ -21,8 +21,20 @@
                 </div>
             </div>
         @endif
+        @if($doc->wetinkFiles()->exists())
+            <div>
+                <div class="ds-label mb-1">Hand-signed copy from the agency</div>
+                @foreach($doc->wetinkFiles as $wf)
+                    <div class="text-xs flex flex-wrap gap-x-3" style="{{ $wf->isActive() ? '' : 'color: var(--text-muted); text-decoration: line-through;' }}">
+                        <a class="underline" style="color: var(--brand-icon);" href="{{ route('platform-esign.agreements.wetink', [$doc->id, $wf->id]) }}">{{ $wf->original_name }}</a>
+                        <span>{{ number_format($wf->size / 1024, 0) }} KB · {{ $wf->created_at?->format('j M H:i') }} · batch {{ $wf->batch }}@unless($wf->isActive()) · superseded {{ $wf->superseded_at?->format('j M H:i') }}@endunless</span>
+                        <span class="break-all" style="color: var(--text-muted);">SHA-256 {{ substr($wf->sha256, 0, 16) }}…</span>
+                    </div>
+                @endforeach
+            </div>
+        @endif
         <div class="flex flex-wrap gap-2">
-            <a href="{{ route('platform-esign.agreements.review', $doc->id) }}" class="corex-btn-outline">Review what has been entered</a>
+            @unless($doc->status === 'wetink_received')<a href="{{ route('platform-esign.agreements.review', $doc->id) }}" class="corex-btn-outline">Review what has been entered</a>@endunless
             @if(in_array($doc->status, ['awaiting_countersign', 'wetink_received'], true) && !$doc->trashed())
                 <a href="{{ route('platform-esign.agreements.countersign', $doc->id) }}" class="corex-btn-primary">Review and countersign</a>
             @endif
