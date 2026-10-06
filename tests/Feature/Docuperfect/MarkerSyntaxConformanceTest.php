@@ -170,7 +170,7 @@ final class MarkerSyntaxConformanceTest extends TestCase
     public function test_every_advertised_marker_is_detected_by_the_parser(): void
     {
         foreach (CdsParserService::acceptedMarkers() as $marker) {
-            $result = $this->parseDocx('Before ' . $marker['example'] . ' after.');
+            $result = $this->parseDocx('Before ' . $marker['example'] . ' after.', bodyAfter: 16);
 
             $found = collect($result['sections'] ?? [])
                 ->flatMap(fn ($s) => $s['content'] ?? [])
@@ -220,7 +220,7 @@ final class MarkerSyntaxConformanceTest extends TestCase
             ->flatMap(fn ($s) => $s['content'] ?? [])->pluck('type')->all();
 
         $this->assertContains('field_placeholder',     $types($this->parseDocx('Name: @@@@')));
-        $this->assertContains('signature_placeholder', $types($this->parseDocx('Sign: %%%%')));
+        $this->assertContains('signature_placeholder', $types($this->parseDocx('Sign: %%%%', bodyAfter: 16)));
         $this->assertContains('initial_placeholder',   $types($this->parseDocx('Initial: ####')));
     }
 
@@ -402,9 +402,16 @@ final class MarkerSyntaxConformanceTest extends TestCase
         return $path;
     }
 
-    private function parseDocx(string $text): array
+    /**
+     * $bodyAfter = number of plain paragraphs placed AFTER the marker text. Since AT-390 a `%%%%`
+     * within 15 sections of the end of the document is folded into the closing signature_section
+     * (CdsParserService::detectSignatureSections) — correct for a real document, but it consumes the
+     * signature_placeholder a marker-detection test wants to see. Tests that assert the MARKER is
+     * detected therefore place it mid-document, as a real clause-level marker would be.
+     */
+    private function parseDocx(string $text, int $bodyAfter = 0): array
     {
-        $path = $this->writeDocx($text);
+        $path = $this->writeDocx($text, $bodyAfter);
         $result = app(CdsParserService::class)->parse($path);
         @unlink($path);
 
@@ -423,8 +430,13 @@ final class MarkerSyntaxConformanceTest extends TestCase
     }
 
     /** A minimal but genuinely valid .docx carrying one paragraph of text. */
-    private function writeDocx(string $text): string
+    private function writeDocx(string $text, int $bodyAfter = 0): string
     {
+        $after = '';
+        for ($i = 1; $i <= $bodyAfter; $i++) {
+            $after .= '<w:p><w:r><w:t xml:space="preserve">Closing clause ' . $i . ' of the agreement.</w:t></w:r></w:p>';
+        }
+
         $path = tempnam(sys_get_temp_dir(), 'cds') . '.docx';
 
         $document = <<<XML
@@ -432,6 +444,7 @@ final class MarkerSyntaxConformanceTest extends TestCase
         <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
           <w:body>
             <w:p><w:r><w:t xml:space="preserve">{$this->esc($text)}</w:t></w:r></w:p>
+            {$after}
           </w:body>
         </w:document>
         XML;
