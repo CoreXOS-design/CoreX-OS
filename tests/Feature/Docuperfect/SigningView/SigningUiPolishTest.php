@@ -40,11 +40,24 @@ final class SigningUiPolishTest extends TestCase
         $this->assertStringNotContainsString('signerName.split', $region, 'no pre-filled initials from the signer name');
     }
 
-    /** FIX 3 — the amend sticky bar sits ABOVE the fixed bottom "Go to next" nav (does not overlap). */
+    /**
+     * FIX 3 — the amend bar must not overlap the fixed bottom "Go to next" nav.
+     * The original fix lifted a bottom-fixed bar to >= 80px; the bar has since moved into the
+     * Amendments side panel as a normal-flow / top-sticky card, so it can no longer reach the
+     * bottom nav at all. The invariant now: the shared partial the recipient surface includes
+     * never pins the bar to the viewport bottom (no position:fixed, no bottom offset).
+     */
     public function test_fix3_amend_sticky_bar_clears_the_next_nav(): void
     {
         $ext = $this->read('resources/views/docuperfect/signatures/external/sign.blade.php');
-        $this->assertMatchesRegularExpression('/\.sel-sticky-bar\s*\{[^}]*bottom:\s*(8[0-9]|9[0-9]|[1-9][0-9]{2})px/s', $ext, 'the amend sticky bar must sit >= 80px from the bottom, clear of the bottom nav');
+        $this->assertStringContainsString("docuperfect.signatures.partials._selection-edit-tool", $ext, 'the recipient surface must render the amend bar via the shared partial');
+
+        $tool = $this->read('resources/views/docuperfect/signatures/partials/_selection-edit-tool.blade.php');
+        $this->assertGreaterThan(0, preg_match_all('/\.sel-sticky-bar\s*\{([^}]*)\}/s', $tool, $rules), 'the amend bar must have a stylesheet rule');
+        foreach ($rules[1] as $declarations) {
+            $this->assertDoesNotMatchRegularExpression('/position:\s*fixed/i', $declarations, 'the amend bar must not be viewport-fixed (it would collide with the bottom nav)');
+            $this->assertDoesNotMatchRegularExpression('/(^|[;\s])bottom:/i', $declarations, 'the amend bar must not be pinned to the viewport bottom');
+        }
     }
 
     /** FIX 4 — the inline "INITIAL THIS CHANGE" box hides party NAMES (initials only), screen + PDF. */

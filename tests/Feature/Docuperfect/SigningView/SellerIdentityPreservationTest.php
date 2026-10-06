@@ -64,8 +64,30 @@ final class SellerIdentityPreservationTest extends TestCase
         return $r;
     }
 
-    /** A) The wizard-baked ID must SURVIVE when the linked Contact has no id_number. */
+    /**
+     * A) An empty Contact id_number must not blank a seller's ID when the ID is held on the recipient's own
+     * SignatureRequest (the ID the signer typed in the wizard, persisted as signer_id_number). Expansion
+     * deliberately no longer preserves a value baked into the merged HTML: on a multi-recipient role that baked
+     * span is the JOIN of every recipient's value, so keeping it printed other parties' data (2026-08-26,
+     * "always write — blank is the correct empty state"). The ID now travels via the recipient's own columns.
+     */
     public function test_baked_id_survives_when_contact_id_number_empty(): void
+    {
+        $contact = $this->makeContact([
+            'first_name' => 'Thandeka', 'last_name' => 'Zulu',
+            'email' => 'thandeka@x.test', 'phone' => '', 'id_number' => '', 'address' => '',
+        ]);
+        $html = '<div data-role-block="seller"><span data-field="seller_id_number">8801015800088</span></div>';
+
+        $out = app(RoleBlockExpansionService::class)->expandWithLooping(
+            null, $html, collect([$this->seller(1, 'Thandeka Zulu', $contact->id, '8801015800088')]),
+        );
+
+        $this->assertStringContainsString('8801015800088', $out, 'An empty Contact column must not wipe the ID held on the recipient.');
+    }
+
+    /** The other half of that contract: with NO source for the ID anywhere, the stale baked value is NOT carried over — blank, not another party's data. */
+    public function test_baked_id_is_not_kept_when_no_source_holds_it(): void
     {
         $contact = $this->makeContact([
             'first_name' => 'Thandeka', 'last_name' => 'Zulu',
@@ -77,7 +99,7 @@ final class SellerIdentityPreservationTest extends TestCase
             null, $html, collect([$this->seller(1, 'Thandeka Zulu', $contact->id)]),
         );
 
-        $this->assertStringContainsString('8801015800088', $out, 'Baked ID must not be wiped by an empty Contact column.');
+        $this->assertStringNotContainsString('8801015800088', $out, 'A baked ID with no Contact / SignatureRequest source must not survive expansion.');
     }
 
     /** id_number fallback — Contact blank AND span blank, but the signer typed an ID. */
