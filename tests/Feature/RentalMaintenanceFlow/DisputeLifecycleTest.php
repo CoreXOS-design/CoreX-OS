@@ -166,6 +166,10 @@ final class DisputeLifecycleTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $this->workOrder), ['paid_by' => 'owner'])
             ->assertSessionHasErrors('rental_work_order');
         $this->assertSame($message, session('errors')->first('rental_work_order'));
+        // ...and the person pressing the button can actually SEE it on the work-order screen
+        $this->actingAs($this->admin)->followingRedirects()->from(route('corex.rental-work-orders.show', $this->workOrder))
+            ->post(route('corex.rental-work-orders.complete', $this->workOrder), ['paid_by' => 'owner'])
+            ->assertSee($message, false)->assertSee('data-completion-error', false);
 
         $card = $this->card->fresh();
         $card->workerSignOff($this->admin, 'Foreman Joe');

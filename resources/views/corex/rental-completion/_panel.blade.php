@@ -40,8 +40,9 @@
         @endif
     </div>
 
-    @if($errors->has('completion'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">{{ $errors->first('completion') }}</div>
+    {{-- The work-order screen has no error banner of its own, so a refused close ("resolve the dispute first") is shown here too. --}}
+    @if($errors->has('completion') || ($cpReturnTo === 'work_order' && $errors->has('rental_work_order')))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-completion-error>{{ $errors->first('completion') ?: $errors->first('rental_work_order') }}</div>
     @endif
     @if(session('completion_warning'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309;">{{ session('completion_warning') }}</div>
