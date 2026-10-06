@@ -48,11 +48,12 @@
     <thead><tr><th>Date raised</th><th>Supplier</th><th>Status</th><th>Amount</th></tr></thead>
     <tbody>
         @forelse($workOrders as $w)
-        @php($amount = $w->quotes->firstWhere('is_selected', true)?->amount ?? $w->cost_amount)
+        {{-- BUILD 2 (§17.9.1a / §17.17) — owner-facing figures only: the selected quote's OWNER-FACING amount (never the contractor's own figure when the agency adds a fee), never cost or margin. --}}
+        @php($amount = $w->quotes->firstWhere('is_selected', true)?->ownerFacingAmount() ?? $w->cost_amount)
         <tr>
             <td>{{ optional($w->reported_at)->format('Y-m-d') }}</td>
             <td>{{ $w->supplier?->name ?? '—' }}</td>
-            <td>{{ ucwords(str_replace('_', ' ', (string) $w->status)) }}</td>
+            <td>{{ ucwords(str_replace('_', ' ', (string) $w->status)) }}@if($w->approval_basis === \App\Models\RentalWorkOrder::BASIS_EMERGENCY) — emergency work @endif</td>
             <td>{{ $amount !== null ? 'R ' . number_format((float) $amount, 2) : '—' }}</td>
         </tr>
         @empty

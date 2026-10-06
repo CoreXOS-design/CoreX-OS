@@ -2,17 +2,26 @@
 
 namespace App\Services\Rentals;
 
+use App\Mail\Rentals\RentalContractorWorkOrderMail;
+use App\Mail\Rentals\RentalOwnerFinalStatementMail;
+use App\Mail\Rentals\RentalOwnerQuoteMail;
+use App\Mail\Rentals\RentalOwnerVariationAutoMail;
+use App\Mail\Rentals\RentalOwnerVariationMail;
 use App\Mail\Rentals\RentalWorkOrderOwnerMail;
-use App\Mail\Rentals\RentalWorkOrderSupplierMail;
 use App\Mail\Rentals\RentalWorkOrderTenantMail;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalWorkOrder;
+use App\Models\RentalWorkOrderQuote;
+use App\Models\RentalWorkOrderSetting;
+use App\Models\RentalWorkOrderVariation;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
 use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * .ai/specs/rental-work-orders.md §3/§4/§11/§13, Stage 4 — status
@@ -129,7 +138,8 @@ class RentalWorkOrderService
     public function notifyCompleted(RentalWorkOrder $workOrder): void
     {
         $this->fireInternal($workOrder, 'rental_work_order.completed', 'Work order completed — ' . $this->addressFor($workOrder), $workOrder->title);
-        $this->notifyOwner($workOrder, RentalWorkOrderOwnerMail::STAGE_COMPLETED);
+        // §17.16 — the owner is told by the final statement (SendOwnerFinalStatement, on RentalWorkOrderClosed), whichever
+        // route closed the work order — no longer a plain mail from here.
     }
 
     /**
@@ -168,24 +178,14 @@ class RentalWorkOrderService
     }
 
     /**
-     * §4 — skipped, not attempted, if the property genuinely has no owner
-     * attached (the known, non-bug portal-import-stock state, §2).
+     * RETIRED by .ai/specs/rental-work-orders.md §17.16 (Build 2): the plain owner mails (created / quote revised /
+     * completed) are replaced by RentalOwnerQuoteMail, RentalOwnerVariationMail and RentalOwnerFinalStatementMail, all sent
+     * through the agency mailbox path. Nothing is sent from here any more; the method stays only so the creation paths
+     * that still call it (report(), fromFaultReport()) keep working — an owner is no longer mailed at creation (§17.3.4).
      */
     public function notifyOwner(RentalWorkOrder $workOrder, string $stage): void
     {
-        // AT-442 follow-up (item 8) — landlordContact(), NOT sellerOwnerContact():
-        // the latter's sole-contact fallback addressed a real quote email to a
-        // TENANT when a property had no landlord linked (QA1, property 5792).
-        // Covers both callers of this method — the job card's "Send to owner
-        // as quote" (RentalJobCardService::sendToOwnerAsQuote()) and every
-        // outside-supplier owner notification (report/fromFaultReport/complete
-        // above) — one choke point, one fix.
-        $owner = $workOrder->property?->landlordContact();
-        if (!$owner || !$owner->email) {
-            return;
-        }
-
-        Mail::to($owner->email)->send(new RentalWorkOrderOwnerMail($workOrder, $stage, $owner->first_name ?? ''));
+        // Intentionally empty — see the docblock.
     }
 
     /**
@@ -210,25 +210,225 @@ class RentalWorkOrderService
         Mail::to($tenant->email)->send(new RentalWorkOrderTenantMail($workOrder, $tenant->first_name ?? ''));
     }
 
+    // ───────────────────────── Build 2 mails (§17.16) — all through the agency mailbox path ─────────────────────────
+
+    /** The owner's email contacts: the lease's landlords, else the property's landlord/lessor contacts, else its owner contact. */
+    public function ownerRecipients(RentalWorkOrder $workOrder): \Illuminate\Support\Collection
+    {
+        $property = $workOrder->property;
+        $lease = $workOrder->lease;
+        $landlords = $lease ? $lease->landlordContacts() : collect();
+        if ($landlords->isEmpty() && $property) {
+            $landlords = $property->contactsForRole('landlord')->merge($property->contactsForRole('lessor'))->unique('id');
+        }
+        if ($landlords->isEmpty() && $property && ($fallback = $property->landlordContact())) {
+            $landlords = collect([$fallback]);
+        }
+
+        return $landlords->filter(fn ($c) => ! empty($c->email))->unique('email')->values();
+    }
+
+    /** The agent a mail is sent AS: whoever pressed the button, else the property's agent, else the creator; null = shared mailer. */
+    private function senderFor(RentalWorkOrder $workOrder, ?User $by): ?User
+    {
+        if ($by) {
+            return $by;
+        }
+        $property = $workOrder->property;
+        $agent = $property?->agent_id ? User::withoutGlobalScopes()->find($property->agent_id) : null;
+
+        return $agent ?? ($workOrder->created_by_user_id ? User::withoutGlobalScopes()->find($workOrder->created_by_user_id) : null);
+    }
+
+    private function dispatchMail(?string $email, \App\Mail\Signatures\BaseSignatureMail $mail): bool
+    {
+        if (! $email) {
+            return false;
+        }
+        try {
+            app(RentalMailDispatcher::class)->send($email, $mail);
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('Rentals maintenance mail failed', ['mail' => $mail::class, 'error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    private function noteSent(RentalWorkOrder $workOrder, ?User $by, string $note): void
+    {
+        $workOrder->updates()->create(['agency_id' => $workOrder->agency_id, 'update_type' => 'note', 'note' => $note, 'created_by_user_id' => $by?->id]);
+    }
+
     /**
-     * §4 — "can even email the supplier," only once one is actually
-     * assigned. Resolves the specific provider-contact email if one
-     * exists, the provider's own email otherwise — same resolution the
-     * existing COC-work-order supplier picker already uses.
+     * §17.16 / §17.9.3 — a quote reaches the owner: the quote document attached (not when the agency's fee is on the
+     * contractor's own document — it would show the agency's margin), the owner-facing amount, the estimate term and, when
+     * $needsDecision, the "your approval is needed" wording with the portal pointer. Returns how many owners were mailed.
      */
-    public function notifySupplier(RentalWorkOrder $workOrder): void
+    public function sendOwnerQuote(RentalWorkOrder $workOrder, RentalWorkOrderQuote $quote, ?User $by, bool $needsDecision = false): int
+    {
+        $sent = 0;
+        $contents = null;
+        $filename = null;
+        $hasFee = (float) $quote->fee_amount > 0;
+        if ($quote->document_storage_path && ! $hasFee && Storage::disk('local')->exists($quote->document_storage_path)) {
+            $contents = Storage::disk('local')->get($quote->document_storage_path);
+            $ext = pathinfo($quote->document_storage_path, PATHINFO_EXTENSION) ?: 'pdf';
+            $filename = 'Quote - ' . trim((string) preg_replace('#[\\\\/:*?"<>|]+#', ' ', $this->addressFor($workOrder))) . '.' . $ext;
+        }
+        $term = trim((string) $quote->term_text) !== '' ? (string) $quote->term_text : RentalWorkOrderSetting::quoteEstimateTermFor($workOrder->agency_id);
+        $agent = $this->senderFor($workOrder, $by);
+
+        foreach ($this->ownerRecipients($workOrder) as $owner) {
+            $mail = new RentalOwnerQuoteMail($workOrder, $quote, (string) ($owner->first_name ?? ''), $needsDecision, $contents, $filename, $term, $agent);
+            if ($this->dispatchMail($owner->email, $mail)) {
+                $sent++;
+            }
+        }
+        if ($sent > 0) {
+            $this->noteSent($workOrder, $by, 'Quote emailed to the owner' . ($needsDecision ? ' (approval needed)' : '') . ($filename ? ' — document attached' : ''));
+        }
+
+        return $sent;
+    }
+
+    /** §17.7.4 — the request for extra work, with the variation notice PDF attached. Sets mail_sent_at. */
+    public function sendOwnerVariation(RentalWorkOrderVariation $variation, ?User $by): int
+    {
+        $workOrder = $variation->workOrder()->with(['property', 'lease'])->firstOrFail();
+        $pdfService = app(RentalDocumentPdfService::class);
+        $contents = $pdfService->variationNoticePdf($variation)->output();
+        $filename = $pdfService->variationNoticeFilename($variation);
+        $agent = $this->senderFor($workOrder, $by);
+
+        // §17.9.4 — a HIGHER external quote: the contractor's revised quote document rides with the request (not when the agency's fee is on
+        // it — the contractor's own document would show the agency's margin; the notice PDF carries the owner-facing figures).
+        $quote = $variation->quote;
+        $quoteDoc = null;
+        if ($variation->origin === RentalWorkOrderVariation::ORIGIN_EXTERNAL_QUOTE && $quote && $quote->document_storage_path
+            && (float) $quote->fee_amount <= 0 && Storage::disk('local')->exists($quote->document_storage_path)) {
+            $quoteDoc = [Storage::disk('local')->get($quote->document_storage_path), 'Revised Quote - ' . trim((string) preg_replace('#[\\\\/:*?"<>|]+#', ' ', $this->addressFor($workOrder))) . '.' . (pathinfo($quote->document_storage_path, PATHINFO_EXTENSION) ?: 'pdf')];
+        }
+
+        $sent = 0;
+        foreach ($this->ownerRecipients($workOrder) as $owner) {
+            $mail = new RentalOwnerVariationMail($variation, $workOrder, (string) ($owner->first_name ?? ''), $contents, $filename, (int) $variation->revision > 1, $agent);
+            if ($quoteDoc) {
+                $mail->withAttachment($quoteDoc[0], $quoteDoc[1]);
+            }
+            if ($this->dispatchMail($owner->email, $mail)) {
+                $sent++;
+            }
+        }
+        if ($sent > 0) {
+            $variation->forceFill(['mail_sent_at' => now()])->save();
+            $this->noteSent($workOrder, $by, 'Request for extra work emailed to the owner (revision ' . $variation->revision . ') — variation notice attached');
+        }
+
+        return $sent;
+    }
+
+    /** §17.7.2 — information only: extra work went ahead within the owner's terms (agency setting notify_landlord_on_auto_variation). */
+    public function sendOwnerVariationAuto(RentalWorkOrderVariation $variation, ?User $by): int
+    {
+        $workOrder = $variation->workOrder()->with(['property', 'lease'])->firstOrFail();
+        $lines = $variation->lines()->where('office_status', \App\Models\RentalJobCardLine::OFFICE_ACCEPTED)->orderBy('id')->get()->map(fn ($l) => [
+            'description' => (string) $l->description,
+            'quantity' => rtrim(rtrim(number_format((float) $l->quantity, 2, '.', ''), '0'), '.'),
+            'total' => number_format((float) ($l->line_total ?? 0), 2),
+        ])->all();
+        $within = $variation->term_basis === \App\Models\RentalApprovalDecision::TERM_VARIATION_TOLERANCE
+            ? 'within the ' . rtrim(rtrim(number_format((float) $variation->term_value, 2, '.', ''), '0'), '.') . ' % tolerance you agreed'
+            : 'within your no-approval limit of R' . number_format((float) $variation->term_value, 2);
+        $agent = $this->senderFor($workOrder, $by);
+
+        $sent = 0;
+        foreach ($this->ownerRecipients($workOrder) as $owner) {
+            $mail = new RentalOwnerVariationAutoMail($variation, $workOrder, (string) ($owner->first_name ?? ''), $lines, $within, $agent);
+            if ($this->dispatchMail($owner->email, $mail)) {
+                $sent++;
+            }
+        }
+        if ($sent > 0) {
+            $variation->forceFill(['mail_sent_at' => now()])->save();
+            $this->noteSent($workOrder, $by, 'Owner told the extra work was approved within their agreed terms');
+        }
+
+        return $sent;
+    }
+
+    /**
+     * §17.9.5 — "Send work order to contractor": the work order PDF (with "Owner approval: approved on {date} — {basis}") to
+     * the contractor's contact(s), replacing the plain supplier mail. Returns true when a mail went out; false when the
+     * contractor has no email on file (the work order is still assigned — the agent sends the printout).
+     */
+    public function sendContractorWorkOrder(RentalWorkOrder $workOrder, User $by): bool
     {
         $provider = $workOrder->supplier()->with('serviceContacts')->first();
-        if (!$provider) {
-            return;
+        if (! $provider) {
+            return false;
+        }
+        $contact = $provider->serviceContacts->first();
+        $email = $contact?->email ?: $provider->email;
+        if (! $email) {
+            return false;
         }
 
-        $email = $provider->serviceContacts->first()?->email ?: $provider->email;
-        if (!$email) {
+        $pdfService = app(RentalDocumentPdfService::class);
+        $mail = new RentalContractorWorkOrderMail(
+            $workOrder,
+            (string) ($contact?->name ?: $provider->name),
+            $pdfService->workOrderContractorPdf($workOrder)->output(),
+            $pdfService->workOrderContractorFilename($workOrder),
+            $workOrder->ownerApprovalLine(),
+            $this->senderFor($workOrder, $by),
+        );
+        $sent = $this->dispatchMail($email, $mail);
+        $workOrder->updates()->create([
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'work_order_sent', 'created_by_user_id' => $by->id,
+            'note' => $sent ? 'Work order emailed to ' . ($provider->name ?: 'the contractor') . ' — ' . $workOrder->ownerApprovalLine() : 'Work order could not be emailed to the contractor',
+        ]);
+
+        return $sent;
+    }
+
+    /** §17.8.3 / §17.16 — the owner's final statement when the work order closes (listener on RentalWorkOrderClosed). */
+    public function sendOwnerFinalStatement(RentalWorkOrder $workOrder): int
+    {
+        $workOrder->loadMissing(['property', 'lease', 'agency']);
+        $pdfService = app(RentalDocumentPdfService::class);
+        $contents = $pdfService->finalStatementPdf($workOrder)->output();
+        $filename = $pdfService->finalStatementFilename($workOrder);
+        $agent = $this->senderFor($workOrder, null);
+
+        $sent = 0;
+        foreach ($this->ownerRecipients($workOrder) as $owner) {
+            $mail = new RentalOwnerFinalStatementMail($workOrder, (string) ($owner->first_name ?? ''), $contents, $filename, $workOrder->emergencyBanner(), $agent);
+            if ($this->dispatchMail($owner->email, $mail)) {
+                $sent++;
+            }
+        }
+        $this->noteSent($workOrder, null, $sent > 0 ? 'Final statement emailed to the owner' : 'Final statement not emailed — no owner email on file');
+
+        return $sent;
+    }
+
+    /** §17.16 — in-app note to the property's agent that extra work was raised (rental_work_order.variation_raised). */
+    public function notifyVariationRaised(RentalWorkOrderVariation $variation): void
+    {
+        $workOrder = $variation->workOrder()->with('property')->first();
+        if (! $workOrder) {
             return;
         }
-
-        Mail::to($email)->send(new RentalWorkOrderSupplierMail($workOrder));
+        $what = $variation->isAwaitingOwner() ? 'needs the owner' : 'auto-approved within the owner\'s terms';
+        $this->fireInternal(
+            $workOrder,
+            'rental_work_order.variation_raised',
+            'Extra work ' . $what . ' — ' . $this->addressFor($workOrder),
+            $workOrder->title . ': extra R' . number_format((float) $variation->extra_amount, 2) . ', new total R' . number_format((float) $variation->new_total, 2),
+            now(),
+        );
     }
 
     private function addressFor(RentalWorkOrder $workOrder): string

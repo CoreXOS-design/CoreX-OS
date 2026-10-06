@@ -136,15 +136,27 @@ final class QuoteEstimateTermTest extends TestCase
     public function test_the_wording_is_printed_on_the_quote_mail_body(): void
     {
         Mail::fake();
+        // Build 2 (§17.16): the quote reaches the owner as RentalOwnerQuoteMail through the agency mailbox path (the plain
+        // RentalWorkOrderOwnerMail is retired) — the wording is printed on THAT mail body.
+        $mailbox = new class extends \App\Services\Rentals\RentalMailDispatcher {
+            public array $sent = [];
+
+            public function __construct() {}
+
+            public function send(?string $recipientEmail, \App\Mail\Signatures\BaseSignatureMail $mail): void
+            {
+                $this->sent[] = $mail;
+            }
+        };
+        $this->app->instance(\App\Services\Rentals\RentalMailDispatcher::class, $mailbox);
         RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['quote_estimate_term' => 'Mail wording: final cost may differ.']);
 
         app(RentalJobCardService::class)->sendToOwnerAsQuote($this->card, $this->admin, app(RentalDocumentPdfService::class));
 
-        Mail::assertQueued(RentalWorkOrderOwnerMail::class, function (RentalWorkOrderOwnerMail $mail) {
-            $this->assertStringContainsString('Mail wording: final cost may differ.', $mail->render());
-
-            return true;
-        });
+        $quoteMails = array_values(array_filter($mailbox->sent, fn ($m) => $m instanceof \App\Mail\Rentals\RentalOwnerQuoteMail));
+        $this->assertCount(1, $quoteMails);
+        $this->assertStringContainsString('Mail wording: final cost may differ.', $quoteMails[0]->render());
+        Mail::assertNothingQueued();
     }
 
     public function test_the_wording_is_not_printed_on_the_worker_print_or_the_completed_notice(): void

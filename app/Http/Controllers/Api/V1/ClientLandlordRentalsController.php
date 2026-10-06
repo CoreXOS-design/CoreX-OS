@@ -7,6 +7,10 @@ use App\Http\Controllers\Api\V1\Concerns\ResolvesPortalContact;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
 use App\Models\RentalWorkOrder;
+use App\Models\RentalWorkOrderPhoto;
+use App\Models\RentalWorkOrderVariation;
+use App\Services\Rentals\RentalApprovalGateService;
+use App\Services\Rentals\StaleVariationRevision;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalFaultTypeService;
@@ -241,7 +245,7 @@ class ClientLandlordRentalsController extends Controller
                 'status' => $w->status,
                 'owner_approval_status' => $w->owner_approval_status,
                 // Amounts ARE shown to the landlord (§3: "work orders with amounts").
-                'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())->amount,
+                'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
                 // §14.29 — photos of the work (own + linked job card), filtered by the agency's visibility rule.
                 'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($w)),
                 // BUILD 3 — §17.3.5: the portal's Jobs list reads these (plain stage, who, rounds); amounts stay owner-facing only.
@@ -334,9 +338,43 @@ class ClientLandlordRentalsController extends Controller
             ])->values(),
             'work_orders' => $workOrders->map(fn ($w) => [
                 'id' => $w->id, 'title' => $w->title, 'kind' => 'work_order',
-                'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())->amount,
+                'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
+                // §17.8.3 — emergency work is flagged for the owner on their own work-order card.
+                'emergency' => $w->approval_basis === RentalWorkOrder::BASIS_EMERGENCY,
             ])->values(),
+            // BUILD 2 (§17.7.4) — extra work beyond the owner's agreed terms, waiting for their decision.
+            'variations' => $this->scope->landlordPendingVariations($contact)->map(fn ($v) => $this->variationPayload($v))->values(),
         ]);
+    }
+
+    /** §17.7.4 — the owner's view of a request for extra work: original, the extra work (SELLING only), photos, note, new total. */
+    private function variationPayload(RentalWorkOrderVariation $variation): array
+    {
+        $workOrder = RentalWorkOrder::withoutGlobalScopes()->find($variation->rental_work_order_id);
+        $lines = $variation->lines()->withoutGlobalScopes()->where('office_status', \App\Models\RentalJobCardLine::OFFICE_ACCEPTED)->orderBy('id')->get();
+        $photos = $lines->isEmpty() ? collect() : RentalWorkOrderPhoto::withoutGlobalScopes()
+            ->whereIn('rental_job_card_line_id', $lines->pluck('id'))->orderBy('id')->limit(6)->get();
+
+        return [
+            'id' => $variation->id,
+            'kind' => 'variation',
+            'revision' => (int) $variation->revision,
+            'status' => $variation->status,
+            'work_order_id' => $variation->rental_work_order_id,
+            'title' => $workOrder?->title,
+            'baseline_amount' => (float) $variation->baseline_amount,
+            'extra_amount' => (float) $variation->extra_amount,
+            'new_total' => (float) $variation->new_total,
+            'lines' => $lines->map(fn ($l) => [
+                'description' => $l->description,
+                'quantity' => rtrim(rtrim(number_format((float) $l->quantity, 2, '.', ''), '0'), '.'),
+                'unit' => $l->unit,
+                'total' => $l->line_total !== null ? (float) $l->line_total : null,
+                'note' => $l->crew_note,
+            ])->values(),
+            'photos' => $photos->map(fn ($p) => ['id' => $p->id, 'url' => $p->storage_path])->values(),
+            'term_text' => (string) $variation->term_text,
+        ];
     }
 
     /**
@@ -355,6 +393,11 @@ class ClientLandlordRentalsController extends Controller
         $fault = $this->scope->landlordFaultReport($contact, $faultReport);
         if (!$fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
+        }
+
+        // §17.6.6 — a decision is only taken on a record that is actually waiting for one.
+        if ($fault->owner_approval_status !== RentalFaultReport::APPROVAL_PENDING) {
+            return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
         }
 
         $data = $request->validate([
@@ -403,6 +446,11 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'Work order not found.'], 404);
         }
 
+        // §17.6.6 — a decision is only taken on a record that is actually waiting for one.
+        if ($order->owner_approval_status !== RentalWorkOrder::APPROVAL_PENDING) {
+            return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
+        }
+
         $data = $request->validate([
             'decision' => 'required|in:approve,decline',
             'note' => 'nullable|string|max:2000',
@@ -422,5 +470,50 @@ class ClientLandlordRentalsController extends Controller
             'id' => $order->id,
             'owner_approval_status' => $order->owner_approval_status,
         ]]);
+    }
+
+    /**
+     * BUILD 2 (§17.7.4) — Approve / Decline extra work beyond the owner's agreed terms. Body: decision (approve|decline), revision
+     * (the revision the owner saw — a stale one answers 409), note. Resolved through the portal scope (the owner's own properties
+     * only), then the same writer the office's "Record variation decision" uses.
+     */
+    public function variationDecision(Request $request, int $variation): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $record = $this->scope->landlordVariation($contact, $variation);
+        if (! $record) {
+            return response()->json(['message' => 'Request not found.'], 404);
+        }
+
+        $data = $request->validate([
+            'decision' => 'required|in:approve,decline',
+            // the revision the owner SAW — a decision on something that has changed since (more extra work joined it) is refused with 409
+            'revision' => 'required|integer|min:1',
+            'note' => 'nullable|string|max:2000',
+        ]);
+
+        if (! $record->isAwaitingOwner()) {
+            return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
+        }
+
+        try {
+            app(RentalApprovalGateService::class)->recordVariationDecision($record, $data['decision'], [
+                'via' => RentalWorkOrderVariation::VIA_PORTAL,
+                'revision' => $data['revision'] ?? null,
+                'note' => $data['note'] ?? null,
+            ], ['contact' => $contact]);
+        } catch (StaleVariationRevision $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $record->refresh();
+
+        return response()->json(['variation' => ['id' => $record->id, 'status' => $record->status, 'revision' => (int) $record->revision]]);
     }
 }

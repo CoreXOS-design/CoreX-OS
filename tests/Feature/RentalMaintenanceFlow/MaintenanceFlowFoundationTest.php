@@ -229,6 +229,8 @@ final class MaintenanceFlowFoundationTest extends TestCase
     public function test_work_terms_resolve_property_then_agency_default_then_constant_and_say_where_from(): void
     {
         $gate = app(RentalApprovalGateService::class);
+        // the crew fixtures give their property a very high limit (so jobs under way are authorised) — this test starts from "none"
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => null])->save();
         $property = $this->property->fresh();
 
         $terms = $gate->termsFor($property);
@@ -268,30 +270,15 @@ final class MaintenanceFlowFoundationTest extends TestCase
 
     // ── service shells: signatures final, behaviour inert ───────────────
 
-    public function test_the_gate_is_inert_until_build_two(): void
+    /** Build 2 landed (§17.21.3): the gate is real now — covered end to end by RentalApprovalGateServiceTest. This only keeps the signatures honest. */
+    public function test_the_gate_signatures_are_the_foundations_final_ones(): void
     {
         $gate = app(RentalApprovalGateService::class);
         $wo = $this->workOrder();
-        $card = $this->makeJobCard();
 
-        $decision = $gate->authoriseToProceed($wo);
-        $this->assertInstanceOf(GateDecision::class, $decision);
-        $this->assertTrue($decision->authorised);
-        $this->assertNull($gate->assessAfterLineChange($card, $this->admin));
-        $this->assertSame(0, RentalApprovalDecision::withoutGlobalScopes()->count(), 'the inert gate writes no decision rows');
-
-        foreach ([
-            fn () => $gate->evaluateQuote($wo, 100.0, $this->admin),
-            fn () => $gate->evaluateVariation($wo, 100.0, $this->admin),
-            fn () => $gate->recordEmergency($wo, [], $this->admin),
-        ] as $call) {
-            try {
-                $call();
-                $this->fail('a not-yet-built gate method must refuse loudly');
-            } catch (\LogicException $e) {
-                $this->assertStringContainsString('Build 2', $e->getMessage());
-            }
-        }
+        $this->assertInstanceOf(GateDecision::class, $gate->authoriseToProceed($wo, false));
+        $this->assertInstanceOf(GateDecision::class, $gate->evaluateVariation($wo, 100.0, $this->admin, false));
+        $this->assertNull($gate->assessAfterLineChange($this->makeJobCard(), $this->admin), 'no approved amount yet: nothing to measure a variation against');
     }
 
     public function test_the_completion_service_is_live_since_build_three(): void
@@ -335,7 +322,7 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $this->assertNull($line->fresh()->cost_total, 'no cost is ever back-filled or invented');
     }
 
-    public function test_the_dispute_guard_is_live_since_build_three_and_the_cost_guard_stays_inert(): void
+    public function test_the_dispute_guard_is_live_since_build_three_and_the_cost_guard_ignores_unapproved_work(): void
     {
         $guards = app(RentalCloseGuards::class);
         $wo = $this->workOrder(['status' => RentalWorkOrder::STATUS_DISPUTED]);
@@ -349,8 +336,7 @@ final class MaintenanceFlowFoundationTest extends TestCase
         }
         $guards->assertNotDisputed($this->workOrder());   // a normal one passes
 
-        // Build 2 (§17.9.4) has not landed on this branch: the cost guard still refuses nothing.
-        $guards->assertFinalCostWithinApproval($wo, 99999.0, $this->admin);
+        $guards->assertFinalCostWithinApproval($wo, 99999.0, $this->admin);   // Build 2: no approved amount, so nothing to measure against
         $this->assertTrue($wo->hasOpenDispute());
         $this->assertFalse($this->workOrder()->hasOpenDispute());
     }

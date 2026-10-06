@@ -278,7 +278,7 @@
 
                         <template x-if="landlordTab === 'decisions'">
                             <div>
-                                <div class="card" x-show="!decisions.fault_reports.length && !decisions.work_orders.length">
+                                <div class="card" x-show="!decisions.fault_reports.length && !decisions.work_orders.length && !(decisions.variations || []).length">
                                     <p class="muted">Nothing needs your decision right now.</p>
                                 </div>
                                 <template x-for="f in decisions.fault_reports" :key="'f'+f.id">
@@ -297,6 +297,32 @@
                                         <button class="btn btn-danger" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
                                     </div>
                                 </template>
+                                {{-- BUILD 2 BEGIN — extra work beyond the owner's agreed terms (.ai/specs/rental-work-orders.md §17.7.4): what was approved, the extra work (selling only), the crew's photos and note, the new total, Approve / Decline. --}}
+                                <template x-for="v in (decisions.variations || [])" :key="'v'+v.id">
+                                    <div class="card" data-variation-card>
+                                        <h2 x-text="'Extra work needs your approval: ' + (v.title || '')"></h2>
+                                        <p class="muted">Approved so far: <strong x-text="'R ' + Number(v.baseline_amount).toFixed(2)"></strong></p>
+                                        <template x-for="(l, li) in v.lines" :key="li">
+                                            <div class="list-item">
+                                                <div class="row">
+                                                    <span x-text="l.description + (l.quantity ? ' x ' + l.quantity : '')"></span>
+                                                    <span x-text="l.total != null ? 'R ' + Number(l.total).toFixed(2) : ''"></span>
+                                                </div>
+                                                <p class="muted" x-show="l.note" x-text="l.note"></p>
+                                            </div>
+                                        </template>
+                                        <div class="photo-grid" x-show="v.photos.length">
+                                            <template x-for="ph in v.photos" :key="ph.id">
+                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the extra work" loading="lazy"></a>
+                                            </template>
+                                        </div>
+                                        <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
+                                        <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
+                                        <button class="btn btn-ok" @click="decideVariation(v, 'approve')">Approve</button>
+                                        <button class="btn btn-danger" @click="decideVariation(v, 'decline')">Decline</button>
+                                    </div>
+                                </template>
+                                {{-- BUILD 2 END --}}
                             </div>
                         </template>
 
@@ -465,7 +491,7 @@ function rentalsPortal() {
         faultReports: [], documents: [],
         faultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null },
         faultTypesByProperty: {},
-        decisions: { fault_reports: [], work_orders: [] },
+        decisions: { fault_reports: [], work_orders: [], variations: [] },
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
         jobCards: [],
@@ -668,6 +694,15 @@ function rentalsPortal() {
             if (r.ok) this.loadDecisions();
             else alert(r.data?.message || 'Could not record decision.');
         },
+        // BUILD 2 BEGIN (§17.7.4) - the decision carries the revision the owner saw; a stale one answers 409 and the list is refreshed.
+        async decideVariation(v, decision) {
+            const note = decision === 'decline' ? (window.prompt('Add a note (optional):') || '') : '';
+            const r = await portalFetch('/api/v1/client/rentals/landlord/variations/' + v.id + '/decision', { method: 'POST', body: JSON.stringify({ decision, revision: v.revision, note }) });
+            if (r.ok) { this.loadDecisions(); return; }
+            alert(r.data?.message || 'Could not record decision.');
+            if (r.status === 409 || r.status === 422) this.loadDecisions();
+        },
+        // BUILD 2 END
 
         // §15 (AT-447, portal frontend follow-up) — "Request work / report a
         // problem." Same shape as the tenant startFaultReport()/selectFaultType()/

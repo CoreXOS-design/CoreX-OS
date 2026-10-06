@@ -436,6 +436,9 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateQuoteEstimateTerm'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals savers (tolerance, auto-variation mail, external-quote fee)
+            // §17.14 — ONE narrow saver for the four approvals controls below; every field is has()-guarded in it, so a wizard step that posts
+            // only a subset can never reset a setting it did not render (agency-onboarding-setup.md §6.1).
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateApprovals'],
             // BUILD 2 END
             // BUILD 3 BEGIN — completion-check savers (enabled, window, dispute mail, notify crew)
             // ONE narrow saver for the four tenant-completion-check settings: each field is written only when it is present
@@ -694,7 +697,24 @@ return [
              'explain' => 'The short paragraph printed on every quote sent to an owner, telling them the quote is an estimate and what happens if the real cost turns out different. Leave it as it is to use the standard wording, or rewrite it in your own words.',
              'affects' => 'The wording the owner reads at the bottom of the quote PDF and in the quote email. The wording in force on the day a quote is sent is kept with that quote, so changing it later never alters a quote already sent.'],
             // BUILD 1 END
-            // BUILD 2 BEGIN — approvals controls
+            // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
+            ['key' => 'variation_tolerance_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 100, 'step' => 0.5,
+             'label' => 'Extra work the owner is not asked about (% above what they approved)',
+             'explain' => 'When a repair turns out to need extra work after the owner has approved the quote, this is how far the new total may rise above the approved amount before the owner is asked again. Each property can have its own figure, agreed with its owner; this is the starting point for any property that has none.',
+             'affects' => 'Whether small extras go ahead straight away (and the owner is told) or always wait for the owner. 0 means every increase is put to the owner first — the safe starting point for a new agency. Emergency work and the owner\'s no-approval limit are unaffected.'],
+            ['key' => 'notify_landlord_on_auto_variation', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the owner when extra work is approved automatically',
+             'explain' => 'When extra work falls within the owner\'s agreed terms it goes ahead without asking them. This sends the owner an information email saying what was added and the new total.',
+             'affects' => 'Whether the owner hears about every automatic extra, or only about the ones that need their decision. On by default.'],
+            ['key' => 'external_quote_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
+             'options' => ['percent' => 'A percentage of the contractor\'s quote', 'amount' => 'A fixed amount (R)'],
+             'label' => 'Your fee on an outside contractor\'s quote — how it is worked out',
+             'explain' => 'If your agency adds its own fee on top of an outside contractor\'s quote, choose whether it is a percentage of the quote or a fixed amount.',
+             'affects' => 'How the figure below is applied. It does nothing while the fee is 0.'],
+            ['key' => 'external_quote_markup_value', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'step' => 0.01,
+             'label' => 'Your fee on an outside contractor\'s quote (0 = no fee)',
+             'explain' => 'The fee your agency adds to an outside contractor\'s quote before it goes to the owner. The owner sees one total; your office sees the contractor\'s quote, your fee and the total. A single work order can override it.',
+             'affects' => 'The amount the owner is asked to approve for outside work. 0 (the default) means the owner is asked to approve exactly what the contractor quoted.'],
             // BUILD 2 END
             // BUILD 3 BEGIN — completion-check controls (.ai/specs/rental-work-orders.md §17.10, §17.14)
             ['key' => 'tenant_completion_check_enabled', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,

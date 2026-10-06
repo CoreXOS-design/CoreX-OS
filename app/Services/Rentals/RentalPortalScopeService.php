@@ -288,6 +288,34 @@ class RentalPortalScopeService
             ->get();
     }
 
+    /** BUILD 2 (§17.7.4) — requests for extra work waiting for THIS owner's decision (their properties only; explicit agency + soft-delete filters). */
+    public function landlordPendingVariations(Contact $contact)
+    {
+        return \App\Models\RentalWorkOrderVariation::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->where('status', \App\Models\RentalWorkOrderVariation::STATUS_AWAITING_OWNER)
+            ->whereIn('rental_work_order_id', RentalWorkOrder::withoutGlobalScopes()
+                ->where('agency_id', $contact->agency_id)->whereNull('deleted_at')
+                ->whereIn('property_id', $this->landlordPropertyIds($contact))->select('id'))
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** BUILD 2 — one variation on THIS owner's properties, or null (never another owner's, another agency's, or an archived work order's). */
+    public function landlordVariation(Contact $contact, int $variationId): ?\App\Models\RentalWorkOrderVariation
+    {
+        return $this->landlordPendingVariationsQuery($contact)->find($variationId);
+    }
+
+    private function landlordPendingVariationsQuery(Contact $contact)
+    {
+        return \App\Models\RentalWorkOrderVariation::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereIn('rental_work_order_id', RentalWorkOrder::withoutGlobalScopes()
+                ->where('agency_id', $contact->agency_id)->whereNull('deleted_at')
+                ->whereIn('property_id', $this->landlordPropertyIds($contact))->select('id'));
+    }
+
     public function landlordFaultReports(Contact $contact)
     {
         return RentalFaultReport::withoutGlobalScopes()

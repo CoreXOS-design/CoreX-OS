@@ -20,6 +20,14 @@
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
+    @if(session('warning'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309;">{{ session('warning') }}</div>
+    @endif
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
+        </div>
+    @endif
 
     <div class="flex items-center justify-between">
         <div>
@@ -160,7 +168,13 @@
                 @foreach($workOrder->quotes as $quote)
                     <li class="flex items-center justify-between gap-2">
                         <span>
-                            {{ $quote->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format((float) $quote->amount, 2) }}
+                            {{-- BUILD 2 (§17.9.1a) — the agency's fee on an outside contractor's quote. The owner (and everyone without the see-costs permission) sees one figure:
+                                 the owner-facing total. Staff who can see costs also see the contractor's own quote and the fee, which is the agency's margin. --}}
+                            @if((float) $quote->fee_amount > 0 && $canSeeFee)
+                                {{ $quote->supplier?->name ?? 'Unknown supplier' }} — quote R{{ number_format((float) $quote->amount, 2) }} + fee R{{ number_format((float) $quote->fee_amount, 2) }} = <strong>R{{ number_format($quote->ownerFacingAmount(), 2) }}</strong> to the owner
+                            @else
+                                {{ $quote->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format($quote->ownerFacingAmount(), 2) }}
+                            @endif
                             <span style="color: var(--text-muted);">({{ $quote->quote_date?->format('Y-m-d') }})</span>
                             @if($quote->is_selected)
                                 <span class="ds-badge ds-badge-success">Selected</span>
@@ -281,6 +295,26 @@
             <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
         </form>
         @endpermission
+        {{-- BUILD 2 (§17.9.1a) — per-work-order override of the agency's fee on this contractor's quote; blank = the agency default.
+             Locked once the owner has approved an amount (a change would be a variation). --}}
+        @permission('rental_job_cards.price')
+        @if($canSeeFee && !$workOrder->hasApprovedBaseline())
+        <form method="POST" action="{{ route('corex.rental-work-orders.external-fee.update', $workOrder) }}" class="flex flex-wrap items-end gap-2 pt-2">
+            @csrf
+            @method('PUT')
+            <div>
+                <label class="text-xs">Fee on the contractor's quote (this work order)</label><br>
+                <select name="external_markup_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                    <option value="percent" @selected($externalFeeType === 'percent')>% of the quote</option>
+                    <option value="amount" @selected($externalFeeType === 'amount')>Fixed amount (R)</option>
+                </select>
+                <input type="number" name="external_markup_value" min="0" step="0.01" value="{{ $workOrder->external_markup_value !== null ? $externalFeeValue : '' }}" placeholder="Agency default: {{ rtrim(rtrim(number_format(\App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($workOrder->agency_id), 2, '.', ''), '0'), '.') ?: '0' }}" class="rounded-md px-3 py-2 text-xs w-32" style="border: 1px solid var(--border);">
+            </div>
+            <button type="submit" class="corex-btn-outline text-xs">Save fee</button>
+            <span class="text-xs" style="color: var(--text-muted);">Blank uses the agency default. The owner sees the total only.</span>
+        </form>
+        @endif
+        @endpermission
     </div>
     @endif
 
@@ -293,7 +327,7 @@
     {{-- §3.4a — only for a work order raised directly (no upstream fault
          report already satisfied this). Applies to both assignment paths —
          an internal job card's quote still rides this same gate. --}}
-    @if($isOpen && !$workOrder->reported_fault_report_id)
+    @if($isOpen)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Owner approval</h2>
         @if($workOrder->approvals->isNotEmpty())
@@ -355,20 +389,23 @@
     @if($isOpen && $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Supplier</h2>
+        {{-- BUILD 2 (§17.9.5) — replaces "Assign supplier" + the plain supplier mail: the work order goes to the contractor of the SELECTED quote,
+             with the owner's approval shown on it. Enabled only once the owner's approval (or the no-approval limit, or an emergency agreement) covers it. --}}
         @permission('rental_work_orders.create')
-        <form method="POST" action="{{ route('corex.rental-work-orders.assign-supplier', $workOrder) }}" class="flex flex-wrap items-end gap-2">
-            @csrf
-            <div>
-                <label class="text-xs">Supplier</label><br>
-                <select name="agency_service_provider_id" required class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                    <option value="">Select…</option>
-                    @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
-                        <option value="{{ $provider->id }}" @selected($workOrder->agency_service_provider_id === $provider->id)>{{ $provider->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <button type="submit" class="corex-btn-outline text-xs">{{ $workOrder->agency_service_provider_id ? 'Change supplier' : 'Assign supplier' }}</button>
-        </form>
+        @if(!$selectedQuote)
+            <p class="text-xs" style="color: var(--text-muted);">Capture the contractor's quote and select it first — the work order goes to that contractor once the owner has approved.</p>
+        @else
+            <form method="POST" action="{{ route('corex.rental-work-orders.assign-supplier', $workOrder) }}" class="flex flex-wrap items-center gap-2">
+                @csrf
+                <input type="hidden" name="agency_service_provider_id" value="{{ $selectedQuote->agency_service_provider_id }}">
+                <span class="text-xs">Contractor: <strong>{{ $selectedQuote->supplier?->name ?? 'Unknown supplier' }}</strong></span>
+                <button type="submit" class="corex-btn-primary text-xs" @disabled(!$proceed->authorised)
+                        @if(!$proceed->authorised) title="{{ $proceed->note }}" @endif>{{ $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED ? 'Send work order to contractor' : 'Resend work order to contractor' }}</button>
+            </form>
+            @if(!$proceed->authorised)
+                <p class="text-xs" style="color: var(--ds-crimson);">{{ $proceed->note }}</p>
+            @endif
+        @endif
         @endpermission
 
         <div class="flex gap-2 pt-2">
@@ -376,7 +413,7 @@
                 @if($workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED)
                     <form method="POST" action="{{ route('corex.rental-work-orders.start-progress', $workOrder) }}">
                         @csrf
-                        <button type="submit" class="corex-btn-outline text-xs">Mark in progress</button>
+                        <button type="submit" class="corex-btn-outline text-xs" @disabled(!$proceed->authorised)>Mark in progress</button>
                     </form>
                 @endif
             @endpermission

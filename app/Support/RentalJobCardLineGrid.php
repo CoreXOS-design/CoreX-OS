@@ -30,19 +30,27 @@ class RentalJobCardLineGrid
         // comfortably wide enough for their longest realistic value) so the
         // combined floor-respecting budget fits inside the ~604px actually
         // available at 1366px alongside the crew/sign-off right panel.
+        // §17.4.5 — with Cost and Margin added the row would be ~76 px wider than the 1366 px left panel (measured in a real
+        // browser on QA1), so the cost-viewing grid uses a COMPACT set of widths and a 4 px gap: every figure still fits on one
+        // line at 1366, and a value too wide for its column is truncated with its full text in the tooltip, as it always was.
+        if ($showCost && $pricesOn) {
+            $cols = ['minmax(0,70px)', 'minmax(60px,1fr)', '72px', '52px', '44px', '62px', '70px'];
+            if ($vatRegistered) {
+                $cols[] = '66px';
+            }
+            $cols[] = '62px'; // Margin
+            $cols[] = '28px';
+
+            return $cols;
+        }
+
         $cols = ['minmax(0,100px)', 'minmax(70px,1fr)', '90px'];
         if ($pricesOn) {
             $cols[] = '64px';
             $cols[] = '50px';
-            if ($showCost) {
-                $cols[] = '72px'; // Cost (what the line cost the agency)
-            }
-            $cols[] = '84px';     // Unit price = SELLING
+            $cols[] = '84px';
             if ($vatRegistered) {
                 $cols[] = '84px';
-            }
-            if ($showCost) {
-                $cols[] = '76px'; // Margin (selling less cost, excl VAT)
             }
         }
         $cols[] = '36px';
@@ -54,7 +62,9 @@ class RentalJobCardLineGrid
     {
         $cols = implode(' ', self::columns($pricesOn, $vatRegistered, $showCost));
 
-        return "display:grid; grid-template-columns: {$cols}; gap: 6px; align-items:center; min-width:0;";
+        $gap = $showCost && $pricesOn ? '4px' : '6px';
+
+        return "display:grid; grid-template-columns: {$cols}; gap: {$gap}; align-items:center; min-width:0;";
     }
 
     /** Every control inside a row track also needs min-width:0 explicitly — a <select>'s own intrinsic min-content width (driven by its longest option text) otherwise forces the track wider than assigned regardless of the track size itself (every grid item defaults to min-width:auto). The actual fix for the one-line-fit, not the column widths alone. */
