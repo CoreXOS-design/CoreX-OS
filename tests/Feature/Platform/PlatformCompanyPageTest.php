@@ -49,6 +49,7 @@ class PlatformCompanyPageTest extends TestCase
             'directors' => $c->directors,
             'physical_address' => $c->physical_address, 'postal_address' => '',
             'email_general' => $c->email_general, 'email_support' => $c->email_support, 'email_accounts' => '',
+            'send_from_address' => $c->send_from_address, 'send_from_name' => $c->send_from_name,
             'phones' => $c->phones, 'websites' => $c->websites,
             'strap_line' => '', 'letterhead_footer' => '', 'email_signature_html' => '',
             'bank_details' => ['bank_name' => '', 'account_holder' => '', 'account_number' => '', 'branch_code' => '', 'account_type' => '', 'reference_note' => ''],
@@ -117,6 +118,26 @@ class PlatformCompanyPageTest extends TestCase
         $this->get(route('admin.platform-company.index'))->assertSee('Changed:')->assertSee('076 111 2222');
     }
 
+    public function test_the_sending_address_and_name_are_saved_and_audited(): void
+    {
+        $owner = $this->owner();
+        $this->actingAs($owner);
+        $this->assertSame('admin@corexos.co.za', PlatformCompany::current()->send_from_address);
+        $this->assertSame('CoreX OS — RR Technologies', PlatformCompany::current()->send_from_name);
+
+        $this->put(route('admin.platform-company.update'), $this->form(['send_from_address' => '  Contracts@CoreXOS.co.za ', 'send_from_name' => ' CoreX OS Contracts ']))
+            ->assertRedirect(route('admin.platform-company.index'))->assertSessionHas('success');
+
+        $c = PlatformCompany::current();
+        $this->assertSame('contracts@corexos.co.za', $c->send_from_address);
+        $this->assertSame('CoreX OS Contracts', $c->send_from_name);
+        $a = PlatformCompanyAudit::query()->latest('id')->first();
+        $this->assertArrayHasKey('send_from_address', $a->changes);
+        $this->assertArrayHasKey('send_from_name', $a->changes);
+        $this->assertSame('contracts@corexos.co.za', $c->mailFrom()->address);
+        $this->get(route('admin.platform-company.index'))->assertSee('Sending address');
+    }
+
     public function test_saving_without_changes_writes_nothing(): void
     {
         $this->actingAs($this->owner());
@@ -134,6 +155,9 @@ class PlatformCompanyPageTest extends TestCase
             'legal_name'      => [['legal_name' => '   '], 'legal_name'],
             'email'           => [['email_general' => 'not-an-email'], 'email_general'],
             'support email'   => [['email_support' => 'nope'], 'email_support'],
+            'sending address' => [['send_from_address' => 'nope'], 'send_from_address'],
+            'sending address blank' => [['send_from_address' => ''], 'send_from_address'],
+            'sender name blank' => [['send_from_name' => '  '], 'send_from_name'],
             'vat missing'     => [['vat_registered' => '1', 'vat_number' => ''], 'vat_number'],
             'vat malformed'   => [['vat_registered' => '1', 'vat_number' => '12345'], 'vat_number'],
             'phone malformed' => [['phones' => [['label' => 'x', 'number' => 'call me!']]], 'phones.0.number'],

@@ -143,6 +143,15 @@
                             <input id="pc-acc" type="email" name="email_accounts" maxlength="255" value="{{ old('email_accounts', $company->email_accounts) }}" class="ds-field w-full"></div>
                     </div>
 
+                    <div class="grid sm:grid-cols-2 gap-4">
+                        <div><label class="ds-label block mb-1" for="pc-from">Sending address <span style="color:var(--ds-crimson);">*</span></label>
+                            <input id="pc-from" type="email" name="send_from_address" required maxlength="255" value="{{ old('send_from_address', $company->send_from_address) }}" class="ds-field w-full">
+                            <p class="text-xs mt-1" style="color: var(--text-muted);">Every Platform E-Sign and Subscription Agreement email is sent from this address. Replies go to the person who sent the agreement.</p></div>
+                        <div><label class="ds-label block mb-1" for="pc-from-name">Sender name <span style="color:var(--ds-crimson);">*</span></label>
+                            <input id="pc-from-name" type="text" name="send_from_name" required maxlength="150" value="{{ old('send_from_name', $company->send_from_name) }}" class="ds-field w-full">
+                            <p class="text-xs mt-1" style="color: var(--text-muted);">The name the recipient sees beside that address.</p></div>
+                    </div>
+
                     <div>
                         <div class="ds-label mb-1">Telephone numbers</div>
                         <template x-for="(p, i) in phones" :key="i">

@@ -62,6 +62,7 @@ class AgreementController extends Controller
             'name' => 'required|string|max:255', 'email' => 'required|email|max:255', 'cell' => 'nullable|string|max:40',
             'agency_id' => 'nullable|integer|exists:agencies,id', 'note' => 'nullable|string|max:490',
             'variation_text' => 'nullable|string|max:500', 'variation_amount' => 'nullable|string|max:14',
+            'plan' => 'nullable|in:team,agency',
         ], ['name.required' => 'Enter the recipient’s full name.', 'email.required' => 'Enter the recipient’s email address.', 'email.email' => 'Enter a valid email address.']);
         try {
             $doc = $this->svc->send($data, $u->id);

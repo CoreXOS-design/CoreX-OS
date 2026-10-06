@@ -130,6 +130,11 @@ class AgreementRenderer
             return '';
         }
         if ($this->isForm()) {
+            if ($key === 'branches') {
+                // Entered once, in section 3 beside the number of agents; this row of the original form just shows it.
+                return '<input type="text" class="fld num" value="' . e($this->value('branches')) . '" readonly tabindex="-1" data-derived="1" data-mirror="branches" aria-label="' . e($f['label']) . '">';
+            }
+
             return $this->input($key, $f);
         }
         if ($this->mode === 'canon') {
@@ -174,7 +179,8 @@ class AgreementRenderer
         $v = $this->value($key);
         $err = $this->ctx['errors'][$key] ?? null;
         $cls = 'fld' . ($err ? ' err' : '');
-        $attr = 'name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '"' . ($f['required'] ? ' data-required="1"' : '') . ' maxlength="' . min((int) $f['max'], 500) . '" aria-label="' . e($f['label']) . '"';
+        $derived = in_array($key, AgreementService::DERIVED_KEYS, true);
+        $attr = 'name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '"' . ($f['required'] && !$derived ? ' data-required="1"' : '') . ($derived ? ' readonly tabindex="-1" data-derived="1"' : '') . ' maxlength="' . min((int) $f['max'], 500) . '" aria-label="' . e($f['label']) . '"';
         $title = $err ? ' title="' . e($err) . '"' : '';
         $locked = !empty($this->ctx['locked']) ? ' disabled' : '';
 
@@ -201,6 +207,11 @@ class AgreementRenderer
             $err = !empty($this->ctx['errors'][$key]) ? ' err' : '';
             $locked = !empty($this->ctx['locked']) ? ' disabled' : '';
 
+            if ($key === 'plan') {
+                // The plan is the result of the number of agents (section 3 completes itself) — shown, never tickable by the recipient.
+                return '<label class="opt" title="Chosen automatically from the number of agents"><input type="radio" name="plan" value="' . e($val) . '" data-field="plan" data-derived="1"' . ($on ? ' checked' : '') . ' disabled><span class="tick"></span></label>';
+            }
+
             return '<label class="opt' . $err . '"><input type="radio" name="' . e($key) . '" value="' . e($val) . '" data-field="' . e($key) . '"' . ($f['required'] ? ' data-required="1"' : '') . ($on ? ' checked' : '') . $locked . '><span class="tick"></span></label>';
         }
         if ($this->mode === 'canon') {
@@ -213,12 +224,6 @@ class AgreementRenderer
     private function quantity(string $line): string
     {
         $calc = $this->ctx['calc'];
-        if ($line === 'branches' && $this->isForm()) {
-            $f = AgreementFields::schema()['extra_branches'];
-            $input = $this->input('extra_branches', $f);
-
-            return str_replace('class="fld', 'data-calc-line="branches" class="fld', $input);
-        }
         $q = $calc['lines'][$line]['qty'] ?? null;
         $applies = $this->applies($line);
         $text = $this->mode === 'canon' ? '00' : ($applies && $q !== null ? (string) $q : '');
@@ -343,13 +348,28 @@ class AgreementRenderer
 
     private function control(string $what): string
     {
-        if (!$this->isForm() || $what !== 'agents') {
+        if ($what !== 'agents') {
             return '';
         }
-        $f = AgreementFields::schema()['agents'];
+        if ($this->mode === 'canon') {
+            return '<span class="keep-next"></span>'; // layout estimation only: keep this block on the page of the fee table that follows
+        }
         $calc = $this->ctx['calc'];
-        $note = ($calc['over_quote_threshold'] ?? false) ? 'For more than ' . (int) ($this->ctx['rates']['quote_above_agents'] ?? 40) . ' agents a quoted rate is recorded under “Agreed variations” — we will confirm it with you.' : '';
+        $limit = (int) ($this->ctx['rates']['quote_above_agents'] ?? 40);
+        if (in_array($this->mode, ['rr', 'preview'], true)) {
+            // RR side: the quoted-rate reminder only (nothing is printed in the contract itself).
+            return ($calc['over_quote_threshold'] ?? false) ? '<span class="ctl"><span class="ctl-note">Over ' . $limit . ' agents a quoted rate applies — record it under “Agreed variations”.</span></span>' : '';
+        }
+        if (!$this->isForm()) {
+            return '';
+        }
+        $schema = AgreementFields::schema();
+        $note = ($calc['over_quote_threshold'] ?? false) ? 'For more than ' . $limit . ' agents a quoted rate is recorded under “Agreed variations” — we will confirm it with you.' : '';
 
-        return '<span class="ctl"><label for="fld-agents"><strong>' . e($f['label']) . '</strong></label> ' . $this->input('agents', $f) . '<span class="ctl-note" data-calc="note:agents">' . e($note) . '</span></span>';
+        // The only two entries section 3 needs, side by side directly above the fee table: the plan ticks and every line below follow them.
+        return '<span class="ctl"><span class="ctl-pair">'
+            . '<span class="ctl-item"><label for="fld-agents"><strong>Number of agents</strong></label> ' . $this->input('agents', $schema['agents']) . '</span>'
+            . '<span class="ctl-item"><label for="fld-branches"><strong>Number of branches</strong></label> ' . $this->input('branches', $schema['branches']) . '</span>'
+            . '</span><span class="ctl-note" data-calc="note:agents">' . e($note) . '</span></span>';
     }
 }

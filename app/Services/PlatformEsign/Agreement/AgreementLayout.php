@@ -14,7 +14,7 @@ class AgreementLayout
     public const LINE = 11.9;       // pt
     public const CPL = 88;          // characters per line at body width, DejaVu Sans 8.6pt
     public const START_BUDGET = 600;
-    public const REV = 1;           // bump to invalidate stored layouts when the estimator/CSS changes
+    public const REV = 2;           // bump to invalidate stored layouts when the estimator/CSS changes
 
     public function __construct(private AgreementRenderer $renderer, private AgreementPdf $pdf)
     {
@@ -40,7 +40,9 @@ class AgreementLayout
             $blocks[$part] = $this->renderer->blocks($v, $part, 'canon');
         }
         $est = array_map(fn ($list) => array_map(fn ($h) => self::estimate($h), $list), $blocks);
-        $isHeading = array_map(fn ($list) => array_map(fn ($h) => (bool) preg_match('/^<h[1-3][ >]/', $h), $list), $blocks);
+        // A heading stays with the block after it; so does the agents/branches entry (marked in canon mode) — it must never be
+        // parted from the fee table it feeds by a page break.
+        $isHeading = array_map(fn ($list) => array_map(fn ($h) => (bool) preg_match('/^<h[1-3][ >]/', $h) || str_contains($h, 'keep-next'), $list), $blocks);
 
         $budget = (float) self::START_BUDGET;
         $layout = null;
