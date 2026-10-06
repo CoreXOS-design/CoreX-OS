@@ -191,7 +191,11 @@ final class LeaseCreatePropertySearchTest extends TestCase
         $this->assertStringNotContainsString('<select name="property_id"', $html);
         $this->assertStringContainsString('id="lease-property-search"', $html);
         $this->assertStringContainsString('name="property_id"', $html);
-        $this->assertStringContainsString(route('corex.leases.search-rental-properties'), str_replace('\\/', '/', $html));
+        // Js::from escapes the slashes inside the Alpine config, so compare with backslashes stripped.
+        $this->assertStringContainsString(
+            route('corex.leases.search-rental-properties', [], false),
+            str_replace('\\', '', $html)
+        );
     }
 
     public function test_create_form_with_a_preset_property_keeps_the_fixed_address_and_no_picker(): void
