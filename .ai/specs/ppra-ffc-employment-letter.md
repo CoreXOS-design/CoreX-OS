@@ -492,3 +492,30 @@ T/A". Needs the data corrected in Company Settings (legal name "Johan and Elize 
 
 Tests: `tests/Feature/Compliance/PpraEmploymentLetterPdfLayoutTest.php` (renders the real PDF, reads it back with
 `pdftotext`).
+
+## 19. One gate for the Admin register + Start-letter 403 (2026-10-06)
+
+Branch `cc1-ppra-letter-admin-gate-2026-10-06`. **Supersedes §15 bug 5** (the branch/all scope gate).
+
+**The rule.** The whole Admin register — sidebar link (HR → Documents → PPRA FFC Letter), list, New letter, show, download,
+archive/restore, create/store — is gated on ONE permission, `ppra_employment_letters.manage` ("Manage PPRA Employment
+Letters for others", ticked per role in Role Manager), through one function:
+`PpraEmploymentLetter::userCanUseAdminRegister()`. Route middleware, every controller action (`assertAdminAccess()`) and the
+sidebar all call it, so they cannot disagree. Everyone else sees no link, gets 403 on every admin route, and uses My Portal →
+Documents → PPRA Employment Letter. `ppra_employment_letters.view`'s own/branch/all value now only narrows WHICH letters a
+manager sees (`scopeVisibleTo()`) and which agents the picker offers. Before, the list opened on view+scope≥branch while New
+letter needed manage, so a branch_manager (view=branch, no manage) was shown a list whose New letter 403'd.
+Default grants are unchanged: `.manage` is held by admin only; **branch_manager no longer reaches the register until a
+role manager ticks Manage for that role** (a decision for Johan, not changed here).
+
+**Start letter 403 ("Access denied" for admin Johan).** A browser posts `user_id` / `principal_user_id` as strings and
+`validate()` returns them unchanged; `store()` compared the raw string to the integer roster ids with `in_array(..., true)` and
+aborted 403 "That agent is not in your scope" on every real submit (tests posted ints, so it never showed). Fixed by casting
+both ids to int in `store()`; covered by `test_admin_start_letter_form_works_with_string_ids_from_a_real_browser_post_and_follows_redirects`.
+
+**Impersonation.** Switch User did `Auth::login($target)` but left the admin's session-wide View-As keys
+(`view_as_role`, `view_as_branch_id`), so the target resolved to the admin's lens role instead of their own.
+`ImpersonateController::start()` now clears them (`stop()` already did). Test:
+`test_switch_user_clears_the_admins_view_as_lens_so_the_target_gets_only_their_own_access`.
+
+No migration, no new setting (nothing for the Setup Wizard). Only the label of the existing `.manage` key changed.

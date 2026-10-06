@@ -371,27 +371,124 @@ final class PpraEmploymentLetterTest extends TestCase
     }
 
     /**
-     * cc1's HR->Documents nav finding (2026-10-05, flagged for cc2 to close):
-     * the admin register's own route middleware had no SCOPE check, only a
-     * bare permission-exists check — an 'own'-scoped agent (every agent is
-     * seeded 'own' on ppra_employment_letters.view for their My Portal
-     * self-service flow) could still reach the ADMIN register by direct
-     * URL, even though the sidebar never links there for them. Closed by
-     * PpraEmploymentLetterController::assertAdminScope() — this register is
-     * branch/all only, not even by direct URL.
+     * 2026-10-06 — ONE rule for the whole Admin register: `ppra_employment_letters.manage`. A user without it
+     * (an agent seeded view=own, or a branch_manager whose manage row was un-ticked in Role Manager — view=branch
+     * still resolves) gets 403 on EVERY admin route and no sidebar link; before, the list opened on view+scope
+     * while New letter needed manage, so the register offered a button that 403'd.
      */
-    public function test_own_scoped_agent_cannot_reach_admin_register_by_direct_url(): void
+    public function test_user_without_manage_gets_403_on_every_admin_route_and_no_sidebar_link(): void
     {
+        $this->seedLetterGrants(['agent', 'branch_manager', 'admin']);
+        RolePermission::where('role', 'branch_manager')->where('permission_key', 'ppra_employment_letters.manage')->delete();
+        PermissionService::clearCache();
+
         $agent = $this->user();
         $this->principal();
-
         $this->actingAs($agent)->post(route('ppra-employment-letters.store'));
         $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
 
-        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.index'))->assertStatus(403);
-        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.show', $letter->id))->assertStatus(403);
-        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.download', $letter->id))->assertStatus(403);
-        $this->actingAs($agent)->get(route('admin.ppra-employment-letters.create'))->assertStatus(403);
+        $agentUser = $agent;
+        $bmWithoutManage = $this->user(['role' => 'branch_manager']);
+        foreach ([$agentUser, $bmWithoutManage] as $who) {
+            $this->actingAs($who);
+            $this->get(route('admin.ppra-employment-letters.index'))->assertStatus(403);
+            $this->get(route('admin.ppra-employment-letters.create'))->assertStatus(403);
+            $this->post(route('admin.ppra-employment-letters.store'), ['user_id' => $agent->id])->assertStatus(403);
+            $this->get(route('admin.ppra-employment-letters.show', $letter->id))->assertStatus(403);
+            $this->get(route('admin.ppra-employment-letters.download', $letter->id))->assertStatus(403);
+            $this->post(route('admin.ppra-employment-letters.archive', $letter->id))->assertStatus(403);
+            $this->post(route('admin.ppra-employment-letters.restore', $letter->id))->assertStatus(403);
+            $this->assertFalse(PpraEmploymentLetter::userCanUseAdminRegister($who));
+        }
+
+        // Still allowed to use My Portal for their own letter.
+        $this->assertNotNull(PpraEmploymentLetter::where('user_id', $agent->id)->first());
+        $this->assertDatabaseCount('ppra_employment_letters', 1);
+    }
+
+    public function test_manager_sees_the_register_and_new_letter_and_can_create_and_the_sidebar_link_follows_the_same_rule(): void
+    {
+        $this->seedLetterGrants(['agent', 'branch_manager', 'admin']);
+        $agent = $this->user();
+        $this->principal();
+        $admin = $this->user(['role' => 'admin']);
+
+        $this->assertTrue(PpraEmploymentLetter::userCanUseAdminRegister($admin));
+
+        $this->actingAs($admin)->get(route('admin.ppra-employment-letters.index'))
+            ->assertOk()->assertSee(route('admin.ppra-employment-letters.create'), false);
+        $this->actingAs($admin)->get(route('admin.ppra-employment-letters.create'))->assertOk();
+        $this->actingAs($admin)->post(route('admin.ppra-employment-letters.store'), ['user_id' => $agent->id])->assertRedirect();
+        $this->assertDatabaseCount('ppra_employment_letters', 1);
+
+        // The sidebar renders the link for the manager (index page carries the layout) and not for the agent.
+        $this->actingAs($admin)->get(route('admin.ppra-employment-letters.index'))
+            ->assertSee(route('admin.ppra-employment-letters.index'), false);
+        $this->actingAs($agent)->get(route('corex.dashboard'))
+            ->assertDontSee(route('admin.ppra-employment-letters.index'), false);
+    }
+
+    /**
+     * Johan's "Access denied" (2026-10-06): a browser posts form values as STRINGS, and validate() hands them back
+     * unchanged; the store compared the raw string id to integer roster ids with in_array(strict) and 403'd every real
+     * submit ("That agent is not in your scope"), and the multi-principal pick would have failed the service's strict
+     * check next. Posts exactly as a browser does — string ids, two principals — and follows every redirect.
+     */
+    public function test_admin_start_letter_form_works_with_string_ids_from_a_real_browser_post_and_follows_redirects(): void
+    {
+        $this->seedLetterGrants(['agent', 'admin']);
+        $agent = $this->user();
+        $principalA = $this->principal();
+        $this->principal();
+        $admin = $this->user(['role' => 'admin']);
+
+        $this->actingAs($admin)->get(route('admin.ppra-employment-letters.create'))->assertOk();
+
+        $response = $this->actingAs($admin)->followingRedirects()->post(
+            route('admin.ppra-employment-letters.store'),
+            ['user_id' => (string) $agent->id, 'principal_user_id' => (string) $principalA->id]
+        );
+        $response->assertOk()->assertSee('Letter started for ' . $agent->name);
+
+        $letter = PpraEmploymentLetter::where('user_id', $agent->id)->firstOrFail();
+        $this->assertSame($admin->id, $letter->created_by_user_id);
+        $this->assertSame($principalA->id, $letter->principal_user_id);
+        $this->actingAs($admin)->get(route('admin.ppra-employment-letters.show', $letter->id))->assertOk();
+        $this->actingAs($admin)->get(route('admin.ppra-employment-letters.download', $letter->id))->assertStatus(200);
+        $this->actingAs($admin)->post(route('admin.ppra-employment-letters.archive', $letter->id))->assertRedirect(route('admin.ppra-employment-letters.index'));
+        $this->assertSoftDeleted('ppra_employment_letters', ['id' => $letter->id]);
+    }
+
+    /**
+     * Switch User must give exactly the impersonated user's access. A View-As lens the admin set earlier lives in
+     * the session, survives Auth::login(), and made Barbara (an agent) resolve to the lens role: the list opened
+     * (view=branch) while create 403'd (no manage). ImpersonateController::start() now clears the lens.
+     */
+    public function test_switch_user_clears_the_admins_view_as_lens_so_the_target_gets_only_their_own_access(): void
+    {
+        $this->seedLetterGrants(['agent', 'branch_manager', 'admin']);
+        RolePermission::where('role', 'branch_manager')->where('permission_key', 'ppra_employment_letters.manage')->delete();
+        PermissionService::clearCache();
+
+        // The lens belongs to a real owner (View-As is owner/impersonate-only, and an owner's real role bypasses it).
+        Role::forceCreate(['name' => 'super_admin', 'label' => 'System Owner', 'is_owner' => true]); // is_owner is not mass-assignable
+        Role::clearCache();
+        $agent = $this->user();
+        $admin = $this->user(['role' => 'super_admin']);
+
+        $this->assertTrue($admin->isOwnerRole());
+        $this->actingAs($admin)
+            ->withSession(['view_as_role' => 'branch_manager', 'view_as_branch_id' => $this->branch->id])
+            ->post(route("impersonate.start", $agent->id))
+            ->assertRedirect();
+
+        $this->assertNull(session('view_as_role'));
+        $this->assertNull(session('view_as_branch_id'));
+        $this->assertSame($agent->id, auth()->id());
+        $this->assertSame('agent', auth()->user()->effectiveRole());
+
+        $this->get(route('admin.ppra-employment-letters.index'))->assertStatus(403);
+        $this->get(route('admin.ppra-employment-letters.create'))->assertStatus(403);
     }
 
     // ── office_admin backfill (AT bug #2, 2026-10-05) ────────────────────────

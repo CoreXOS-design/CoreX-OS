@@ -37,33 +37,27 @@ use Symfony\Component\HttpFoundation\Response;
  * status machine as PpraEmploymentLetterService::create() — there is no
  * second code path, only a different caller.
  *
- * Gate (2026-10-05, cc1's HR->Documents nav finding, flagged for closing
- * here): this ENTIRE admin register is the branch/all-scoped register —
- * an 'own'-scoped user (every agent is seeded 'own' on
- * ppra_employment_letters.view so they can see their OWN letter via My
- * Portal) must never reach it, including by direct URL. The sidebar link
- * was already fixed to stop OFFERING it to 'own'-scoped users; this closes
- * the matching route-level gap so a direct URL does not bypass that.
- * assertAdminScope() enforces this on every action below, in addition to
- * each action's own permission check.
+ * Gate (2026-10-06): ONE rule for this entire register — the user holds
+ * ppra_employment_letters.manage (Role Manager). The sidebar link, the
+ * route middleware and assertAdminAccess() on every action below all
+ * resolve through PpraEmploymentLetter::userCanUseAdminRegister(), so the
+ * list can never open for someone New letter 403s. Everyone else keeps
+ * using My Portal for their own letter. ppra_employment_letters.view's
+ * own/branch/all value now only narrows WHICH letters a manager sees.
  */
 class PpraEmploymentLetterController extends Controller
 {
-    /** Every action here is for branch/all scope only — 'own' belongs in My Portal, never here, not even by direct URL. */
-    private function assertAdminScope(User $user): void
+    /** Every action here is for users who manage letters for others — everyone else uses My Portal, never here, not even by direct URL. */
+    private function assertAdminAccess(User $user): void
     {
-        abort_unless(
-            in_array(PermissionService::getDataScope($user, 'ppra_employment_letters'), ['branch', 'all'], true),
-            403
-        );
+        abort_unless(PpraEmploymentLetter::userCanUseAdminRegister($user), 403);
     }
 
     /** The scoped agent picker for create-on-behalf. */
     public function create(Request $request)
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
-        $this->assertAdminScope($user);
+        $this->assertAdminAccess($user);
 
         $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId());
         abort_unless($agency, 422, 'No agency context.');
@@ -80,7 +74,7 @@ class PpraEmploymentLetterController extends Controller
     public function store(Request $request, PpraEmploymentLetterService $service): RedirectResponse
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
+        $this->assertAdminAccess($user);
 
         $agency = Agency::withoutGlobalScopes()->find($user->effectiveAgencyId());
         abort_unless($agency, 422, 'No agency context.');
@@ -90,10 +84,15 @@ class PpraEmploymentLetterController extends Controller
             'principal_user_id' => ['nullable', 'integer'],
         ]);
 
-        $agentIds = $this->scopedRoster($user, $agency->id)->pluck('id')->all();
-        abort_unless(in_array($validated['user_id'], $agentIds, true), 403, 'That agent is not in your scope.');
+        // A browser posts form values as strings and validate() returns them unchanged, while the roster ids are
+        // integers — a strict comparison on the raw value 403'd every real form submit (tests post ints).
+        $agentId     = (int) $validated['user_id'];
+        $principalId = isset($validated['principal_user_id']) ? (int) $validated['principal_user_id'] : null;
 
-        $agent = User::withoutGlobalScopes()->where('agency_id', $agency->id)->findOrFail($validated['user_id']);
+        $agentIds = $this->scopedRoster($user, $agency->id)->pluck('id')->map(fn ($id) => (int) $id)->all();
+        abort_unless(in_array($agentId, $agentIds, true), 403, 'That agent is not in your scope.');
+
+        $agent = User::withoutGlobalScopes()->where('agency_id', $agency->id)->findOrFail($agentId);
 
         $missing = $service->missingFieldsFor($agent, $agency);
         if ($missing !== []) {
@@ -101,7 +100,7 @@ class PpraEmploymentLetterController extends Controller
                 . implode('; ', array_column($missing, 'label')) . '.');
         }
 
-        $letter = $service->create($agent, $user, $validated['principal_user_id'] ?? null);
+        $letter = $service->create($agent, $user, $principalId);
 
         return redirect()->route('admin.ppra-employment-letters.show', $letter->id)
             ->with('success', 'Letter started for ' . $agent->name . ' — they will sign it themselves from My Portal.');
@@ -145,8 +144,7 @@ class PpraEmploymentLetterController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.view'), 403);
-        $this->assertAdminScope($user);
+        $this->assertAdminAccess($user);
 
         $showArchived = $request->boolean('archived');
 
@@ -221,8 +219,7 @@ class PpraEmploymentLetterController extends Controller
     public function show(Request $request, int $letter)
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.view'), 403);
-        $this->assertAdminScope($user);
+        $this->assertAdminAccess($user);
 
         $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)
             ->with(['user', 'principal', 'branch', 'createdBy'])
@@ -234,8 +231,7 @@ class PpraEmploymentLetterController extends Controller
     public function download(Request $request, int $letter, PpraEmploymentLetterPdfService $pdfService): Response
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.view'), 403);
-        $this->assertAdminScope($user);
+        $this->assertAdminAccess($user);
 
         $record = PpraEmploymentLetter::withTrashed()->visibleTo($user)->findOrFail($letter);
 
@@ -257,8 +253,7 @@ class PpraEmploymentLetterController extends Controller
     public function archive(Request $request, int $letter): RedirectResponse
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
-        $this->assertAdminScope($user);
+        $this->assertAdminAccess($user);
 
         $record = PpraEmploymentLetter::visibleTo($user)->findOrFail($letter);
         $record->delete();
@@ -269,8 +264,7 @@ class PpraEmploymentLetterController extends Controller
     public function restore(Request $request, int $letter): RedirectResponse
     {
         $user = $request->user();
-        abort_unless($user->hasPermission('ppra_employment_letters.manage'), 403);
-        $this->assertAdminScope($user);
+        $this->assertAdminAccess($user);
 
         $record = PpraEmploymentLetter::onlyTrashed()->visibleTo($user)->findOrFail($letter);
         $record->restore();
