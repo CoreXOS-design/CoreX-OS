@@ -45,6 +45,7 @@
         <div class="flex items-center gap-3"><button type="button" id="submit-btn" class="btn" disabled>Countersign and seal</button><span id="savestate" class="text-xs" style="color: var(--text-muted);"></span></div>
     </div>
     <div id="toast" class="toast" hidden role="status"></div>
+    @include('platform-esign._end')
 </div>
 @php
     $cfg = ['mode' => 'rr', 'rev' => 0, 'total' => 0, 'done' => [], 'initials' => '', 'rates' => \App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES, 'variation' => '0', 'labels' => $labels, 'recipientKeys' => [],

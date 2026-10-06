@@ -116,5 +116,6 @@
             </form>
         </div>
     </div>
+    @include('platform-esign._end')
 </div>
 @endsection

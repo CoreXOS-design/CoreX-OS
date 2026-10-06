@@ -68,5 +68,6 @@
             <a href="{{ route('platform-esign.templates.index') }}" class="corex-btn-outline">Cancel</a>
         </div>
     </form>
+    @include('platform-esign._end')
 </div>
 @endsection

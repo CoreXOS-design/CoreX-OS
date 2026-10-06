@@ -17,5 +17,6 @@
     <div class="agr-wrap" style="max-width:860px;">
         @include('platform-esign.agreement._sheets', ['pages' => $pages, 'total' => $total, 'versionLabel' => $v->is_published ? $v->label() : 'Draft — not yet published'])
     </div>
+    @include('platform-esign._end')
 </div>
 @endsection

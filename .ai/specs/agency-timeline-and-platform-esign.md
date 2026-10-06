@@ -75,6 +75,17 @@ A separate module (own routes `platform-esign/*`, own tables `platform_esign_*`,
 its data outright — no `agency_id`, no scopes, no session "mode". Nothing in it reads or writes properties,
 listings, deals or the contact book; DocuPerfect is not touched by it and cannot see it.
 
+### 3A.1a Page layout (restyled 2026-10-06, Johan chose the "Module sidebar" option)
+Every Platform E-Sign page shares `platform-esign/_header.blade.php`: the banner (title, sub line, page actions)
+followed by a left sidebar that stays in view while the page scrolls. The sidebar replaces the old tab strip and
+lists the module in three groups: **Contracts** (Overview, Documents, Templates), **Send** (Subscription
+Agreement, Another contract), **Setup** (Agreement wording, Agency Timeline). The current page is marked from the
+`$tab` each page passes. The header opens the sidebar and the content column; each page closes them with
+`@include('platform-esign._end')` as the last line inside its wrapper. Overview shows four count tiles, then
+"Waiting on a signature" (status pill and signing progress per contract; contracts waiting on RR are marked) and
+"Recently signed". Below 1024px the sidebar becomes a scrolling row above the content. No route, permission, field
+or data query changed.
+
 ### 3A.2 Carried over from e-sign (copied, then simplified)
 Template builder (upload a PDF/Word -> place signature, initial, date and text fields; or web template),
 named signers with order, send by email, signer page (typed/drawn signature, consent, ID/passport), reminders,

@@ -71,5 +71,6 @@
             @endif
         @endforeach
     @endif
+    @include('platform-esign._end')
 </div>
 @endsection

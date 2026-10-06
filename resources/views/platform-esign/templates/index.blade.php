@@ -90,5 +90,6 @@
         </div>
         @if($templates->hasPages())<div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $templates->links() }}</div>@endif
     </div>
+    @include('platform-esign._end')
 </div>
 @endsection

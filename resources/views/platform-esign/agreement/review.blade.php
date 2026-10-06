@@ -47,6 +47,7 @@
         @endif
     </div>
     <div id="toast" class="toast" hidden role="status"></div>
+    @include('platform-esign._end')
 </div>
 @php
     $cfg = [

@@ -76,6 +76,7 @@
             <div class="pt-3"><button type="button" class="corex-btn-outline corex-btn-xs" @click="addBelow(items.length - 1)">+ Add a clause at the end</button></div>
         </div>
     </div>
+    @include('platform-esign._end')
 </div>
 
 <script>
