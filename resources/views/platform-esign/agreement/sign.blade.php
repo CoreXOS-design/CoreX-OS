@@ -42,7 +42,7 @@
         <h2 style="margin:0 0 .5rem;font-size:1.05rem;color:#0b2a4a;">Submit your signed agreement</h2>
         <div style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.7rem;">
             <label for="id_number" style="font-weight:600;font-size:.88rem;">ID or passport number of the person signing</label>
-            <input id="id_number" class="fld" style="font:inherit;border:1px solid #94a3b8;border-radius:4px;padding:.35rem .5rem;width:14em;" maxlength="40" value="{{ $signer->id_number }}" autocomplete="off" data-field="id_number">
+            <input id="id_number" class="fld" style="font:inherit;border:1px solid #94a3b8;border-radius:4px;padding:.35rem .5rem;width:14em;" maxlength="40" value="{{ $signer->id_number }}" autocomplete="off">
         </div>
         <label style="display:flex;gap:.55rem;align-items:flex-start;font-size:.88rem;margin-bottom:.8rem;"><input type="checkbox" id="consent" style="margin-top:.2rem;"> <span>{{ $consent }}</span></label>
         <div id="submit-errors" style="color:#b91c1c;font-size:.85rem;margin-bottom:.6rem;"></div>

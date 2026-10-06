@@ -6,7 +6,7 @@
     #hdr { position: fixed; top: -80pt; left: 0; right: 0; height: 62pt; border-bottom: 1.2pt solid #0b2a4a; }
     #hdr table { width:100%; border-collapse: collapse; }
     #hdr td { vertical-align: middle; padding:0; }
-    #hdr .logo img { height: 40pt; width: 40pt; }
+    #hdr .logo img { height: 34pt; }
     #hdr .brand { font-size: 17pt; font-weight: bold; color:#0b2a4a; padding-left: 7pt; }
     #hdr .brand span { color:#00b4d8; }
     #hdr .co { text-align:right; font-size: 7.3pt; line-height: 1.35; color:#334155; }
@@ -28,8 +28,7 @@
 @include('platform-esign.agreement._css', ['pdf' => true])
 </head><body>
 <div id="hdr"><table><tr>
-    <td class="logo" width="46"><img src="{{ $logo }}" alt="" style="width:40pt;height:40pt;"></td>
-    <td class="brand">{{ $brand }}</td>
+    <td class="logo"><img src="{{ $logo }}" alt="{{ $brand }}" style="height:34pt;"></td>
     <td class="co"><b>{{ $letterhead['name'] }}</b><br>{{ $letterhead['address'] }}<br>{{ $letterhead['contact'] }}</td>
 </tr></table></div>
 <div id="ftr"><table><tr>
