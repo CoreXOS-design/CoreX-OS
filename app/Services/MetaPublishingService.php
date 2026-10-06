@@ -238,14 +238,10 @@ class MetaPublishingService
             } else {
                 // Instagram
                 $metrics  = 'impressions,reach,likes,comments,shares';
-                $response = $this->http->get(self::GRAPH_BASE . '/' . $postId . '/insights', [
-                    'query' => [
-                        'metric'       => $metrics,
-                        'access_token' => $accessToken,
-                    ],
-                ]);
-
-                $data   = json_decode($response->getBody()->getContents(), true);
+                $data = $this->graphGet($postId . '/insights', [
+                    'metric'       => $metrics,
+                    'access_token' => $accessToken,
+                ], 'Instagram');
                 $byName = [];
                 foreach ($data['data'] ?? [] as $metric) {
                     $byName[$metric['name']] = $metric['values'][0]['value'] ?? 0;
@@ -270,7 +266,7 @@ class MetaPublishingService
      * Guzzle's default 4xx exception text embeds the full request URL — access
      * token included — so it must never reach a log line or the UI.
      */
-    private function graphGet(string $path, array $query): array
+    private function graphGet(string $path, array $query, string $label = 'Facebook'): array
     {
         $response = $this->http->get(self::GRAPH_BASE . '/' . $path, [
             'query'       => $query,
@@ -280,7 +276,7 @@ class MetaPublishingService
         $data = json_decode($response->getBody()->getContents(), true) ?? [];
 
         if (isset($data['error'])) {
-            throw new \RuntimeException('Facebook: ' . ($data['error']['message'] ?? 'unknown error'));
+            throw new \RuntimeException($label . ': ' . ($data['error']['message'] ?? 'unknown error'));
         }
 
         return $data;
