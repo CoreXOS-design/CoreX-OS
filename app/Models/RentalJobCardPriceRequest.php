@@ -21,6 +21,11 @@ class RentalJobCardPriceRequest extends Model
     public const STATUS_CLOSED = 'closed';
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Matches the column default so a just-created instance reads correctly without a refresh. */
+    protected $attributes = [
+        'status' => self::STATUS_OPEN,
+    ];
+
     protected $fillable = [
         'agency_id',
         'rental_job_card_id',

@@ -232,9 +232,11 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
             $card = $this->longCard($n);
             $pages = $this->pagesText($service->{$method}($card)->output());
             $with = fn (string $needle) => array_keys(array_filter($pages, fn ($p) => str_contains($p, $needle)));
-            $sub = $with('Subtotal (excl VAT)');
-            $vat = $with('VAT @');
-            $tot = $with('Total (incl VAT)');
+            // The owner quote ends in the VAT totals box; the worker's COST-only print ends in a single "Total cost" box (§17.4.7).
+            $printed = $method === 'jobCardPrintPdf';
+            $sub = $with($printed ? 'Total cost' : 'Subtotal (excl VAT)');
+            $vat = $printed ? $sub : $with('VAT @');
+            $tot = $printed ? $sub : $with('Total (incl VAT)');
             $this->assertCount(1, $sub, "n={$n}: grand subtotal appears once");
             $this->assertSame($sub, $tot, "n={$n}: Subtotal and Total are on DIFFERENT pages — the totals box split");
             $this->assertSame($sub, $vat, "n={$n}: VAT line on a different page from Subtotal");
@@ -250,7 +252,8 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
     {
         $pages = $this->pagesText(app(RentalDocumentPdfService::class)->{$method}($this->longCard(60))->output());
         $this->assertGreaterThanOrEqual(2, count($pages), 'a 60-line card must run to a second page');
-        $this->assertStringContainsString('Excl VAT', $pages[1], 'the table header (Excl VAT column) is missing on page 2');
+        $needle = $method === 'jobCardPrintPdf' ? 'Unit cost' : 'Excl VAT';
+        $this->assertStringContainsString($needle, $pages[1], "the table header ({$needle} column) is missing on page 2");
         $this->assertStringContainsString('Description', $pages[1]);
     }
 

@@ -66,7 +66,7 @@ final class RentalCrewLinkSettingsTest extends TestCase
     public function test_the_settings_screen_shows_the_crew_links_section_and_saves_each_setting(): void
     {
         $this->actingAs($this->admin)->get(route('corex.settings.rental-portal.edit'))
-            ->assertOk()->assertSee('Crew links')->assertSee('Job link expiry (days)')->assertSee('Show prices on the crew')->assertSee('tenant');
+            ->assertOk()->assertSee('Crew links')->assertSee('Job link expiry (days)')->assertSee('Show costs on the crew')->assertSee('tenant');
 
         $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-job-link-expiry-days'), ['crew_job_link_expiry_days' => 21])->assertRedirect();
         $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-link-show-costs'), ['crew_link_show_costs' => '1'])->assertRedirect();

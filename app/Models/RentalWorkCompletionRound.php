@@ -39,6 +39,11 @@ class RentalWorkCompletionRound extends Model
     public const RESPONDED_PORTAL = 'portal';
     public const RESPONDED_OFFICE_ON_BEHALF = 'office_on_behalf';
 
+    /** Matches the column default so a just-created instance reads correctly without a refresh. */
+    protected $attributes = [
+        'outcome' => self::OUTCOME_AWAITING_TENANT,
+    ];
+
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',

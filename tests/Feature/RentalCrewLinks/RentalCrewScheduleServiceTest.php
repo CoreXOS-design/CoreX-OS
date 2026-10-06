@@ -138,7 +138,7 @@ class RentalCrewScheduleServiceTest extends TestCase
         $page = $this->service->schedule($agency->id, $crew->id);
 
         $this->assertEqualsCanonicalizing(['Open approved', 'Open scheduled', 'Open in_progress'], $this->titles($page['today']));
-        $this->assertSame(RentalJobCard::CREW_VISIBLE_STATUSES, ['approved', 'scheduled', 'in_progress'], 'ONE constant decides it');
+        $this->assertSame(RentalJobCard::CREW_VISIBLE_STATUSES, ['approved', 'scheduled', 'in_progress', 'disputed'], 'ONE constant decides it (disputed joined in §17.12: a reopened job must reach the crew)');
     }
 
     public function test_an_archived_card_or_a_card_on_an_archived_property_drops_off(): void

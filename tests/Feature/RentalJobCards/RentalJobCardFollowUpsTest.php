@@ -528,7 +528,7 @@ final class RentalJobCardFollowUpsTest extends TestCase
         $card->refresh()->load(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder']);
 
         return view("corex.rental-job-cards.{$view}", [
-            'jobCard' => $card, 'pricesOn' => $pricesOn, 'revision' => 2,
+            'jobCard' => $card, 'pricesOn' => $pricesOn, 'costsOn' => false, 'revision' => 2,
             'vat' => $this->vat->breakdown($card), 'vatNumber' => '4123456789', 'logo' => null, 'agencyName' => 'Follow Up Agency',
         ])->render();
     }
@@ -541,7 +541,9 @@ final class RentalJobCardFollowUpsTest extends TestCase
         $this->line($card, 'Gasket', 200, $task);
         $this->line($card, 'Call-out', 100);
 
-        foreach (['print', 'quote-pdf'] as $view) {
+        // §17.4.7 (6 Oct 2026): the selling / VAT breakdown belongs to the OWNER quote. The worker's printed copy is
+        // COST-only now (no selling, no VAT breakdown) — its own behaviour is covered by CrewPayloadNeverCarriesSellingTest.
+        foreach (['quote-pdf'] as $view) {
             $html = $this->renderPdfView($card, $view);
 
             $this->assertStringNotContainsString('VAT type', $html, "{$view}: the VAT TYPE column is gone");
@@ -596,7 +598,9 @@ final class RentalJobCardFollowUpsTest extends TestCase
         $task = $this->service->addTask($card, 'Fix tap', $this->admin);
         $this->service->addLine($card, ['description' => 'Washer', 'quantity' => 2, 'unit_price' => 100], $this->admin, $task);
 
-        foreach (['print', 'quote-pdf'] as $view) {
+        // §17.4.7 (6 Oct 2026): the selling / VAT breakdown belongs to the OWNER quote. The worker's printed copy is
+        // COST-only now (no selling, no VAT breakdown) — its own behaviour is covered by CrewPayloadNeverCarriesSellingTest.
+        foreach (['quote-pdf'] as $view) {
             $html = $this->renderPdfView($card->fresh(), $view);
 
             $this->assertMatchesRegularExpression('/<th[^>]*>Line total<\/th>/', $html);

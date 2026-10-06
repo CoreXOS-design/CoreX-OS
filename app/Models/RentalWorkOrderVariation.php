@@ -30,6 +30,12 @@ class RentalWorkOrderVariation extends Model
     public const VIA_PORTAL = 'portal';
     public const VIA_AGENT_CAPTURE = 'agent_capture';
 
+    /** Matches the column defaults so a just-created instance reads correctly without a refresh. */
+    protected $attributes = [
+        'status' => self::STATUS_AWAITING_OWNER,
+        'revision' => 1,
+    ];
+
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',

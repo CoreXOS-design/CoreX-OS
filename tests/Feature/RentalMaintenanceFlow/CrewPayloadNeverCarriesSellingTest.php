@@ -58,7 +58,7 @@ final class CrewPayloadNeverCarriesSellingTest extends TestCase
             ->update(['unit_price' => 4321.99, 'line_total' => 8643.98, 'unit_cost' => 111.11, 'cost_total' => 222.22, 'markup_type' => 'percent', 'markup_value' => 3789.00, 'selling_basis' => 'line_markup']);
         RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'labour')
             ->update(['unit_price' => 7777.77, 'line_total' => 23333.31, 'unit_cost' => 55.55, 'cost_total' => 166.65]);
-        $card->forceFill(['total_amount' => 31977.29, 'total_cost' => 389.87, 'markup_all_percent' => 12.5])->save();
+        $card->forceFill(['total_amount' => 31977.29, 'total_cost' => 388.87, 'markup_all_percent' => 12.5])->save();
 
         return $card->fresh();
     }
@@ -129,10 +129,10 @@ final class CrewPayloadNeverCarriesSellingTest extends TestCase
         $this->assertNoSelling($html, 'GET /secure/job-cards/{token}');
         if ($showCosts) {
             $this->assertStringContainsString('222.22', $html, 'the crew sees the cost the office entered');
-            $this->assertStringContainsString('389.87', $html);
+            $this->assertStringContainsString('388.87', $html);
         } else {
             $this->assertStringNotContainsString('222.22', $html);
-            $this->assertStringNotContainsString('389.87', $html);
+            $this->assertStringNotContainsString('388.87', $html);
         }
     }
 
@@ -182,7 +182,7 @@ final class CrewPayloadNeverCarriesSellingTest extends TestCase
         $this->assertStringNotContainsString('Unit price', $html);
         if ($showCosts) {
             $this->assertStringContainsString('222.22', $html);
-            $this->assertStringContainsString('389.87', $html);
+            $this->assertStringContainsString('388.87', $html);
         } else {
             $this->assertStringNotContainsString('222.22', $html);
         }
