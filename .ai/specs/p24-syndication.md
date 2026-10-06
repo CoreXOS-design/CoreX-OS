@@ -566,7 +566,7 @@ confirming the payload/PUT logic itself was never the problem.
 
 **Tests (fake portal clients only):** `tests/Feature/Syndication/PortalPresenceFollowsStatusTest.php` — let_out → Rented push + withdraw job; let_out → active → `BackOnMarket` + marker reset on success / unchanged on failure; same with an active lease; marker `rented` re-list; PP exclusive blocks; deliberate-off listing not re-listed.
 
-**Known, reported not changed:** a `DesyndicatePropertyFromPortalsJob` queued by the `let_out` save that runs AFTER a very fast flip back to Active would withdraw the listing again (the job does not re-check the current status at run time).
+**Late withdraw job — FIXED (Johan, 2026-10-06):** `DesyndicatePropertyFromPortalsJob::handle()` now re-reads the property's CURRENT status when it runs (a fresh row, not the dispatch-time copy) and only withdraws if it is still off-market (`Property::matchesOffMarketStatus()` — `OFF_MARKET_STATUSES`, underscore + space forms, substring variants; the same rule `PropertyObserver` uses to dispatch). If the property is back on market the whole job is a no-op — P24, Private Property AND website — and logs `DesyndicatePropertyFromPortalsJob: skipped for property #N — back on market`. A soft-deleted property is never "back on market" and still proceeds. Dispatch timing, the re-list path above and `deactivateListing()` are unchanged. Other queued portal jobs checked: `SyncPpListingStatusJob` (re-reads status at run time) and `SubmitListingToProperty24` (maps current status at run time) were already safe. Tests: `tests/Feature/Syndication/DesyndicateJobStatusRecheckTest.php`.
 
 **Sandbox check (Staging, conductor):** see the handover in `/tmp/qa1-cc6-portal-status-2026-10-06.md`.
 
