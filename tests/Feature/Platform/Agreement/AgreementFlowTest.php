@@ -230,7 +230,7 @@ class AgreementFlowTest extends TestCase
         $this->assertSame('300', $fresh->rr_data['variation_amount']);
         $this->assertSame('Launch discount', $fresh->rr_data['variation_text']);
         $this->assertArrayNotHasKey('bogus', $fresh->form_data);
-        $this->assertSame('', $fresh->form_data['plan']);
+        $this->assertSame('team', $fresh->form_data['plan'], 'the plan is derived from the number of agents (2), never taken from the request');
         $this->assertSame('2', $fresh->form_data['agents']);
     }
 
@@ -292,7 +292,7 @@ class AgreementFlowTest extends TestCase
         $token = $this->tokenOf($doc);
         $res = $this->postJson(route('platform-esign.agreement.submit', $token), ['values' => ['registered_name' => 'X'], 'consent' => 0])->assertStatus(422);
         $errors = $res->json('errors');
-        foreach (['reg_no', 'plan', 'entity', 'da_account', 'sigA', 'sigM', 'm_first_payment', 'consent', 'initials', 'id_number'] as $k) {
+        foreach (['reg_no', 'agents', 'branches', 'entity', 'da_account', 'sigA', 'sigM', 'm_first_payment', 'consent', 'initials', 'id_number'] as $k) {
             $this->assertArrayHasKey($k, $errors, "missing error for {$k}");
         }
         $this->assertArrayNotHasKey('vat_no', $errors);

@@ -185,6 +185,9 @@ class AgreementFields
             if ($f['side'] !== 'r') {
                 continue;
             }
+            if (in_array($key, AgreementService::DERIVED_KEYS, true)) {
+                continue; // decided by the number of agents and branches (AgreementPricing::derive), never entered
+            }
             $v = trim((string) ($d[$key] ?? ''));
             if ($key === 'term_months') {
                 if (($d['term'] ?? '') === 'other' && $v === '') {
@@ -213,7 +216,7 @@ class AgreementFields
                 $errors[$key] = 'Enter a valid date.';
             }
         }
-        foreach (['branches' => 1, 'branches_start' => 1, 'agents' => 1, 'm_day' => 1] as $k => $min) {
+        foreach (['branches' => 1, 'agents' => 1, 'm_day' => 1] as $k => $min) {
             if (!isset($errors[$k]) && isset($d[$k]) && $d[$k] !== '' && (int) $d[$k] < $min) {
                 $errors[$k] = 'Must be at least ' . $min . '.';
             }
