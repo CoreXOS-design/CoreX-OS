@@ -805,15 +805,37 @@ class PrivatePropertyListingMapper
      */
     private function mapPropertyStatus(Property $property, string $listingType): string
     {
-        $status = strtolower(trim($property->status ?? ''));
-
-        foreach (['sold', 'rented', 'withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $offMarket) {
-            if (str_contains($status, $offMarket)) {
-                return 'Inactive';
-            }
+        if (self::isOffMarketBase($property)) {
+            return 'Inactive';
         }
 
         return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
+    }
+
+    /**
+     * Is the property's BASE status off-market? One definition for BOTH the
+     * full-submit mapper and the status-sync mapper (Johan, 2026-10-06 — a Refresh
+     * on a let property sent it back as To Let because this check was a hand-kept
+     * substring list that did not know `let_out`). Sourced from
+     * Property::OFF_MARKET_STATUSES (BUILD_STANDARD §6); the space form covers
+     * underscored slugs ("let_out" / "let out"), the substring match covers
+     * variants like "sold • cash". Base status only — a stale on-market sub-label
+     * must never resurrect an off-market listing (same rule as the P24 mapper).
+     */
+    private static function isOffMarketBase(Property $property): bool
+    {
+        $status = strtolower(trim((string) $property->status));
+        if ($status === '') {
+            return false;
+        }
+
+        foreach (Property::OFF_MARKET_STATUSES as $needle) {
+            if (str_contains($status, $needle) || str_contains($status, str_replace('_', ' ', $needle))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -828,6 +850,13 @@ class PrivatePropertyListingMapper
      */
     public static function statusFor(Property $property, string $listingType): string
     {
+        // Off-market BASE status is absolute — resolved before the sub-label so a stale
+        // banner ("Under Offer", "Back on Market") on a let_out/withdrawn listing can
+        // never re-advertise it, and so this agrees with the full-submit mapper.
+        if (self::isOffMarketBase($property)) {
+            return 'Inactive';
+        }
+
         $lifecycle = \App\Services\Syndication\ListingLifecycle::resolve($property->status, $property->status_label);
 
         if ($lifecycle === \App\Services\Syndication\ListingLifecycle::UNDER_OFFER) {

@@ -547,3 +547,26 @@ confirming the payload/PUT logic itself was never the problem.
   within its run interval, with no human needing to notice.
 - Any deactivation whose P24 removal cannot be confirmed within a defined window raises a visible
   admin notification, not just a log line.
+
+---
+
+# Portal presence follows property status — P24 re-list (Johan, 2026-10-06)
+
+**Ruling:** portal presence is driven by PROPERTY STATUS. `let_out` = off both portals. Back to Active/Available = back on both portals for rent, even while the current lease is still running. An active lease blocks nothing about portals (`Property::blockingActiveLease()` is — and stays — absent from every status/portal path).
+
+**The gap (investigation `/tmp/qa1-cc5-2026-10-06-b.md`, J1c/J1e):** a `let_out` property ends OFF P24 (`DesyndicatePropertyFromPortalsJob` → `p24_syndication_status='deactivated'`). When it went back on-market, `PropertyObserver::saved` pushed a bare `Active` — not P24's back-on-market path — and never reset CoreX's own marker, so CoreX kept showing the listing as off Property24 and relied on P24 accepting Withdrawn→Active.
+
+**The fix (`PropertyObserver`):**
+- `saving()` records an off-market → on-market `status` move (`$returningToMarket`, same capture pattern as AT-68's renewal reminder — `getOriginal()` is only reliable there); `saved()` consumes it.
+- In the P24 status block, AFTER the unchanged PP-exclusive and approval gates: if the move is a return to market AND `p24_syndication_status` is `deactivated` / `sold` / `rented` (not a live advert), call `Property24SyndicationService::reactivateListing()` — `BackOnMarket`, which re-checks the gates and the agent-conflict guard, and writes `submitted` + clears `p24_last_error` **only after P24 accepts the push** (audit-truth). A transient failure leaves the marker untouched with a retryable note; a permanent refusal records `error`; neither claims the listing is back.
+- An on-market → on-market status tweak on a listing an agent deliberately switched off P24 is NOT a re-list (unchanged: it never was auto-relisted by a status edit that does not leave off-market).
+- `syncActivationStatus()` later promotes `submitted` → `active` when P24's `is-on-portal` confirms.
+
+**Unchanged gates:** Private Property exclusive window still blocks the P24 push (`blockIfPpExclusive`); syndication approval (`refusalForUpdate`/`blockIfNotApproved`) still applies. Terminal pushes (Rented/Withdrawn/…) are never blocked.
+
+**Tests (fake portal clients only):** `tests/Feature/Syndication/PortalPresenceFollowsStatusTest.php` — let_out → Rented push + withdraw job; let_out → active → `BackOnMarket` + marker reset on success / unchanged on failure; same with an active lease; marker `rented` re-list; PP exclusive blocks; deliberate-off listing not re-listed.
+
+**Known, reported not changed:** a `DesyndicatePropertyFromPortalsJob` queued by the `let_out` save that runs AFTER a very fast flip back to Active would withdraw the listing again (the job does not re-check the current status at run time).
+
+**Sandbox check (Staging, conductor):** see the handover in `/tmp/qa1-cc6-portal-status-2026-10-06.md`.
+
