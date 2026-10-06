@@ -13,13 +13,16 @@
         @font-face { font-family:'Inter'; font-weight:600; font-style:normal; src:url('{{ $fontDir }}/Inter-600.ttf') format('truetype'); }
         @font-face { font-family:'Inter'; font-weight:700; font-style:normal; src:url('{{ $fontDir }}/Inter-700.ttf') format('truetype'); }
         @page { margin: 24px 32px; }
-        html, body { margin: 0; padding: 0; background: #ffffff; color: #0b2a4a; }
+        /* §14.23 — NO html/body margin reset: dompdf lets the html box win over @page, so a
+           "margin:0" here removed the page margins and text ran to the paper edge. */
+        html, body { background: #ffffff; color: #0b2a4a; }
         * { box-sizing: border-box; }
         body { font-family: 'Inter', 'DejaVu Sans', sans-serif; font-size: 11px; }
         h1 { font-size: 18px; margin: 0 0 4px; }
         h2 { font-size: 12px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: #4b5563; }
         p { margin: 0 0 4px; }
-        table { width: 100%; border-collapse: collapse; }
+        p, td, th, li { word-wrap: break-word; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         td { padding: 3px 0; vertical-align: top; }
         td.label { width: 160px; color: #4b5563; }
         .header { display: table; width: 100%; margin-bottom: 18px; }
