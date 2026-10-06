@@ -66,10 +66,18 @@
     .pe-pill.pe-ok { background: color-mix(in srgb, var(--ds-green) 14%, transparent); color: var(--ds-green); }
     .pe-prog { width: 4.5rem; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
     .pe-prog i { display: block; height: 100%; background: var(--ds-green); border-radius: 3px; }
-    @media (max-width: 1023px) {
+    /* The sidebar takes ~15rem of the content width, so it only shows from 1280px up; below that it becomes a row above
+       the content. Between 1280 and 1535 a page's own xl (1280) three-column layout would be squeezed, so it stacks. */
+    @media (min-width: 1280px) and (max-width: 1535px) {
+        .pe-main .xl\:grid-cols-3 { grid-template-columns: minmax(0, 1fr); }
+        .pe-main .xl\:col-span-2 { grid-column: auto; }
+    }
+    @media (max-width: 1279px) {
         .pe-shell { grid-template-columns: minmax(0, 1fr); }
         .pe-nav { top: 0; z-index: 6; flex-direction: row; overflow-x: auto; }
         .pe-nav .pe-grp { display: none; }
+    }
+    @media (max-width: 1023px) {
         .pe-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 </style>

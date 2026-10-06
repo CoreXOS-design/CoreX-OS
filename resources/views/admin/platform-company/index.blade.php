@@ -58,12 +58,14 @@
     .pc-inuse { display: inline-flex; align-items: center; gap: .3rem; align-self: flex-start; font-size: .6875rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--ds-green) 14%, transparent); color: var(--ds-green); }
     .pc-drop { display: flex; flex-direction: column; align-items: center; gap: .3rem; text-align: center; padding: 1.25rem 1rem; border: 1.5px dashed var(--border-hover); border-radius: 8px; background: var(--surface-2); cursor: pointer; transition: border-color 150ms, background 150ms; }
     .pc-drop:hover, .pc-drop.pc-over { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 8%, transparent); }
+    .pc-drop:focus-within { border-color: var(--brand-icon); outline: 2px solid var(--brand-icon); outline-offset: 2px; }
     .pc-drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
     .pc-back { position: fixed; inset: 0; z-index: 1000; background: rgba(5, 10, 20, .45); }
     .pc-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1001; width: min(36rem, 100%); display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
     .pc-drawer-h { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .85rem 1.1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
     .pc-drawer-b { flex: 1; overflow-y: auto; padding: 1.1rem; display: flex; flex-direction: column; gap: 1.1rem; }
-    @media (max-width: 1023px) {
+    /* The sidebar takes ~15rem, so it only shows from 1280px up; below that it becomes a row above the content. */
+    @media (max-width: 1279px) {
         .pc-shell { grid-template-columns: minmax(0, 1fr); }
         .pc-nav { top: 0; z-index: 6; flex-direction: row; overflow-x: auto; }
     }
@@ -154,7 +156,7 @@
 
     {{-- ── Main form: details + letterhead + signature + bank, one Save ── --}}
     <form method="POST" action="{{ route('admin.platform-company.update') }}" x-ref="form"
-          @input="queue()" @change="queue()" @submit="onSubmit($event)">
+          @input="queue()" @change="queue()" @invalid.capture="onInvalid($event)" @submit="rememberSection()">
         @csrf @method('PUT')
         <input type="hidden" name="version" value="{{ $company->version }}">
 
@@ -376,11 +378,11 @@ function platformCompanyForm(cfg) {
     return {
         directors: cfg.directors, phones: cfg.phones, websites: cfg.websites, vat: cfg.vat, sig: cfg.sig,
         preview: cfg.preview, busy: false, dirty: false, timer: null, seq: 0,
-        sec: 'logo', drawer: false,
+        sec: 'logo', drawer: false, opening: false,
         sections: ['logo', 'details', 'letterhead', 'signature', 'bank', 'history'],
         init() {
             // Priority: a section with a server error > the #hash (history filter, old links) > the section we were on before a save.
-            const fromHash = () => { const h = location.hash.replace('#pc-', ''); return this.sections.includes(h) ? h : null; };
+            const fromHash = () => { const h = (location.hash || '').replace('#pc-', ''); return this.sections.includes(h) ? h : null; };
             let remembered = null;
             try { remembered = sessionStorage.getItem('pc-section'); sessionStorage.removeItem('pc-section'); } catch (e) { /* storage blocked: start on Logo */ }
             this.sec = cfg.start || fromHash() || (this.sections.includes(remembered) ? remembered : 'logo');
@@ -391,18 +393,17 @@ function platformCompanyForm(cfg) {
             history.replaceState(null, '', '#pc-' + id);
             document.getElementById('appScroll')?.scrollTo({ top: 0 });
         },
-        onSubmit(e) {
-            const f = this.$refs.form;
-            if (! f.checkValidity()) {
-                // A required field in a hidden section would block the save silently — open that section first.
-                e.preventDefault();
-                const bad = f.querySelector('input:invalid, select:invalid, textarea:invalid');
-                const sec = bad?.closest('[data-pc-section]')?.dataset.pcSection;
-                if (sec) { this.sec = sec; }
-                this.$nextTick(() => f.reportValidity());
-                return;
-            }
-            try { sessionStorage.setItem('pc-section', this.sec); } catch (err) { /* ignore */ }
+        onInvalid(e) {
+            // The browser validates BEFORE 'submit' fires and cannot focus a field inside a hidden section, so it blocks
+            // the save silently. Open the section holding the first bad field, then show the message there.
+            const sec = e.target.closest('[data-pc-section]')?.dataset.pcSection;
+            if (! sec || sec === this.sec || this.opening) { return; }
+            this.opening = true;
+            this.sec = sec;
+            this.$nextTick(() => { e.target.focus(); e.target.reportValidity?.(); this.opening = false; });
+        },
+        rememberSection() {
+            try { sessionStorage.setItem('pc-section', this.sec); } catch (err) { /* storage blocked: next load starts on Logo */ }
         },
         queue() {
             this.dirty = true;

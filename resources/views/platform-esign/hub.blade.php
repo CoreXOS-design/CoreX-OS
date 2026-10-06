@@ -50,7 +50,7 @@
                 <a href="{{ route('platform-esign.documents.show', $d->id) }}" class="pe-row">
                     <div class="pe-col">
                         <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">{{ $d->title }}</div>
-                        <div class="text-xs mt-0.5 truncate" style="color: var(--text-muted);">
+                        <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                             {{ $d->agency?->name ?? 'No agency' }} · sent {{ $d->sent_at?->diffForHumans() }} · waiting on
                             {{ $d->signers->where('status', '!=', 'signed')->pluck('name')->implode(', ') }}
                         </div>
