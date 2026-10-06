@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 /** To the CoreX sender: the agency has signed — countersign. Names and a link only, never entered values. */
 class AgreementReceivedMail extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable, SendsFromPlatformCompany, SerializesModels;
 
     public string $url;
 
@@ -23,7 +23,7 @@ class AgreementReceivedMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Awaiting your countersignature: ' . $this->doc->title);
+        return $this->platformEnvelope('Awaiting your countersignature: ' . $this->doc->title, $this->doc);
     }
 
     public function content(): Content
