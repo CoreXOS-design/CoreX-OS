@@ -484,6 +484,11 @@ class EsignService
 
     private function mailSigned(Document $doc): void
     {
+        if ($doc->isWebdoc()) {
+            $this->mailAgreementCompleted($doc);
+
+            return;
+        }
         $to = $doc->signers->pluck('email')->all();
         if ($doc->created_by) {
             $sender = \App\Models\User::withoutGlobalScopes()->where('id', $doc->created_by)->value('email');
@@ -499,6 +504,40 @@ class EsignService
             }
         }
         $this->log($doc, 'signed_copy_sent', 'Signed copy emailed');
+    }
+
+    /**
+     * The Subscription Agreement is fully signed: tell both sides, with a secure link and NEVER an attachment — the agreement holds the
+     * agency's bank details, and "from here it stays inside CoreX" (spec §11.15). The agency's link is its own token link; RR's opens the
+     * owner-gated document screen. $only = 'agency' | 'rr' sends just that side (link re-issue).
+     */
+    public function mailAgreementCompleted(Document $doc, ?string $only = null): void
+    {
+        $doc->loadMissing('signers', 'agency');
+        $agency = $doc->signers->firstWhere('role_key', 'r1');
+        $rr = [];
+        if ($only !== 'agency') {
+            $rr = [$doc->signers->firstWhere('role_key', 'r2')?->email];
+            if ($doc->created_by) {
+                $rr[] = \App\Models\User::withoutGlobalScopes()->where('id', $doc->created_by)->value('email');
+            }
+            $rr = array_values(array_unique(array_filter(array_map(fn ($e) => $e ? strtolower($e) : null, $rr))));
+        }
+        $sent = [];
+        if ($only !== 'rr' && $agency && $agency->email) {
+            $sent[] = [strtolower($agency->email), new \App\Mail\PlatformEsign\AgreementSignedMail($doc, 'agency', route('platform-esign.agreement.show', $agency->token))];
+        }
+        foreach ($rr as $addr) {
+            $sent[] = [$addr, new \App\Mail\PlatformEsign\AgreementSignedMail($doc, 'rr', route('platform-esign.documents.show', $doc->id))];
+        }
+        foreach ($sent as [$addr, $mail]) {
+            try {
+                Mail::mailer('corex')->to($addr)->send($mail);
+            } catch (\Throwable $e) {
+                Log::error('Platform e-sign agreement completion notice failed', ['document_id' => $doc->id, 'to' => $addr, 'error' => $e->getMessage()]);
+            }
+        }
+        $this->log($doc, 'signed_copy_sent', 'Completion notice with a secure link emailed (no attachment)');
     }
 
     /** Only a real PNG data-URI of sane size is kept; anything else is dropped (typed name still signs). */

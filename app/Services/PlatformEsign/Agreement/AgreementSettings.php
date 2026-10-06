@@ -13,6 +13,7 @@ class AgreementSettings
     /** key => [DevSetting key, default, min, max, label, help] */
     public const FIELDS = [
         'expiry_days' => [AgreementService::EXPIRY_KEY, 30, 1, 180, 'Link valid for (days)', 'After this many days the agency’s signing link stops working. You can re-issue it in one click; everything they entered is kept.'],
+        'access_months' => [AgreementService::ACCESS_KEY, 12, 1, 120, 'Signed agreement link valid for (months)', 'After an agreement is fully signed the agency keeps opening it, viewing it and downloading the signed PDF from its own link for this many months. You can re-issue the link at any time. Expiry and reminder settings apply only before signing.'],
         'reminder_days' => [AgreementService::REMINDER_KEY, 3, 1, 60, 'First reminder after (days without progress)', 'The agency is reminded once this many days pass with no progress (saving, initialling or signing). Just opening the link does not count as progress.'],
         'reminder_repeat_days' => ['platform_esign.agreement_reminder_repeat_days', 3, 1, 60, 'Then remind every (days)', 'Gap between further reminders if there is still no progress.'],
         'reminder_max' => ['platform_esign.agreement_reminder_max', 3, 0, 10, 'At most this many reminders (0 = none)', 'Reminders to the agency stop after this many, and the same limit applies to countersign reminders to you.'],
