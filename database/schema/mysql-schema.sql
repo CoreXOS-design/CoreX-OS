@@ -14881,6 +14881,10 @@ CREATE TABLE `rental_portal_settings` (
   `crew_link_show_prices` tinyint(1) DEFAULT NULL,
   `crew_link_show_tenant_contact` tinyint(1) DEFAULT NULL,
   `notify_landlord_on_crew_completion` tinyint(1) DEFAULT NULL,
+  `crew_photos_visible_to_clients` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `crew_standing_link_expiry_days` smallint unsigned DEFAULT NULL,
+  `crew_page_recent_completed_days` tinyint unsigned DEFAULT NULL,
+  `crew_page_upcoming_days` tinyint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `rental_portal_settings_agency_id_foreign` (`agency_id`),
   CONSTRAINT `rental_portal_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
@@ -19619,3 +19623,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1576,'2026_10_10_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1577,'2026_10_10_100400_add_crew_link_settings_to_rental_portal_settings_table',2);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1578,'2026_10_10_100500_grant_rental_job_cards_share_permission',2);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1579,'2026_10_10_110000_create_rental_job_card_signed_copies_table',3);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1580,'2026_10_09_100000_add_crew_page_settings_to_rental_portal_settings',4);
