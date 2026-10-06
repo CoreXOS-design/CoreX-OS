@@ -222,19 +222,18 @@ class AgreementCompanyPinningTest extends TestCase
 
     public function test_the_pdf_logo_box_has_a_fixed_height_and_a_capped_width(): void
     {
-        $this->uploadLogo(); // 1x1 → ratio 1
-        $box = (new AgreementCompany())->logoBoxPt();
-        $this->assertEquals(34.0, $box['h']);
-        $this->assertEquals(34.0, $box['w']);
+        $this->uploadLogo(); // 1x1 → never upscaled past its own size
+        $tiny = (new AgreementCompany())->logoBoxPt();
+        $this->assertEqualsWithDelta(0.75, $tiny['h'], 0.01, 'a 1px image is never blown up');
 
         $this->changeCompany(['logo_id' => null]);
-        $svg = (new AgreementCompany())->logoBoxPt(); // built-in wordmark, 360x96
-        $this->assertEquals(34.0, $svg['h']);
-        $this->assertEqualsWithDelta(127.5, $svg['w'], 0.01);
+        $svg = (new AgreementCompany())->logoBoxPt(); // built-in wordmark, 360x96, vector
+        $this->assertEquals(45.0, $svg['h'], '60px = 45pt');
+        $this->assertEqualsWithDelta(168.75, $svg['w'], 0.01);
 
-        $wide = (new AgreementCompany())->logoBoxPt(34.0, 100.0);
+        $wide = (new AgreementCompany())->logoBoxPt(45.0, 100.0);
         $this->assertEquals(100.0, $wide['w'], 'a very wide logo is scaled down, never allowed to squeeze the company block');
-        $this->assertLessThan(34.0, $wide['h']);
+        $this->assertLessThan(45.0, $wide['h']);
     }
 
     // ── No hard-coded company details ──────────────────────────────────────

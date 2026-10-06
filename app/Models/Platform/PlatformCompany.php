@@ -118,6 +118,82 @@ class PlatformCompany extends Model
         return ['bytes' => (string) @file_get_contents(public_path(self::BUILT_IN_LOGO)), 'mime' => 'image/svg+xml'];
     }
 
+    // ── Letterhead logo sizing — ONE rule for every place the letterhead is used (spec platform-company-profile §4a) ──────────────
+    /** Display height on screen (px) and the same height in the PDFs (pt: 60px = 45pt). */
+    public const LOGO_HEIGHT_PX = 60;
+    public const LOGO_HEIGHT_PT = 45.0;
+    /** A logo is never wider than this share of the header. */
+    public const LOGO_MAX_SHARE = 0.45;
+    /** A4 page content width between the PDF margins (595 − 2×46 pt). */
+    public const PDF_HEADER_WIDTH_PT = 503.0;
+
+    /** @return array{ratio:float,nat_w:?int,nat_h:?int} natural size of the logo in pixels (null for SVG, which is vector) and its width:height ratio */
+    public function logoMetrics(): array
+    {
+        $f = $this->logoFile();
+        if (str_contains($f['mime'], 'svg')) {
+            $ratio = 0.0;
+            if (preg_match('/viewBox\s*=\s*"[\s,]*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i', $f['bytes'], $m) && (float) $m[2] > 0) {
+                $ratio = (float) $m[1] / (float) $m[2];
+            } elseif (preg_match('/\swidth\s*=\s*"([\d.]+)/i', $f['bytes'], $w) && preg_match('/\sheight\s*=\s*"([\d.]+)/i', $f['bytes'], $h) && (float) $h[1] > 0) {
+                $ratio = (float) $w[1] / (float) $h[1];
+            }
+
+            return ['ratio' => $ratio > 0 ? $ratio : 3.75, 'nat_w' => null, 'nat_h' => null];
+        }
+        $info = @getimagesizefromstring($f['bytes']);
+        if ($info && $info[0] > 0 && $info[1] > 0) {
+            return ['ratio' => $info[0] / $info[1], 'nat_w' => (int) $info[0], 'nat_h' => (int) $info[1]];
+        }
+
+        return ['ratio' => 3.75, 'nat_w' => null, 'nat_h' => null];
+    }
+
+    /**
+     * Letterhead logo size on screen: fixed height (60px, or the image's own height if it is smaller — never upscaled), width follows the shape,
+     * capped at 45% of the header so it can never squeeze the company details beside it.
+     *
+     * @return array{w:int,h:int}
+     */
+    public function logoSizePx(float $headerWidthPx = 760.0): array
+    {
+        $m = $this->logoMetrics();
+        $h = (float) self::LOGO_HEIGHT_PX;
+        if ($m['nat_h'] !== null) {
+            $h = min($h, (float) $m['nat_h']);
+        }
+        $w = $h * $m['ratio'];
+        $cap = $headerWidthPx * self::LOGO_MAX_SHARE;
+        if ($w > $cap) {
+            $h = $h * $cap / $w;
+            $w = $cap;
+        }
+
+        return ['w' => (int) max(1, round($w)), 'h' => (int) max(1, round($h))];
+    }
+
+    /**
+     * The same rule for the PDFs, in points: fixed 45pt height (never above the image's natural size at 96dpi), width from the shape, capped at 45%
+     * of the header. A raster logo is embedded at its full resolution (DomPDF scales it down), so it stays crisp; an SVG stays vector.
+     *
+     * @return array{w:float,h:float}
+     */
+    public function logoBoxPt(?float $height = null, ?float $maxWidth = null): array
+    {
+        $m = $this->logoMetrics();
+        $h = $height ?? self::LOGO_HEIGHT_PT;
+        if ($m['nat_h'] !== null) {
+            $h = min($h, $m['nat_h'] * 0.75);
+        }
+        $w = $h * $m['ratio'];
+        $cap = $maxWidth ?? (self::PDF_HEADER_WIDTH_PT * self::LOGO_MAX_SHARE);
+        if ($w > $cap) {
+            return ['w' => round($cap, 2), 'h' => round($cap / $m['ratio'], 2)];
+        }
+
+        return ['w' => round($w, 2), 'h' => round($h, 2)];
+    }
+
     /** Absolute, streamed, public. `l` names the exact logo version (0 = built-in), so a pinned document keeps its own logo. */
     public function logoUrl(): string
     {

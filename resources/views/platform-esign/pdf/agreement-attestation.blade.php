@@ -5,7 +5,7 @@
     body { margin:0; font-family: 'DejaVu Sans', sans-serif; font-size: 9pt; color:#111827; line-height:1.45; }
     #hdr { position: fixed; top: -80pt; left: 0; right: 0; height: 62pt; border-bottom: 1.2pt solid #0b2a4a; }
     #hdr table { width:100%; border-collapse: collapse; } #hdr td { vertical-align: middle; padding:0; }
-    #hdr .logo img { height: 34pt; }
+    #hdr .logo img { display:block; } /* size: PlatformCompany::logoBoxPt (45pt high, ≤45% of the header) */
     #hdr .co { text-align:right; font-size: 7.3pt; line-height: 1.35; color:#334155; } #hdr .co b { font-size: 8.6pt; color:#0b2a4a; }
     #ftr { position: fixed; bottom: -52pt; left: 0; right: 0; height: 40pt; border-top: 0.6pt solid #94a3b8; font-size: 7.3pt; color:#334155; padding-top: 4pt; }
     .pn:before { content: counter(page); }

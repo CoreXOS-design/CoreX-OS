@@ -168,3 +168,15 @@ logo the built-in CoreX OS wordmark is used (`public/images/corex-os-logo.svg`).
 5. Every save writes an audit row; a failed save leaves nothing behind (no half-saved row, no orphan file).
 6. A stale form (someone saved in between) is refused with a plain message, not overwritten.
 7. Platform E-Sign emails carry the company signature.
+
+## 4a. Letterhead logo sizing — one rule everywhere (cc2, 2026-10-06, follow-up after the Staging promo)
+Whatever logo is uploaded, it is displayed by ONE rule (`PlatformCompany::logoSizePx()` / `logoBoxPt()` / `logoMetrics()`):
+- **fixed display height** — 60px on screen, 45pt in the PDFs (the same height); **width follows the logo's shape**;
+- **never wider than 45% of the header** (then scaled down together, keeping its shape) so it can never squeeze the company details beside it;
+- **never upscaled past its own size** (a 40×20 px image is shown at 40×20 px, not blown up);
+- **crisp in the PDFs**: a raster logo is embedded at its full resolution and scaled down by DomPDF; an SVG stays vector.
+Used by: the agreement sheets (recipient page, owner preview, RR countersign screen), the agreement and attestation PDF headers (`AgreementCompany::logoBoxPt()` delegates here), `/legal`, the email signature block, and the company page letterhead previews (web and PDF).
+The company page shows the uploaded image's pixel size and a recommendation: the logo on its own, landscape about 3:1 (e.g. 900 × 300 px), trimmed tight with no empty space, transparent PNG / white background or SVG, at least 300 px tall, up to 2 MB — not a whole letterhead page with the address on it.
+The rule never crops: if an uploaded image has large empty margins (or contains the whole letterhead), the mark simply looks small — that is reported to the owner, not silently trimmed.
+Tests: `tests/Feature/Platform/LogoSizingTest.php`.
+
