@@ -121,7 +121,7 @@ Agency initials: ______ RR Technologies initials: ______
 
 |||
 |---|---|
-| **Start date**||
+| **Take On Month**||
 | **Initial term**| ☐ 1 month ☐ Other: ______ months|
 | **After the initial term**| Continues month to month until cancelled|
 | **Notice to cancel**| 30 days’ written notice, ending on the last day of a calendar month|
