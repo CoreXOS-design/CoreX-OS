@@ -42,6 +42,14 @@ class LegalTermsTest extends TestCase
             'rates_json' => $v1->rates_json, 'is_published' => true, 'published_at' => now()->addMinute(), 'change_note' => 'TEST VERSION — internal note']);
     }
 
+    public function test_legal_shows_the_corrected_website_maintenance_clause(): void
+    {
+        $this->get('/legal')->assertOk()
+            ->assertSee('We maintain the website for as long as this agreement runs. When it ends, we stop maintaining it, and the domain name remains the Agency’s.', false)
+            ->assertDontSee('We host the website')
+            ->assertSee('We do not host the website.');
+    }
+
     public function test_legal_is_public_and_shows_only_parts_b_c_and_d_of_the_current_version(): void
     {
         $res = $this->get('/legal')->assertOk();

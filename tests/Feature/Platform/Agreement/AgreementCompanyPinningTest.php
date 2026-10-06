@@ -162,7 +162,10 @@ class AgreementCompanyPinningTest extends TestCase
     {
         $doc = $this->send($this->owner());
         Mail::assertSent(AgreementInviteMail::class);
-        $this->changeCompany(['legal_name' => 'Newname Holdings (Pty) Ltd', 'trading_name' => 'Newname', 'email_general' => 'hello@newname.example', 'websites' => ['www.newname.example']]);
+        $this->changeCompany([
+            'legal_name' => 'Newname Holdings (Pty) Ltd', 'trading_name' => 'Newname', 'email_general' => 'hello@newname.example',
+            'email_support' => 'help@newname.example', 'phones' => [['label' => 'Telephone', 'number' => '011 000 0000']], 'websites' => ['www.newname.example'],
+        ]);
 
         $signer = $doc->signers->first();
         $invite = (new AgreementInviteMail($doc->fresh('agency'), $signer))->render();
@@ -171,6 +174,11 @@ class AgreementCompanyPinningTest extends TestCase
         $this->assertStringContainsString('CoreX OS &middot; www.corexweb.co.za', $invite);
         $this->assertStringNotContainsString('johan@corexos.co.za', $invite);
         $this->assertStringNotContainsString('Newname', $invite);
+        // The company signature block is the PINNED one (spec platform-company-profile §7a), never today's record.
+        $this->assertStringContainsString('Support: support@corexos.co.za', $invite);
+        $this->assertStringContainsString('Telephone (039) 004 0125', $invite);
+        $this->assertStringNotContainsString('newname.example', $invite);
+        $this->assertStringNotContainsString('011 000 0000', $invite);
 
         $received = (new AgreementReceivedMail($doc->fresh('signers')))->render();
         $this->assertStringContainsString('needs RR Technologies (Pty) Ltd', $received);
@@ -239,7 +247,7 @@ class AgreementCompanyPinningTest extends TestCase
             'Services/PlatformEsign/Agreement/AgreementContent.php' => ['RR Technologies initials'],   // matches the legal source text
             'views/platform-esign/agreement/review.blade.php'       => ['For RR Technologies'],        // quotes the wording's signature block label
             'Services/PlatformEsign/Agreement/AgreementCompany.php' => ['who RR Technologies is'],
-            'Services/PlatformEsign/Agreement/AgreementRenderer.php' => ['Fixed RR Technologies party details'],
+            'Services/PlatformEsign/Agreement/AgreementRenderer.php' => ['Fixed RR Technologies party details', "'For RR Technologies'"], // 2nd: the contract's own signature-block heading (wording), matched literally
         ];
         $roots = [app_path('Services/PlatformEsign'), app_path('Http/Controllers/PlatformEsign'), app_path('Mail/PlatformEsign'), resource_path('views/platform-esign')];
         $hits = [];

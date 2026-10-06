@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ExportsRentalList;
 use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
+use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\LeaseEscalation;
 use App\Models\LeaseTenant;
@@ -217,6 +218,43 @@ class LeaseController extends Controller
         return $this->searchQualifyingRentalProperties($request, Lease::class);
     }
 
+    /**
+     * The properties the CREATE form's Property picker may offer: rental stock
+     * the acting user can see under their own own/branch/agency properties
+     * scope. This ONE query (Property::scopeRentalVisibleTo) backs the search
+     * endpoint, store()'s property_id validation and create()'s ?property_id=
+     * pre-fill, so the picker never offers a property the save would refuse and
+     * a save never accepts one the picker would not have offered.
+     */
+    private function pickableRentalProperties(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        return Property::query()->rentalVisibleTo($request->user());
+    }
+
+    /**
+     * The CREATE screen's type-to-search Property picker — same pattern as
+     * RentalApplicationController::searchProperties() / RentalWorkOrderController
+     * ::searchProperties(): Property::scopeSearchAddress() (address, street,
+     * suburb, complex, unit, title/property name, property number, erf number,
+     * P24 reference), limited to 10 rows. A blank term returns the most recent
+     * rental stock, never an error. Distinct from searchProperties() above,
+     * which backs the LIST screen's filter and only offers properties that
+     * already have a lease.
+     */
+    public function searchRentalProperties(Request $request): JsonResponse
+    {
+        $properties = $this->pickableRentalProperties($request)
+            ->searchAddress(trim((string) $request->query('q', '')))
+            ->with('agent')
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+
+        return response()->json($properties->map(fn (Property $p) => $p->toSearchResult([
+            'ref' => $p->property_number,
+        ])));
+    }
+
     /** Human-readable active-filter summary for the print-list header/export filename — shared shape across all four rental lists. */
     private function activeLeaseFiltersSummary(Request $request): array
     {
@@ -287,13 +325,31 @@ class LeaseController extends Controller
 
     public function create(Request $request): View
     {
-        $property = $request->get('property_id') ? Property::findOrFail($request->get('property_id')) : null;
+        // ?property_id= (from a property screen) pre-fills ONLY a property this user
+        // may put a lease on — same scoped query as the picker. A non-rental,
+        // out-of-scope, other-agency or malformed id pre-fills nothing (no error
+        // page): the form simply opens with the type-to-search picker.
+        $presetPropertyId = $request->integer('property_id');
+        $property = $presetPropertyId > 0
+            ? $this->pickableRentalProperties($request)->find($presetPropertyId)
+            : null;
         $rentalApplication = $request->get('rental_application_id')
             ? RentalApplication::findOrFail($request->get('rental_application_id'))
             : null;
 
+        // A validation error bounces back here with the picked property only in
+        // old('property_id'): resolve it again through the SAME scoped query as
+        // the picker, so a property the user can no longer see (or that was
+        // archived meanwhile) comes back empty and must be re-picked.
+        $oldPropertyId = $property ? null : old('property_id');
+        $oldProperty = $oldPropertyId && is_scalar($oldPropertyId)
+            ? $this->pickableRentalProperties($request)->find($oldPropertyId)
+            : null;
+
         return view('corex.leases.create', [
             'property' => $property,
+            'oldProperty' => $oldProperty,
+            'oldTenants' => $this->oldTenantSeed($request),
             'rentalApplication' => $rentalApplication,
             // .ai/specs/rental-property-tab.md §5, Part 4 — same agency-editable
             // list as the property screen's Lease Type select; one source of
@@ -302,10 +358,55 @@ class LeaseController extends Controller
         ]);
     }
 
+    /**
+     * The tenants chosen before a validation error, for the form to show again
+     * (leases.md §7.3). The bounce carries only contact ids in
+     * old('tenant_contact_ids'); each is re-resolved here under the SAME rule
+     * store() validates (same agency), so a forged or stale id comes back as
+     * nothing. Order is kept — the first tenant is the primary.
+     *
+     * @return list<array{id:int,name:string,email:string}>
+     */
+    private function oldTenantSeed(Request $request): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', array_filter((array) old('tenant_contact_ids', []), 'is_scalar'))
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        $contacts = Contact::query()
+            ->where('agency_id', $request->user()->effectiveAgencyId())
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        $seed = [];
+        foreach ($ids as $id) {
+            if ($contact = $contacts->get($id)) {
+                $seed[] = [
+                    'id' => (int) $contact->id,
+                    'name' => $contact->full_name !== '' ? $contact->full_name : 'Contact #' . $contact->id,
+                    'email' => (string) ($contact->email ?? ''),
+                ];
+            }
+        }
+
+        return $seed;
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'property_id' => ['required', 'exists:properties,id'],
+            // Only a rental property this user may see (own/branch/agency) — the SAME
+            // query as the picker. A sale listing, another agent's/branch's/agency's
+            // property and a made-up id all fail identically (nothing to enumerate).
+            'property_id' => ['bail', 'required', 'integer', function (string $attribute, mixed $value, \Closure $fail) use ($request) {
+                if (! $this->pickableRentalProperties($request)->whereKey($value)->exists()) {
+                    $fail('Please choose a property from the list.');
+                }
+            }],
             'rental_amount' => ['required', 'numeric', 'min:0'],
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
             'start_date' => ['required', 'date'],
@@ -317,15 +418,13 @@ class LeaseController extends Controller
             'tenant_contact_ids' => ['required', 'array', 'min:1'],
             'tenant_contact_ids.*' => [Rule::exists('contacts', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'activate_immediately' => ['nullable', 'boolean'],
+        ], [
+            'property_id.required' => 'Please choose a property from the list.',
+            'property_id.integer' => 'Please choose a property from the list.',
         ]);
 
-        $property = Property::findOrFail($validated['property_id']);
-        // The acting user must be able to see this property (own/branch/agency)
-        // — same rule as the inventory store; AgencyScope alone is not enough.
-        abort_unless(
-            Property::query()->visibleTo($request->user())->whereKey($property->id)->exists(),
-            404
-        );
+        // Validated above against the picker's own query, so this resolves.
+        $property = $this->pickableRentalProperties($request)->findOrFail($validated['property_id']);
         $user = $request->user();
 
         // The linked application must be for THIS property (audit M6/L2).

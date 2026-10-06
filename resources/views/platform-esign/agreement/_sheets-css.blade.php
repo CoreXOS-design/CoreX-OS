@@ -10,7 +10,8 @@
     .sheet-body { min-height: 320px; padding-bottom: 14px; }
     .sheet-foot { display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:space-between; align-items:center; border-top:1px solid #cbd5e1; padding: 10px 0 12px; font-size:.72rem; color:#475569; }
     .ini-box { display:inline-flex; align-items:center; gap:6px; }
-    .ini-chip { display:inline-block; min-width: 34px; text-align:center; border:1px solid #64748b; padding:2px 8px; font-weight:700; color:#0b2a4a; border-radius:3px; background:#f8fafc; }
+    .ini-chip { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-width: 56px; height: 30px; text-align:center; border:1px solid #64748b; padding:0 8px; font-weight:700; color:#0b2a4a; border-radius:6px; background:#f8fafc; }
+    .sheet-foot .btn.sm { height: 30px; box-sizing:border-box; }
     .ini-chip.done { border-color:#16a34a; color:#166534; background:#f0fdf4; }
     .btn { appearance:none; border:0; border-radius:6px; padding:.55rem 1rem; font-weight:600; font-size:.85rem; cursor:pointer; background:#00b4d8; color:#fff; }
     .btn:disabled { opacity:.45; cursor:not-allowed; }
@@ -31,7 +32,7 @@
     .agr .opt .tick { display:inline-block; width:18px; height:18px; border:2px solid #475569; border-radius:4px; vertical-align:-3px; background:#fff; }
     .agr .opt input:checked + .tick { background:#00b4d8; border-color:#0b2a4a; box-shadow: inset 0 0 0 3px #fff; }
     .agr .opt input:focus-visible + .tick { outline:2px solid #00b4d8; outline-offset:2px; }
-    .agr .sigpad { border:1px dashed #64748b; border-radius:6px; background:#fff; padding:4px; max-width: 360px; }
+    .agr .sigpad { display:block; border:1px dashed #64748b; border-radius:6px; background:#fff; padding:4px; max-width: 360px; }
     .agr .sigpad canvas { width:100%; height: 96px; display:block; touch-action:none; background: repeating-linear-gradient(transparent, transparent 94px, #e2e8f0 95px); }
     .agr .sigtools { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
     .agr .mini { appearance:none; border:1px solid #94a3b8; background:#f8fafc; border-radius:4px; font-size:.7rem; padding:2px 8px; cursor:pointer; color:#0b2a4a; }
@@ -40,6 +41,24 @@
     .agr .ctl-pair { display:flex; flex-wrap:wrap; gap:.6rem 1.6rem; align-items:center; }
     .agr .ctl-item { white-space:nowrap; }
     .agr .fld[data-derived] { background:#f3f4f6; color:#374151; cursor:default; }
+    .agr .auto-tip { display:inline-block; vertical-align:middle; margin-left:.6rem; font-size:.76rem; line-height:1.3; color:#64748b; max-width:34em; }
+    .agr .auto-tip::before { content:'i'; display:inline-block; width:1.15em; height:1.15em; line-height:1.15em; margin-right:.4em; text-align:center; font-weight:700; font-style:italic; font-size:.9em; color:#0369a1; border:1px solid #7dd3fc; border-radius:50%; background:#f0f9ff; }
+    .agr .auto-tip a { color:#0369a1; text-decoration:underline; cursor:pointer; }
+    .agr .auto-tip-float { float:right; max-width:52%; margin:0 0 .3rem .8rem; text-align:left; }
+    .agr textarea.fld[readonly] { resize:none; }
+    .agr .fld[readonly] { background:#f3f4f6; color:#374151; border-style:dashed; cursor:not-allowed; }
+    .agr .opt input:disabled + .tick { background:#f3f4f6; border-style:dashed; border-color:#94a3b8; cursor:not-allowed; }
+    .agr .opt input:disabled:checked + .tick { background:#7dd3fc; border-color:#0369a1; box-shadow: inset 0 0 0 3px #f3f4f6; }
+    .agr .opt:has(input:disabled) { cursor:not-allowed; }
+    .agr p.mf .mf-v .fld { height: 34px; }
+    .agr p.mf .mf-v textarea.fld { height: 40px; min-height: 40px; padding-top: 4px; line-height: 14px; }
+    .agr p.mf .mf-t { display:inline-block; width: 24%; vertical-align: middle; white-space: normal; }
+    .agr p.mf .mf-t .auto-tip { margin-left:.4rem; font-size:.72rem; line-height:1.25; max-width:none; }
+    .agr .tip-end { display:block; }
+    .agr .tip-end .auto-tip { margin-left:0; }
+    .agr table.sigtable td p.sr-signature .sigline, .agr table.sigtable td p.sr-signature .sigpad, .agr table.sigtable td p.sr-signature .sigimg { border:1px dashed #64748b; border-radius:6px; background:#fff; }
+    .agr .sigtable .sigpad canvas { height: 96px; }
+    .agr .sigtable .sigpad { padding: 2px 4px; }
     .agr .ctl-note { display:block; font-size:.78rem; color:#92400e; margin-top:.25rem; }
     .agr .masked { cursor: pointer; }
     .agr [data-calc] { font-variant-numeric: tabular-nums; }

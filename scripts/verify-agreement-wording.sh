@@ -10,17 +10,20 @@
 # Run from the checkout whose database you are proving (QA1: /corex-qa1 is the deploy target — run it from a worktree
 # with APP_ENV pointing at that environment's env file, or from the deployed checkout's own artisan if it is on the branch).
 #
-#   bash scripts/verify-agreement-wording.sh [--seal] [--source-dir /tmp/corex-agreement]
+#   bash scripts/verify-agreement-wording.sh [--seal] [--source-dir /tmp/corex-agreement] [--pin 1.0]
+#   --pin: the wording version the throwaway is pinned to (default: the seeded 1.0; QA1 also has later published versions)
 #
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 SEAL=""
+PIN=1.0
 SRC=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --seal) SEAL="--seal" ;;
         --source-dir) SRC=(--source-dir="$2"); shift ;;
+        --pin) PIN="$2"; shift ;;
         *) echo "unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -34,7 +37,7 @@ echo "== stored seed version =="
 $PHP artisan platform-esign:verify-wording --stored "${SRC[@]}" || STORED_FAIL=1
 
 echo "== throwaway agreement =="
-$PHP artisan platform-esign:verify-wording --prepare > "$OUT/prepare.txt" || { cat "$OUT/prepare.txt"; exit 1; }
+$PHP artisan platform-esign:verify-wording --prepare --pin="$PIN" > "$OUT/prepare.txt" || { cat "$OUT/prepare.txt"; exit 1; }
 DOC_ID=$(grep '^DOC_ID=' "$OUT/prepare.txt" | cut -d= -f2)
 URL=$(grep '^URL=' "$OUT/prepare.txt" | cut -d= -f2-)
 echo "agreement id $DOC_ID"

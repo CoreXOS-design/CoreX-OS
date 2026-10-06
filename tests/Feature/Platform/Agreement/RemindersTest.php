@@ -74,7 +74,8 @@ class RemindersTest extends TestCase
 
     public function test_defaults_are_the_agreed_ones_and_nothing_is_hardcoded(): void
     {
-        $this->assertSame(['expiry_days' => 30, 'reminder_days' => 3, 'reminder_repeat_days' => 3, 'reminder_max' => 3, 'countersign_reminder_days' => 1], AgreementSettings::all());
+        $this->assertSame(['expiry_days' => 30, 'access_months' => 12, 'reminder_days' => 3, 'reminder_repeat_days' => 3, 'reminder_max' => 3, 'countersign_reminder_days' => 1], AgreementSettings::all());
+        $this->assertArrayHasKey('access_months', AgreementSettings::all());
         $doc = $this->sent($this->owner());
         $this->assertSame('2026-11-05', $doc->expires_at->toDateString());
         DevSetting::set(AgreementService::EXPIRY_KEY, '10');
@@ -213,12 +214,12 @@ class RemindersTest extends TestCase
     {
         $owner = $this->owner();
         $doc = $this->sent($owner);
-        AgreementSettings::save(['expiry_days' => 30, 'reminder_days' => 1, 'reminder_repeat_days' => 1, 'reminder_max' => 0, 'countersign_reminder_days' => 1]);
+        AgreementSettings::save(['expiry_days' => 30, 'access_months' => 12, 'reminder_days' => 1, 'reminder_repeat_days' => 1, 'reminder_max' => 0, 'countersign_reminder_days' => 1]);
         Cache::flush();
         $this->runAt('2026-10-10 09:00:00');
         $this->assertSame(0, $this->invites(), 'reminder_max 0 = off');
 
-        AgreementSettings::save(['expiry_days' => 30, 'reminder_days' => 1, 'reminder_repeat_days' => 1, 'reminder_max' => 2, 'countersign_reminder_days' => 1]);
+        AgreementSettings::save(['expiry_days' => 30, 'access_months' => 12, 'reminder_days' => 1, 'reminder_repeat_days' => 1, 'reminder_max' => 2, 'countersign_reminder_days' => 1]);
         Cache::flush();
         $this->runAt('2026-10-10 09:00:00');
         $this->assertSame(1, $this->invites());

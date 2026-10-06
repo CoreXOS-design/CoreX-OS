@@ -45,7 +45,7 @@ class AgreementFields
             'agents'          => $r('Number of agents (seats) at start', 'int', true, 3),
             'extra_branches'  => $r('Additional branches', 'int', true, 3),
             // §4
-            'start_date'      => $r('Start date', 'date'),
+            'start_date'      => $r('Take On Month', 'date'),
             'term'            => $r('Initial term', 'radio', true, 20, ['one_month' => '1 month', 'other' => 'Other']),
             'term_months'     => $r('Initial term (months)', 'int', false, 3),
             // §5
@@ -99,7 +99,24 @@ class AgreementFields
         return array_keys(array_filter(self::schema(), fn ($f) => $f['side'] === 'rr'));
     }
 
-    /** Mandate field => Part A field it is pre-filled from (spec §11.4). The recipient can still change them. */
+    /**
+     * SINGLE ENTRY (spec §11.20, Johan 2026-10-06): every value that used to be typed in both the agreement and the Netcash mandate is typed ONCE; the other
+     * place mirrors it, read-only. target => source. The mandate is the one place bank details are typed (section 5 mirrors it); the agency's place and date
+     * are typed in Part A and the mandate mirrors them (address and contact number only FOLLOW Part A — see FOLLOW). Applies to agreements sent with `rr_data.single_entry`; earlier ones keep both typeable.
+     */
+    public const MIRRORS = [
+        'da_holder' => 'm_holder', 'da_bank' => 'm_bank', 'da_branch_code' => 'm_branch_no', 'da_account' => 'm_account', 'da_type' => 'm_account_type',
+        'm_place' => 'sig_place', 'm_date' => 'sig_date',
+    ];
+
+    /**
+     * FOLLOW (Johan 2026-10-06 13:20): the mandate's address and contact number start from Part A (address, billing cell) and follow it while the
+     * recipient has not edited the mandate field; their own value then sticks; clearing the field makes it follow Part A again. Editable, never locked.
+     * target => source.
+     */
+    public const FOLLOW = ['m_address' => 'address', 'm_contact' => 'billing_cell'];
+
+    /** Mandate field => Part A field it is pre-filled from (spec §11.4). The recipient can still change them. Legacy agreements only — see MIRRORS. */
     public static function mandateMirror(): array
     {
         return [
@@ -178,12 +195,12 @@ class AgreementFields
      * @param array<string,mixed> $d recipient values (already cleaned)
      * @return array<string,string> key => message
      */
-    public static function validateRecipient(array $d, array $rates): array
+    public static function validateRecipient(array $d, array $rates, array $skip = []): array
     {
         $errors = [];
         foreach (self::schema() as $key => $f) {
-            if ($f['side'] !== 'r') {
-                continue;
+            if ($f['side'] !== 'r' || in_array($key, $skip, true)) {
+                continue; // a mirrored field is validated where it is typed (its source)
             }
             if (in_array($key, AgreementService::DERIVED_KEYS, true)) {
                 continue; // decided by the number of agents and branches (AgreementPricing::derive), never entered

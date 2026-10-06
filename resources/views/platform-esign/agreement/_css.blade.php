@@ -24,4 +24,20 @@
     .agr .sigbox { display:block; height: {{ !empty($pdf) ? '34pt' : '48px' }}; }
     .agr a { color:#0b2a4a; }
     .agr .ctl { display:block; margin: 0 0 .5em; }
+    /* ── alignment (spec §11.21): signature blocks and the mandate grid — same rules on screen, preview, RR screen and both PDFs ── */
+    .agr table.sigtable { table-layout: fixed; width:100%; }
+    .agr table.sigtable th, .agr table.sigtable td { width:50%; padding: {{ !empty($pdf) ? '4pt 6pt' : '.5em .7em' }}; }
+    /* One label column, one field column: every input / line / box in a signature block starts at the same left edge and ends at the same right edge, identical in both columns. */
+    .agr .sigtable td p.sr { margin:0; height: {{ !empty($pdf) ? '17pt' : '40px' }}; line-height: {{ !empty($pdf) ? '17pt' : '40px' }}; white-space: nowrap; overflow:hidden; }
+    .agr .sigtable td p.sr .sr-l { display:inline-block; width: 24%; vertical-align: middle; }
+    .agr .sigtable td p.sr .val, .agr .sigtable td p.sr .blank, .agr .sigtable td p.sr .fld { display:inline-block; width: 72%; min-width:0; box-sizing: border-box; height: {{ !empty($pdf) ? '14pt' : '32px' }}; line-height: {{ !empty($pdf) ? '14pt' : '30px' }}; vertical-align: middle; border-bottom: 1px solid #475569; text-align:left; overflow:hidden; white-space:nowrap; }
+    .agr .sigtable td p.sr-signature { height: {{ !empty($pdf) ? '42pt' : '146px' }}; line-height: {{ !empty($pdf) ? '17pt' : '26px' }}; white-space: normal; overflow: visible; }
+    .agr .sigtable td p.sr-signature .sr-l { vertical-align: top; }
+    .agr .sigtable td p.sr-signature .sigimg, .agr .sigtable td p.sr-signature .sigline, .agr .sigtable td p.sr-signature .blank.sigline, .agr .sigtable td p.sr-signature .sigpad { display:inline-block; vertical-align: top; width: 72%; max-width:none; box-sizing:border-box; height: {{ !empty($pdf) ? '34pt' : '132px' }}; line-height: normal; min-width:0; border-bottom: 1px solid #475569; }
+    .agr .sigtable td p.sr-signature .sigimg { object-fit: contain; }
+    .agr p.mf { margin: 0 0 {{ !empty($pdf) ? '5pt' : '4px' }}; {{ !empty($pdf) ? '' : 'height: 48px; white-space: nowrap;' }} line-height: {{ !empty($pdf) ? '12pt' : '24px' }}; }
+    .agr p.mf .mf-l { display:inline-block; width: {{ !empty($pdf) ? '34%' : '24%' }}; vertical-align: {{ !empty($pdf) ? 'top' : 'middle' }}; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '18px' }}; }
+    .agr p.mf .mf-v { display:inline-block; width: {{ !empty($pdf) ? '62%' : '50%' }}; vertical-align: {{ !empty($pdf) ? 'top' : 'middle' }}; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '20px' }}; }
+    .agr p.mf .mf-v .fld { width:100%; box-sizing:border-box; }
+    .agr p.mf .mf-v .val { padding: 0 2px; }
 </style>

@@ -3,7 +3,7 @@
 namespace Tests\Feature\Platform\Agreement;
 
 use App\Mail\PlatformEsign\AgreementReceivedMail;
-use App\Mail\PlatformEsign\SignedMail;
+use App\Mail\PlatformEsign\AgreementSignedMail;
 use App\Models\Agency;
 use App\Models\Platform\AgencyTimelineItem;
 use App\Models\PlatformEsign\Document;
@@ -197,7 +197,7 @@ class AgreementWetInkTest extends TestCase
         $this->assertGreaterThanOrEqual(2, preg_match_all('#/Type\s*/Page(?![a-zA-Z])#', $pdf), 'attestation page + signing record');
         $this->assertArrayNotHasKey('variation_amount', (array) $fresh->rr_data);
         $this->assertSame('done', $step->fresh()->status);
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
         $this->assertTrue($fresh->events->contains('event', 'countersigned'));
         // the agency can no longer replace the copy
         $this->post(route('platform-esign.agreement.upload', $this->token($doc)), ['files' => [$this->pdfFile()]])->assertSessionHasErrors('upload');

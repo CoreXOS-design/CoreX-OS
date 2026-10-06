@@ -70,6 +70,8 @@ class AgreementMailSenderTest extends TestCase
             'countersign reminder' => new AgreementCountersignReminderMail($doc, 2),
             'platform invite' => new InviteMail($doc, $signer),
             'signed copy' => new SignedMail($doc),
+            'agreement completion (agency)' => new \App\Mail\PlatformEsign\AgreementSignedMail($doc, 'agency', 'https://example.test/a'),
+            'agreement completion (rr)' => new \App\Mail\PlatformEsign\AgreementSignedMail($doc, 'rr', 'https://example.test/r'),
         ];
     }
 

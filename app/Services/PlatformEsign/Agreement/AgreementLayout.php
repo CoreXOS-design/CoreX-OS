@@ -14,7 +14,7 @@ class AgreementLayout
     public const LINE = 11.9;       // pt
     public const CPL = 88;          // characters per line at body width, DejaVu Sans 8.6pt
     public const START_BUDGET = 600;
-    public const REV = 2;           // bump to invalidate stored layouts when the estimator/CSS changes
+    public const REV = 3;           // bump to invalidate stored layouts when the estimator/CSS changes
 
     public function __construct(private AgreementRenderer $renderer, private AgreementPdf $pdf)
     {

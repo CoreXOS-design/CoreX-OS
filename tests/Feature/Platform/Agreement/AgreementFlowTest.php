@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform\Agreement;
 
 use App\Mail\PlatformEsign\AgreementInviteMail;
 use App\Mail\PlatformEsign\AgreementReceivedMail;
+use App\Mail\PlatformEsign\AgreementSignedMail;
 use App\Mail\PlatformEsign\SignedMail;
 use App\Models\Agency;
 use App\Models\Platform\AgencyTimeline;
@@ -156,7 +157,7 @@ class AgreementFlowTest extends TestCase
         $owner = $this->owner();
         Mail::fake();
         $this->actingAs($owner)->get(route('platform-esign.agreements.create'))->assertOk()->assertSee('Send Subscription Agreement');
-        $res = $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => 'Pat Principal', 'email' => 'pat@caprivi.test']);
+        $res = $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => 'Pat Principal', 'email' => 'pat@caprivi.test', 'take_on_month' => now()->format('Y-m')]);
         $doc = Document::latest('id')->firstOrFail();
         $res->assertRedirect(route('platform-esign.documents.show', $doc->id));
         $this->actingAs($owner)->get(route('platform-esign.documents.show', $doc->id))->assertOk()
@@ -206,13 +207,14 @@ class AgreementFlowTest extends TestCase
         $doc = $this->send($this->owner());
         $token = $this->tokenOf($doc);
 
-        $res = $this->save($token, ['registered_name' => 'Caprivi Realty (Pty) Ltd', 'plan' => 'agency', 'agents' => '25', 'da_account' => self::ACCOUNT])->assertOk();
+        $res = $this->save($token, ['registered_name' => 'Caprivi Realty (Pty) Ltd', 'plan' => 'agency', 'agents' => '25', 'm_account' => self::ACCOUNT])->assertOk();
         $this->assertSame(1, $res->json('rev'));
         $this->assertEqualsWithDelta(7920.0, $res->json('calc.total'), 0.001);
 
         $fresh = $doc->fresh();
         $this->assertSame('in_progress', $fresh->status);
-        $this->assertSame(self::ACCOUNT, $fresh->form_data['da_account']);
+        $this->assertSame(self::ACCOUNT, $fresh->form_data['m_account']);
+        $this->assertSame(self::ACCOUNT, $fresh->form_data['da_account'], 'section 5 mirrors the mandate account number (single entry)');
         $raw = \DB::table('platform_esign_documents')->where('id', $doc->id)->value('form_data');
         $this->assertStringNotContainsString(self::ACCOUNT, $raw, 'bank details are encrypted at rest');
         $this->assertStringNotContainsString('Caprivi', $raw);
@@ -292,7 +294,7 @@ class AgreementFlowTest extends TestCase
         $token = $this->tokenOf($doc);
         $res = $this->postJson(route('platform-esign.agreement.submit', $token), ['values' => ['registered_name' => 'X'], 'consent' => 0])->assertStatus(422);
         $errors = $res->json('errors');
-        foreach (['reg_no', 'agents', 'branches', 'entity', 'da_account', 'sigA', 'sigM', 'm_first_payment', 'consent', 'initials', 'id_number'] as $k) {
+        foreach (['reg_no', 'agents', 'branches', 'entity', 'm_account', 'sigA', 'sigM', 'm_first_payment', 'consent', 'initials', 'id_number'] as $k) {
             $this->assertArrayHasKey($k, $errors, "missing error for {$k}");
         }
         $this->assertArrayNotHasKey('vat_no', $errors);
@@ -400,8 +402,9 @@ class AgreementFlowTest extends TestCase
         $this->assertGreaterThanOrEqual($total + 1, preg_match_all('#/Type\s*/Page(?![a-zA-Z])#', $pdf), 'contract pages plus the signing record');
         $this->assertSame('done', $step->fresh()->status, 'signing ticks the agency timeline');
         $this->assertSame('contract_signed', $step->fresh()->completed_source);
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo($owner->email));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo($owner->email));
+        Mail::assertNotSent(SignedMail::class); // the attachment-carrying mail is never used for the agreement (spec §11.15)
 
         $events = $fresh->events->pluck('event')->all();
         foreach (['created', 'invited', 'saved', 'page_initialled', 'signed', 'countersigned', 'sealed', 'signed_copy_sent'] as $e) {

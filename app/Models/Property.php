@@ -2122,6 +2122,19 @@ class Property extends Model
     }
 
     /**
+     * The properties a user may put a NEW LEASE on: rental listings only, within
+     * the user's own / branch / agency properties scope (scopeVisibleTo above, on
+     * top of the global AgencyScope). The ONE definition — the New Lease picker's
+     * search endpoint, the store() validation and the ?property_id= pre-fill all
+     * call this, so what the picker offers, what a save accepts and what the form
+     * pre-fills can never drift (leases.md §7.2). Deliberately no status filter.
+     */
+    public function scopeRentalVisibleTo($query, \App\Models\User $user)
+    {
+        return $query->where('listing_type', 'rental')->visibleTo($user);
+    }
+
+    /**
      * AT-392 cross-tenant property-link fix, 2026-09-10 — the ONE resolver
      * every rental-application write path linking a property_id must use.
      *

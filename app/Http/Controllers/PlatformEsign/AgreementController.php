@@ -52,6 +52,7 @@ class AgreementController extends Controller
             'agencies' => $agencies, 'agencyId' => $agencyId, 'prefill' => $prefill,
             'start' => $prefill[$agencyId] ?? ['name' => '', 'email' => '', 'cell' => ''],
             'version' => $version, 'expiryDays' => AgreementService::expiryDays(),
+            'takeOnOptions' => \App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(),
         ]);
     }
 
@@ -63,7 +64,12 @@ class AgreementController extends Controller
             'agency_id' => 'nullable|integer|exists:agencies,id', 'note' => 'nullable|string|max:490',
             'variation_text' => 'nullable|string|max:500', 'variation_amount' => 'nullable|string|max:14',
             'plan' => 'nullable|in:team,agency',
-        ], ['name.required' => 'Enter the recipient’s full name.', 'email.required' => 'Enter the recipient’s email address.', 'email.email' => 'Enter a valid email address.']);
+            'take_on_month' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/', function ($attribute, $value, $fail) {
+                if (!\App\Services\PlatformEsign\Agreement\AgreementTakeOn::valid((string) $value)) {
+                    $fail('Choose a take-on month that is this month or later.');
+                }
+            }],
+        ], ['name.required' => 'Enter the recipient’s full name.', 'email.required' => 'Enter the recipient’s email address.', 'email.email' => 'Enter a valid email address.', 'take_on_month.required' => 'Choose the take-on month.', 'take_on_month.regex' => 'Choose the take-on month from the list.']);
         try {
             $doc = $this->svc->send($data, $u->id);
         } catch (\DomainException $e) {
@@ -136,10 +142,11 @@ class AgreementController extends Controller
     /** One uploaded hand-signed file, streamed to an owner (never a public URL). */
     public function wetinkFile(Request $request, int $id, int $file)
     {
-        $this->owner($request);
+        $u = $this->owner($request);
         $doc = $this->webdoc($id);
         $f = $doc->wetinkFiles()->findOrFail($file);
         abort_unless(\Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
+        app(EsignService::class)->log($doc, 'wetink_downloaded', 'Uploaded hand-signed file downloaded inside Platform E-Sign: ' . $f->original_name, null, $u->id, $request->ip());
 
         return \Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
     }

@@ -60,16 +60,26 @@
             else if (kind === 'note') { t = (plan === 'agency' && agents > R.quote_above_agents) ? ('For more than ' + R.quote_above_agents + ' agents a quoted rate is recorded under “Agreed variations” — we will confirm it with you.') : ''; }
             if (s.tagName !== 'INPUT') { s.textContent = t; }
         });
+        $$('[data-mirror="total"]').forEach(function (m) { m.value = plan ? 'R ' + money(sub - vari) : ''; });
         return sub - vari;
     }
 
     // ── mirrors: nothing typed twice (spec §11.4) ──────────────────────────
+    // Mandate address / contact number FOLLOW Part A until the recipient types their own value; clearing the box makes it follow again (spec §11.20).
+    var FOLLOW = C.follow || {}, own = {};
+    Object.keys(FOLLOW).forEach(function (t) { var e = els(t)[0]; if (e) { own[t] = e.getAttribute('data-own') === '1'; } });
+    function paintFollow() {
+        Object.keys(FOLLOW).forEach(function (t) {
+            var e = els(t)[0]; if (!e || own[t] || document.activeElement === e) return;
+            var s = val(FOLLOW[t]); if (val(t) !== s) { setVal(t, s); }
+        });
+    }
     var MIRROR = { m_holder: 'da_holder', m_address: 'address', m_bank: 'da_bank', m_branch_no: 'da_branch_code', m_account: 'da_account', m_account_type: 'da_type', m_contact: 'billing_cell', m_amount: '@total', m_place: 'sig_place', branches_start: 'branches' };
     var touched = {};
     function mirrorSource(src) { if (src !== '@total') { return val(src); } var t = calc(); return lastPlan ? String(Math.round(t * 100) / 100) : ''; }
     function applyMirrors(initial) {
         Object.keys(MIRROR).forEach(function (t) {
-            if (!els(t).length) return;
+            if (!els(t).length || FOLLOW[t]) return; // address / contact number follow Part A by the rule below
             var cur = val(t), s = mirrorSource(MIRROR[t]);
             if (initial && cur !== '' && cur !== s) { touched[t] = true; }
             if (!touched[t] && s !== '' && cur !== s) { setVal(t, s); if (t !== 'branches_start') { pending[t] = s; } }
@@ -100,14 +110,19 @@
             outstanding();
         }).catch(function () { saving = false; Object.keys(batch).forEach(function (k) { if (!(k in pending)) pending[k] = batch[k]; }); setState('Not saved — offline? Retrying…'); saveTimer = setTimeout(flush, 4000); });
     }
-    function recalcAll() { calc(); applyMirrors(false); outstanding(); }
+    function recalcAll() { calc(); applyMirrors(false); paintMirrors(); paintFollow(); outstanding(); }
 
     function onChange(e) {
         var t = e.target, key = t.getAttribute && t.getAttribute('data-field');
         if (!key) { return; }
         if (e.isTrusted && MIRROR[key] !== undefined) { touched[key] = true; }
         t.classList && t.classList.remove('err');
-        if (mode === 'form') { pending[key] = val(key); }
+        if (mode === 'form' && FOLLOW[key]) {
+            // typing = the recipient's own value; leaving the box empty = follow Part A again (the empty value clears any earlier override)
+            if (e.type === 'input') { own[key] = val(key) !== ''; }
+            if (e.type === 'change' && val(key) === '') { own[key] = false; }
+            pending[key] = val(key);
+        } else if (mode === 'form') { pending[key] = val(key); }
         if (key === 'sig_name' && !C.initials && $('#ini-input') && !$('#ini-input').dataset.edited) { $('#ini-input').value = initialsOf(val('sig_name')); }
         recalcAll(); queue();
     }
@@ -262,10 +277,29 @@
         });
     });
 
+    // "Fills in automatically" tips: the link takes the recipient to the field the value is typed in (agents box, mandate bank fields, …).
+    document.addEventListener('click', function (e) {
+        var a = e.target.closest && e.target.closest('[data-goto]'); if (!a) return;
+        var f = document.getElementById(a.getAttribute('data-goto')); if (!f) return;
+        e.preventDefault(); f.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(function () { f.focus({ preventScroll: true }); if (f.select && f.type !== 'radio') { try { f.select(); } catch (x) {} } }, 350);
+    });
+
+    // Single entry: read-only copies follow the box they are typed in (agreement section 5 ← mandate bank fields, mandate address/contact/place/date ← Part A).
+    var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    function paintMirrors() {
+        $$('[data-mirror-of]').forEach(function (m) {
+            var v = val(m.getAttribute('data-mirror-of'));
+            if (m.getAttribute('data-format') === 'date') { var p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); v = p ? (parseInt(p[3], 10) + ' ' + MONTHS[parseInt(p[2], 10) - 1] + ' ' + p[1]) : ''; }
+            else if (m.getAttribute('data-map')) { var map = {}; try { map = JSON.parse(m.getAttribute('data-map')); } catch (x) {} v = map[v] || ''; }
+            if (m.value !== v) { m.value = v; }
+        });
+    }
+
     // ── boot ───────────────────────────────────────────────────────────────
     $$('.sigpad').forEach(initPad);
     if (mode === 'form') { applyMirrors(true); }
-    if (mode === 'form') { calc(); } // the other screens show the server's own figures — they have no entries to recalculate from
+    if (mode === 'form') { calc(); paintMirrors(); paintFollow(); } // the other screens show the server's own figures — they have no entries to recalculate from
     paintInitials(); outstanding();
     if (mode === 'form' && Object.keys(pending).length) { queue(); }
     window.addEventListener('beforeunload', function () { if (mode === 'form' && Object.keys(pending).length) { navigator.sendBeacon && 0; } });

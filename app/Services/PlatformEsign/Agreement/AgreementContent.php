@@ -105,7 +105,7 @@ class AgreementContent
             'VAT number (if registered)' => '{{f:vat_no}}', 'PPRA Fidelity Fund Certificate number (agency)' => '{{f:ffc_no}}',
             'Physical address (for legal notices)' => '{{f:address}}', 'Email address for notices and invoices' => '{{f:notice_email}}',
             'Principal — full name' => '{{f:principal_name}}', 'Billing contact — name, email, cell' => '{{f:billing_name}} {{f:billing_email}} {{f:billing_cell}}',
-            'Number of branches' => '{{f:branches}}', 'Start date' => '{{f:start_date}}',
+            'Number of branches' => '{{f:branches}}', 'Take On Month' => '{{f:start_date}}',
             'Account holder' => '{{f:da_holder}}', 'Bank and branch code' => '{{f:da_bank}} {{f:da_branch_code}}',
             'Account number' => '{{f:da_account}}', 'Account type' => '{{f:da_type}}',
         ];

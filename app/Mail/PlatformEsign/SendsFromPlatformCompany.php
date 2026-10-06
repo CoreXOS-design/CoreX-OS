@@ -9,7 +9,7 @@ use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Envelope;
 
 /**
- * Every Platform E-Sign / Subscription Agreement email is sent FROM the RR Technologies company record (Admin → Platform
+ * Every Platform E-Sign / Subscription Agreement email is sent FROM the platform company record (Admin → Platform
  * Company Profile: "Sending address" + "Sender name"), never the box-wide MAIL_FROM_* (which is whichever agency the install
  * was first set up for). Replies go to the CoreX owner who sent the agreement.
  */
