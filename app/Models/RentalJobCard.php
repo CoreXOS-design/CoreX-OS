@@ -443,6 +443,19 @@ class RentalJobCard extends Model
         }
     }
 
+    /**
+     * .ai/specs/rental-work-orders.md §17.6.5 — work does not start (or get scheduled, or get completed by the crew)
+     * without an authorisation. The ONE place the decision lives is RentalApprovalGateService; this only enforces it.
+     * $refusal overrides the gate's own plain-language message (the crew gets a shorter one).
+     */
+    private function assertAuthorisedToProceed(?string $refusal = null): void
+    {
+        $decision = app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseCard($this);
+        if (! $decision->authorised) {
+            throw new \LogicException($refusal ?? $decision->note);
+        }
+    }
+
     private function assertOpen(): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
@@ -463,16 +476,16 @@ class RentalJobCard extends Model
     }
 
     /**
-     * §14 — scheduling moves draft/approved straight to 'scheduled'. Johan's
-     * brief does not require approval before scheduling can be SET (an
-     * agent may book a crew member's time while a quote is still pending) —
-     * only the quote/approval gate (sendToOwnerAsQuote()/applyApprovalResult())
-     * governs whether the OWNER has signed off, which is tracked
-     * independently via the linked work order's owner_approval_status.
+     * §14 — scheduling moves draft/quoted/approved to 'scheduled'. §17.6.5 (Build 2): a job is only scheduled once something authorises
+     * it — the owner's approval, the owner's no-approval limit, or an emergency agreement (RentalApprovalGateService decides; this only
+     * enforces it). Pricing visits are not scheduled: the crew's price request goes to the crew link directly (§17.5.4).
      */
     public function schedule(?\DateTimeInterface $scheduledAt, ?\DateTimeInterface $dueAt, User $by): void
     {
         $this->assertOpen();
+        // §17.6.5 (replaces the 2026-10 note above): a job is not scheduled until the owner's approval, the no-approval
+        // limit or an emergency agreement covers it. (Pricing visits are not scheduled — the crew link serves them.)
+        $this->assertAuthorisedToProceed();
         $fromStatus = $this->status;
 
         $this->forceFill([
@@ -510,6 +523,7 @@ class RentalJobCard extends Model
     public function start(User $by): void
     {
         $this->assertOpen();
+        $this->assertAuthorisedToProceed();
         $fromStatus = $this->status;
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
         $this->logUpdate('status_change', $by, null, $fromStatus, self::STATUS_IN_PROGRESS);
@@ -549,6 +563,7 @@ class RentalJobCard extends Model
     public function recordCrewCompletion(string $name, string $via, ?string $ip, ?string $device, ?User $by = null): void
     {
         $this->assertOpen();
+        $this->assertAuthorisedToProceed('This job has not been approved by the owner — contact the office.');
         $this->forceFill([
             'worker_signed_off_at' => now(),
             'worker_signed_off_by_user_id' => $by?->id,
@@ -627,6 +642,11 @@ class RentalJobCard extends Model
             'cancel_reason' => $reason,
         ])->save();
         $this->logUpdate('status_change', $by, $reason, $fromStatus, self::STATUS_CANCELLED);
+
+        // §17.7.2 — cancelling the card withdraws any request still waiting on the owner.
+        if ($this->workOrder) {
+            app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this->workOrder, 'The job card was cancelled.', $by);
+        }
     }
 
     /**

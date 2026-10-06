@@ -3972,6 +3972,31 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // BUILD 1 BEGIN — cost & selling, crew parts, estimate term: routes (.ai/specs/rental-work-orders.md §17.21.5)
     // BUILD 1 END
     // BUILD 2 BEGIN — approvals & external flow: routes (.ai/specs/rental-work-orders.md §17.21.5)
+    // BUILD 2 (§17.14) — the approvals section: variation tolerance, owner email on an auto-approved extra, external-quote fee. Own narrow saver.
+    Route::post('/settings/rental-work-orders/approvals', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateApprovals'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.approvals');
+    // §17.6.2 — the owner's work terms per rental property (own permission; OWN/BRANCH/AGENCY via authorizeProperty() in the controller).
+    Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
+        Route::put('/{property}/rental-work-terms', [\App\Http\Controllers\CoreX\RentalPropertyWorkTermsController::class, 'update'])
+            ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-work-terms.update');
+    });
+    Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.view')->group(function () {
+        // §17.8 — emergency work: the office captures the owner's agreement (no cost attached); void with a reason; attachment download.
+        Route::post('/{rentalWorkOrder}/emergency-approval', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'store'])
+            ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.store');
+        Route::post('/{rentalWorkOrder}/emergency-approval/{approval}/void', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'void'])
+            ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.void');
+        Route::get('/{rentalWorkOrder}/emergency-approval/{approval}/attachment', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'attachment'])
+            ->middleware('deny_assistant_download')->name('corex.rental-work-orders.emergency-approval.attachment');
+        // §17.7.4 — variations: resend the request to the owner / record the owner's reply captured by the office.
+        Route::post('/{rentalWorkOrder}/variations/{variation}/resend', [\App\Http\Controllers\CoreX\RentalWorkOrderVariationController::class, 'resend'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.variations.resend');
+        Route::post('/{rentalWorkOrder}/variations/{variation}/decision', [\App\Http\Controllers\CoreX\RentalWorkOrderVariationController::class, 'decide'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.variations.decision');
+        // §17.9.1a — per-work-order override of the agency's fee on an outside contractor's quote (staff who can price).
+        Route::put('/{rentalWorkOrder}/external-fee', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'updateExternalFee'])
+            ->middleware('permission:rental_job_cards.price')->name('corex.rental-work-orders.external-fee.update');
+    });
     // BUILD 2 END
     // BUILD 3 BEGIN — flow, completion check & dispute: routes (.ai/specs/rental-work-orders.md §17.21.5)
     // BUILD 3 END

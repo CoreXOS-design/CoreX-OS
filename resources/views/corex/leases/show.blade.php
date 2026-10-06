@@ -450,6 +450,11 @@
                         <span style="color: var(--text-muted);">No-approval spend limit:</span>
                         R{{ number_format(\App\Models\RentalWorkOrderSetting::thresholdFor($lease->property), 2) }}
                     </div>
+                    {{-- BUILD 2 (§17.6.2) — the lease hub shows both of the owner's work terms (read-only; edited on the property's Rental tab). --}}
+                    <div>
+                        <span style="color: var(--text-muted);">Extra work approved automatically up to:</span>
+                        {{ rtrim(rtrim(number_format(\App\Models\RentalWorkOrderSetting::variationToleranceFor($lease->property), 2, '.', ''), '0'), '.') ?: '0' }} % above the approved amount
+                    </div>
                 @endif
                 <div>
                     <span style="color: var(--text-muted);">Landlord(s):</span>

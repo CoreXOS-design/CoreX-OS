@@ -198,4 +198,43 @@ final class CrewPayloadNeverCarriesSellingTest extends TestCase
 
         $this->assertStringStartsWith('%PDF', $pdf);
     }
+
+    /**
+     * Build 2 (§17.7 / §17.8.4) adds the approval chips to the crew view: "Approved to proceed (emergency)" and, per extra, Approved /
+     * Awaiting owner — do not start / Declined by owner. Extended here, never relaxed: whatever the owner approved, the extra and the
+     * new total are, the crew gets the STATE and nothing else.
+     */
+    #[DataProvider('settingCombinations')]
+    public function test_the_approval_chips_never_carry_selling_an_approved_amount_or_an_owner(bool $showCosts, bool $showTenant): void
+    {
+        $this->applySettings($showCosts, $showTenant);
+        $card = $this->sellingCard();
+        $wo = \App\Models\RentalWorkOrder::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'assignment_type' => 'internal',
+            'title' => 'Selling guard job', 'description' => 'x', 'status' => 'in_progress', 'owner_approval_status' => 'approved',
+            'approved_amount' => 31977.29, 'approval_basis' => 'owner_decision', 'reported_by_type' => 'agent_noticed', 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $card->forceFill(['rental_work_order_id' => $wo->id])->save();
+        $variation = \App\Models\RentalWorkOrderVariation::create([
+            'agency_id' => $this->agency->id, 'rental_work_order_id' => $wo->id, 'rental_job_card_id' => $card->id, 'status' => 'awaiting_owner', 'origin' => 'office_edit',
+            'baseline_amount' => 31977.29, 'extra_amount' => 8643.98, 'new_total' => 40621.27, 'price_change_amount' => 0, 'raised_at' => now(),
+        ]);
+        RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'part')->update(['rental_work_order_variation_id' => $variation->id]);
+
+        $payload = app(CrewJobService::class)->payload($card->fresh(), $this->ctx($card, $showCosts, $showTenant));
+        $approval = $payload['blocks']['approval'];
+
+        $this->assertTrue($approval['hold']);
+        $this->assertSame('Awaiting owner — do not start', $approval['extras'][0]['label']);
+        $json = json_encode($payload, JSON_THROW_ON_ERROR);
+        $this->assertNoSelling($json, 'the approval block of CrewJobService::payload()');
+        foreach (['40621.27', '40,621.27', '31977.29', '8643.98', 'approved_amount', 'baseline', 'extra_amount', 'new_total'] as $needle) {
+            $this->assertStringNotContainsString($needle, json_encode($approval), "the approval block must not carry {$needle}");
+        }
+
+        $issued = app(RentalSecureAccessTokenService::class)->issueForJobCard($card->fresh(), $this->admin);
+        $html = $this->get('/secure/job-cards/' . $issued['raw_token'])->assertOk()->assertSee('Awaiting owner — do not start')->getContent();
+        $this->assertNoSelling($html, 'GET /secure/job-cards/{token} with a variation awaiting the owner');
+        $this->assertStringNotContainsString('40,621.27', $html);
+    }
 }

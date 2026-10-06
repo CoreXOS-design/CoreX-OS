@@ -110,4 +110,52 @@ class RentalWorkOrderSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Printed job card cost setting saved.');
     }
+
+    /**
+     * .ai/specs/rental-work-orders.md §17.14 (Build 2) — the approvals section: the agency's DEFAULT variation tolerance (a property may
+     * override it), whether the owner is emailed on every auto-approved extra, and the agency's fee on an outside contractor's quote
+     * (a percentage or a fixed amount; 0 = off; a work order may override it). Own narrow saver, every field has()-guarded: this is
+     * also a Setup Wizard saver, and a wizard step posts only a SUBSET of these fields — an absent field must never reset a
+     * setting the step never rendered (.ai/specs/agency-onboarding-setup.md §6.1).
+     */
+    public function updateApprovals(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'variation_tolerance_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'notify_landlord_on_auto_variation' => ['nullable', 'boolean'],
+            'external_quote_markup_type' => ['nullable', 'in:' . RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT . ',' . RentalWorkOrderSetting::EXTERNAL_MARKUP_AMOUNT],
+            'external_quote_markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+        ], [
+            'variation_tolerance_percent.max' => 'The tolerance cannot be more than 100 %.',
+            'external_quote_markup_value.numeric' => 'The fee must be a number (0 switches it off).',
+        ]);
+
+        $data = [];
+        if ($request->has('variation_tolerance_percent') && ($validated['variation_tolerance_percent'] ?? null) !== null) {
+            $data['variation_tolerance_percent'] = round((float) $validated['variation_tolerance_percent'], 2);
+        }
+        if ($request->has('notify_landlord_on_auto_variation')) {
+            $data['notify_landlord_on_auto_variation'] = $request->boolean('notify_landlord_on_auto_variation');
+        }
+        if ($request->has('external_quote_markup_type') && ($validated['external_quote_markup_type'] ?? null) !== null) {
+            $data['external_quote_markup_type'] = $validated['external_quote_markup_type'];
+        }
+        if ($request->has('external_quote_markup_value') && ($validated['external_quote_markup_value'] ?? null) !== null) {
+            $data['external_quote_markup_value'] = round((float) $validated['external_quote_markup_value'], 2);
+        }
+
+        $type = $data['external_quote_markup_type'] ?? RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agencyId);
+        if (isset($data['external_quote_markup_value']) && $type === RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT && $data['external_quote_markup_value'] > 1000) {
+            return redirect()->route('corex.settings.rental-work-orders.edit')
+                ->withErrors(['external_quote_markup_value' => 'A percentage fee cannot be more than 1000 %.'])->withInput();
+        }
+
+        if ($data) {
+            RentalWorkOrderSetting::updateOrCreate(['agency_id' => $agencyId], $data);
+        }
+
+        return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Approval settings saved.');
+    }
 }

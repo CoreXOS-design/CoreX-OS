@@ -54,6 +54,11 @@
         </div>
     </div>
 
+    {{-- BUILD 2 (.ai/specs/rental-work-orders.md §17.8.3) — emergency-approved work orders say so on every quote document. --}}
+    @if(!empty($emergencyBanner))
+        <div style="border:1px solid #fdba74;background:#fff7ed;color:#9a3412;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-weight:600;">{{ $emergencyBanner }}</div>
+    @endif
+
     <div class="box">
         <table>
             <tr><td class="label">Property</td><td>{{ $jobCard->property?->buildDisplayAddress() ?? '—' }}</td></tr>

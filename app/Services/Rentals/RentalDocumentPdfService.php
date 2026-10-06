@@ -6,6 +6,8 @@ use App\Models\Lease;
 use App\Models\RentalFaultReport;
 use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
+use App\Models\RentalWorkOrderPhoto;
+use App\Models\RentalWorkOrderVariation;
 use App\Services\Rentals\LeaseHubService;
 use App\Services\Rentals\LeaseTimelineService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -44,6 +46,120 @@ class RentalDocumentPdfService
     public function workOrderFilename(RentalWorkOrder $workOrder): string
     {
         return $this->safeFilename('Work Order - ' . $this->addressOrFallback($workOrder->property, 'Work Order ' . $workOrder->id));
+    }
+
+    /**
+     * .ai/specs/rental-work-orders.md §17.7.4 — the notice that goes to the owner with a request for extra work: the
+     * original approved quote, the extra work (SELLING lines only — never cost, markup or margin), the crew's note and up
+     * to 6 of the crew's photos, the new total and the estimate wording snapshotted on the variation.
+     */
+    public function variationNoticePdf(RentalWorkOrderVariation $variation)
+    {
+        $workOrder = $variation->workOrder()->with(['property', 'agency', 'branch'])->firstOrFail();
+        $lines = $variation->lines()->where('office_status', \App\Models\RentalJobCardLine::OFFICE_ACCEPTED)->orderBy('id')->get();
+        // The quote the owner ORIGINALLY approved: the one the latest approving decision (before this request) was recorded against —
+        // not the currently selected one, which for an external revised quote is the new, higher one.
+        $approvedDecision = \App\Models\RentalApprovalDecision::query()->where('rental_work_order_id', $workOrder->id)->whereNull('rental_work_order_variation_id')
+            ->whereIn('decision', ['approved', 'auto_approved'])->whereNotNull('rental_work_order_quote_id')->orderByDesc('id')->first();
+        $baselineQuote = ($approvedDecision ? \App\Models\RentalWorkOrderQuote::withTrashed()->find($approvedDecision->rental_work_order_quote_id) : null)
+            ?? $workOrder->quotes()->withTrashed()->orderByDesc('is_selected')->orderByDesc('id')->first();
+        $original = $baselineQuote ? [
+            'amount' => $baselineQuote->ownerFacingAmount(),
+            'revision' => max(1, (int) $baselineQuote->revision),
+            'date' => $baselineQuote->quote_date?->format('Y-m-d') ?? $baselineQuote->created_at?->format('Y-m-d'),
+        ] : null;
+
+        $photos = [];
+        if ($lines->isNotEmpty()) {
+            RentalWorkOrderPhoto::withoutGlobalScopes()->whereIn('rental_job_card_line_id', $lines->pluck('id'))->orderBy('id')->limit(6)->get()
+                ->each(function (RentalWorkOrderPhoto $p) use (&$photos) {
+                    if ($uri = $this->photoDataUri($p->storage_path)) {
+                        $photos[] = $uri;
+                    }
+                });
+        }
+
+        $pdf = Pdf::loadView('corex.rental-work-orders.variation-notice-pdf', [
+            'variation' => $variation,
+            'workOrder' => $workOrder,
+            'lines' => $lines,
+            'original' => $original,
+            'photos' => $photos,
+            'vatRegistered' => (bool) $workOrder->agency?->vat_registered,
+            'vatNumber' => $workOrder->agency?->vat_registered ? $workOrder->agency?->vat_no : null,
+            'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
+            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function variationNoticeFilename(RentalWorkOrderVariation $variation): string
+    {
+        return $this->safeFilename('Variation Notice - ' . $this->addressOrFallback($variation->workOrder?->property, 'Work Order ' . $variation->rental_work_order_id));
+    }
+
+    /**
+     * §17.9.5 — the work order handed to an outside contractor once the owner approved: reference, address and the
+     * "contact the agency for access" line, description, trade, the contractor's OWN approved quote amount and date, and
+     * "Owner approval: approved on {date} — {basis in words}". No tenant or owner contact details, and never the agency's fee.
+     */
+    public function workOrderContractorPdf(RentalWorkOrder $workOrder)
+    {
+        $workOrder->loadMissing(['property', 'supplier', 'agency', 'branch']);
+        $quote = $workOrder->quotes()->where('is_selected', true)->with('supplier')->first();
+
+        $pdf = Pdf::loadView('corex.rental-work-orders.contractor-pdf', [
+            'workOrder' => $workOrder,
+            'quote' => $quote,
+            'ownerApprovalLine' => $workOrder->ownerApprovalLine(),
+            'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
+            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function workOrderContractorFilename(RentalWorkOrder $workOrder): string
+    {
+        return $this->safeFilename('Work Order - ' . $this->addressOrFallback($workOrder->property, 'Work Order ' . $workOrder->id));
+    }
+
+    /**
+     * §17.8.3 / §17.16 — the owner's final statement when a work order closes: SELLING figures only (never cost, margin or
+     * the estimate term — a final statement is not an estimate), the amount the owner pays, and "Approved as emergency work
+     * on {date}" when it was.
+     */
+    public function finalStatementPdf(RentalWorkOrder $workOrder)
+    {
+        $workOrder->loadMissing(['property', 'agency', 'branch', 'jobCard']);
+        $lines = $workOrder->jobCard
+            ? $workOrder->jobCard->lines()->where('office_status', \App\Models\RentalJobCardLine::OFFICE_ACCEPTED)->orderBy('sort_order')->orderBy('id')->get()
+            : collect();
+        $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($workOrder->agency_id);
+
+        $pdf = Pdf::loadView('corex.rental-work-orders.final-statement-pdf', [
+            'workOrder' => $workOrder,
+            'lines' => $pricesOn ? $lines : collect(),
+            'emergencyBanner' => $workOrder->emergencyBanner(),
+            'vatRegistered' => (bool) $workOrder->agency?->vat_registered,
+            'vatNumber' => $workOrder->agency?->vat_registered ? $workOrder->agency?->vat_no : null,
+            'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
+            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+        ])->setPaper('a4', 'portrait');
+
+        $this->applyOptions($pdf);
+
+        return $pdf;
+    }
+
+    public function finalStatementFilename(RentalWorkOrder $workOrder): string
+    {
+        return $this->safeFilename('Final Statement - ' . $this->addressOrFallback($workOrder->property, 'Work Order ' . $workOrder->id));
     }
 
     /** Fault report for the landlord — the other document named in the task. */
@@ -119,6 +235,8 @@ class RentalDocumentPdfService
             // never a live recompute that could drift from what was sent.
             'vat' => app(RentalJobCardVatService::class)->breakdown($jobCard),
             'vatNumber' => $workOrder?->agency?->vat_no,
+            // BUILD 2 (§17.8.3) — "Approved as emergency work on {date}" on any quote PDF for an emergency-approved work order.
+            'emergencyBanner' => $workOrder?->emergencyBanner(),
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
         ])->setPaper('a4', 'portrait');
@@ -253,6 +371,38 @@ class RentalDocumentPdfService
         }
 
         return null;
+    }
+
+    /** A stored photo as a small data URI for a PDF (local files only — remote fetching is off); null when unreadable. */
+    private function photoDataUri(?string $storagePath, int $maxWidth = 640): ?string
+    {
+        $rel = trim((string) $storagePath);
+        if ($rel === '') {
+            return null;
+        }
+        $rel = preg_replace('#^(public/|storage/)#', '', ltrim($rel, '/'));
+
+        try {
+            $disk = Storage::disk('public');
+            if (! $disk->exists($rel)) {
+                return null;
+            }
+            $bytes = $disk->get($rel);
+            if (function_exists('imagecreatefromstring') && ($image = @imagecreatefromstring($bytes))) {
+                if (imagesx($image) > $maxWidth) {
+                    $image = imagescale($image, $maxWidth);
+                }
+                ob_start();
+                imagejpeg($image, null, 78);
+                $bytes = (string) ob_get_clean();
+
+                return 'data:image/jpeg;base64,' . base64_encode($bytes);
+            }
+
+            return 'data:' . ($disk->mimeType($rel) ?: 'image/jpeg') . ';base64,' . base64_encode($bytes);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function addressOrFallback(?\App\Models\Property $property, string $fallback): string

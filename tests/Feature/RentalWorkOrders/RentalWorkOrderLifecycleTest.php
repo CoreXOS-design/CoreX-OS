@@ -221,6 +221,10 @@ final class RentalWorkOrderLifecycleTest extends TestCase
     {
         $workOrder = $this->workOrder();
         $supplier = $this->supplier();
+        // BUILD 2 (§17.6.5) — a work order only goes to a contractor once something authorises it: here a selected quote within the
+        // owner's no-approval limit (the default R500).
+        $quote = $workOrder->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 300, 'quote_date' => now()], $this->admin);
+        $workOrder->selectQuote($quote, $this->admin);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $workOrder), [
             'agency_service_provider_id' => $supplier->id,

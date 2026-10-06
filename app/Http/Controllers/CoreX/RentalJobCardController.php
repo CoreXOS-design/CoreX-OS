@@ -669,6 +669,12 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
+        // BUILD 2 (§17.7.1) — "re-send drops the approval" (§14.21) applies only BEFORE the owner has approved. After approval
+        // any increase goes through the variation path, raised automatically when lines change.
+        if ($rentalJobCard->workOrder?->hasApprovedBaseline()) {
+            return back()->withErrors(['rental_job_card' => 'The owner has already approved this job — extra work goes to the owner automatically as a variation, so there is nothing to re-send.']);
+        }
+
         try {
             $service->sendToOwnerAsQuote($rentalJobCard, $request->user(), $pdfService);
         } catch (\LogicException $e) {
