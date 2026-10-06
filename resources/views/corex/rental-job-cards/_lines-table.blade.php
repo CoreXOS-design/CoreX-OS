@@ -39,6 +39,7 @@
 @else
     @php
         $rowGridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vat['registered']);
+        $cell = \App\Support\RentalJobCardLineGrid::cellStyle();
     @endphp
     <div class="space-y-1">
         @foreach($lines as $line)
@@ -47,15 +48,15 @@
                  style="{{ $loop->first ? '' : 'border-top: 1px solid var(--border);' }}">
                 <div x-show="!editing">
                     <div style="{{ $rowGridStyle }}" class="py-1 text-xs">
-                        <span class="truncate" title="{{ $line->code }}" style="color: var(--text-muted); font-family: monospace;">{{ $line->code ?? '—' }}</span>
-                        <span class="truncate" title="{{ $line->description }}">{{ $line->description }}</span>
-                        <span class="truncate">{{ ucfirst($line->type) }}</span>
+                        <span class="truncate" title="{{ $line->code }}" style="color: var(--text-muted); font-family: monospace; {{ $cell }}">{{ $line->code ?? '—' }}</span>
+                        <span class="truncate" title="{{ $line->description }}" style="{{ $cell }}">{{ $line->description }}</span>
+                        <span class="truncate" style="{{ $cell }}">{{ ucfirst($line->type) }}</span>
                         @if($pricesOn)
-                            <span class="truncate">{{ $line->unit }}</span>
-                            <span class="truncate">{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}</span>
-                            <span class="truncate">{{ $line->unit_price !== null ? 'R' . number_format((float) $line->unit_price, 2) : '—' }}</span>
+                            <span class="truncate" style="{{ $cell }}">{{ $line->unit }}</span>
+                            <span class="truncate" style="{{ $cell }}">{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}</span>
+                            <span class="truncate" style="{{ $cell }}">{{ $line->unit_price !== null ? 'R' . number_format((float) $line->unit_price, 2) : '—' }}</span>
                             @if($vat['registered'])
-                                <span class="truncate" title="{{ $line->vat_display_label ?? $line->vatType?->name ?? '—' }}">
+                                <span class="truncate" title="{{ $line->vat_display_label ?? $line->vatType?->name ?? '—' }}" style="{{ $cell }}">
                                     {{ $line->vat_display_label ?? $line->vatType?->name ?? '—' }}
                                     @if($line->vat_display_rate !== null)
                                         <span style="color: var(--text-muted);">({{ rtrim(rtrim(number_format((float) $line->vat_display_rate, 2), '0'), '.') }}%)</span>
@@ -63,14 +64,14 @@
                                 </span>
                             @endif
                         @endif
-                        <span class="text-right whitespace-nowrap">
+                        <span class="whitespace-nowrap" style="display:inline-flex; justify-content:flex-end; align-items:center; gap:0;">
                             @permission('rental_job_cards.create')
                             @if($canEditLines)
-                                <button type="button" @click="editing = true" title="Edit line" aria-label="Edit line" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">&#9998;</button>
-                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" onsubmit="return confirm('Archive this line?');" class="inline" data-keep-scroll>
+                                <button type="button" @click="editing = true" title="Edit line" aria-label="Edit line" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--brand-icon, #0ea5e9)') }}">&#9998;</button>
+                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" onsubmit="return confirm('Archive this line?');" class="inline" style="display:inline-flex;" data-keep-scroll>
                                 @csrf
                                 @method('DELETE')
-                                <button type="submit" title="Archive" aria-label="Archive" class="text-xs" style="color: var(--ds-red, #dc2626);">&times;</button>
+                                <button type="submit" title="Archive" aria-label="Archive" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--ds-red, #dc2626)') }}">&times;</button>
                             </form>
                             @endif
                             @endpermission

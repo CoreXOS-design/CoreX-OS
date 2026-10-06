@@ -202,7 +202,7 @@
             <button type="{{ $mode === 'form' ? 'submit' : 'button' }}"
                     @if($mode === 'draft') @click="{{ $addLineCall }}" @endif
                     aria-label="Add line" title="Add line"
-                    class="corex-btn-outline text-xs" style="padding: 6px 0; text-align: center; min-width:0;">+</button>
+                    style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--brand-icon, #0ea5e9)', true) }} justify-self:end;">+</button>
         @endif
     </div>
 @if($isEdit)

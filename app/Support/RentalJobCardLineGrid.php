@@ -71,4 +71,32 @@ class RentalJobCardLineGrid
 
         return $labels;
     }
+
+    /**
+     * §14.24 — the text of a header label / a saved value starts where the text
+     * INSIDE an input in the same column starts: 8px padding (px-2) + 1px border.
+     * Without it the labels and saved values sat flush at the track's edge, 9px to
+     * the left of what the agent types in the boxes right below them.
+     */
+    public static function cellStyle(): string
+    {
+        return 'padding-left: 9px;';
+    }
+
+    /**
+     * §14.24 — the compact icon-sized control at the end of a row (edit ✎, archive ×,
+     * add +). `.hfc-card button[type="submit"]` (corex.css) paints EVERY submit button
+     * in a card as a big solid block with `!important` padding/background/border, which
+     * is what turned the × into a 44x36 dark/blue block; only an inline `!important`
+     * beats that, so every declaration here carries it. $bordered = the + (a small
+     * outlined square); the pencil and × are plain glyphs.
+     */
+    public static function iconButtonStyle(string $color, bool $bordered = false): string
+    {
+        $border = $bordered ? '1px solid var(--border)' : 'none';
+
+        return "display:inline-flex; align-items:center; justify-content:center; width:17px; height:17px; min-width:0; padding:0 !important; margin:0; "
+            . "background:transparent !important; border:{$border} !important; border-radius:4px !important; "
+            . "color:{$color} !important; font-size:14px; font-weight:600 !important; line-height:1; cursor:pointer;";
+    }
 }

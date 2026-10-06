@@ -14,6 +14,6 @@
 @endphp
 <div style="{{ $headerGridStyle }}" class="text-[11px] font-medium uppercase tracking-wide">
     @foreach($headerLabels as $label)
-        <span style="color: var(--text-muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $label }}</span>
+        <span style="color: var(--text-muted); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; {{ \App\Support\RentalJobCardLineGrid::cellStyle() }}">{{ $label }}</span>
     @endforeach
 </div>
