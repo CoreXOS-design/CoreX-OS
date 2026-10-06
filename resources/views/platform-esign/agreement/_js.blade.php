@@ -60,6 +60,7 @@
             else if (kind === 'note') { t = (plan === 'agency' && agents > R.quote_above_agents) ? ('For more than ' + R.quote_above_agents + ' agents a quoted rate is recorded under “Agreed variations” — we will confirm it with you.') : ''; }
             if (s.tagName !== 'INPUT') { s.textContent = t; }
         });
+        $$('[data-mirror="total"]').forEach(function (m) { m.value = plan ? 'R ' + money(sub - vari) : ''; });
         return sub - vari;
     }
 

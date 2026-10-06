@@ -226,7 +226,7 @@ class AgreementService
         $calc = $this->calc($values, $rr, $v->rates_json ?? []);
         // Section 3 completes itself: every rendering shows the plan and branches the entries select, whatever an older save stored.
         $values = $this->withDerived($values, $calc);
-        $values = $this->withTakeOn($values, $rr);
+        $values = $this->withTakeOn($values, $rr, $calc);
 
         return $over + [
             'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => (string) $doc->contract_ref,
@@ -248,12 +248,20 @@ class AgreementService
         return AgreementPricing::derive($values, $rr, $rates);
     }
 
-    /** The start date and first billing date follow the take-on month RR set (spec §11.19) — documents sent without one keep what they have. */
-    private function withTakeOn(array $values, array $rr): array
+    /**
+     * With a take-on month RR set (spec §11.19) the document's start date, first collection date, collection day (the 1st) and the
+     * mandate Amount (the monthly fee calculated from the agents/branches) are RR's — documents sent without one keep what they have.
+     */
+    private function withTakeOn(array $values, array $rr, array $calc): array
     {
         $m = (string) ($rr['take_on_month'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}$/', $m)) {
+            return $values;
+        }
+        $values = array_merge($values, AgreementTakeOn::values($m), ['m_day' => AgreementTakeOn::COLLECTION_DAY]);
+        $values['m_amount'] = $calc['plan'] === '' ? '' : rtrim(rtrim(number_format((float) $calc['total'], 2, '.', ''), '0'), '.');
 
-        return preg_match('/^\d{4}-\d{2}$/', $m) ? array_merge($values, AgreementTakeOn::values($m)) : $values;
+        return $values;
     }
 
     /** Keys the recipient's request may never write: the derived ones, plus the take-on dates when RR set a take-on month. @return string[] */
@@ -287,7 +295,7 @@ class AgreementService
         $old = $this->calc($before, $rr, $rates);
         $new = $this->calc($after, $rr, $rates);
         $after = $this->withDerived($after, $new);
-        $after = $this->withTakeOn($after, $rr);
+        $after = $this->withTakeOn($after, $rr, $new);
         $cur = trim((string) ($after['m_amount'] ?? ''));
         $untouched = $cur === '' || ($old['plan'] !== '' && abs((float) str_replace(' ', '', $cur) - $old['total']) < 0.005);
         if ($untouched && $new['plan'] !== '') {

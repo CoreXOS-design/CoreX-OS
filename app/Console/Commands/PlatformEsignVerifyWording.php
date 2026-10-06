@@ -51,7 +51,8 @@ class PlatformEsignVerifyWording extends Command
     /** Screen-only helper text on the recipient form (never in a PDF, never wording): text => where it sits. */
     private const SCREEN_TIPS = [
         'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).' => 'beside the plan ticks, the section 1 branches row and the section 3 branches row',
-        'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date (set by RR through the take-on month)',
+        'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date and collection day (set by RR through the take-on month)',
+        'Fills in automatically from your monthly fee in section 3.' => 'beside the mandate Amount',
     ];
 
     private int $defects = 0;
