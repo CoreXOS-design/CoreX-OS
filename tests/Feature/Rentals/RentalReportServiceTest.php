@@ -389,7 +389,12 @@ final class RentalReportServiceTest extends TestCase
         $this->actingAs($agent);
 
         $result = $this->service->jobCards($agent, ['period' => 'any']);
-        self::assertNull($result['rows']->first()['total_cost']);
+        // §17.17 (maintenance flow, Build 1): the old "Total cost" column was always the SELLING total — it is now `total_selling`.
+        // This user holds no `rental_job_cards.view_costs`, so the agency's own cost / margin columns are not in the report at all.
+        self::assertNull($result['rows']->first()['total_selling']);
+        self::assertArrayNotHasKey('total_cost', $result['rows']->first());
+        self::assertArrayNotHasKey('total_cost', $result['columns']);
+        self::assertArrayNotHasKey('total_margin', $result['columns']);
     }
 
     public function test_job_cards_never_leak_across_agencies(): void
