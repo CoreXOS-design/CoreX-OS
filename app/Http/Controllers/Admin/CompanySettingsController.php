@@ -13,6 +13,7 @@ use App\Models\RentalVatType;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use App\Services\Syndication\Website\WebsiteSyndicationService;
+use App\Services\ViewingPack\ViewingPackCoverService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -131,6 +132,13 @@ class CompanySettingsController extends Controller
             'default_color'         => ['nullable', 'string', 'max:20'],
             'button_color'          => ['nullable', 'string', 'max:20'],
             'logo'                  => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            // Viewing Pack cover style (.ai/specs/viewing-pack.md §14). Only the keys the
+            // posting form rendered reach $data (the sibling company/website forms never post them).
+            'viewing_pack_cover_style'        => ['nullable', 'string', 'in:' . implode(',', array_keys(ViewingPackCoverService::STYLES))],
+            'viewing_pack_cover_slogan'       => ['nullable', 'string', 'max:120'],
+            'viewing_pack_cover_website'      => ['nullable', 'string', 'max:120'],
+            'viewing_pack_cover_phone'        => ['nullable', 'string', 'max:40'],
+            'viewing_pack_cover_accent_color' => ['nullable', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'remove_logo'           => ['nullable', 'boolean'],
             // 2026-05-14 hotfix — agency-scoped WhatsApp launch modes.
             'whatsapp_launch_mode_agent'  => ['nullable', 'in:whatsapp_app,whatsapp_web'],
@@ -267,10 +275,52 @@ class CompanySettingsController extends Controller
             unset($data['vat_registered'], $data['vat_capture_mode']);
         }
 
+        // Viewing Pack cover: the style column is NOT NULL (default 'standard'), so a blank
+        // post never writes null into it; blank text/colour fields are stored as null (= "use
+        // the fallback"). One audit row when anything in the block actually changed.
+        if (array_key_exists('viewing_pack_cover_style', $data) && blank($data['viewing_pack_cover_style'])) {
+            unset($data['viewing_pack_cover_style']);
+        }
+        if (array_key_exists('viewing_pack_cover_accent_color', $data) && filled($data['viewing_pack_cover_accent_color'])) {
+            $data['viewing_pack_cover_accent_color'] = strtoupper($data['viewing_pack_cover_accent_color']);
+        }
+        app(ViewingPackCoverService::class)->recordChange($agency, $data, $request->user());
+
         $agency->update($data);
 
         return redirect()->route('admin.company-settings', ['agency' => $agency->id])
             ->with('success', 'Company settings updated.');
+    }
+
+    /**
+     * "Cover preview" on the Branding tab (.ai/specs/viewing-pack.md §14): renders the SAME
+     * cover template the buyer-pack PDF uses, for the acting user as the sample agent, with
+     * the values currently typed into the form (not yet saved) layered over the saved ones.
+     * Opened in the page's own preview frame; read-only — nothing is written.
+     */
+    public function coverPreview(Request $request, Agency $agency)
+    {
+        $this->authorizeAccess();
+        $this->authorizeAgency($agency);
+
+        $overrides = [];
+        foreach (ViewingPackCoverService::SETTING_KEYS as $key) {
+            if ($request->has($key)) {
+                $value = $request->input($key);
+                $overrides[$key] = is_string($value) ? trim($value) : null;
+            }
+        }
+        if (isset($overrides['viewing_pack_cover_accent_color'])
+            && preg_match('/^#[0-9a-fA-F]{6}$/', (string) $overrides['viewing_pack_cover_accent_color']) !== 1) {
+            unset($overrides['viewing_pack_cover_accent_color']);
+        }
+
+        $service = app(ViewingPackCoverService::class);
+
+        return response()->view(
+            'command-center.viewing-packs.buyer-pack.cover',
+            $service->previewViewData($agency, $request->user(), $overrides)
+        );
     }
 
     /**

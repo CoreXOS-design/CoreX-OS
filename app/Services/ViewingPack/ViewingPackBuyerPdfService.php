@@ -125,6 +125,8 @@ class ViewingPackBuyerPdfService
             'agentEmail'    => $agent?->email ?: '',
             'logo'          => $this->publicDataUri($agency?->logo_path),
             'agentPhoto'    => $agent && method_exists($agent, 'profilePhotoUrl') ? $this->publicDataUri($agent->profilePhotoUrl()) : null,
+            // .ai/specs/viewing-pack.md §14 — the agency's selected cover style + its inputs.
+            'cover'         => app(ViewingPackCoverService::class)->dataFor($agency, $agent),
         ];
     }
 }

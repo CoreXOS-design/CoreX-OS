@@ -134,6 +134,7 @@ which to include. Ineligible types (e.g. Seller ID, FICA docs) are never shown.
 **Structure (in order):**
 1. **Cover page** — reuse the presentation cover engine. Buyer name(s), date, agent block
    (photo/contact), agency branding, property count.
+   *The agency chooses the cover style (§14): "Standard" (this layout, the default) or "Classic welcome".*
 2. **Per-property pages** — in the agent's chosen order. **Reuse `PropertyBrochureService` /
    `_brochure.blade.php`** per property (price, address, ref, status, hero + photo strip,
    beds/baths/garages, rates & levy, features, agent block, QR). Plus:
@@ -186,6 +187,8 @@ the buyer pack.
 - Document-type eligibility (`buyer_pack_eligible`) is exposed on the existing
   `/admin/settings/document-types` page — catalogue default + per-agency override columns added
   to the existing `bulkSave` editing loop.
+- **Cover style (§14)** — `agencies.viewing_pack_cover_style` plus cover slogan / website / office phone /
+  accent colour, on Company Settings → Branding and in the Setup Wizard `branding` step; each change is audited.
 - Any threshold/limit introduced (e.g. photo caps, description caps inherited from the brochure,
   max properties per pack if any) must be **agency-configurable**, never hardcoded.
 
@@ -299,3 +302,65 @@ still via `scopeVisibleTo` (AT-112) — filters only ever narrow that set.
 
 **Files.** `app/Http/Controllers/CommandCenter/ViewingPackController.php` (index),
 `resources/views/command-center/viewing-packs/index.blade.php`.
+
+---
+
+## 14. Cover styles — "Classic welcome" (Johan 6 Oct 2026, from Elize at HFC; conductor rulings; BUILT on QA1)
+
+**What and why.** HFC's agents used a specific cover before the CoreX viewing pack existed. The front page of the
+buyer pack is now an **agency-selectable style**: `standard` (today's cover — the default for every agency, unchanged) or
+`classic_welcome` (the layout below). Nothing is HFC-specific in code: HFC simply selects the style and types its own
+slogan / website / phone; any other agency gets the same style with its own data.
+
+**Layout — Classic welcome** (portrait A4, white; one PDF page — exactly one, proven in a test). Nothing else is on the page
+(no PPRA line, buyer name, date or property count — a deliberate difference from the Standard cover).
+- **Band:** full-height vertical band down the right edge, 60 px of 794 (7.5%), in the *cover primary* navy.
+- **Band text:** white bold caps rotated 90° reading bottom-to-top — from the bottom the **slogan**, then the **website**, then at the
+  top the **office phone**. A short **light-blue block** sits behind the first part of the slogan (only when there is a slogan).
+- **Logo:** top, left of the band, fitted into 646 × 150 px keeping its aspect ratio (explicit pixel size — never stretched).
+- **Headline** (centred in the area left of the band): "WELCOME TO" (navy, 32 pt) / "YOUR" (accent red, 115 pt, the dominant element) /
+  "VIEWING DAY" (navy, 32 pt) — bold sans, caps. The reference page's point sizes are kept on A4.
+- **Portrait:** the agent's **cut-out** photo (transparent PNG), lower right, left of the band, standing on the bottom edge, up to
+  380 × 376 px (roughly the lower third of the page).
+- **Agent block:** bottom left, stacked, navy bold — name, cell, email.
+
+**Where every input comes from (existing data only, plus the five cover settings):**
+| On the cover | Source | Falls back to | When missing |
+|---|---|---|---|
+| Logo | `agencies.logo_path` | — | the agency name as plain text; no broken image |
+| Slogan | `agencies.viewing_pack_cover_slogan` | `agencies.tagline` | line omitted (and the light-blue block with it) |
+| Website | `agencies.viewing_pack_cover_website` | `agencies.website_url` (`https://` and trailing `/` stripped for display) | line omitted |
+| Office phone | `agencies.viewing_pack_cover_phone` | `agencies.phone` | line omitted |
+| Band / "WELCOME TO" / "VIEWING DAY" / agent details (navy) | the agency's own `default_color` role **when it differs from CoreX's platform default #0b2a4a** (CoreX stores #0b2a4a as the platform default and the branding form re-posts it for every agency, so a value equal to it means "not chosen") | **#002060** | — |
+| "YOUR" (accent) | `agencies.viewing_pack_cover_accent_color` (hex) | **#C00000** | invalid stored value ignored |
+| Light-blue block | the agency's `icon_color`, then `button_color` | #00B4D8 | — |
+| Portrait | `User::profilePhotoCutoutUrl()` (background-removed PNG) | the plain `profilePhotoUrl()`, then nothing | no image drawn |
+| Agent name / cell / email | `users.name`, `users.cell` (else `phone`), `users.email` | — | that line omitted |
+The existing agency tagline, website and phone are **never changed** by this feature (the tagline also prints on every letterhead).
+
+**Settings (Company Settings → Branding → "Viewing pack cover"; Setup Wizard step `branding`).** `viewing_pack_cover_style`
+(NOT NULL, default `standard`), `viewing_pack_cover_slogan` (≤120), `viewing_pack_cover_website` (≤120), `viewing_pack_cover_phone` (≤40),
+`viewing_pack_cover_accent_color` (`#RRGGBB`, stored upper-case). Saved by the existing canonical `CompanySettingsController::update`
+(validated keys only reach the row, so the company/website forms never wipe them; a blank style never nulls the column; blank
+text/colour fields store null = use the fallback). Wizard: five rows in the `branding` step's `controls`, each with `explain` and
+`affects` (non-negotiable #10a). **Audit:** `viewing_pack_cover_audit` (agency, user, old/new values, time) — one row per save that actually
+changed something; none for an identical re-save.
+
+**Cover preview.** On the Branding tab a "Cover preview" panel shows the cover in a frame, rendered from `GET/PUT
+admin.company-settings.cover-preview` — the **same `cover.blade.php` + `_cover-classic.blade.php` the PDF renders** (one partial, so the
+two cannot drift), for the acting user as the sample agent. "Preview with these values" re-renders it from the form's current,
+unsaved values; nothing is written. Same permission and agency scope as the settings page. There is **no separate on-screen pack**
+(the PDF is the pack — conductor ruling).
+
+**Implementation map.** `ViewingPackCoverService` (data, fallbacks, colours, image fitting, audit), `ViewingPackBuyerPdfService::coverData()`
+(adds the `cover` block), `buyer-pack/cover.blade.php` (dispatches on the style) and `buyer-pack/_cover-classic.blade.php` (the layout;
+inline pixel styles, DomPDF-safe, rotated band via CSS `transform`), `CompanySettingsController` (validation, audit, `coverPreview`),
+`company-settings/index.blade.php` (the section), `config/agency-onboarding-copy.php` (wizard rows), migration
+`2026_10_12_200000_add_viewing_pack_cover_settings`. Tests: `tests/Feature/ViewingPack/ViewingPackCoverStyleTest.php`.
+
+**QA1 data (not code).** On QA1 only, HFC's agency row was set to `classic_welcome` with slogan "WHERE PROFESSIONALISM MEETS REAL ESTATE",
+website "www.hfcoastal.co.za", office phone "039 315 0857" (values from Elize's reference page). Live is untouched until Johan orders it.
+
+**Deliberately not done / reported.** `agencies.website_url` still has no settings screen; `viewing_pack_redaction_dpi` and
+`viewing_pack_default_duration_minutes` still have no settings UI; the preview frame uses the browser's own sans-serif where the PDF
+embeds Inter, so letter widths differ slightly; the agent sheet is unchanged.

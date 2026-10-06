@@ -972,6 +972,67 @@
                     </div>
                 </div>
 
+                {{-- ============ Viewing pack cover (.ai/specs/viewing-pack.md §14) ============ --}}
+                @php
+                    $vpStyle   = old('viewing_pack_cover_style', $agency->viewing_pack_cover_style ?: 'standard');
+                    $vpAccent  = old('viewing_pack_cover_accent_color', $agency->viewing_pack_cover_accent_color);
+                @endphp
+                <div class="text-xs font-bold uppercase tracking-wider pb-1 pt-2" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Viewing pack cover</div>
+                <p class="text-xs" style="color:var(--text-muted);">The front page of the buyer viewing pack. Blank text fields use your company tagline, website and phone.</p>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div class="space-y-3">
+                        <label class="block text-xs font-semibold" style="color:var(--text-primary);">Cover style
+                            <select name="viewing_pack_cover_style" class="w-full rounded-md px-2 py-1.5 text-sm mt-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                @foreach(\App\Services\ViewingPack\ViewingPackCoverService::STYLES as $styleKey => $styleLabel)
+                                    <option value="{{ $styleKey }}" @selected($vpStyle === $styleKey)>{{ $styleLabel }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <label class="block text-xs font-semibold" style="color:var(--text-primary);">Cover slogan
+                            <input type="text" name="viewing_pack_cover_slogan" maxlength="120" value="{{ old('viewing_pack_cover_slogan', $agency->viewing_pack_cover_slogan) }}"
+                                   placeholder="{{ $agency->tagline }}" class="w-full rounded-md px-2 py-1.5 text-sm mt-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </label>
+                        <label class="block text-xs font-semibold" style="color:var(--text-primary);">Cover website
+                            <input type="text" name="viewing_pack_cover_website" maxlength="120" value="{{ old('viewing_pack_cover_website', $agency->viewing_pack_cover_website) }}"
+                                   placeholder="{{ $agency->website_url }}" class="w-full rounded-md px-2 py-1.5 text-sm mt-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </label>
+                        <label class="block text-xs font-semibold" style="color:var(--text-primary);">Cover office phone
+                            <input type="text" name="viewing_pack_cover_phone" maxlength="40" value="{{ old('viewing_pack_cover_phone', $agency->viewing_pack_cover_phone) }}"
+                                   placeholder="{{ $agency->phone }}" class="w-full rounded-md px-2 py-1.5 text-sm mt-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        </label>
+                        <label class="block text-xs font-semibold" style="color:var(--text-primary);">Cover accent colour
+                            <span class="flex items-center gap-2 mt-1">
+                                <input type="color" id="vp_cover_accent_picker" value="{{ $vpAccent ?: '#C00000' }}" class="h-9 w-14 rounded cursor-pointer p-0.5 flex-shrink-0" style="background:var(--surface-2); border:1px solid var(--border);">
+                                <input type="text" name="viewing_pack_cover_accent_color" id="vp_cover_accent_text" maxlength="7" value="{{ $vpAccent }}" placeholder="#C00000"
+                                       class="flex-1 rounded-md px-2 py-1.5 text-xs font-mono" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </span>
+                            <span class="block text-[11px] font-normal mt-1" style="color:var(--text-muted);">Used for the large "YOUR" on the Classic welcome cover. Blank = red (#C00000).</span>
+                        </label>
+                        @error('viewing_pack_cover_accent_color')<div class="text-xs" style="color:var(--ds-red, #dc2626);">{{ $message }}</div>@enderror
+                        <div>
+                            <button type="submit" formaction="{{ route('admin.company-settings.cover-preview', $agency) }}" formtarget="vp-cover-preview" formnovalidate class="corex-btn-outline text-xs">Preview with these values</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="text-xs font-semibold mb-1" style="color:var(--text-primary);">Cover preview</div>
+                        <div style="width:397px; max-width:100%; height:560px; overflow:hidden; position:relative; border:1px solid var(--border); background:#fff;">
+                            <iframe name="vp-cover-preview" title="Viewing pack cover preview" src="{{ route('admin.company-settings.cover-preview', $agency) }}" loading="lazy"
+                                    style="width:794px; height:1120px; border:0; transform:scale(0.5); transform-origin:0 0; position:absolute; left:0; top:0;"></iframe>
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                    (function () {
+                        var p = document.getElementById('vp_cover_accent_picker'), t = document.getElementById('vp_cover_accent_text');
+                        if (!p || !t) { return; }
+                        p.addEventListener('input', function () { t.value = p.value.toUpperCase(); });
+                        t.addEventListener('input', function () { if (/^#[0-9a-fA-F]{6}$/.test(t.value)) { p.value = t.value; } });
+                    })();
+                </script>
+
                 <div class="flex justify-end pt-1">
                     <button type="submit" class="corex-btn-primary">Save Branding</button>
                 </div>

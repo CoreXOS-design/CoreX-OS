@@ -193,6 +193,13 @@ class Agency extends Model
 
         'viewing_pack_redaction_dpi', // AT-107 Step 5b — redaction render DPI (null = default 150)
         'viewing_pack_default_duration_minutes', // AT-107 Step 8 — default viewing duration (null = 60)
+        // Viewing Pack cover style (.ai/specs/viewing-pack.md §14). Blank text fields fall back to
+        // the agency's tagline / website_url / phone; blank accent = the style default.
+        'viewing_pack_cover_style',
+        'viewing_pack_cover_slogan',
+        'viewing_pack_cover_website',
+        'viewing_pack_cover_phone',
+        'viewing_pack_cover_accent_color',
         'trading_name',
         'tagline',
         'address',
