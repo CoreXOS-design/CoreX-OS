@@ -199,6 +199,47 @@ class AgreementFeeTableTest extends TestCase
         $this->assertSame('2', $d->form_data['branches_start']);
     }
 
+    public function test_the_read_only_places_carry_a_screen_only_tip_that_links_to_the_agents_box(): void
+    {
+        [$doc, $token] = $this->sent();
+        $html = $this->get(route('platform-esign.agreement.show', $token))->assertOk()->getContent();
+
+        // three read-only places: the plan ticks, section 1 "Number of branches", section 3 "Branches at start"
+        $this->assertSame(3 + 8, substr_count($html, 'class="auto-tip'), '3 pricing tips + 8 single-entry tips (section 5 x4, mandate address/contact/place/date)');
+        $this->assertSame(3, substr_count($html, 'Fills in automatically — enter your number of agents and branches in the '));
+        $this->assertSame(3, substr_count($html, '<a href="#fld-agents" data-goto="fld-agents">Monthly fee at start</a> section (section 3).'));
+        $this->assertStringContainsString('id="fld-agents"', $html, 'the link target exists');
+        $this->assertMatchesRegularExpression('/data-mirror="branches"[^>]*>\s*<span class="auto-tip"/', $html, 'tip next to the section 1 branches row');
+        $this->assertMatchesRegularExpression('/name="branches_start"[^>]*>\s*<span class="auto-tip"/', $html, 'tip next to the section 3 branches row');
+        $this->assertMatchesRegularExpression('/class="auto-tip auto-tip-float".*?name="plan" value="team"/s', $html, 'tip beside the plan ticks');
+    }
+
+    public function test_the_tips_are_not_in_any_other_rendering_the_pdfs_or_the_wording(): void
+    {
+        [$doc, $token] = $this->sent();
+        $svc = app(AgreementService::class);
+        $doc = Document::findOrFail($doc->id);
+        $ctx = $svc->context($doc);
+        $renderer = app(\App\Services\PlatformEsign\Agreement\AgreementRenderer::class);
+        foreach (['wet', 'pdf', 'rr', 'preview', 'text', 'canon'] as $mode) {
+            foreach (array_keys(\App\Services\PlatformEsign\Agreement\AgreementContent::PARTS) as $part) {
+                $out = implode("\n", $renderer->blocks($doc->wording, $part, $mode, $ctx));
+                $this->assertStringNotContainsString('auto-tip', $out, "$mode/$part");
+                $this->assertStringNotContainsString('Fills in automatically', $out, "$mode/$part");
+            }
+        }
+        // the stored wording itself carries no tip
+        foreach ((array) $doc->wording->content_json as $part => $md) {
+            $this->assertStringNotContainsString('Fills in automatically', $md, $part);
+        }
+        // and the real wet-ink PDF
+        $layout = app(\App\Services\PlatformEsign\Agreement\AgreementLayout::class)->ensure($doc->wording);
+        $wet = $svc->wetCopy($doc, $svc->agencySigner($doc), null);
+        $text = \App\Services\PlatformEsign\Agreement\AgreementFidelity::pdfText($wet, (int) $layout['total']);
+        $this->assertStringNotContainsString('Fills in automatically', $text);
+        $this->assertStringNotContainsString('automatically', $text);
+    }
+
     public function test_the_entries_and_the_fee_table_are_never_parted_by_a_page_break(): void
     {
         $v = app(\App\Services\PlatformEsign\Agreement\AgreementContent::class)->ensureSeeded();

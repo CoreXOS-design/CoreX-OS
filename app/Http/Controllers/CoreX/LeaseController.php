@@ -217,6 +217,43 @@ class LeaseController extends Controller
         return $this->searchQualifyingRentalProperties($request, Lease::class);
     }
 
+    /**
+     * The properties the CREATE form's Property picker may offer: rental stock
+     * the acting user can see under their own own/branch/agency properties
+     * scope (store() enforces the very same Property::visibleTo() rule, so the
+     * picker never offers a property the save would refuse).
+     */
+    private function pickableRentalProperties(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        return Property::query()
+            ->where('listing_type', 'rental')
+            ->visibleTo($request->user());
+    }
+
+    /**
+     * The CREATE screen's type-to-search Property picker — same pattern as
+     * RentalApplicationController::searchProperties() / RentalWorkOrderController
+     * ::searchProperties(): Property::scopeSearchAddress() (address, street,
+     * suburb, complex, unit, title/property name, property number, erf number,
+     * P24 reference), limited to 10 rows. A blank term returns the most recent
+     * rental stock, never an error. Distinct from searchProperties() above,
+     * which backs the LIST screen's filter and only offers properties that
+     * already have a lease.
+     */
+    public function searchRentalProperties(Request $request): JsonResponse
+    {
+        $properties = $this->pickableRentalProperties($request)
+            ->searchAddress(trim((string) $request->query('q', '')))
+            ->with('agent')
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+
+        return response()->json($properties->map(fn (Property $p) => $p->toSearchResult([
+            'ref' => $p->property_number,
+        ])));
+    }
+
     /** Human-readable active-filter summary for the print-list header/export filename — shared shape across all four rental lists. */
     private function activeLeaseFiltersSummary(Request $request): array
     {
@@ -292,8 +329,18 @@ class LeaseController extends Controller
             ? RentalApplication::findOrFail($request->get('rental_application_id'))
             : null;
 
+        // A validation error bounces back here with the picked property only in
+        // old('property_id'): resolve it again through the SAME scoped query as
+        // the picker, so a property the user can no longer see (or that was
+        // archived meanwhile) comes back empty and must be re-picked.
+        $oldPropertyId = $property ? null : old('property_id');
+        $oldProperty = $oldPropertyId
+            ? $this->pickableRentalProperties($request)->find($oldPropertyId)
+            : null;
+
         return view('corex.leases.create', [
             'property' => $property,
+            'oldProperty' => $oldProperty,
             'rentalApplication' => $rentalApplication,
             // .ai/specs/rental-property-tab.md §5, Part 4 — same agency-editable
             // list as the property screen's Lease Type select; one source of
@@ -317,6 +364,8 @@ class LeaseController extends Controller
             'tenant_contact_ids' => ['required', 'array', 'min:1'],
             'tenant_contact_ids.*' => [Rule::exists('contacts', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
             'activate_immediately' => ['nullable', 'boolean'],
+        ], [
+            'property_id.required' => 'Please choose a property from the list.',
         ]);
 
         $property = Property::findOrFail($validated['property_id']);

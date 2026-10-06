@@ -296,6 +296,9 @@ Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional bran
   the server stores the derived `plan`/`extra_branches`/`branches_start` and keeps the mandate **Amount** equal to the monthly total until the recipient types a different amount.
 - Total = lines − agreed variation (≥ 0, ≤ lines). Validation: agents ≥ 1, branches ≥ 1, whole numbers. Rate cells in the source text are `{{rate:…}}` tokens that render
   `R450`, `R1 495`, … identically to the source. **The legal wording does not change** — only behaviour.
+- **Read-only places are explained (screen only).** The three places the recipient cannot type in — the plan ticks, section 1 "Number of branches", section 3 "Branches at start" — look read-only
+  (grey, dashed) and carry a small muted tip with an info icon: "Fills in automatically — enter your number of agents and branches in the *Monthly fee at start* section (section 3)." The link scrolls
+  to and focuses the agents box. Recipient web form only (`AgreementRenderer::tip()`): never in the wet-ink or sealed PDF, the RR/preview screens or the wording; a declared addition in the §11.15 proof.
 - To change the rule later (e.g. "band rate for all seats"): `AgreementPricing::compute()` (server, one place) + its JS mirror, and a NEW wording version (the contract's
   "Monthly fee at start" paragraph and the fee table text describe the graduated rule).
 Tests: `AgreementFeeTableTest` (1, 10, 11, 13, 20, 21, 25, 40, 41 agents × 1, 2, 4 branches; 10↔11 switching; resume; forced plan; surfaces), real-browser proof `scripts/verify-agreement-fees.cjs`.
@@ -455,7 +458,7 @@ explained by the document's own values; tick boxes may be controls or ☐/☒). 
 wrapping after a hyphen, extractor spacing beside quotes), "1st" spacing, blank runs → fields/values, letterhead/footer/initial marks (cropped / not part of the sheet body), the company block.
 Anything else is a defect. It also checks stored v1.0 == the content built from the source files, the footer label "Version 1.0 — 28 September 2026", and (test) that a fresh database seeds ONLY 1.0.
 **Declared additions** (reported, not silently allowed): the contract-reference line under the Part A heading (§11.3); the "Number of agents" / "Number of branches" labels of the two entries on the web form;
-a tick box before each of the three account types on the mandate (print/PDF). Tests: `AgreementFidelityTest` (negative cases prove a changed/missing/extra/reordered word is caught), `AgreementMailSenderTest`.
+a tick box before each of the three account types on the mandate (print/PDF). Also the three screen-only "Fills in automatically" tips (§11.5) — web form only; the proof strips them from the page text, counts them, and fails if one appears in a PDF. Tests: `AgreementFidelityTest` (negative cases prove a changed/missing/extra/reordered word is caught), `AgreementMailSenderTest`.
 
 ### 11.17 Completion stays inside CoreX — no attachment, no bank details by email (cc4, 2026-10-06, Johan)
 Johan: "the agency is completing the document on a CoreX link so that should be secure. From there it stays inside CoreX." The signed
@@ -488,3 +491,53 @@ had been issued): D3.6 now reads "We maintain the website for as long as this ag
 the domain name remains the Agency’s." Corrected in `resources/legal/subscription-agreement/agreement-v1.0.md` (the seed source, so every
 fresh database seeds only "1.0 — 28 September 2026" with the corrected clause) and the conductor's reference copy. Environments that already
 hold 1.0 (QA1) get the corrected text as a new published version through §11.14, because published versions are immutable.
+
+### 11.19 Take-on month — the start and first-billing dates are set by RR (cc2, 2026-10-06, Johan)
+Rule: the free take-on month is the whole calendar month in which take-on / go-live happens. **Agreement start date = the 1st of the take-on month; billing start / first debit = the 1st of the following month**
+(take-on October → starts 1 October, billing 1 November; November → 1 December; December → 1 January of the next year). Derived in ONE place, `AgreementTakeOn` (`derive()` / `values()` / `options()` / `valid()`).
+- **Send form (owner):** required "Take-on month" list (this month + the next 17, default this month, past months cannot be chosen — also enforced server-side), with both derived dates shown before sending.
+  Stored as `rr_data.take_on_month` (YYYY-MM) and audited as a `take_on_set` event. `AgreementService::send()` also pre-sets `form_data.start_date` / `m_first_payment`.
+- **Document:** the two fields that carry these dates — Part A §4 "Start date" and the mandate "first payment instruction … on ___ (date)" — are filled from the take-on month on every rendering
+  (recipient form, RR/preview screens, wet-ink and sealed PDF; `AgreementService::context()` overlays them) and are read-only for the recipient: shown as plain read-only boxes with the screen-only tip
+  "Set by CoreX as agreed for your take-on month." (never in a PDF; a declared addition of the §11.15 proof). The server strips any recipient attempt to write them. No wording change.
+- **Mandate first collection** (Johan, 12:48): with a take-on month the mandate's three collection fields are RR's too and read-only for the recipient — first payment date = the derived billing start, "___ of each month" = 1 (the collection day),
+  and "Amount" = the monthly fee calculated from the agents/branches pricing (first payment and recurring amount are the same: the take-on month is free, so no once-off or pro-rata amount exists; the mandate has no separate field for one).
+  The Amount follows pricing changes server-side (`withTakeOn`) and live in the page; tip "Fills in automatically from your monthly fee in section 3." Printed on both PDFs.
+- **Not mapped (reported, not guessed):** the two signing dates (Part A §6 "Date", mandate "Date") and
+  "on this ___ day of ___" are signing dates, not start/billing dates, and are untouched.
+- **Already-sent agreements** (no `take_on_month` on the record) keep exactly what they have and stay typeable.
+Tests: `AgreementTakeOnTest` (Oct→1 Nov, Nov→1 Dec, Dec→1 Jan rollover, Feb, past/junk months, send form, audit, read-only + server strip, wet-ink PDF, legacy agreement).
+
+### 11.20 Single entry — typed once, mirrored everywhere else (cc2, 2026-10-06, Johan: "option A, ruled")
+Section 5 (debit order authority) keeps its wording and layout exactly, but its bank fields are **read-only** on the recipient web form and fill themselves from the Netcash mandate — **the mandate is the one place bank details are typed.**
+Every other value that used to be typed in both documents gets the same treatment (typed once, mirrored, screen-only tip with a link that jumps to and focuses where it is typed). `AgreementFields::MIRRORS` (target ⇐ source), applied server-side by `AgreementService::withMirrors()`:
+
+| Mirrored (read-only) | Typed once in | Tip link goes to |
+|---|---|---|
+| §5 Account holder | Mandate "Given by (name of Accountholder)" | `fld-m_holder` |
+| §5 Bank | Mandate "Bank Name" | `fld-m_bank` (tip sits after the branch code, same row) |
+| §5 Branch code | Mandate "Branch Number" | `fld-m_bank` |
+| §5 Account number | Mandate "Account Number" | `fld-m_account` |
+| §5 Account type | Mandate "Type of Account" ticks | first tick box |
+| Mandate address | Part A §1 Physical address | `fld-address` |
+| Mandate contact number | Part A §1 Billing contact cell | `fld-billing_cell` |
+| Mandate "Signed ___ on this" place | Part A §6 Place | `fld-sig_place` |
+| Mandate Date | Part A §6 Date | `fld-sig_date` |
+
+Plus (§11.5, §11.19): branches (typed once beside agents), plan, start date, first collection date, collection day, mandate Amount — set from other entries / by RR.
+- **Server-side:** the mirrored keys are stripped from every recipient request, recomputed from their source on every save/submit/render and stored explicitly; validation runs on the source only (`validateRecipient(..., $skip)`). Both PDFs, the RR screen and the preview print the mirrored values (section 5 shows the mandate's bank details).
+- **Screen only:** the tips ("Fills in automatically from the debit order mandate." etc., see `AgreementRenderer::MIRROR_TIPS`) exist only on the recipient web form — never in a PDF or the wording; declared additions of the §11.15 proof, which strips and counts them.
+- **Agreements sent before this change** (no `rr_data.single_entry`) keep both places typeable exactly as before.
+- **Deliberately NOT mirrored (reported):** the mandate "Assisted by / Capacity" line (a different person's capacity, not the signer's Part A capacity); the mandate signature (a separate signature act — the "Use the same signature" button stays); registered name vs account holder (different things: the legal entity vs the bank account holder).
+Tests: `AgreementSingleEntryTest`.
+
+### 11.21 Alignment — signature blocks and the mandate grid (cc2, 2026-10-06, Johan: "I hate it if things are placed as scattered")
+Layout only — no wording, order of clauses or mandate text changes. One set of rules (`agreement/_css.blade.php`, shared by the screen sheets and the PDF) over markup hooks added in `AgreementRenderer::alignmentHooks()`:
+- **Signature blocks (Part A §6):** the Agency / RR Technologies table gets `class="sigtable"` — two equal-width columns, and each row paragraph `class="sr sr-name|capacity|signature|date|place"` has ONE fixed height per row class, so the same row sits on the same baseline in both columns: same box heights, same label position, same line length, tops and bottoms aligned.
+  The signature box is the same size in both columns (the drawing pad, the RR pad on the countersign screen, the static signature image and the blank line all share one box). The signature pad is built from `<span>`s (display:block), not `<div>`s: a block inside a `<p>` makes the browser close the paragraph early, which is what scattered the rows before.
+  Applies on the recipient page, owner preview, RR countersign screen, wet-ink PDF and sealed PDF.
+- **Netcash mandate:** every "Label: field" line (Given by, Address, Bank Name, Branch Name and Town, Branch Number, Account Number, Type of Account, Date, Contact Number, Amount, To (Name of Beneficiary), Address, Abbreviated Shortname) is a `p.mf` row of one grid: labels in one column, fields on a common left edge with one width, equal row heights (screen),
+  in the mandate's own order. The screen-only tips sit in their own third column on the same row; inside a sentence (first payment date, collection day) they move to the end of the paragraph so the printed sentence reads straight through.
+- **Initials:** the per-page initials boxes (PDF footer and screen footer chip/button) have identical size and vertical alignment.
+- Layout revision 3 (`AgreementLayout::REV`) re-calibrates the pagination. Tests: `AgreementAlignmentTest`; before/after screenshots in the lane report.
+

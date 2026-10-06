@@ -595,6 +595,45 @@ tenant on top, landlord underneath, same muted/compact text style:
   CSV/XLSX export (`Landlord` column, via the new `Lease::landlordNames()` helper — same shape as the
   existing `tenantNames()`).
 
+### 7.2 The New Lease form's Property field is type-to-search (2026-10-06)
+
+**Bug (agents testing on QA1):** on `/corex/leases/create` the Property field was a plain `<select>` filled
+with up to 500 rental properties (`create.blade.php`) — it could not be typed into, so with many
+properties it was unusable. The list was also built by a bare `Property::where('listing_type','rental')`
+inside the view, i.e. not narrowed to the user's own/branch visibility.
+
+**Now:** a type-to-search picker, the same pattern as the rental-application and work-order property
+pickers (`RentalApplicationController::searchProperties()` / `RentalWorkOrderController::searchProperties()`).
+
+- **Searches by** (all via the one canonical `Property::scopeSearchAddress()`): street number and name,
+  address, suburb, city, complex name, unit / section, **property name (`title`)**, **property number
+  (the reference)**, erf number, P24 reference. Several words narrow the result (every word must match
+  something), e.g. `beach road`; `unit 14` / `erf 442` bind to that column.
+- **Endpoint:** `GET /corex/leases/search-rental-properties` (`corex.leases.search-rental-properties`),
+  permission `leases.create` — same gate as `create`/`store`. Returns up to 10 rows
+  `{id, label, status, agent, ref}`. Distinct from `corex.leases.search-properties`, which backs the
+  LIST screen's filter and only offers properties that already have a lease.
+- **Scoping (query layer, never a hidden link):** rental listings only (`listing_type = rental`), then
+  `Property::visibleTo($user)` (own / branch / agency per the user's `properties` data scope) on top of
+  the global `AgencyScope`. `store()` re-checks the same `visibleTo` rule, so the picker never offers a
+  property the save would refuse, and posting an out-of-scope property id directly is a 404.
+- **Behaviour:** needs 2+ typed characters (same as the sibling pickers); debounced; stale responses
+  are discarded; ArrowUp/ArrowDown move through the results, Enter picks the highlighted one (it does
+  not submit the form), Escape closes the list. Editing the text after a pick clears the pick, so the
+  box and the posted `property_id` can never disagree.
+- **Empty / error states:** no match → "No rental properties match …" (never a blank box); a failed
+  request → "Could not search properties just now. Please try again."; submitting with nothing picked
+  → inline "Choose a property from the list." (client) / "Please choose a property from the list."
+  (server, `property_id.required`).
+- **After a validation error** the picked property comes back: `create()` resolves `old('property_id')`
+  through the same scoped query, so a property the user can no longer see (or that was archived in the
+  meantime) comes back empty and must be re-picked.
+- **Unchanged:** opening the form with `?property_id=` (from a property screen / rental application)
+  still shows that property as fixed text with no picker.
+- **Lease edit has no property field** — `update()` accepts deposit, end date, month-to-month and lease
+  type only (the property is fixed at creation, §6a), so there is no second property picker to fix.
+- **Proof:** `tests/Feature/Leases/LeaseCreatePropertySearchTest.php`.
+
 ---
 
 ## 8. Permissions
