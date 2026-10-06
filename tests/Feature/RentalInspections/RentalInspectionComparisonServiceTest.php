@@ -89,6 +89,11 @@ final class RentalInspectionComparisonServiceTest extends TestCase
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
             'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
             'condition' => $condition, 'notes' => $notes,
+            // `source` is a required column with no default (spec §3.2 / §14): an
+            // in-inspection observation is recorded as in_inspection, an out as out_inspection.
+            'source' => $inspection->type === RentalInspection::TYPE_OUT
+                ? RentalInspectionObservation::SOURCE_OUT_INSPECTION
+                : RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
     }
 
@@ -151,19 +156,18 @@ final class RentalInspectionComparisonServiceTest extends TestCase
     }
 
     /**
-     * N/A doesn't exist in the condition enum yet (cc2's own work, in
-     * flight). This proves the whitelist-based exclusion works for ANY
-     * value outside the six real conditions — including whatever cc2's N/A
-     * ends up being called — without this test (or the service) needing to
-     * know its exact name.
+     * N/A is the fixed sentinel 'n_a' (RentalInspectionObservation::CONDITION_NA — what markRoomNa()
+     * writes), "not an argument at all" (Johan; spec §7.1). An item N/A at BOTH ends is not a finding —
+     * filtered out entirely, not shown as an excluded row. (This used to use a placeholder value,
+     * 'not_applicable', written before N/A existed; the service correctly matches only the real key.)
      */
-    public function test_a_condition_value_outside_the_known_enum_on_both_sides_is_excluded_entirely(): void
+    public function test_an_item_na_at_both_ends_is_excluded_entirely(): void
     {
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'not_applicable');
-        $this->observe($out, $item, 'not_applicable');
+        $this->observe($in, $item, RentalInspectionObservation::CONDITION_NA);
+        $this->observe($out, $item, RentalInspectionObservation::CONDITION_NA);
 
         $rows = $this->service->compareItems($out);
 
@@ -175,7 +179,7 @@ final class RentalInspectionComparisonServiceTest extends TestCase
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'not_applicable');
+        $this->observe($in, $item, RentalInspectionObservation::CONDITION_NA);
         $this->observe($out, $item, 'good');
 
         $rows = $this->service->compareItems($out);
