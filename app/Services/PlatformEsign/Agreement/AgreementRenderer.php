@@ -23,6 +23,7 @@ class AgreementRenderer
     private const TOKEN = '/\{\{(f|o|q|rate|amt|rr|sig|ini|ref|auto|ctl|co)(?::([a-z0-9_]+))?(?::([a-z0-9_]+))?\}\}/';
     /** Screen-only helper text beside the dates RR sets (never in a PDF; a declared addition of the proof). */
     public const TAKE_ON_TIP = 'Set by CoreX as agreed for your take-on month.';
+    public const AMOUNT_TIP = 'Fills in automatically from your monthly fee in section 3.';
 
     private const LINE_APPLIES = ['team' => ['team_seats'], 'agency' => ['agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches']];
 
@@ -134,9 +135,16 @@ class AgreementRenderer
         }
         if ($this->isForm()) {
             if (isset(AgreementTakeOn::FIELDS[$key]) && !empty($this->ctx['rr']['take_on_month'])) {
-                // Start date / first payment date: set by RR through the take-on month (spec §11.19) — shown, never typed by the agency.
-                return '<input type="text" class="fld" value="' . e($this->date($this->value($key))) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '">'
-                    . '<span class="auto-tip" data-screen-only="1">' . self::TAKE_ON_TIP . '</span>';
+                // Start date, first collection date, collection day, mandate Amount: set by RR through the take-on month (spec §11.19) — shown, never typed.
+                $v = $this->value($key);
+                $shown = match ($key) {
+                    'start_date', 'm_first_payment' => $this->date($v),
+                    'm_amount' => $v === '' ? '' : 'R ' . AgreementPricing::number((float) $v),
+                    default => $v,
+                };
+
+                return '<input type="text" class="fld' . ($key === 'm_amount' ? ' num' : '') . '" value="' . e($shown) . '" readonly tabindex="-1" data-derived="1"' . ($key === 'm_amount' ? ' data-mirror="total"' : '') . ' aria-label="' . e($f['label']) . '">'
+                    . '<span class="auto-tip" data-screen-only="1">' . ($key === 'm_amount' ? self::AMOUNT_TIP : self::TAKE_ON_TIP) . '</span>';
             }
             if ($key === 'branches') {
                 // Entered once, in section 3 beside the number of agents; this row of the original form just shows it.

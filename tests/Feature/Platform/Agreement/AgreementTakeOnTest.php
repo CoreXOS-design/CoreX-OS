@@ -146,9 +146,40 @@ class AgreementTakeOnTest extends TestCase
         $html = $this->get(route('platform-esign.agreement.show', $token))->assertOk()->getContent();
         $this->assertMatchesRegularExpression('/value="1 December 2026" readonly tabindex="-1" data-derived="1"/', $html);
         $this->assertMatchesRegularExpression('/value="1 January 2027" readonly tabindex="-1" data-derived="1"/', $html);
-        $this->assertSame(2, substr_count($html, 'Set by CoreX as agreed for your take-on month.'));
+        $this->assertSame(3, substr_count($html, 'Set by CoreX as agreed for your take-on month.'), 'start date, first payment date, collection day');
         $this->assertStringNotContainsString('name="start_date"', $html, 'no typeable start date');
         $this->assertStringNotContainsString('name="m_first_payment"', $html, 'no typeable first payment date');
+    }
+
+    public function test_the_mandate_collection_day_and_amount_are_set_by_corex_and_locked(): void
+    {
+        [$doc, $token] = $this->sent('2026-11');
+        $this->save($token, ['agents' => '13', 'branches' => '1', 'm_amount' => '1', 'm_day' => '17'])->assertOk();
+        $d = $doc->fresh();
+        $this->assertSame('1', $d->form_data['m_day'], 'collection day is the 1st');
+        $this->assertSame('5195', $d->form_data['m_amount'], 'first payment / recurring amount = the calculated monthly fee');
+        $this->assertSame('2026-12-01', $d->form_data['m_first_payment']);
+
+        // changing the pricing entries moves the amount, never the recipient
+        $this->save($token, ['agents' => '8', 'm_amount' => '999'], (int) $d->form_rev)->assertOk();
+        $this->assertSame('3600', $doc->fresh()->form_data['m_amount']);
+
+        $html = $this->get(route('platform-esign.agreement.show', $token))->getContent();
+        $this->assertMatchesRegularExpression('/value="R 3 600" readonly tabindex="-1" data-derived="1" data-mirror="total"/', $html);
+        $this->assertMatchesRegularExpression('/value="1" readonly tabindex="-1" data-derived="1"/', $html);
+        $this->assertSame(1, substr_count($html, 'Fills in automatically from your monthly fee in section 3.'));
+        $this->assertStringNotContainsString('name="m_amount"', $html);
+        $this->assertStringNotContainsString('name="m_day"', $html);
+
+        $svc = app(AgreementService::class);
+        $ctx = $svc->context(Document::findOrFail($doc->id));
+        $renderer = app(\App\Services\PlatformEsign\Agreement\AgreementRenderer::class);
+        foreach (['wet', 'pdf'] as $mode) {
+            $m = html_entity_decode(strip_tags(implode("\n", $renderer->blocks($doc->wording, 'mandate', $mode, $ctx))));
+            $this->assertMatchesRegularExpression('/Amount:\s*R 3 600/', $m, $mode);
+            $this->assertStringContainsString('1 December 2026', $m, $mode);
+            $this->assertMatchesRegularExpression('/regularly on the\s*1\s*of each month/', preg_replace('/\s+/', ' ', $m) === null ? '' : $m, $mode);
+        }
     }
 
     public function test_the_wet_ink_pdf_and_the_review_carry_the_dates_but_never_the_tip(): void

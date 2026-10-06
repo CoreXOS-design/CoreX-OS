@@ -500,7 +500,10 @@ Rule: the free take-on month is the whole calendar month in which take-on / go-l
 - **Document:** the two fields that carry these dates — Part A §4 "Start date" and the mandate "first payment instruction … on ___ (date)" — are filled from the take-on month on every rendering
   (recipient form, RR/preview screens, wet-ink and sealed PDF; `AgreementService::context()` overlays them) and are read-only for the recipient: shown as plain read-only boxes with the screen-only tip
   "Set by CoreX as agreed for your take-on month." (never in a PDF; a declared addition of the §11.15 proof). The server strips any recipient attempt to write them. No wording change.
-- **Not mapped (reported, not guessed):** the mandate "___ of each month" (day of the month) keeps its default 1 (it is a day, not a date, and the wording already prints "the 1st"); the two signing dates (Part A §6 "Date", mandate "Date") and
+- **Mandate first collection** (Johan, 12:48): with a take-on month the mandate's three collection fields are RR's too and read-only for the recipient — first payment date = the derived billing start, "___ of each month" = 1 (the collection day),
+  and "Amount" = the monthly fee calculated from the agents/branches pricing (first payment and recurring amount are the same: the take-on month is free, so no once-off or pro-rata amount exists; the mandate has no separate field for one).
+  The Amount follows pricing changes server-side (`withTakeOn`) and live in the page; tip "Fills in automatically from your monthly fee in section 3." Printed on both PDFs.
+- **Not mapped (reported, not guessed):** the two signing dates (Part A §6 "Date", mandate "Date") and
   "on this ___ day of ___" are signing dates, not start/billing dates, and are untouched.
 - **Already-sent agreements** (no `take_on_month` on the record) keep exactly what they have and stay typeable.
 Tests: `AgreementTakeOnTest` (Oct→1 Nov, Nov→1 Dec, Dec→1 Jan rollover, Feb, past/junk months, send form, audit, read-only + server strip, wet-ink PDF, legacy agreement).

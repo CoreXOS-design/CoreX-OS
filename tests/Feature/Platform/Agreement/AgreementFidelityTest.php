@@ -140,8 +140,9 @@ class AgreementFidelityTest extends TestCase
         // the screen-only tips are a declared addition of the web page ONLY — never in a PDF
         $web = substr($out, strpos($out, 'RECIPIENT WEB PAGE'), strpos($out, 'WET-INK DOWNLOAD PDF') - strpos($out, 'RECIPIENT WEB PAGE'));
         $this->assertStringContainsString('3 × "Fills in automatically', $web, 'the three tips are reported as declared additions of the web page');
-        $this->assertSame(1, substr_count($out, 'Fills in automatically'), 'and appear nowhere else (wet-ink PDF, sealed PDF)');
-        $this->assertStringContainsString('2 × "Set by CoreX as agreed for your take-on month."', $web, 'the two take-on tips are reported as declared additions of the web page');
+        $this->assertSame(1, substr_count($out, 'Fills in automatically — enter your number'), 'and appear nowhere else (wet-ink PDF, sealed PDF)');
+        $this->assertSame(1, substr_count($out, 'Fills in automatically from your monthly fee'), 'the amount tip is reported once, web page only');
+        $this->assertStringContainsString('3 × "Set by CoreX as agreed for your take-on month."', $web, 'the two take-on tips are reported as declared additions of the web page');
         $this->assertSame(1, substr_count($out, 'Set by CoreX as agreed'), 'and appear nowhere else');
         $this->assertStringContainsString('Version 1.0 — 28 September 2026', $out, 'the footer of the PDFs reads the v1.0 label');
         $this->assertSame(0, $exit, $out);

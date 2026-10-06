@@ -12,8 +12,11 @@ use Carbon\Carbon;
  */
 class AgreementTakeOn
 {
-    /** Document fields filled from the take-on month: key => which derived date. */
-    public const FIELDS = ['start_date' => 'start_date', 'm_first_payment' => 'billing_start'];
+    /** Document fields RR sets and the recipient cannot touch once a take-on month is chosen. */
+    public const FIELDS = ['start_date' => 'start_date', 'm_first_payment' => 'billing_start', 'm_day' => 'collection_day', 'm_amount' => 'monthly_fee'];
+
+    /** Debit orders run on the 1st (the wording already says "on or about the 1st day of the month"). */
+    public const COLLECTION_DAY = '1';
 
     public static function valid(?string $month, ?Carbon $now = null): bool
     {
