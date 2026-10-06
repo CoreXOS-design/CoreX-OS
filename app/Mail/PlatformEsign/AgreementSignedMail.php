@@ -16,7 +16,7 @@ use Illuminate\Queue\SerializesModels;
  */
 class AgreementSignedMail extends Mailable
 {
-    use Queueable, SerializesModels;
+    use Queueable, SendsFromPlatformCompany, SerializesModels;
 
     public function __construct(public Document $doc, public string $audience, public string $url)
     {
@@ -24,7 +24,7 @@ class AgreementSignedMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Fully signed: ' . $this->doc->title);
+        return $this->platformEnvelope('Fully signed: ' . $this->doc->title, $this->doc);
     }
 
     public function content(): Content
