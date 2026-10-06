@@ -11,6 +11,7 @@ use App\Models\RentalWorkOrder;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalFaultTypeService;
+use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalPortalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,6 +45,7 @@ class ClientLandlordRentalsController extends Controller
     public function __construct(
         private readonly RentalPortalScopeService $scope,
         private readonly RentalFaultReportService $faultReportService,
+        private readonly RentalJobCardClientViewService $jobCardView,
     ) {}
 
     public function properties(Request $request): JsonResponse
@@ -249,8 +251,43 @@ class ClientLandlordRentalsController extends Controller
                 'owner_approval_status' => $w->owner_approval_status,
                 // Amounts ARE shown to the landlord (§3: "work orders with amounts").
                 'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())->amount,
+                // §14.29 — photos of the work (own + linked job card), filtered by the agency's visibility rule.
+                'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($w)),
             ])->values(),
         ]);
+    }
+
+    /**
+     * §14.29 — job cards on this landlord's own properties: status, schedule,
+     * crew completion, the allowed photos, and the selected quote amount only
+     * as the work-order endpoint above already shows it.
+     */
+    public function jobCards(Request $request): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        return response()->json([
+            'job_cards' => $this->scope->landlordJobCards($contact)
+                ->map(fn ($card) => $this->jobCardView->payload($card, true))->values(),
+        ]);
+    }
+
+    public function jobCardShow(Request $request, int $jobCard): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $card = $this->scope->landlordJobCard($contact, $jobCard);
+        if (!$card) {
+            return response()->json(['message' => 'Job card not found.'], 404);
+        }
+
+        return response()->json(['job_card' => $this->jobCardView->payload($card, true)]);
     }
 
     public function inspections(Request $request): JsonResponse

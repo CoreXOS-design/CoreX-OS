@@ -33,6 +33,8 @@ class RentalPortalSettingsController extends Controller
             'notifyLandlordOnDecisionNeeded' => RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agencyId),
             'notifyTenantOnStatusChange' => RentalPortalSetting::notifyTenantOnStatusChangeFor($agencyId),
             'defaultContractorSecureLinkExpiryDays' => RentalPortalSetting::DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS,
+            // rental-work-orders.md §14.27.3 — Build 2 (crew page & client visibility).
+            'crewPhotosVisibleToClients' => RentalPortalSetting::crewPhotosVisibleToClientsFor($agencyId),
         ]);
     }
 
@@ -76,6 +78,31 @@ class RentalPortalSettingsController extends Controller
     public function updateNotifyTenantOnStatusChange(Request $request): RedirectResponse
     {
         return $this->updateToggle($request, 'notify_tenant_on_status_change', 'Tenant status-change notification');
+    }
+
+    /**
+     * rental-work-orders.md §14.27.3 — which crew photos a tenant / landlord sees.
+     * Narrow, independent saver (agency-onboarding-setup.md §6.1): absent from
+     * the post means "leave it alone", never a reset to the default.
+     */
+    public function updateCrewPhotosVisibleToClients(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (!$request->has('crew_photos_visible_to_clients')) {
+            return redirect()->route('corex.settings.rental-portal.edit');
+        }
+
+        $validated = $request->validate([
+            'crew_photos_visible_to_clients' => ['required', 'string', 'in:' . implode(',', RentalPortalSetting::CREW_PHOTO_VISIBILITY_OPTIONS)],
+        ]);
+
+        RentalPortalSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['crew_photos_visible_to_clients' => $validated['crew_photos_visible_to_clients']],
+        );
+
+        return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew photo visibility saved.');
     }
 
     private function updateToggle(Request $request, string $field, string $label): RedirectResponse

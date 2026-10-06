@@ -9,6 +9,7 @@ use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalFaultReportService;
+use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalFaultTypeService;
 use App\Services\Rentals\RentalPortalScopeService;
 use Illuminate\Http\JsonResponse;
@@ -27,6 +28,7 @@ class ClientTenantRentalsController extends Controller
     public function __construct(
         private readonly RentalPortalScopeService $scope,
         private readonly RentalFaultReportService $faultReportService,
+        private readonly RentalJobCardClientViewService $jobCardView,
     ) {}
 
     public function leases(Request $request): JsonResponse
@@ -182,6 +184,9 @@ class ClientTenantRentalsController extends Controller
             'outcome' => $fault->outcome,
             'outcome_note' => $fault->outcome_note,
             // Tenant never sees quote amounts — not their spend to approve.
+            // §14.29 — photos of the WORK done for this fault (crew / contractor),
+            // filtered by the agency's crew_photos_visible_to_clients rule.
+            'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForFaultReport($fault)),
         ])]);
     }
 
@@ -283,6 +288,8 @@ class ClientTenantRentalsController extends Controller
             'tenant_confirmed_at' => $order->tenant_confirmed_at?->toIso8601String(),
             'tenant_confirmed_fixed' => $order->tenant_confirmed_fixed,
             // Never the quote amount — not the tenant's spend to see.
+            // §14.29 — photos of the work (own + linked job card), same visibility rule.
+            'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($order)),
         ]]);
     }
 
@@ -314,6 +321,38 @@ class ClientTenantRentalsController extends Controller
             'tenant_confirmed_at' => $order->tenant_confirmed_at?->toIso8601String(),
             'tenant_confirmed_fixed' => $order->tenant_confirmed_fixed,
         ]]);
+    }
+
+    /**
+     * §14.29 — job cards on this tenant's own lease(s): status, schedule,
+     * completion and the photos the agency allows. Never a price.
+     */
+    public function jobCards(Request $request): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        return response()->json([
+            'job_cards' => $this->scope->tenantJobCards($contact)
+                ->map(fn ($card) => $this->jobCardView->payload($card))->values(),
+        ]);
+    }
+
+    public function jobCardShow(Request $request, int $jobCard): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $card = $this->scope->tenantJobCard($contact, $jobCard);
+        if (!$card) {
+            return response()->json(['message' => 'Job card not found.'], 404);
+        }
+
+        return response()->json(['job_card' => $this->jobCardView->payload($card)]);
     }
 
     private function leaseSummary($lease): array

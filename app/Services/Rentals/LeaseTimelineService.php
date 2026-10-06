@@ -18,15 +18,15 @@ use Illuminate\Support\Collection;
  * (a lease has at most one originating application, not a property-wide
  * list of them).
  *
- * Designed to be extended with more sources later (job cards — AT-442,
- * notices — Stage 6/7, filed documents) without reworking callers: each
+ * Designed to be extended with more sources later (notices — Stage 6/7, filed
+ * documents; job cards — AT-442 — landed 2026-10-06, rental-work-orders.md §14.29) without reworking callers: each
  * source is a private builder returning plain arrays of the same shape,
  * merged and sorted once at the end. A new source is one more private
  * method and one more line in buildAllEntries().
  */
 class LeaseTimelineService
 {
-    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'notice', 'rental_notice'];
+    public const TYPES = ['application', 'lease', 'inspection', 'fault', 'work_order', 'job_card', 'notice', 'rental_notice'];
 
     /**
      * @return array{entries: Collection, total: int}
@@ -76,6 +76,7 @@ class LeaseTimelineService
             ->merge($this->inspectionEntries($lease))
             ->merge($this->faultEntries($lease))
             ->merge($this->workOrderEntries($lease))
+            ->merge($this->jobCardEntries($lease))
             ->merge($this->noticeEntries($lease))
             ->merge($this->renewalEventEntries($lease));
 
@@ -214,6 +215,96 @@ class LeaseTimelineService
                 $workOrder->id,
             );
         })->all();
+    }
+
+    /**
+     * rental-work-orders.md §14.29 — job cards on this tenancy. Scoped by
+     * `lease_id` like every other source (a previous tenant's cards never
+     * surface here). Four kinds of entry per card: opened, photos added (one
+     * line per card per day per uploader kind — crew vs office — with a count),
+     * work completed (the crew's sign-off, who and how), card completed (the
+     * agent's close). Archived cards drop out, same as archived faults/orders.
+     */
+    private function jobCardEntries(Lease $lease): array
+    {
+        $cards = $lease->jobCards()->with(['createdByUser', 'workerSignedOffByUser'])->get();
+        if ($cards->isEmpty()) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($cards as $card) {
+            $out[] = $this->entry(
+                'job_card',
+                (string) $card->created_at,
+                'Job card opened: ' . $card->title,
+                $card->createdByUser?->name,
+                $card->status,
+                'corex.rental-job-cards.show',
+                $card->id,
+            );
+
+            if ($card->worker_signed_off_at) {
+                $via = match ($card->getAttribute('worker_sign_off_via')) {
+                    'crew_link' => ' via link',
+                    'crew_page' => ' via crew page',
+                    'signed_copy' => ' via signed copy',
+                    default => '',
+                };
+                $signer = $card->worker_sign_off_name ?: ($card->workerSignedOffByUser?->name ?: 'the crew');
+                $out[] = $this->entry(
+                    'job_card',
+                    (string) $card->worker_signed_off_at,
+                    'Work completed — signed by ' . $signer . $via . ': ' . $card->title,
+                    null,
+                    $card->status,
+                    'corex.rental-job-cards.show',
+                    $card->id,
+                );
+            }
+
+            if ($card->completed_at) {
+                $out[] = $this->entry(
+                    'job_card',
+                    (string) $card->completed_at,
+                    'Job card completed: ' . $card->title,
+                    null,
+                    $card->status,
+                    'corex.rental-job-cards.show',
+                    $card->id,
+                );
+            }
+        }
+
+        // Photos, grouped: card × day × (crew | office). Crew = no CoreX user behind the upload.
+        $titles = $cards->pluck('title', 'id');
+        $groups = [];
+        \App\Models\RentalWorkOrderPhoto::query()
+            ->whereIn('rental_job_card_id', $cards->pluck('id')->all())
+            ->orderBy('created_at')->orderBy('id')
+            ->get(['id', 'rental_job_card_id', 'uploaded_by_user_id', 'created_at'])
+            ->each(function ($photo) use (&$groups) {
+                $isCrew = $photo->uploaded_by_user_id === null;
+                $key = $photo->rental_job_card_id . '|' . $photo->created_at->format('Y-m-d') . '|' . ($isCrew ? 'crew' : 'office');
+                $groups[$key] ??= ['card' => $photo->rental_job_card_id, 'crew' => $isCrew, 'count' => 0, 'at' => $photo->created_at];
+                $groups[$key]['count']++;
+                if ($photo->created_at->gt($groups[$key]['at'])) {
+                    $groups[$key]['at'] = $photo->created_at;
+                }
+            });
+        foreach ($groups as $g) {
+            $out[] = $this->entry(
+                'job_card',
+                (string) $g['at'],
+                ($g['crew'] ? 'Crew photos added' : 'Photos added') . ' (' . $g['count'] . '): ' . ($titles[$g['card']] ?? 'Job card'),
+                null,
+                null,
+                'corex.rental-job-cards.show',
+                $g['card'],
+            );
+        }
+
+        return $out;
     }
 
     /**

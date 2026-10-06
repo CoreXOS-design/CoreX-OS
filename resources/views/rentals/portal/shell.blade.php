@@ -46,6 +46,8 @@
         .list-item { border-bottom:1px solid var(--border); padding:10px 0; }
         .list-item:last-child { border-bottom:none; }
         a.link { color:var(--accent); text-decoration:none; font-weight:600; font-size:13px; }
+        .photo-grid { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .photo-grid img { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
     </style>
 </head>
 <body>
@@ -115,6 +117,7 @@
                         <div class="tabs">
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
                             <button :class="{active: tenantTab==='faults'}" @click="tenantTab='faults'; loadFaultReports()">Faults</button>
+                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadJobCards()">Jobs</button>
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
@@ -193,6 +196,27 @@
                             </div>
                         </template>
 
+                        {{-- §14.29 — job cards on the tenant's own lease: status, dates, who signed the crew's completion, and the photos the agency allows. --}}
+                        <template x-if="tenantTab === 'jobs'">
+                            <div>
+                                <div class="card" x-show="!jobCards.length"><p class="muted">No maintenance jobs yet.</p></div>
+                                <template x-for="j in jobCards" :key="j.id">
+                                    <div class="card" data-job-card>
+                                        <div class="row"><h2 x-text="j.title"></h2><span class="badge" x-text="j.status.replace('_',' ')"></span></div>
+                                        <p class="muted" x-show="j.property_address" x-text="j.property_address"></p>
+                                        <p class="muted" x-show="j.completed_at" x-text="'Completed ' + j.completed_at.substring(0,10)"></p>
+                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="'Scheduled ' + (j.scheduled_at || '').substring(0,10)"></p>
+                                        <p class="muted" x-show="j.crew_completion" x-text="j.crew_completion ? ('Work completed' + (j.crew_completion.signed_by ? ' — signed by ' + j.crew_completion.signed_by : '')) : ''"></p>
+                                        <div class="photo-grid" x-show="j.photos.length">
+                                            <template x-for="ph in j.photos" :key="ph.id">
+                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
                         <template x-if="tenantTab === 'documents'">
                             <div class="card">
                                 <h2>My documents</h2>
@@ -212,6 +236,7 @@
                             <button :class="{active: landlordTab==='decisions'}" @click="landlordTab='decisions'; loadDecisions()">Decisions</button>
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
                             <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults</button>
+                            <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadJobCards()">Jobs</button>
                         </div>
 
                         <template x-if="landlordTab === 'decisions'">
@@ -258,6 +283,28 @@
                                                 <span class="badge" x-text="o.status"></span>
                                             </div>
                                         </template>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        {{-- §14.29 — job cards on the landlord's own properties, with the selected quote amount as the work-order list already shows it. --}}
+                        <template x-if="landlordTab === 'jobs'">
+                            <div>
+                                <div class="card" x-show="!jobCards.length"><p class="muted">No maintenance jobs yet.</p></div>
+                                <template x-for="j in jobCards" :key="j.id">
+                                    <div class="card" data-job-card>
+                                        <div class="row"><h2 x-text="j.title"></h2><span class="badge" x-text="j.status.replace('_',' ')"></span></div>
+                                        <p class="muted" x-show="j.property_address" x-text="j.property_address"></p>
+                                        <p class="muted" x-show="j.completed_at" x-text="'Completed ' + j.completed_at.substring(0,10)"></p>
+                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="'Scheduled ' + (j.scheduled_at || '').substring(0,10)"></p>
+                                        <p class="muted" x-show="j.crew_completion" x-text="j.crew_completion ? ('Work completed' + (j.crew_completion.signed_by ? ' — signed by ' + j.crew_completion.signed_by : '')) : ''"></p>
+                                        <p class="muted" x-show="j.selected_quote_amount" x-text="'Quote: R ' + j.selected_quote_amount"></p>
+                                        <div class="photo-grid" x-show="j.photos.length">
+                                            <template x-for="ph in j.photos" :key="ph.id">
+                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
+                                            </template>
+                                        </div>
                                     </div>
                                 </template>
                             </div>
@@ -372,6 +419,7 @@ function rentalsPortal() {
         decisions: { fault_reports: [], work_orders: [] },
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
+        jobCards: [],
         landlordFaultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null, success: null },
         landlordFaultTypesByProperty: {},
 
@@ -466,6 +514,14 @@ function rentalsPortal() {
         async loadFaultReports() {
             const r = await portalFetch('/api/v1/client/rentals/fault-reports');
             if (r.ok) this.faultReports = r.data.fault_reports;
+        },
+        // §14.29 — one list, two endpoints: the tenant's own lease(s) or the landlord's own properties.
+        async loadJobCards() {
+            const url = this.activeRole === 'landlord'
+                ? '/api/v1/client/rentals/landlord/job-cards'
+                : '/api/v1/client/rentals/job-cards';
+            const r = await portalFetch(url);
+            if (r.ok) this.jobCards = r.data.job_cards;
         },
         async loadDocuments() {
             const r = await portalFetch('/api/v1/client/rentals/documents');

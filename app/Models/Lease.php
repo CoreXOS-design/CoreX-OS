@@ -231,6 +231,12 @@ class Lease extends Model
         return $this->hasMany(RentalWorkOrder::class);
     }
 
+    /** rental-work-orders.md §14.29 — job cards raised against this tenancy (rental_job_cards.lease_id). */
+    public function jobCards(): HasMany
+    {
+        return $this->hasMany(RentalJobCard::class);
+    }
+
     public function inventories(): HasMany
     {
         return $this->hasMany(RentalInventory::class);

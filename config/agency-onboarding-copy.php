@@ -470,6 +470,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateContractorLinksEnabled'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnDecisionNeeded'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyTenantOnStatusChange'],
+            // rental-work-orders.md §14.27.3 — Build 2. Narrow, has()-guarded saver.
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPhotosVisibleToClients'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -592,6 +594,13 @@ return [
              'label' => 'Email the tenant when a fault\'s status changes',
              'explain' => 'When a fault report the tenant raised is approved, declined, or resolved, CoreX emails them the update.',
              'affects' => 'Whether the tenant gets an email on each status change, or only finds out by checking the portal themselves. On by default.'],
+            // rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility). Appended after the last
+            // rental_portal control so it never collides with the per-job crew-link controls (§14.30).
+            ['key' => 'crew_photos_visible_to_clients', 'source' => 'rental_portal', 'type' => 'select', 'default' => 'in_progress_and_completed',
+             'options' => ['in_progress_and_completed' => 'Work-in-progress and completed photos', 'completed_only' => 'Completed photos only'],
+             'label' => 'Crew photos tenants and landlords can see',
+             'explain' => 'When your maintenance crew photographs a job, those photos can show on the job in the tenant\'s and the landlord\'s portal so they can see the work is being done.',
+             'affects' => 'Whether a tenant or landlord sees the photos taken while the crew is working as well as the finished-job photos, or only the finished-job photos. The photos taken when a problem was first reported are never shown to either of them.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()

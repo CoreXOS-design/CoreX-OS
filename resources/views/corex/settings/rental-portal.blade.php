@@ -99,5 +99,24 @@
             </form>
         </div>
     </div>
+
+    {{-- rental-work-orders.md §14.27.3 / §14.29 — Build 2. Appended AFTER the crew-link section the
+         per-job crew-link build adds (§14.30), in its own "Crew page & client visibility" group. --}}
+    <div id="crew-page-client-visibility" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Crew page &amp; client visibility</h3>
+        </div>
+        <div class="p-5 space-y-5">
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-photos-visible-to-clients') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew photos tenants and landlords can see</label>
+                <select name="crew_photos_visible_to_clients" class="w-full max-w-sm rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" onchange="this.form.submit()">
+                    <option value="in_progress_and_completed" @selected($crewPhotosVisibleToClients === 'in_progress_and_completed')>Work-in-progress and completed photos</option>
+                    <option value="completed_only" @selected($crewPhotosVisibleToClients === 'completed_only')>Completed photos only</option>
+                </select>
+                <p class="text-xs" style="color: var(--text-muted);">Photos your crew takes while on a job. The tenant and the landlord see them on the job in their portal. &ldquo;Before&rdquo; photos taken when the problem was reported are never shown.</p>
+            </form>
+        </div>
+    </div>
 </div>
 @endsection
