@@ -1078,7 +1078,33 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         return self::withoutGlobalScopes()
             ->where('public_token', $token)
             ->where('public_token_expires_at', '>', now())
+            // 2026-10-06 (cc1, security) — withoutGlobalScopes() above also
+            // strips SoftDeletes, so an ARCHIVED inspection used to keep
+            // serving its report (photos, signatures, tenants) for the rest
+            // of the link's 90 days, and so did a CANCELLED one. Both are
+            // refused here, in the one lookup every public route uses, and
+            // the token is deliberately NOT cleared: restoring an archived
+            // inspection brings the same link (and the QR already printed
+            // on its PDF) back to life. See rental-inspections.md §44a.
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', self::STATUS_CANCELLED);
+            })
             ->first();
+    }
+
+    /**
+     * A link a recipient can actually open right now: token unexpired AND the
+     * inspection is neither archived nor cancelled. publicLinkIsValid() above
+     * is deliberately left token-only — ensurePublicLink() relies on it to
+     * decide whether to generate a token, and must never overwrite a token
+     * (and so break the printed QR) just because the inspection is archived.
+     */
+    public function publicLinkIsAvailable(): bool
+    {
+        return $this->publicLinkIsValid()
+            && ! $this->trashed()
+            && $this->status !== self::STATUS_CANCELLED;
     }
 
     // ── SignedDocumentDistributable (§41, 2026-09-28) ──────────────────
