@@ -32,7 +32,7 @@
     .agr .opt .tick { display:inline-block; width:18px; height:18px; border:2px solid #475569; border-radius:4px; vertical-align:-3px; background:#fff; }
     .agr .opt input:checked + .tick { background:#00b4d8; border-color:#0b2a4a; box-shadow: inset 0 0 0 3px #fff; }
     .agr .opt input:focus-visible + .tick { outline:2px solid #00b4d8; outline-offset:2px; }
-    .agr .sigpad { border:1px dashed #64748b; border-radius:6px; background:#fff; padding:4px; max-width: 360px; }
+    .agr .sigpad { display:block; border:1px dashed #64748b; border-radius:6px; background:#fff; padding:4px; max-width: 360px; }
     .agr .sigpad canvas { width:100%; height: 96px; display:block; touch-action:none; background: repeating-linear-gradient(transparent, transparent 94px, #e2e8f0 95px); }
     .agr .sigtools { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
     .agr .mini { appearance:none; border:1px solid #94a3b8; background:#f8fafc; border-radius:4px; font-size:.7rem; padding:2px 8px; cursor:pointer; color:#0b2a4a; }
@@ -52,10 +52,11 @@
     .agr .opt:has(input:disabled) { cursor:not-allowed; }
     .agr p.mf .mf-v .fld { height: 34px; }
     .agr p.mf .mf-v textarea.fld { height: 40px; min-height: 40px; padding-top: 4px; line-height: 14px; }
-    .agr p.mf .mf-t { display:inline-block; width: 34%; vertical-align: middle; white-space: normal; }
+    .agr p.mf .mf-t { display:inline-block; width: 28%; vertical-align: middle; white-space: normal; }
     .agr p.mf .mf-t .auto-tip { margin-left:.4rem; font-size:.72rem; line-height:1.25; max-width:none; }
     .agr .tip-end { display:block; }
     .agr .tip-end .auto-tip { margin-left:0; }
+    .agr table.sigtable td p.sr-signature .sigline, .agr table.sigtable td p.sr-signature .sigpad { border:1px dashed #64748b; border-radius:6px; background:#fff; }
     .agr .sigtable .sigpad canvas { height: 96px; }
     .agr .sigtable .sigpad { padding: 2px 4px; }
     .agr .ctl-note { display:block; font-size:.78rem; color:#92400e; margin-top:.25rem; }

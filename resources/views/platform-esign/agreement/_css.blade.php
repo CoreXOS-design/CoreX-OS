@@ -32,9 +32,9 @@
     .agr .sigtable td p.sr .val, .agr .sigtable td p.sr .blank, .agr .sigtable td p.sr .fld { display:inline-block; width: 68%; min-width:0; box-sizing: border-box; height: {{ !empty($pdf) ? '14pt' : '32px' }}; line-height: {{ !empty($pdf) ? '14pt' : '30px' }}; vertical-align: middle; border-bottom: 1px solid #475569; text-align:left; overflow:hidden; white-space:nowrap; }
     .agr .sigtable td p.sr-signature .sigimg, .agr .sigtable td p.sr-signature .sigline, .agr .sigtable td p.sr-signature .blank.sigline, .agr .sigtable td p.sr-signature .sigpad { display:block; width: {{ !empty($pdf) ? '90%' : '100%' }}; max-width:none; box-sizing:border-box; height: {{ !empty($pdf) ? '34pt' : '132px' }}; line-height: normal; min-width:0; border-bottom: 1px solid #475569; }
     .agr .sigtable td p.sr-signature .sigimg { object-fit: contain; }
-    .agr p.mf { margin: 0 0 {{ !empty($pdf) ? '3pt' : '4px' }}; height: {{ !empty($pdf) ? '17pt' : '48px' }}; line-height: {{ !empty($pdf) ? '17pt' : '24px' }}; white-space: nowrap; }
-    .agr p.mf .mf-l { display:inline-block; width: {{ !empty($pdf) ? '34%' : '30%' }}; vertical-align: middle; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '18px' }}; }
-    .agr p.mf .mf-v { display:inline-block; width: {{ !empty($pdf) ? '62%' : '34%' }}; vertical-align: middle; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '20px' }}; }
+    .agr p.mf { margin: 0 0 {{ !empty($pdf) ? '5pt' : '4px' }}; {{ !empty($pdf) ? '' : 'height: 48px; white-space: nowrap;' }} line-height: {{ !empty($pdf) ? '12pt' : '24px' }}; }
+    .agr p.mf .mf-l { display:inline-block; width: {{ !empty($pdf) ? '34%' : '26%' }}; vertical-align: {{ !empty($pdf) ? 'top' : 'middle' }}; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '18px' }}; }
+    .agr p.mf .mf-v { display:inline-block; width: {{ !empty($pdf) ? '62%' : '44%' }}; vertical-align: {{ !empty($pdf) ? 'top' : 'middle' }}; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '20px' }}; }
     .agr p.mf .mf-v .fld { width:100%; box-sizing:border-box; }
     .agr p.mf .mf-v .val { padding: 0 2px; }
 </style>
