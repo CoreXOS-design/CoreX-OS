@@ -3463,7 +3463,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // only (only properties with a lease visible to this user), never
         // every rental property. Must sit before /{lease} for the same reason.
         Route::get('/search-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchProperties'])->name('corex.leases.search-properties');
-        Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
+        // The CREATE form's type-to-search Property picker — every rental property
+        // this user may see (not only ones that already have a lease). Before /{lease}.
+        Route::get('/search-rental-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchRentalProperties'])
+            ->middleware('permission:leases.create')->name('corex.leases.search-rental-properties');
+        Route::get('/{lease}',[\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
         Route::put('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'update'])
