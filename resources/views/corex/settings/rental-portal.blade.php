@@ -78,6 +78,55 @@
 
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
         <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Crew links</h3>
+        </div>
+        <div class="p-5 space-y-5">
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-links-enabled') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="crew_links_enabled" value="0">
+                    <input type="checkbox" name="crew_links_enabled" value="1" onchange="this.form.submit()" @checked($crewLinksEnabled)>
+                    Crew links (master switch)
+                </label>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Off: every crew link stops opening at once.</p>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-job-link-expiry-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Job link expiry (days)</label>
+                <input type="number" name="crew_job_link_expiry_days" value="{{ old('crew_job_link_expiry_days', $crewJobLinkExpiryDays) }}"
+                       min="1" max="90" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Default {{ $defaultCrewJobLinkExpiryDays }}. A link always stops when the job card is completed, cancelled or archived.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-show-prices') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="crew_link_show_prices" value="0">
+                    <input type="checkbox" name="crew_link_show_prices" value="1" onchange="this.form.submit()" @checked($crewLinkShowPrices)>
+                    Show prices on the crew's job view
+                </label>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-show-tenant-contact') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="crew_link_show_tenant_contact" value="0">
+                    <input type="checkbox" name="crew_link_show_tenant_contact" value="1" onchange="this.form.submit()" @checked($crewLinkShowTenantContact)>
+                    Show the tenant's name and phone to the crew
+                </label>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.notify-landlord-on-crew-completion') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_landlord_on_crew_completion" value="0">
+                    <input type="checkbox" name="notify_landlord_on_crew_completion" value="1" onchange="this.form.submit()" @checked($notifyLandlordOnCrewCompletion)>
+                    Email the landlord when the crew marks the work completed
+                </label>
+            </form>
+        </div>
+    </div>
+
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
             <h3 class="text-sm font-bold" style="color:var(--text-primary);">Notifications</h3>
         </div>
         <div class="p-5 space-y-5">
@@ -115,6 +164,30 @@
                     <option value="completed_only" @selected($crewPhotosVisibleToClients === 'completed_only')>Completed photos only</option>
                 </select>
                 <p class="text-xs" style="color: var(--text-muted);">Photos your crew takes while on a job. The tenant and the landlord see them on the job in their portal. &ldquo;Before&rdquo; photos taken when the problem was reported are never shown.</p>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-standing-link-expiry-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew page link lasts (days)</label>
+                <input type="number" name="crew_standing_link_expiry_days" value="{{ old('crew_standing_link_expiry_days', $crewStandingLinkExpiryDays) }}"
+                       min="1" max="365" placeholder="No expiry" class="w-full max-w-[140px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Leave blank and a crew's page link keeps working until you revoke or regenerate it (the default). Fill it in to make every new crew link stop after that many days.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-page-upcoming-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew page &ldquo;upcoming&rdquo; reaches (days ahead)</label>
+                <input type="number" name="crew_page_upcoming_days" value="{{ old('crew_page_upcoming_days', $crewPageUpcomingDays) }}"
+                       min="1" max="60" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Default is {{ $defaultCrewPageUpcomingDays }} days. Jobs booked further ahead than this are not on the crew page yet, and their parts are not in the &ldquo;what to load&rdquo; list.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-page-recent-completed-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Show completed jobs on the crew page for (days)</label>
+                <input type="number" name="crew_page_recent_completed_days" value="{{ old('crew_page_recent_completed_days', $crewPageRecentCompletedDays) }}"
+                       min="0" max="30" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Default is {{ $defaultCrewPageRecentCompletedDays }} days. A finished job stays listed (read-only) for this long. Set 0 to hide the list.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
         </div>
     </div>

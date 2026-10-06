@@ -3384,6 +3384,24 @@ photo upload, mark completed, signed-copy upload) with `@example.invalid` test a
 (5) signed copy uploads, supersedes, never deletes, records the same crew completion; (6) crew photos appear on the card;
 (7) agent sign-off + complete kills the link; (8) every action is in the card history.
 
+**BUILT 2026-10-06 (cc4) — Build 1, both steps on QA1.** Step 0 = the §14.27.6 shared interface (migrations `2026_10_10_1000xx`:
+crew contact, token table, sign-off via/ip/device, photo caption + `uploaded_via`, the five settings, the `rental_job_cards.share`
+grant); Step 1 = everything else (migration `2026_10_10_110000` signed copies). Where the build made a call the spec left open:
+- **"Email to crew" and the one-time URL.** The raw link is never stored, so the email action either posts back the link just
+  generated (the panel carries it in a hidden field and the server only trusts it if it resolves LIVE for THIS card) or, with
+  no link in hand, issues a fresh one — replacing the old — and emails that. The old link dies in the same transaction.
+- **WhatsApp** uses the canonical `App\Support\WhatsAppNumberFormatter` (crew phone has no dial code; +27 default like contacts).
+- **The landlord email** is a synchronous domain-event listener (`SendLandlordCrewCompletionMail`) that dispatches a queued job
+  (`SendLandlordCrewCompletionMailJob`) — domain events hold readonly state and cannot be queued themselves. The job checks the
+  `notify_landlord_on_crew_completion` setting, sends through `RentalMailDispatcher` AS the property's responsible agent (fallback:
+  the card's creator, then the shared mailer) and writes `landlord_notified` to the card; a failure never breaks the crew's sign-off.
+- **`RentalMailDispatcher`** extends `ComplianceMailDispatcher` (one implementation of the mailbox routing, own class for rentals).
+- **Wizard current values:** `AgencySetupWizardController::currentValues()` gained an explicit `'rental_portal'` arm naming every
+  control under that source (it had none, so all six pre-existing portal controls always showed their hardcoded default — §6.2).
+  Build 2 appends its four keys to that arm.
+- A signed copy uploaded to a **Completed** card is filed only (no sign-off, no event); a **Cancelled** card refuses it.
+- The public job page uses inline CSS and a few lines of vanilla JS (no Vite bundle), so it loads on a weak phone connection.
+
 ---
 
 ### 14.29 BUILD 2 — crew general page, crew-link management, and tenant / landlord visibility of crew photos and completion
@@ -3488,6 +3506,16 @@ and a different tenant / landlord gets a 404.
 - **Lease hub:** a **Job cards** panel above the tenancy log (status chip, schedule / completion, crew, photo thumbnails — the office sees every photo type), listing only the cards the viewer's own job-card scope allows; absent when the tenancy has none or the viewer lacks `rental_job_cards.view`.
 - **Wizard read-back:** `AgencySetupWizardController::currentValues()` had **no `rental_portal` arm**, so every portal control showed its hardcoded default instead of the saved value (§6.2 of the onboarding spec). An explicit per-key arm now names all seven `rental_portal` controls.
 - **Tests:** `RentalPortalAccess/TenantLandlordJobCardApiTest`, `Leases/LeaseTimelineJobCardTest`, `RentalCrewLinks/CrewPageSettingsTest` (fixtures: `tests/Concerns/BuildsRentalPortalFixtures`).
+
+**BUILD NOTE — Part B (the crew page + crew-link management), built 6 Oct 2026 on `cc6-crew-page-2026-10-06`, on top of Build 1's shared interface (§14.27.6):**
+- **Migration** `2026_10_09_100100_create_rental_crew_link_events_table` (append-only log: `issued / regenerated / emailed / revoked / opened / job_opened / action`). The four Build 2 setting columns shipped in Part A's migration.
+- **The one query:** `RentalCrewScheduleService` — `openCardsQuery()` (agency + crew + not archived + property not archived + `RentalJobCard::CREW_VISIBLE_STATUSES`), `findOpenCard()`, `schedule()` (Today / Upcoming / Unscheduled / Recently completed + the materials), `materials()`, `linkStatusesFor()`, `linkPanelFor()`. Rows are plain arrays — never models.
+- **Crew page** `secure/crews/{token}` (`rentals.crew-page.show|job|tick|photos|complete`, `throttle:30,1`, photos also `throttle:60,10`; `{card}`/`{task}` numeric): the token IS the crew; a card must be one of THAT crew's open cards or the identical unavailable page (HTTP 404, same body for every dead-link cause) comes back. Opening a card renders Build 1's `_job-body` through `CrewJobService` with a `crew_page` context, so every action writes the card's own history line ("via crew page — {crew}") plus a row in the crew's log.
+- **Decisions where the spec was silent (flagged to the conductor):** (1) an open booked card whose date is BEFORE today stays at the top of **Today**, flagged *Overdue* — dropping open work silently was the worse failure; those cards count towards "what to load". (2) **Recently completed is read-only** (title, address, completed time, no link into the card) — §14.29's acceptance (2) says a completed card's direct URL is "unavailable", so the list cannot be a link. (3) A card booked beyond `crew_page_upcoming_days` is not listed and not in the materials until it is inside the window.
+- **Materials ("What to load"):** part lines only, summed by catalogue item + unit (free text: normalised description + unit); archived lines and lines of archived tasks excluded; unscheduled / beyond-window / draft cards excluded; each row item code · description · total + unit · "needed from {first date}" · "{n} jobs", expandable to the per-job breakdown; prices only with `crew_link_show_prices`; never "short of".
+- **Link management** (Rental Crews edit page, `rental_job_cards.share` + `rental_catalogue.view`; crews are agency-wide, scoped by the agency): `POST/DELETE corex/rental-crews/{crew}/link`, `POST …/link/email`, `GET …/link/events` (an HTML page — not a hidden JSON endpoint). Only a hash is stored, so the URL is shown **once** (flashed to the page that follows generation); "Email this link" takes that URL back and **re-verifies it server-side** against the crew's live token, so the mail can never carry a link the system did not issue, and nothing raw is kept. Mail = `RentalCrewStandingLinkMail` through `RentalMailDispatcher` (the agency mailbox path), neutral wording, agency name from the record. Regenerate and revoke kill the old link on its very next request; the panel shows issued by / when, expiry or "stands until it is revoked", last used, open count and the newest 15 log rows; the Crews list has a link-status column.
+- **Settings** (`crew_standing_link_expiry_days` blank = until revoked, 1–365; `crew_page_recent_completed_days` 0–30, 0 hides the list; `crew_page_upcoming_days` 1–60) are on Settings → Rental Portal and in the Setup Wizard, each with its own `has()`-guarded saver (a blank window leaves the stored value; a blank expiry clears it to "until revoked") and a `currentValues()` read-back entry.
+- **Tests:** `RentalCrewScheduleServiceTest`, `CrewPageLinkTest`, `CrewPageActionsTest`, `RentalCrewLinkPanelTest`, `CrewPageSettingsTest` (extended to all four settings).
 
 ---
 

@@ -9,6 +9,7 @@ use App\Models\Docuperfect\Template;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Concerns\SeedsWetInkDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -37,6 +38,16 @@ use Tests\TestCase;
 final class EctaEsignBlockGuardTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsWetInkDocumentTypes;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The snapshot bootstrap carries no document_types rows; the classified-sale
+        // test needs the real `offer_to_purchase` type to exist.
+        $this->seedWetInkDocumentTypes();
+    }
 
     private function template(string $name, array $attrs = []): Template
     {

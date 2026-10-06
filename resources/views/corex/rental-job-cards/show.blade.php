@@ -67,6 +67,9 @@
             <h1 class="text-lg font-semibold">{{ $jobCard?->title ?? 'New job card' }}</h1>
             @if($jobCard)
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}</span>
+                @if($jobCard->worker_signed_off_at)
+                    <span class="ds-badge ds-badge-success" title="{{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }}">Crew completed — {{ $jobCard->crewCompletionLabel() }}</span>
+                @endif
                 @if($currentQuote)
                     {{-- §14.21 — which revision the owner currently holds, and whether the card has moved on since. --}}
                     <span class="ds-badge ds-badge-muted" title="Last quote sent {{ $currentQuote->created_at?->format('Y-m-d H:i') }}">Quote Rev {{ $currentQuote->revision }}</span>
@@ -80,6 +83,11 @@
         <div class="flex items-center gap-2">
             @if($jobCard)
                 <a href="{{ route('corex.rental-job-cards.print', $jobCard) }}" target="_blank" class="corex-btn-outline text-xs">Print job card</a>
+                @if($isOpen && $crewLinksEnabled)
+                    @permission('rental_job_cards.share')
+                    <a href="{{ route('corex.rental-job-cards.print', ['rentalJobCard' => $jobCard, 'with_link' => 1]) }}" target="_blank" class="corex-btn-outline text-xs" onclick="return confirm('Print with a crew link? This creates a new link (the old one stops working) and puts its QR code on the paper.');">Print with link</a>
+                    @endpermission
+                @endif
                 @if($jobCard->rental_work_order_id)
                     <a href="{{ route('corex.rental-work-orders.show', $jobCard->rental_work_order_id) }}" class="corex-btn-outline text-xs">View work order</a>
                 @endif
@@ -589,6 +597,10 @@
                 @endpermission
             </div>
 
+            {{-- §14.28 — share with the crew (per-job link) and the wet-ink signed copy --}}
+            @include('corex.rental-job-cards._crew-link-panel')
+            @include('corex.rental-job-cards._signed-copy-panel')
+
             {{-- 4. Next steps — only when they apply, in order --}}
             {{-- 4. Quote to the owner. §14.21/§14.23 — offered on EVERY open card (Draft, Quoted, Approved, Scheduled, In progress): first send and every re-send (the next revision replaces the old one). It used to need a sent quote or a Draft/Quoted status, so scheduling a Draft card before its quote was sent hid the box for good. Completed/Cancelled cards are locked, so no box (the service refuses too). --}}
             @if($isOpen)
@@ -662,7 +674,7 @@
                     <button type="submit" class="corex-btn-outline text-xs w-full">Worker sign-off</button>
                 </form>
                 @else
-                <div class="text-xs" style="color: var(--text-muted);">Worker — done: {{ $jobCard->workerSignedOffByUser?->name }} ({{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }})@if($jobCard->worker_sign_off_name) — {{ $jobCard->worker_sign_off_name }}@endif</div>
+                <div class="text-xs" style="color: var(--text-muted);">Worker — done: {{ $jobCard->workerSignedOffByUser?->name ?? 'crew' }} ({{ $jobCard->worker_signed_off_at->format('Y-m-d H:i') }})@if($jobCard->worker_sign_off_name) — {{ $jobCard->worker_sign_off_name }}@endif @if($jobCard->worker_sign_off_via && $jobCard->worker_sign_off_via !== 'office')<span class="ds-badge ds-badge-muted">{{ str_replace('_', ' ', $jobCard->worker_sign_off_via) }}</span>@endif</div>
                 @endunless
 
                 @unless($jobCard->agent_signed_off_at)

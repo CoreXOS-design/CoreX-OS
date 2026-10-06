@@ -505,8 +505,22 @@ final class LeaseHubTest extends TestCase
         $response = $this->actingAs($user)->get(route('corex.leases.show', $lease));
 
         $response->assertOk();
-        $response->assertSee('CoreX already prepared a renewal draft');
+        // Wording per 2e019eb18 (Johan, 5 Oct: renewals are user-started only —
+        // the draft exists because an agent started it, never "CoreX prepared" it).
+        $response->assertSee('A renewal draft is already in progress');
+        $response->assertDontSee('CoreX already prepared a renewal draft');
         $response->assertSee('R9,800.00');
+        // The draft's own start date ("from …") is shown, and the dialog links
+        // to the draft's own hub page for cancelling it — it identifies THIS draft.
+        $response->assertSee('from ' . $draft->start_date->format('Y-m-d'));
+        $response->assertSee(route('corex.leases.show', $draft), false);
+        $response->assertSee('Cancel renewal draft');
+        // The dialog leads into the existing draft, not a fresh renewal: the
+        // primary action continues the draft's own e-sign flow (step 2), and
+        // the blank "Continue to renewal" entry is not offered.
+        $response->assertSee(route('docuperfect.esign.step', ['flow' => 42, 'step' => 2]), false);
+        $response->assertSee('Review draft');
+        $response->assertSee('Start a different renewal');
         $response->assertDontSee('Continue to renewal');
     }
 
