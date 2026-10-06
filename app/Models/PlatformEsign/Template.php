@@ -47,4 +47,15 @@ class Template extends Model
     {
         return $this->source === 'pdf';
     }
+
+    /** A "web document": typeset contract the recipient fills in on screen (spec §11). */
+    public function isWebdoc(): bool
+    {
+        return $this->source === 'webdoc';
+    }
+
+    public function wordingVersions(): HasMany
+    {
+        return $this->hasMany(WordingVersion::class, 'template_id')->orderByDesc('id');
+    }
 }

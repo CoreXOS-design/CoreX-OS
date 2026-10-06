@@ -14,6 +14,10 @@ class SealService
 
     public function build(Document $doc): string
     {
+        if ($doc->isWebdoc()) {
+            // Web documents (Subscription Agreement) are typeset and sealed by their own builder — spec §11.6.
+            return app(\App\Services\PlatformEsign\Agreement\AgreementService::class)->sealedPdf($doc);
+        }
         $doc->loadMissing(['signers', 'events', 'agency', 'values']);
 
         $pages = [];

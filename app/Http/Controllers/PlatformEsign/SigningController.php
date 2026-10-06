@@ -19,12 +19,17 @@ class SigningController extends Controller
     {
         $signer = $this->svc->resolve($token);
         abort_unless($signer && !$signer->document->trashed(), 404);
+        abort_if($signer->document->isWebdoc(), 404); // web documents are signed on platform-esign/agreement/{token}
 
         return $signer;
     }
 
     public function show(Request $request, string $token)
     {
+        $maybe = \App\Models\PlatformEsign\Signer::where('token', $token)->first();
+        if ($maybe && $maybe->role_key === 'r1' && $maybe->document?->isWebdoc()) {
+            return redirect()->route('platform-esign.agreement.show', $token);
+        }
         $signer = $this->signerOr404($token);
         $doc = $signer->document->load(['attachments', 'signers']);
         $blocked = $this->svc->blockedReason($signer);
