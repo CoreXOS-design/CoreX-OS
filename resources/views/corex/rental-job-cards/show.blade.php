@@ -575,8 +575,8 @@
                 @endpermission
                 <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
                     @csrf
-                    <input type="datetime-local" name="scheduled_at" value="{{ old('scheduled_at') }}" aria-label="Scheduled" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
-                    <input type="datetime-local" name="due_at" value="{{ old('due_at') }}" aria-label="Due" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <input type="datetime-local" name="scheduled_at" value="{{ old('scheduled_at', $jobCard->scheduleInputValue('scheduled_at')) }}" aria-label="Scheduled" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <input type="datetime-local" name="due_at" value="{{ old('due_at', $jobCard->scheduleInputValue('due_at')) }}" aria-label="Due" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                     <button type="submit" class="corex-btn-outline text-xs w-full">Set</button>
                 </form>
                 @if($jobCard->status === \App\Models\RentalJobCard::STATUS_SCHEDULED)
@@ -590,8 +590,8 @@
             </div>
 
             {{-- 4. Next steps — only when they apply, in order --}}
-            {{-- 4. Quote to the owner. §14.21 — a card whose quote was sent stays editable and can be RE-SENT (the next revision replaces the old one), so the box is offered on ANY open card that has a sent quote — an under-limit quote moves the card to Approved at once, which used to hide it. --}}
-            @if($isOpen && ($currentQuote || in_array($jobCard->status, [\App\Models\RentalJobCard::STATUS_DRAFT, \App\Models\RentalJobCard::STATUS_QUOTED], true)))
+            {{-- 4. Quote to the owner. §14.21/§14.23 — offered on EVERY open card (Draft, Quoted, Approved, Scheduled, In progress): first send and every re-send (the next revision replaces the old one). It used to need a sent quote or a Draft/Quoted status, so scheduling a Draft card before its quote was sent hid the box for good. Completed/Cancelled cards are locked, so no box (the service refuses too). --}}
+            @if($isOpen)
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="jc-quote-box">
                 <h2 class="text-sm font-semibold">{{ $currentQuote ? 'Quote to owner' : 'Send quote to owner' }}</h2>
                 @if($currentQuote)

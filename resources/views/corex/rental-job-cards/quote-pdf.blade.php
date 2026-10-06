@@ -33,6 +33,10 @@
         .lines td, .lines th { border-bottom: 1px solid #e5e7eb; padding: 4px 6px; text-align: left; }
         .lines th { color: #4b5563; font-weight: 600; }
         .total-row td { font-weight: 700; border-bottom: none; }
+        /* §14.23 — the grand-totals box is never split across a page break (Subtotal/VAT on one page, Total on the next); a line is never split mid-row; the lines header repeats on page 2+ (thead). */
+        .totals-box { page-break-inside: avoid; }
+        .lines tr { page-break-inside: avoid; }
+        thead { display: table-header-group; }
     </style>
 </head>
 <body>
@@ -92,7 +96,7 @@
     @endif
 
     @if($pricesOn)
-    <div class="box">
+    <div class="box totals-box">
         <table>
             @if($vat['registered'])
                 <tr><td colspan="2">Subtotal (excl VAT)</td><td>R{{ number_format((float) $vat['subtotalExcl'], 2) }}</td></tr>

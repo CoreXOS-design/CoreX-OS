@@ -410,6 +410,23 @@ class RentalJobCard extends Model
         }
     }
 
+    /**
+     * §14.23 — the value for the Scheduled / Due <input type="datetime-local">
+     * boxes: the saved moment in the AGENCY timezone, the same zone
+     * RentalJobCardController::schedule() reads the box in, so pressing Set
+     * with nothing touched is an exact round trip (and changing only one box
+     * can no longer blank the other). Null when nothing is saved.
+     */
+    public function scheduleInputValue(string $field): ?string
+    {
+        if (! in_array($field, ['scheduled_at', 'due_at'], true) || ! $this->{$field}) {
+            return null;
+        }
+        $tz = $this->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+
+        return $this->{$field}->copy()->setTimezone($tz)->format('Y-m-d\TH:i');
+    }
+
     public function start(User $by): void
     {
         $this->assertOpen();
