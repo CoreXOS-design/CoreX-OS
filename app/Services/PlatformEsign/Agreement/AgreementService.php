@@ -31,6 +31,7 @@ class AgreementService
 {
     public const EXPIRY_KEY = 'platform_esign.agreement_expiry_days';
     public const REMINDER_KEY = 'platform_esign.agreement_reminder_days';
+    public const ACCESS_KEY = 'platform_esign.agreement_access_months';
 
     public function __construct(
         private AgreementContent $content,
@@ -49,6 +50,12 @@ class AgreementService
     public static function reminderDays(): int
     {
         return max(1, min(60, (int) DevSetting::get(self::REMINDER_KEY, 3)));
+    }
+
+    /** How long the agency's link keeps opening its completed agreement (months from completion or re-issue). */
+    public static function accessMonths(): int
+    {
+        return max(1, min(120, (int) DevSetting::get(self::ACCESS_KEY, 12)));
     }
 
     // ── Send ───────────────────────────────────────────────────────────────
@@ -152,6 +159,35 @@ class AgreementService
         $doc->update(['status' => ($doc->status === 'expired' && $doc->form_rev === 0) ? 'sent' : ($doc->form_rev > 0 ? 'in_progress' : 'sent'),
             'expires_at' => now()->addDays(self::expiryDays())->endOfDay()]);
         $this->invite($doc->fresh(), $userId);
+    }
+
+    /**
+     * A COMPLETED agreement: new link, fresh access window, the agency is emailed the new link (no attachment — the old link stops
+     * working). Nothing about the signed agreement changes (spec §11.15).
+     */
+    public function reissueAccess(Document $doc, ?int $userId): void
+    {
+        if ($doc->status !== 'completed' || $doc->trashed()) {
+            throw new \DomainException('Only a fully signed agreement has an access link to re-issue.');
+        }
+        $signer = $this->agencySigner($doc);
+        $signer->update(['token' => Str::random(48), 'invited_at' => now()]);
+        $doc->update(['expires_at' => now()->addMonths(self::accessMonths())->endOfDay()]);
+        $this->esign->log($doc, 'access_reissued', 'New link issued to ' . $signer->name . ' <' . $signer->email . '>, valid for ' . self::accessMonths() . ' months', $signer, $userId);
+        $this->esign->mailAgreementCompleted($doc->fresh(['signers', 'agency']), 'agency');
+    }
+
+    /** Why the agency's link to its COMPLETED agreement no longer opens, or null while the access window is open. */
+    public function completedAccessBlocked(Document $doc): ?string
+    {
+        if ($doc->trashed()) {
+            return 'This agreement is no longer available.';
+        }
+        if ($doc->expires_at && $doc->expires_at->isPast()) {
+            return 'This link has expired. Reply to the email we sent you and we will send a fresh link — your signed agreement is kept safe.';
+        }
+
+        return null;
     }
 
     // ── Context for rendering ──────────────────────────────────────────────
@@ -448,6 +484,7 @@ class AgreementService
             $locked->rr_data = $rr;
             $locked->status = 'completed';
             $locked->completed_at = now();
+            $locked->expires_at = now()->addMonths(self::accessMonths())->endOfDay(); // from here on: the agency's access window
             $locked->save();
             $sg->forceFill([
                 'name' => $rr['rr_name'], 'status' => 'signed', 'signed_at' => now(), 'typed_name' => $rr['rr_name'], 'initials' => $ini,
@@ -618,6 +655,7 @@ class AgreementService
             $locked->rr_data = $rr;
             $locked->status = 'completed';
             $locked->completed_at = now();
+            $locked->expires_at = now()->addMonths(self::accessMonths())->endOfDay(); // from here on: the agency's access window
             $locked->save();
             $sg->forceFill(['name' => $rr['rr_name'], 'status' => 'signed', 'signed_at' => now(), 'typed_name' => $rr['rr_name'], 'signature_image' => $rr['sigR'],
                 'signed_ip' => $ip, 'signed_user_agent' => Str::limit((string) $ua, 480, ''), 'consent_text_snapshot' => EsignService::CONSENT,

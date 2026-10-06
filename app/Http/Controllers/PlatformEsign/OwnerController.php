@@ -314,7 +314,8 @@ class OwnerController extends Controller
         $u = $this->owner($request);
         try {
             if ($document->isWebdoc()) {
-                app(\App\Services\PlatformEsign\Agreement\AgreementService::class)->resend($document, $u->id);
+                $agreements = app(\App\Services\PlatformEsign\Agreement\AgreementService::class);
+                $document->status === 'completed' ? $agreements->reissueAccess($document, $u->id) : $agreements->resend($document, $u->id);
             } else {
                 $this->svc->resend($document, $u->id, (int) $request->input('expiry_days', 14));
             }
@@ -352,8 +353,11 @@ class OwnerController extends Controller
 
     public function download(Request $request, Document $document)
     {
-        $this->owner($request);
+        $u = $this->owner($request);
         abort_unless($document->sealed_pdf_path && Storage::disk(EsignService::DISK)->exists($document->sealed_pdf_path), 404);
+        if ($document->isWebdoc()) {
+            $this->svc->log($document, 'signed_copy_downloaded', 'Signed PDF downloaded inside Platform E-Sign', null, $u->id, $request->ip());
+        }
 
         return Storage::disk(EsignService::DISK)->download($document->sealed_pdf_path, Str::slug($document->title) . '-signed.pdf');
     }
