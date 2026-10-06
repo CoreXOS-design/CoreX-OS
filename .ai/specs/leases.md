@@ -1611,10 +1611,10 @@ R3 makes this structural rather than a promise. CoreX ships **no lease document*
 12. Wet-ink first lease: renewal still offers both buttons; system fields pre-filled; the §15.6.3 list shown blank and marked; only map-required fields block (b).
 13. A lease launched from a lease and a document launched from the generic wizard both end correctly (linked vs fallback) — a second lease is never created for a linked document.
 14. **Second-agency test:** an agency with no template sees lease-only + paper paths and a non-HFC message; an agency that links its own lease produces an agreement containing none of HFC's wording or numbers; the scan test finds no "Home Finders"/"HFC"/"Let's Assist" in anything this build creates; **an agency whose lease has no schedule never sees the service-fee, other-deduction or net-to-owner inputs, and none is calculated for it (§15.12.5).**
-18. **Reference map (F2):** with HFC's field map loaded (the 24 places of §15.12.5), the capture screen asks for exactly the nine capture-screen fields plus the commission %, the launcher seeds all 24 places (rent in words and escalation in words included), and every contact/lease/calculated source resolves to the stated field.
 15. Own/branch/agency: a user without scope gets 404 on another's lease, terms, flow, signing, confirm and set-up rows.
 16. Leases list: Agreement filter, sub-label, export columns; empty states; default sort unchanged. Tenancy log shows created → prepared → out for signing → (edited) → differences confirmed → signed → accepted → activated, with who and when — with `LeaseTimelineService` unchanged.
 17. Setup Wizard: the leases-step link row present with explain/affects; saving the step never wipes settings it did not render.
+18. **Reference map (F2):** with HFC's field map loaded (the 24 places of §15.12.5), the capture screen asks for exactly the nine capture-screen fields plus the commission %, the launcher seeds all 24 places (rent in words and escalation in words included), and every contact/lease/calculated source resolves to the stated field.
 
 ### 15.19 Files
 
