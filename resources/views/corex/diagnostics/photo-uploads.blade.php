@@ -120,7 +120,7 @@
                                 @endif
                                 @if($p->orientation_risk)
                                     <div class="text-xs mt-1 font-semibold" style="color: #f59e0b;">
-                                        may be sideways@if($p->bake) ({{ $p->bake }})@endif
+                                        may be sideways{{ $p->bake ? ' (' . $p->bake . ')' : '' }}
                                     </div>
                                 @endif
                                 @if($p->drop_reason)

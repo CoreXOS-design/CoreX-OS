@@ -7011,3 +7011,34 @@ change needed. Confirmed during the original investigation, not assumed here.
   for this build's time budget.
 - **Export/print-list columns** — `RentalInspectionController::export()`/`printList()` were not
   extended to show the inspector column; only the on-screen list was.
+
+## 44. Chain tail survives the lease ending; predecessor inference is same-second-safe (2026-10-06)
+
+Two real defects behind six failing tests in `RentalInspectionRecordingControllerTest`, found by the QA1
+overnight pass (2026-10-05) and finished 2026-10-06. The other four failures were stale/mis-seeded tests, not
+app bugs (below).
+
+**1. `RentalInspection::chainTailFor()` went blind the moment an Out-inspection completed.**
+`RentalInspectionCompletionObserver` (rental-renewals.md §15, GATE 2 row 6) correctly flips the lease to
+`expired` when an Out completes. `chainTailFor()` only looked for the property's `active` lease, so at exactly
+that moment it returned null — the Inspections tab lost its current/predecessor pair and the §41 "completed —
+photos can no longer be linked or unlinked" lock (409) stopped firing, i.e. the one moment the chain matters
+most (a deposit dispute). Now: the active lease if one exists (unchanged), otherwise the property's most recent
+lease that has a non-cancelled inspection. It never looks past an ACTIVE lease, so a new tenancy with no
+inspection yet still reads "no chain" rather than showing the previous tenant's finished one.
+
+**2. `RentalInspection::inferredPredecessorFor()` found no predecessor for two inspections created in the same
+second.** It required `created_at <` strictly; `created_at` has one-second resolution, so an In and an Out made
+in the same second (batch/backfill/scheduling) tied and the Out showed "first in chain" with no photo matches.
+`id` is now the tiebreaker (it already was in the `orderBy`).
+
+**Tests that were stale, not the app** (updated, not weakened):
+- Two Bedroom checklist assertions expected the old generic 5-item fallback. Bedroom has had its own
+  transcribed-from-the-paper-form checklist since 2026-09-21 (`RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE`);
+  the tests now assert against that constant.
+- Two cross-agent tests (two agents on one inspection) need `rental_inspections.view` at `branch` scope to reach the
+  controller at all, since the 2026-10-04 Own/Branch/All ruling (AT-439, above). They now seed that, plus `.create`
+  (seeding `.view` alone switches the role to strictly-enrolled and 403s the recording routes).
+
+Files: `app/Models/RentalInspection.php` (`chainTailFor`, `inferredPredecessorFor`),
+`tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php`.
