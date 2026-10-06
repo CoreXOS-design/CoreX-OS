@@ -137,6 +137,10 @@ class AgreementFidelityTest extends TestCase
         $this->assertStringContainsString('web: 0 differences', $out, $out);
         $this->assertStringContainsString('wet-ink PDF: 0 differences', $out, $out);
         $this->assertStringContainsString('sealed PDF: 0 differences', $out, $out);
+        // the screen-only tips are a declared addition of the web page ONLY — never in a PDF
+        $web = substr($out, strpos($out, 'RECIPIENT WEB PAGE'), strpos($out, 'WET-INK DOWNLOAD PDF') - strpos($out, 'RECIPIENT WEB PAGE'));
+        $this->assertStringContainsString('3 × "Fills in automatically', $web, 'the three tips are reported as declared additions of the web page');
+        $this->assertSame(1, substr_count($out, 'Fills in automatically'), 'and appear nowhere else (wet-ink PDF, sealed PDF)');
         $this->assertStringContainsString('Version 1.0 — 28 September 2026', $out, 'the footer of the PDFs reads the v1.0 label');
         $this->assertSame(0, $exit, $out);
     }

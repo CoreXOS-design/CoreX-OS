@@ -132,10 +132,10 @@ class AgreementRenderer
         if ($this->isForm()) {
             if ($key === 'branches') {
                 // Entered once, in section 3 beside the number of agents; this row of the original form just shows it.
-                return '<input type="text" class="fld num" value="' . e($this->value('branches')) . '" readonly tabindex="-1" data-derived="1" data-mirror="branches" aria-label="' . e($f['label']) . '">';
+                return '<input type="text" class="fld num" value="' . e($this->value('branches')) . '" readonly tabindex="-1" data-derived="1" data-mirror="branches" aria-label="' . e($f['label']) . '">' . $this->tip();
             }
 
-            return $this->input($key, $f);
+            return $this->input($key, $f) . ($key === 'branches_start' ? $this->tip() : '');
         }
         if ($this->mode === 'canon') {
             return '<span class="val">' . str_repeat('x', $f['type'] === 'textarea' ? 70 : ($f['type'] === 'date' ? 12 : 26)) . '</span>';
@@ -196,6 +196,16 @@ class AgreementRenderer
         };
     }
 
+    /**
+     * Screen-only helper text beside the three read-only places (plan ticks, section 1 and section 3 branches): they fill in from the
+     * two entries above the fee table. Form mode only — never in the PDFs, never part of the wording (spec §11.15, declared addition).
+     */
+    private function tip(bool $float = false): string
+    {
+        return '<span class="auto-tip' . ($float ? ' auto-tip-float' : '') . '" data-screen-only="1">Fills in automatically — enter your number of agents and branches in the '
+            . '<a href="#fld-agents" data-goto-agents="1">Monthly fee at start</a> section (section 3).</span>';
+    }
+
     private function option(string $key, string $val): string
     {
         $f = AgreementFields::schema()[$key] ?? null;
@@ -209,7 +219,8 @@ class AgreementRenderer
 
             if ($key === 'plan') {
                 // The plan is the result of the number of agents (section 3 completes itself) — shown, never tickable by the recipient.
-                return '<label class="opt" title="Chosen automatically from the number of agents"><input type="radio" name="plan" value="' . e($val) . '" data-field="plan" data-derived="1"' . ($on ? ' checked' : '') . ' disabled><span class="tick"></span></label>';
+                return ($val === 'team' ? $this->tip(true) : '')
+                    . '<label class="opt" title="Chosen automatically from the number of agents"><input type="radio" name="plan" value="' . e($val) . '" data-field="plan" data-derived="1"' . ($on ? ' checked' : '') . ' disabled><span class="tick"></span></label>';
             }
 
             return '<label class="opt' . $err . '"><input type="radio" name="' . e($key) . '" value="' . e($val) . '" data-field="' . e($key) . '"' . ($f['required'] ? ' data-required="1"' : '') . ($on ? ' checked' : '') . $locked . '><span class="tick"></span></label>';

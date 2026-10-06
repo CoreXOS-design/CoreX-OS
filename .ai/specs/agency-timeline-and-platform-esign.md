@@ -296,6 +296,9 @@ Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional bran
   the server stores the derived `plan`/`extra_branches`/`branches_start` and keeps the mandate **Amount** equal to the monthly total until the recipient types a different amount.
 - Total = lines − agreed variation (≥ 0, ≤ lines). Validation: agents ≥ 1, branches ≥ 1, whole numbers. Rate cells in the source text are `{{rate:…}}` tokens that render
   `R450`, `R1 495`, … identically to the source. **The legal wording does not change** — only behaviour.
+- **Read-only places are explained (screen only).** The three places the recipient cannot type in — the plan ticks, section 1 "Number of branches", section 3 "Branches at start" — look read-only
+  (grey, dashed) and carry a small muted tip with an info icon: "Fills in automatically — enter your number of agents and branches in the *Monthly fee at start* section (section 3)." The link scrolls
+  to and focuses the agents box. Recipient web form only (`AgreementRenderer::tip()`): never in the wet-ink or sealed PDF, the RR/preview screens or the wording; a declared addition in the §11.15 proof.
 - To change the rule later (e.g. "band rate for all seats"): `AgreementPricing::compute()` (server, one place) + its JS mirror, and a NEW wording version (the contract's
   "Monthly fee at start" paragraph and the fee table text describe the graduated rule).
 Tests: `AgreementFeeTableTest` (1, 10, 11, 13, 20, 21, 25, 40, 41 agents × 1, 2, 4 branches; 10↔11 switching; resume; forced plan; surfaces), real-browser proof `scripts/verify-agreement-fees.cjs`.
@@ -456,4 +459,4 @@ explained by the document's own values; tick boxes may be controls or ☐/☒). 
 wrapping after a hyphen, extractor spacing beside quotes), "1st" spacing, blank runs → fields/values, letterhead/footer/initial marks (cropped / not part of the sheet body), the company block.
 Anything else is a defect. It also checks stored v1.0 == the content built from the source files, the footer label "Version 1.0 — 28 September 2026", and (test) that a fresh database seeds ONLY 1.0.
 **Declared additions** (reported, not silently allowed): the contract-reference line under the Part A heading (§11.3); the "Number of agents" / "Number of branches" labels of the two entries on the web form;
-a tick box before each of the three account types on the mandate (print/PDF). Tests: `AgreementFidelityTest` (negative cases prove a changed/missing/extra/reordered word is caught), `AgreementMailSenderTest`.
+a tick box before each of the three account types on the mandate (print/PDF). Also the three screen-only "Fills in automatically" tips (§11.5) — web form only; the proof strips them from the page text, counts them, and fails if one appears in a PDF. Tests: `AgreementFidelityTest` (negative cases prove a changed/missing/extra/reordered word is caught), `AgreementMailSenderTest`.
