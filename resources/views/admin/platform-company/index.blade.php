@@ -13,6 +13,23 @@
         return (string) $v;
     };
     $bank = old('bank_details', $company->bank_details ?? []);
+    // Which section to open when the page loads with validation errors: the one holding the first bad field.
+    $sectionOf = fn (string $k) => match (true) {
+        str_starts_with($k, 'bank_details') => 'bank',
+        $k === 'email_signature_html' => 'signature',
+        in_array($k, ['strap_line', 'letterhead_footer'], true) => 'letterhead',
+        default => 'details',
+    };
+    $startSection = $errors->any() ? $sectionOf((string) array_key_first($errors->messages())) : null;
+    $navIcons = [
+        'logo'        => '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="M21 16l-5-5L5 21"/>',
+        'details'     => '<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 8h2M13 8h2M9 12h2M13 12h2M10 21v-4h4v4"/>',
+        'letterhead'  => '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+        'signature'   => '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+        'bank'        => '<path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 21h18"/>',
+        'history'     => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    ];
+    $navItems = ['logo' => 'Logo', 'details' => 'Company details', 'letterhead' => 'Letterhead', 'signature' => 'Email signature', 'bank' => 'Bank details', 'history' => 'History'];
     $cfg = [
         'url'        => route('admin.platform-company.preview'),
         'vat'        => (bool) old('vat_registered', $company->vat_registered),
@@ -20,24 +37,57 @@
         'phones'     => array_values(old('phones', $company->phones ?: [])) ?: [['label' => '', 'number' => '']],
         'websites'   => array_values(old('websites', $company->websites ?: [])) ?: [''],
         'sig'        => (string) old('email_signature_html', $company->email_signature_html),
+        'start'      => $startSection,
         'preview'    => ['web' => $previewWeb, 'pdf' => $previewPdf, 'footer' => $previewFooter, 'signature' => $previewSignature, 'standard' => $standardSignature],
     ];
 @endphp
-<div class="w-full space-y-5">
+<style>
+    .pc-shell { display: grid; grid-template-columns: 13.5rem minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+    .pc-stack { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+    .pc-stack > * { min-width: 0; }
+    .pc-nav { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 2px; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+    .pc-nav a { display: flex; align-items: center; gap: .6rem; padding: .5rem .7rem; border-radius: 6px; border-left: 3px solid transparent; font-size: .8125rem; font-weight: 500; color: var(--text-secondary); text-decoration: none; white-space: nowrap; }
+    .pc-nav a:hover { background: var(--surface-2); color: var(--text-primary); }
+    .pc-nav a.pc-on { background: color-mix(in srgb, var(--brand-icon) 12%, transparent); border-left-color: var(--brand-icon); color: var(--text-primary); font-weight: 600; }
+    .pc-nav svg { width: 16px; height: 16px; flex: none; stroke: var(--brand-icon); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .pc-savebar { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: .6rem .9rem; padding: .65rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
+    .pc-vers { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: .75rem; }
+    .pc-ver { display: flex; flex-direction: column; gap: .35rem; padding: .5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .pc-ver.pc-ver-on { border-color: var(--brand-icon); box-shadow: 0 0 0 1px var(--brand-icon); }
+    .pc-ver-img { display: flex; align-items: center; justify-content: center; background: #fff; height: 3.5rem; border-radius: 4px; }
+    .pc-inuse { display: inline-flex; align-items: center; gap: .3rem; align-self: flex-start; font-size: .6875rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, var(--ds-green) 14%, transparent); color: var(--ds-green); }
+    .pc-drop { display: flex; flex-direction: column; align-items: center; gap: .3rem; text-align: center; padding: 1.25rem 1rem; border: 1.5px dashed var(--border-hover); border-radius: 8px; background: var(--surface-2); cursor: pointer; transition: border-color 150ms, background 150ms; }
+    .pc-drop:hover, .pc-drop.pc-over { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 8%, transparent); }
+    .pc-drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .pc-back { position: fixed; inset: 0; z-index: 1000; background: rgba(5, 10, 20, .45); }
+    .pc-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1001; width: min(36rem, 100%); display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+    .pc-drawer-h { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .85rem 1.1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .pc-drawer-b { flex: 1; overflow-y: auto; padding: 1.1rem; display: flex; flex-direction: column; gap: 1.1rem; }
+    @media (max-width: 1023px) {
+        .pc-shell { grid-template-columns: minmax(0, 1fr); }
+        .pc-nav { top: 0; z-index: 6; flex-direction: row; overflow-x: auto; }
+    }
+</style>
+<div class="w-full space-y-5" x-data="platformCompanyForm(@js($cfg))" @keydown.escape.window="drawer = false">
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-xl font-bold text-white leading-tight">Company &mdash; RR Technologies</h1>
         <p class="text-sm text-white/60">The one company record behind CoreX's own contracts and emails: logo, details, letterhead and email signature. Not an agency &mdash; no agency can see it.</p>
     </div>
     @include('admin.partials.platform-flash')
 
-    <div class="flex flex-wrap gap-1 text-sm" style="border-bottom: 1px solid var(--border);">
-        @foreach(['pc-logo' => 'Logo', 'pc-details' => 'Company details', 'pc-letterhead' => 'Letterhead', 'pc-signature' => 'Email signature', 'pc-bank' => 'Bank details', 'pc-history' => 'History'] as $anchor => $label)
-            <a href="#{{ $anchor }}" class="px-4 py-2 font-medium -mb-px" style="color: var(--text-muted);">{{ $label }}</a>
+    <div class="pc-shell">
+    <nav class="pc-nav" aria-label="Company sections">
+        @foreach($navItems as $id => $label)
+            <a href="#pc-{{ $id }}" @click.prevent="go('{{ $id }}')" :class="sec === '{{ $id }}' ? 'pc-on' : ''" :aria-current="sec === '{{ $id }}' ? 'page' : null">
+                <svg viewBox="0 0 24 24" aria-hidden="true">{!! $navIcons[$id] !!}</svg>{{ $label }}
+            </a>
         @endforeach
-    </div>
+    </nav>
+
+    <div class="pc-stack">
 
     {{-- ── Logo (own forms: applies immediately) ── --}}
-    <div id="pc-logo" class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ dirty: false }" @pc-dirty.window="dirty = true">
+    <div id="pc-logo" data-pc-section="logo" x-show="sec === 'logo'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ dirty: false, fileName: '', over: false }" @pc-dirty.window="dirty = true">
         <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
             <div class="ds-section-header">Logo</div>
             <p class="text-xs mt-1" style="color: var(--text-muted);">Used on the letterhead, the contract and platform emails. PNG, JPG or SVG, up to 2 MB. Replacing it keeps the old one &mdash; nothing is ever deleted. Logo changes apply straight away.</p>
@@ -54,14 +104,18 @@
                 </div>
             </div>
             <div class="space-y-4">
-                <form method="POST" action="{{ route('admin.platform-company.logo.store') }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-3"
+                <form method="POST" action="{{ route('admin.platform-company.logo.store') }}" enctype="multipart/form-data" class="space-y-2"
                       @submit="if (dirty && ! confirm('You have unsaved changes in the form below. Uploading a logo reloads the page and they will be lost. Continue?')) $event.preventDefault()">
                     @csrf
-                    <div>
-                        <label class="ds-label block mb-1" for="pc-logo-file">Upload or replace logo</label>
-                        <input id="pc-logo-file" type="file" name="logo" required accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" class="ds-field">
-                    </div>
-                    <button type="submit" class="corex-btn-primary">Upload logo</button>
+                    <label class="pc-drop" :class="over ? 'pc-over' : ''" for="pc-logo-file"
+                           @dragover.prevent="over = true" @dragleave="over = false"
+                           @drop.prevent="over = false; $refs.logoFile.files = $event.dataTransfer.files; fileName = $refs.logoFile.files[0]?.name ?? ''">
+                        <input id="pc-logo-file" x-ref="logoFile" type="file" name="logo" required accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" @change="fileName = $event.target.files[0]?.name ?? ''">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" style="width:26px;height:26px;stroke:var(--brand-icon);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
+                        <span class="text-sm font-semibold" style="color: var(--text-primary);" x-text="fileName || 'Drop a logo here or click to browse'"></span>
+                        <span class="text-xs" style="color: var(--text-muted);">PNG, JPG or SVG, up to 2 MB. Replacing it keeps the old one.</span>
+                    </label>
+                    <button type="submit" class="corex-btn-primary" x-show="fileName" x-cloak>Upload logo</button>
                 </form>
                 <div class="text-xs rounded-md p-3" id="pc-logo-hint" style="background: var(--surface-2, #f1f5f9); border: 1px solid var(--border); color: var(--text-muted); max-width: 46rem;">
                     <strong style="color: var(--text-primary);">Recommended logo:</strong> the logo on its own — landscape, about <strong>3 : 1</strong> (for example <strong>900 × 300 px</strong>), trimmed tight to the mark with <strong>no empty space</strong> around it,
@@ -72,23 +126,23 @@
 
                 <div>
                     <div class="ds-label mb-2">Versions</div>
-                    <div class="flex flex-wrap gap-3">
-                        <div class="rounded-md p-2 text-center" style="border:1px solid {{ $company->logo_id ? 'var(--border)' : 'var(--brand-icon)' }}; width:11rem;">
-                            <div class="flex items-center justify-center" style="background:#fff; height:3.5rem;"><img src="{{ asset('images/corex-os-logo.svg') }}" alt="Built-in logo" style="max-height:44px; max-width:100%;"></div>
-                            <div class="text-xs mt-1 font-semibold" style="color: var(--text-primary);">Built-in CoreX OS</div>
+                    <div class="pc-vers">
+                        <div class="pc-ver {{ $company->logo_id ? '' : 'pc-ver-on' }}">
+                            <div class="pc-ver-img"><img src="{{ asset('images/corex-os-logo.svg') }}" alt="Built-in logo" style="max-height:44px; max-width:100%;"></div>
+                            <div class="text-xs font-semibold" style="color: var(--text-primary);">Built-in CoreX OS</div>
                             @if($company->logo_id)
-                                <form method="POST" action="{{ route('admin.platform-company.logo.restore', 'built-in') }}" class="mt-1">@csrf<button type="submit" class="corex-btn-outline text-xs">Use this</button></form>
-                            @else<div class="text-xs" style="color: var(--ds-green);">In use</div>@endif
+                                <form method="POST" action="{{ route('admin.platform-company.logo.restore', 'built-in') }}">@csrf<button type="submit" class="corex-btn-outline text-xs">Use this</button></form>
+                            @else<span class="pc-inuse">In use</span>@endif
                         </div>
                         @foreach($logos as $logo)
-                            <div class="rounded-md p-2 text-center" style="border:1px solid {{ $company->logo_id === $logo->id ? 'var(--brand-icon)' : 'var(--border)' }}; width:11rem;">
-                                <div class="flex items-center justify-center" style="background:#fff; height:3.5rem;"><img src="{{ route('admin.platform-company.logo.version', $logo->id) }}" alt="Logo version {{ $logo->id }}" style="max-height:44px; max-width:100%;"></div>
-                                <div class="text-xs mt-1 truncate" style="color: var(--text-primary);" title="{{ $logo->original_name }}">{{ $logo->original_name ?: 'Logo #' . $logo->id }}</div>
+                            <div class="pc-ver {{ $company->logo_id === $logo->id ? 'pc-ver-on' : '' }}">
+                                <div class="pc-ver-img"><img src="{{ route('admin.platform-company.logo.version', $logo->id) }}" alt="Logo version {{ $logo->id }}" style="max-height:44px; max-width:100%;"></div>
+                                <div class="text-xs font-semibold truncate" style="color: var(--text-primary);" title="{{ $logo->original_name }}">{{ $logo->original_name ?: 'Logo #' . $logo->id }}</div>
                                 <div class="text-xs" style="color: var(--text-muted);">{{ $logo->created_at?->format('j M Y H:i') }}{{ $logo->uploader ? ' · ' . $logo->uploader->name : '' }}</div>
                                 @if($company->logo_id === $logo->id)
-                                    <div class="text-xs" style="color: var(--ds-green);">In use</div>
+                                    <span class="pc-inuse">In use</span>
                                 @else
-                                    <form method="POST" action="{{ route('admin.platform-company.logo.restore', $logo->id) }}" class="mt-1">@csrf<button type="submit" class="corex-btn-outline text-xs">Restore this one</button></form>
+                                    <form method="POST" action="{{ route('admin.platform-company.logo.restore', $logo->id) }}">@csrf<button type="submit" class="corex-btn-outline text-xs">Restore this one</button></form>
                                 @endif
                             </div>
                         @endforeach
@@ -99,14 +153,14 @@
     </div>
 
     {{-- ── Main form: details + letterhead + signature + bank, one Save ── --}}
-    <form method="POST" action="{{ route('admin.platform-company.update') }}" x-ref="form" x-data="platformCompanyForm(@js($cfg))"
-          @input="queue()" @change="queue()" class="grid xl:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] gap-5 items-start">
+    <form method="POST" action="{{ route('admin.platform-company.update') }}" x-ref="form"
+          @input="queue()" @change="queue()" @submit="onSubmit($event)">
         @csrf @method('PUT')
         <input type="hidden" name="version" value="{{ $company->version }}">
 
-        <div class="space-y-5 min-w-0">
+        <div class="pc-stack">
             {{-- Company details --}}
-            <div id="pc-details" class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="pc-details" data-pc-section="details" x-show="sec === 'details'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);"><div class="ds-section-header">Company details</div></div>
                 <div class="p-5 space-y-4">
                     <div class="grid sm:grid-cols-2 gap-4">
@@ -186,7 +240,7 @@
             </div>
 
             {{-- Letterhead --}}
-            <div id="pc-letterhead" class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="pc-letterhead" data-pc-section="letterhead" x-show="sec === 'letterhead'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
                     <div class="ds-section-header">Letterhead</div>
                     <p class="text-xs mt-1" style="color: var(--text-muted);">Logo on the left, company block on the right &mdash; built from the details above. Contracts and PDFs use exactly this.</p>
@@ -200,7 +254,7 @@
             </div>
 
             {{-- Email signature --}}
-            <div id="pc-signature" class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="pc-signature" data-pc-section="signature" x-show="sec === 'signature'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
                     <div class="ds-section-header">Email signature</div>
                     <p class="text-xs mt-1" style="color: var(--text-muted);">Added to every email Platform E-Sign sends. Leave empty to use the standard signature, which follows the details above automatically.</p>
@@ -217,7 +271,7 @@
             </div>
 
             {{-- Bank details --}}
-            <div id="pc-bank" class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="pc-bank" data-pc-section="bank" x-show="sec === 'bank'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
                     <div class="ds-section-header">Bank details <span class="text-xs font-normal" style="color: var(--text-muted);">(optional &mdash; for invoices)</span></div>
                     <p class="text-xs mt-1" style="color: var(--text-muted);">Stored encrypted. Never printed on the letterhead and never written to the history in clear.</p>
@@ -238,14 +292,21 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="pc-savebar" x-show="['details', 'letterhead', 'signature', 'bank'].includes(sec)" x-cloak>
                 <button type="submit" class="corex-btn-primary">Save company profile</button>
+                <button type="button" class="corex-btn-outline" @click="drawer = true">Preview</button>
                 <span class="text-xs" style="color: var(--text-muted);" x-show="dirty" x-cloak>Unsaved changes</span>
             </div>
         </div>
 
-        {{-- Live preview --}}
-        <div class="space-y-5 min-w-0 xl:sticky xl:top-4">
+        {{-- Live preview (slides in from the right, opened from the save bar) --}}
+        <div class="pc-back" x-show="drawer" x-cloak @click="drawer = false"></div>
+        <aside class="pc-drawer" x-show="drawer" x-cloak aria-label="Live preview">
+        <div class="pc-drawer-h">
+            <div class="ds-section-header">Live preview</div>
+            <button type="button" class="corex-btn-outline text-xs" @click="drawer = false">Close</button>
+        </div>
+        <div class="pc-drawer-b">
             <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                     <div class="ds-section-header">Preview &mdash; on screen</div>
@@ -257,7 +318,7 @@
             <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);"><div class="ds-section-header">Preview &mdash; PDF (A4)</div></div>
                 {{-- Rendered at true A4 content width (190 mm ≈ 718 px) and zoomed down to fit, so what you see is what the PDF gets. --}}
-                <div class="p-4" x-data="{ z: 1 }" x-init="const fit = () => { z = Math.min(1, ($el.clientWidth - 32) / 718); }; fit(); new ResizeObserver(fit).observe($el)">
+                <div class="p-4" x-data="{ z: 1 }" x-init="const fit = () => { z = Math.max(0.2, Math.min(1, ($el.clientWidth - 32) / 718)); }; fit(); new ResizeObserver(fit).observe($el)">
                     <div style="background:#fff; color:#111; border:1px solid var(--border); box-shadow:0 1px 4px rgba(0,0,0,.12); width:fit-content; max-width:100%; overflow:hidden;">
                         <div id="pc-prev-pdf" style="width:718px; padding:18px 0 14px; box-sizing:border-box;" :style="'zoom:' + z" x-html="preview.pdf"></div>
                     </div>
@@ -268,10 +329,11 @@
                 <div class="p-4"><div style="background:#fff; padding:16px 18px; border:1px solid var(--border);" id="pc-prev-sig" x-html="preview.signature"></div></div>
             </div>
         </div>
+        </aside>
     </form>
 
     {{-- ── History ── --}}
-    <div id="pc-history" class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div id="pc-history" data-pc-section="history" x-show="sec === 'history'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-3" style="border-bottom: 1px solid var(--border);">
             <div class="ds-section-header">History &mdash; who changed what</div>
             <form method="GET" action="{{ route('admin.platform-company.index') }}#pc-history" class="flex items-center gap-2">
@@ -303,8 +365,10 @@
         @empty
             <div class="px-5 py-8 text-sm text-center" style="color: var(--text-muted);">No changes recorded yet. Edits to the company profile and logo will be listed here.</div>
         @endforelse
-        @if($history->hasPages())<div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $history->links() }}</div>@endif
+        @if($history->hasPages())<div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $history->fragment('pc-history')->links() }}</div>@endif
     </div>
+    </div>{{-- /content column --}}
+    </div>{{-- /pc-shell --}}
 </div>
 
 <script>
@@ -312,6 +376,34 @@ function platformCompanyForm(cfg) {
     return {
         directors: cfg.directors, phones: cfg.phones, websites: cfg.websites, vat: cfg.vat, sig: cfg.sig,
         preview: cfg.preview, busy: false, dirty: false, timer: null, seq: 0,
+        sec: 'logo', drawer: false,
+        sections: ['logo', 'details', 'letterhead', 'signature', 'bank', 'history'],
+        init() {
+            // Priority: a section with a server error > the #hash (history filter, old links) > the section we were on before a save.
+            const fromHash = () => { const h = location.hash.replace('#pc-', ''); return this.sections.includes(h) ? h : null; };
+            let remembered = null;
+            try { remembered = sessionStorage.getItem('pc-section'); sessionStorage.removeItem('pc-section'); } catch (e) { /* storage blocked: start on Logo */ }
+            this.sec = cfg.start || fromHash() || (this.sections.includes(remembered) ? remembered : 'logo');
+            window.addEventListener('hashchange', () => { const h = fromHash(); if (h) { this.sec = h; } });
+        },
+        go(id) {
+            this.sec = id;
+            history.replaceState(null, '', '#pc-' + id);
+            document.getElementById('appScroll')?.scrollTo({ top: 0 });
+        },
+        onSubmit(e) {
+            const f = this.$refs.form;
+            if (! f.checkValidity()) {
+                // A required field in a hidden section would block the save silently — open that section first.
+                e.preventDefault();
+                const bad = f.querySelector('input:invalid, select:invalid, textarea:invalid');
+                const sec = bad?.closest('[data-pc-section]')?.dataset.pcSection;
+                if (sec) { this.sec = sec; }
+                this.$nextTick(() => f.reportValidity());
+                return;
+            }
+            try { sessionStorage.setItem('pc-section', this.sec); } catch (err) { /* ignore */ }
+        },
         queue() {
             this.dirty = true;
             this.$dispatch('pc-dirty');
