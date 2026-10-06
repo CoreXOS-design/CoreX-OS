@@ -46,9 +46,10 @@ trait TransferFixtures
 
     protected function tearDown(): void
     {
-        foreach ($this->bladeIds as $id) {
-            if ($id >= self::SAFE_ID_FLOOR) {   // never touch a committed snapshot
-                @unlink(resource_path("views/docuperfect/web-templates/cds/template-{$id}.blade.php"));
+        // Every page file a test run generated (ids at or above the floor — never a committed snapshot).
+        foreach (glob(resource_path('views/docuperfect/web-templates/cds/template-*.blade.php')) ?: [] as $file) {
+            if (preg_match('/template-(\d+)\.blade\.php$/', $file, $m) && (int) $m[1] >= self::SAFE_ID_FLOOR) {
+                @unlink($file);
             }
         }
         parent::tearDown();
