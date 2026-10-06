@@ -638,6 +638,9 @@ class AgencySetupWizardController extends Controller
                     'notify_landlord_on_decision_needed' => \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agency->id),
                     'notify_tenant_on_status_change' => \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($agency->id),
                     'crew_photos_visible_to_clients' => \App\Models\RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id),
+                    'crew_standing_link_expiry_days' => \App\Models\RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id),
+                    'crew_page_recent_completed_days' => \App\Models\RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id),
+                    'crew_page_upcoming_days' => \App\Models\RentalPortalSetting::crewPageUpcomingDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 'rental_inspections' => match ($key) {

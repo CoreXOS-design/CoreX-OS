@@ -10,6 +10,7 @@
 --}}
 
 @section('content')
+@php $linkStatuses = app(\App\Services\Rentals\RentalCrewScheduleService::class)->linkStatusesFor($crews->pluck('id')->all()); @endphp
 <div class="p-6 space-y-4">
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Crews</h1>
@@ -50,6 +51,7 @@
                     <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-crews.index', array_merge(request()->except('page'), ['sort' => 'name', 'direction' => $sort === 'name' && $direction === 'asc' ? 'desc' : 'asc'])) }}">Name</a></th>
                     <th class="text-left px-4 py-2 font-medium">Contact</th>
                     <th class="text-left px-4 py-2 font-medium">Members</th>
+                    @permission('rental_job_cards.share')<th class="text-left px-4 py-2 font-medium">Crew link</th>@endpermission
                     <th class="text-left px-4 py-2 font-medium">Notes</th>
                     <th class="text-right px-4 py-2 font-medium">Actions</th>
                 </tr>
@@ -67,6 +69,15 @@
                             @endif
                         </td>
                         <td class="px-4 py-2">{{ $crew->members_count }}</td>
+                        @permission('rental_job_cards.share')
+                        <td class="px-4 py-2 text-xs" data-crew-link-cell="{{ $crew->id }}">
+                            @php $ls = $linkStatuses[$crew->id] ?? null; @endphp
+                            @if($ls)
+                                <span class="rounded-full px-2 py-0.5 font-semibold" style="{{ $ls['state'] === 'live' ? 'background:#ecfdf5;color:#065f46;' : ($ls['state'] === 'never' ? 'background:var(--surface-2);color:var(--text-muted);' : 'background:#fef2f2;color:#991b1b;') }}">{{ $ls['label'] }}</span>
+                                @if($ls['last_used_at'])<div style="color: var(--text-muted);">used {{ $ls['last_used_at']->format('j M H:i') }}</div>@endif
+                            @endif
+                        </td>
+                        @endpermission
                         <td class="px-4 py-2" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($crew->notes, 60) ?: '—' }}</td>
                         <td class="px-4 py-2 text-right space-x-2">
                             @permission('rental_catalogue.manage')
@@ -88,7 +99,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="5" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="6" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q'))
                                 No crews match this filter.
                             @elseif($status === 'archived')

@@ -35,6 +35,11 @@ class RentalPortalSettingsController extends Controller
             'defaultContractorSecureLinkExpiryDays' => RentalPortalSetting::DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS,
             // rental-work-orders.md §14.27.3 — Build 2 (crew page & client visibility).
             'crewPhotosVisibleToClients' => RentalPortalSetting::crewPhotosVisibleToClientsFor($agencyId),
+            'crewStandingLinkExpiryDays' => RentalPortalSetting::crewStandingLinkExpiryDaysFor($agencyId),
+            'crewPageRecentCompletedDays' => RentalPortalSetting::crewPageRecentCompletedDaysFor($agencyId),
+            'crewPageUpcomingDays' => RentalPortalSetting::crewPageUpcomingDaysFor($agencyId),
+            'defaultCrewPageRecentCompletedDays' => RentalPortalSetting::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS,
+            'defaultCrewPageUpcomingDays' => RentalPortalSetting::DEFAULT_CREW_PAGE_UPCOMING_DAYS,
         ]);
     }
 
@@ -103,6 +108,62 @@ class RentalPortalSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew photo visibility saved.');
+    }
+
+    /**
+     * §14.27.3 — how long the crew PAGE link lives. Present-but-blank means "no
+     * expiry — stands until revoked" (clears the value); absent from the post
+     * means leave it alone (agency-onboarding-setup.md §6.1).
+     */
+    public function updateCrewStandingLinkExpiryDays(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (!$request->has('crew_standing_link_expiry_days')) {
+            return redirect()->route('corex.settings.rental-portal.edit');
+        }
+
+        $validated = $request->validate([
+            'crew_standing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+        ], ['crew_standing_link_expiry_days.*' => 'The crew page link can last between 1 and 365 days — or leave it blank to keep it until you revoke it.']);
+
+        RentalPortalSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['crew_standing_link_expiry_days' => $validated['crew_standing_link_expiry_days'] ?? null],
+        );
+
+        return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew page link expiry saved.');
+    }
+
+    /** §14.27.3 — "recently completed" window on the crew page; 0 hides the list. Absent or blank = leave alone. */
+    public function updateCrewPageRecentCompletedDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'crew_page_recent_completed_days', 0, 30, 'Recently-completed window');
+    }
+
+    /** §14.27.3 — how many days ahead the crew page's "upcoming" list reaches. Absent or blank = leave alone. */
+    public function updateCrewPageUpcomingDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'crew_page_upcoming_days', 1, 60, 'Upcoming window');
+    }
+
+    private function updateBoundedInt(Request $request, string $field, int $min, int $max, string $label): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $raw = $request->input($field);
+
+        // Absent or blank: the wizard step (or an older form) did not carry this field — leave the stored value alone.
+        if ($raw === null || $raw === '') {
+            return redirect()->route('corex.settings.rental-portal.edit');
+        }
+
+        $validated = $request->validate([
+            $field => ['integer', "min:{$min}", "max:{$max}"],
+        ], ["{$field}.*" => "{$label} must be a whole number from {$min} to {$max}."]);
+
+        RentalPortalSetting::updateOrCreate(['agency_id' => $agencyId], [$field => (int) $validated[$field]]);
+
+        return redirect()->route('corex.settings.rental-portal.edit')->with('success', "{$label} saved.");
     }
 
     private function updateToggle(Request $request, string $field, string $label): RedirectResponse

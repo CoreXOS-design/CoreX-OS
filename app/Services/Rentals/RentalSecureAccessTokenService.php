@@ -71,6 +71,42 @@ class RentalSecureAccessTokenService
     }
 
     /**
+     * §14.29 — mint (or regenerate) a crew's STANDING link, the crew page. Expiry
+     * comes from the agency's `crew_standing_link_expiry_days`; blank (null) =
+     * stands until revoked. Re-issuing replaces the old link in the same
+     * transaction (the old link is dead on its very next request) and the
+     * crew-level event log records `issued` or `regenerated`.
+     *
+     * @return array{token: RentalSecureAccessToken, raw_token: string}
+     */
+    public function issueForCrew(RentalCrew $crew, User $by): array
+    {
+        $hadLive = RentalSecureAccessToken::withoutGlobalScopes()
+            ->where('rental_crew_id', $crew->id)->whereNull('revoked_at')->exists();
+
+        $issued = $this->issue(
+            $crew,
+            RentalSecureAccessToken::PURPOSE_CREW_STANDING,
+            $by,
+            RentalPortalSetting::crewStandingLinkExpiryDaysFor($crew->agency_id),
+        );
+
+        $expires = $issued['token']->expires_at;
+        \App\Models\RentalCrewLinkEvent::record(
+            $hadLive ? \App\Models\RentalCrewLinkEvent::EVENT_REGENERATED : \App\Models\RentalCrewLinkEvent::EVENT_ISSUED,
+            (int) $crew->agency_id,
+            (int) $crew->id,
+            (int) $issued['token']->id,
+            null,
+            ($hadLive ? 'Crew link regenerated (the earlier link no longer works)' : 'Crew link created')
+                . ($expires ? ' — valid until ' . $expires->format('j M Y') : ' — stands until revoked'),
+            $by,
+        );
+
+        return $issued;
+    }
+
+    /**
      * Revokes any live token for the target first (same transaction), then
      * mints. $expiryDays null = no expiry (a crew-page link standing until
      * revoked).

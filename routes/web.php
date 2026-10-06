@@ -67,6 +67,16 @@ Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController:
     ->where('any', '.*')
     ->name('rentals.portal.shell');
 
+// ── Crew page (public, no auth, no session) — rental-work-orders.md §14.29. ONE standing link per crew; the
+//    token IS the crew. Cards are never route-model-bound: each is resolved through RentalCrewScheduleService.
+Route::prefix('secure/crews/{token}')->middleware('throttle:30,1')->whereNumber(['card', 'task'])->group(function () {
+    Route::get('/', [\App\Http\Controllers\CrewPageController::class, 'show'])->name('rentals.crew-page.show');
+    Route::get('/job-cards/{card}', [\App\Http\Controllers\CrewPageController::class, 'job'])->name('rentals.crew-page.job');
+    Route::post('/job-cards/{card}/tasks/{task}/tick', [\App\Http\Controllers\CrewPageController::class, 'tick'])->name('rentals.crew-page.tick');
+    Route::post('/job-cards/{card}/photos', [\App\Http\Controllers\CrewPageController::class, 'photos'])->middleware('throttle:60,10')->name('rentals.crew-page.photos');
+    Route::post('/job-cards/{card}/complete', [\App\Http\Controllers\CrewPageController::class, 'complete'])->name('rentals.crew-page.complete');
+});
+
 // ── Seller-Outreach Public Landing (no auth) ──
 // Spec: .ai/specs/seller-outreach-spec.md S8, 6.4, 6.5.
 Route::get('/m/{shortcode}', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'show'])
@@ -3091,6 +3101,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/notify-landlord-on-decision-needed', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnDecisionNeeded'])->name('corex.settings.rental-portal.notify-landlord-on-decision-needed');
         Route::post('/notify-tenant-on-status-change', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyTenantOnStatusChange'])->name('corex.settings.rental-portal.notify-tenant-on-status-change');
         Route::post('/crew-photos-visible-to-clients', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPhotosVisibleToClients'])->name('corex.settings.rental-portal.crew-photos-visible-to-clients');
+        Route::post('/crew-standing-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewStandingLinkExpiryDays'])->name('corex.settings.rental-portal.crew-standing-link-expiry-days');
+        Route::post('/crew-page-recent-completed-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageRecentCompletedDays'])->name('corex.settings.rental-portal.crew-page-recent-completed-days');
+        Route::post('/crew-page-upcoming-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageUpcomingDays'])->name('corex.settings.rental-portal.crew-page-upcoming-days');
     });
     // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
     // the property Rental Details tab. Price type (Part 3) and lease type
@@ -3968,6 +3981,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.members.archive');
         Route::post('/{rentalCrew}/members/{member}/restore', [\App\Http\Controllers\CoreX\RentalCrewController::class, 'restoreMember'])
             ->middleware('permission:rental_catalogue.manage')->name('corex.rental-crews.members.restore');
+
+        // rental-work-orders.md §14.29 — the crew's STANDING link (the crew page): generate / regenerate, email, revoke, log.
+        Route::post('/{rentalCrew}/link', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'issue'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.issue');
+        Route::delete('/{rentalCrew}/link', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'revoke'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.revoke');
+        Route::post('/{rentalCrew}/link/email', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'email'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.email');
+        Route::get('/{rentalCrew}/link/events', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'events'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.events');
     });
 
     // .ai/specs/rental-work-orders.md §14 (AT-442), rebuilt 2026-10-05 — ONE
