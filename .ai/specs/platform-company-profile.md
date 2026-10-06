@@ -116,6 +116,14 @@ action; empty state "No changes recorded yet". **CRUD:** a single-record setting
 by design; logos follow Create (upload) / Read / Replace / Archive-by-supersession (never deleted) / Restore.
 **Scoping:** platform-wide, owner only; agencies never reach it. Validation, trimming, optimistic-lock
 (`version`) and transaction-wrapped saves per BUILD_STANDARD §2–4.
+**Layout (restyled 2026-10-06, Johan chose "Settings sidebar"):** a left sidebar lists the six sections and
+stays in view while the page scrolls; only the selected section is shown. The sections are hidden, not removed,
+so there is still ONE form and ONE Save for details/letterhead/signature/bank, and edits survive switching
+sections. Logo (own upload/restore forms, applies immediately) and History (read-only) hide the save bar. The
+live preview (screen, PDF, email signature) opens in a slide-in panel from the save bar. The section to open
+is, in order: the section holding the first server validation error, the `#pc-…` URL hash (history filter and
+old links), the section the user saved from, then Logo. A required field left empty in a hidden section opens
+that section before the browser reports it. No field, route, validation or permission changed.
 
 ## 6. Security notes
 * SVG logo is sanitised on upload (no script, event attributes, `javascript:`, `foreignObject`, external refs)
