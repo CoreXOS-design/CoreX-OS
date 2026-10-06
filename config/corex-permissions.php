@@ -844,7 +844,7 @@ return [
         ['key' => 'ppra_employment_letters.view',              'label' => 'View PPRA Employment Letters (Admin register)', 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 1],
         ['key' => 'ppra_employment_letters.create',            'label' => 'Start a PPRA Employment Letter',                 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 2],
         ['key' => 'ppra_employment_letters.sign_as_principal', 'label' => 'Sign PPRA Employment Letters as Principal',     'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 3],
-        ['key' => 'ppra_employment_letters.manage',            'label' => 'Archive/Restore PPRA Employment Letters',       'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 4],
+        ['key' => 'ppra_employment_letters.manage',            'label' => 'Manage PPRA Employment Letters for others (Admin register: list, start, archive/restore)',       'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 4],
 
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
