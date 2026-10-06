@@ -3073,3 +3073,54 @@ a non-buyer contact is refused; a second capture for the same buyer is refused; 
 capture methods (on-screen JSON + wet-ink multipart) work end to end through the real HTTP route; an
 invalid token 404s; the agent-side send endpoint emails the buyer and generates a public link on demand;
 sending is refused outright when acceptance isn't offered yet.
+
+---
+
+## 25. Public report link stops working when the inventory is archived or cancelled (2026-10-06, cc1 — BUILT, security fix)
+
+**Same defect as the inspection report link** (`rental-inspections.md` §44a, fixed earlier the same day), found
+by the class sweep done for that fix and reported then as "same gap, other module". Johan's ruling (6 Oct): apply
+the identical fix here.
+
+**The defect.** `RentalInventory::findByPublicToken()` ran `withoutGlobalScopes()` (a public caller has no
+agency context), which also strips `SoftDeletes`, and never looked at `status`. So an ARCHIVED inventory — and a
+CANCELLED one — kept serving its report publicly for the rest of the link's life, **and kept accepting
+unauthenticated buyer-acceptance writes** (`POST /rental-inventory-report/{token}/buyer-acceptance`, §24), which is
+worse than a read-only leak: a buyer's signature could be recorded against an inventory the agency had archived.
+
+**The rule.** Archived (soft-deleted) or cancelled → the link shows the standard "This link isn't available" page
+(and the buyer-acceptance POST answers 404 `This link is no longer available.`, never an exception); **restored →
+the SAME link works again**. Signed/expiry rules otherwise unchanged.
+
+**The fix — one place.** `findByPublicToken()` now also requires `deleted_at IS NULL` and `status != 'cancelled'`.
+Both public routes resolve through it, so both are covered. The token is deliberately NOT cleared on archive —
+restoring an archived inventory revives the same link and the QR already printed on its PDF. Expiry, revoke
+(clears the token) and regenerate (replaces it) are exactly as before; an expired, revoked or replaced token
+stays dead after a restore. The unavailable page is the existing uniform one, so an archived/cancelled link is
+indistinguishable from a wrong or expired one. `publicLinkIsValid()` is left token-only (`ensurePublicLink()`
+depends on it and must never overwrite a token merely because an inventory is archived). No agent-screen change
+was needed: the share-link buttons only render for a COMPLETED inventory (`corex/rental-inventories/show.blade.php:77`),
+and an archived inventory's screen already 404s through route binding. A completed inventory cannot be cancelled by
+the app (`RentalInventory::cancel()` refuses), so the cancelled rule is defensive; it is status-based, not path-based.
+
+**Routes covered:** `GET /rental-inventory-report/{token}` (`rental-inventories.public.show`) and
+`POST /rental-inventory-report/{token}/buyer-acceptance` (`rental-inventories.public.buyer-acceptance.store`) —
+the only two public/tokenised inventory routes (checked in `routes/web.php`); both use `findByPublicToken()` only.
+
+**Reported, not changed:**
+1. Photos on the public inventory page are static public-disk URLs, not served under the token — a URL someone already holds keeps working (same point as inspections §44a #2; unchanged by ruling).
+2. The unavailable page is returned with HTTP 200 for the GET (`RentalInventoryPublicController.php:28-35`); 404/410 would be more correct.
+3. `RentalInventoryController::printForSignature()` mints a public link on a GET when none is valid (`:215`), including for a cancelled inventory — the link is now dead on arrival but the state change on GET remains.
+
+**Tests** (`tests/Feature/RentalInventory/RentalInventoryPublicLinkLifecycleTest.php`, 14): archived page · archived
+buyer write (404, no acceptance row) · cancelled page (real `cancel()` on a draft) · cancelled buyer write ·
+restored page and restored buyer write on the same token (201) · archive → restore → archive again · archive and
+restore through the agent's own HTTP routes · archiving does not clear the token · expired / revoked / replaced
+tokens stay dead after a restore · archived link identical (status and text) to a never-issued token · other
+agency's live link unaffected. With the model fix reverted 11 of the 14 fail (the 3 that still pass guard unchanged
+rules); with it, 14/14, and the neighbouring `RentalInventoryBuyerAcceptanceTest` and `RentalInventoryDistributionTest`
+pass with the lane's mail redirect set (33/33 together).
+
+Files: `app/Models/RentalInventory.php` (`findByPublicToken`),
+`tests/Feature/RentalInventory/RentalInventoryPublicLinkLifecycleTest.php`. No migration, setting, permission,
+route or view change.
