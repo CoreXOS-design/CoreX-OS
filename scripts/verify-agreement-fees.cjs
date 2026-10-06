@@ -64,10 +64,11 @@ async function type(page, key, value) {
     for (const phase of ['typed', 'reloaded']) {
       if (phase === 'reloaded') { await page.goto(url, { waitUntil: 'networkidle2' }); await new Promise((r) => setTimeout(r, 1200)); }
       const g = await read(page);
-      const qOk = LINES.every((l) => g.q[l] === e.q[l]);
+      // the base fee quantity is printed text ("1") in the contract, not a computed cell — its amount is checked instead
+      const qOk = LINES.filter((l) => l !== 'agency_base').every((l) => g.q[l] === e.q[l]) && g.a.agency_base === (e.plan === 'agency' ? 1495 : 0);
       const aOk = g.total === e.total && g.mandate === e.total;
       const pOk = g.plan === e.plan && g.planDisabled && g.branchesStart === String(branches) && g.branchesStartReadonly && !g.extraInput;
-      line(qOk && aOk && pOk, agents + ' agents / ' + branches + ' branch' + (branches === 1 ? '' : 'es') + ' [' + phase + ']: plan ' + g.plan + ' · qty ' + LINES.map((l) => l.replace('agency_', '') + '=' + g.q[l]).join(' ')
+      line(qOk && aOk && pOk, agents + ' agents / ' + branches + ' branch' + (branches === 1 ? '' : 'es') + ' [' + phase + ']: plan ' + g.plan + ' · qty ' + LINES.map((l) => l.replace('agency_', '') + '=' + g.q[l]).join(' ') + ' · base fee R' + g.a.agency_base
         + ' · total R' + g.total + ' · mandate Amount R' + g.mandate + ' · "Branches at start" ' + g.branchesStart + ' — expected plan ' + e.plan + ', total R' + e.total);
     }
   }
