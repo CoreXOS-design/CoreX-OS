@@ -3025,6 +3025,46 @@ paging), same columns including Created and Total incl. VAT.
 index.blade.php`, `print-list.blade.php`, `tests/Feature/RentalJobCards/RentalJobCardListScreenTest.php`.
 No migration, no new permission, no new setting (nothing to surface in the Setup Wizard).
 
+### 14.24 Job card lines — one column grid for header, saved rows and the add row; compact end-of-row controls (2026-10-06, Johan; layout only, no behaviour change)
+
+**What Johan saw (card /corex/rental-job-cards/1):** under a task, the Item / Description / Type / Unit / Qty / Unit
+price / VAT of the saved lines did not read as one table with the add-line inputs below them, and the × at the end of a
+saved line was "a large dark block".
+
+**Root causes (measured in a real browser, 1366×768, column x-positions of the three rows):**
+1. The three rows already share one set of tracks (`App\Support\RentalJobCardLineGrid::columns()`; every track starts
+   at the same x: 343 / 433 / 509 / 605 / 675 / 731 / 821 / 911). What did not line up was the TEXT inside the tracks:
+   the inputs/selects carry `px-2` + a 1px border, so what an agent types starts 9px into its track, while the header
+   labels and the saved values were flush at the track edge — every label sat 9px left of the box below it.
+2. The × (and the + in a form-mode add row) is a `<button type="submit">` inside `.hfc-card`, and corex.css paints every
+   such button with `!important` background (solid blue/navy), `padding: 10px 18px`, radius 10px — measured 44×36px in a
+   36px track (spilling out of the column and making the row 36px tall against 30px inputs). The pencil is a
+   `type="button"`, so it escaped the rule and stayed a plain glyph — hence the mismatch.
+
+**The column grid (the one source of truth, unchanged):** Item `minmax(0,100px)` · Description `minmax(70px,1fr)` ·
+Type `90px` · [prices on: Unit `64px` · Qty `50px` · Unit price `84px` · [VAT-registered: VAT `84px`]] · Action `36px`;
+`gap: 6px`. Header row, saved rows, the add row and an open line editor all use `gridStyle()`.
+
+**Fix:**
+- `RentalJobCardLineGrid::cellStyle()` = `padding-left: 9px` (8px input padding + 1px border) applied to every header
+  label and every saved value, so label ↔ saved value ↔ input text start on the same x in each column.
+- `RentalJobCardLineGrid::iconButtonStyle()` — ONE compact 17×17px icon control, every declaration `!important` so it
+  beats the card-wide submit rule: edit ✎ and archive × are plain glyphs (transparent, no border), the add + is the same
+  size as a small outlined square, right-aligned (`justify-self:end`) so the saved rows and the add row end in the same
+  narrow action column. Row height is back to the text height. The add-line row stays on ONE line (5 Oct ruling), the two
+  panels still scroll independently, and no behaviour changes (same forms, same confirm on archive, same routes).
+- Not touched: the create (draft) screen's pre-save lines list; the "Remove" control there is a different component.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardGridAlignmentTest.php` — header, saved row and add row render from
+the same grid style string, saved cells and header labels carry the 9px inset, and the ✎ / × / + carry the compact icon
+style with `!important` (no `corex-btn` class on the +). Real-browser proof on QA1 card 1: column x per row + action
+control sizes + screenshot (`/tmp/qa1-cc3-jobcard-align.png`).
+
+**Files:** `app/Support/RentalJobCardLineGrid.php`, `resources/views/corex/rental-job-cards/{_line-columns-header,_lines-table,_add-line-row}.blade.php`.
+
+(Numbering note: two §14.23 sections exist — the print follow-ups and cc4's Job Cards LIST; both landed the same
+morning. Left as is; whoever next touches this file may renumber the list one to 14.25.)
+
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
 
 **Johan's requirement, verbatim (via the conductor's investigation brief):** "at the end of an
