@@ -350,8 +350,7 @@ List screen = the existing Documents list (search, sort, filters, pagination, em
 All form data is stored encrypted (`encrypted:array`). Owner screens mask account numbers (••••1234) and reveal only on an explicit,
 audited action (`bank_revealed` event: who/when/IP). Values are never written to logs or audit details and never put in email
 bodies. Sealed PDFs and wet-ink files live on the private disk and are served only by owner-gated streams (and the signer's own
-completed-copy link). Brief item 4 says the sealed PDF is emailed to both parties, so it is attached to those two emails; this
-means bank details are in that attachment (reported).
+completed-copy link). **Superseded 2026-10-06 (Johan): the sealed PDF is NOT emailed — see §11.17.** Completion emails carry a secure link only.
 
 ### 11.11 Public terms page (phase d)
 `/legal` renders the current published Parts B, C, D (same typesetting); `/legal/v/{version}` older versions. Unauthenticated, throttled.
@@ -460,3 +459,35 @@ wrapping after a hyphen, extractor spacing beside quotes), "1st" spacing, blank 
 Anything else is a defect. It also checks stored v1.0 == the content built from the source files, the footer label "Version 1.0 — 28 September 2026", and (test) that a fresh database seeds ONLY 1.0.
 **Declared additions** (reported, not silently allowed): the contract-reference line under the Part A heading (§11.3); the "Number of agents" / "Number of branches" labels of the two entries on the web form;
 a tick box before each of the three account types on the mandate (print/PDF). Also the three screen-only "Fills in automatically" tips (§11.5) — web form only; the proof strips them from the page text, counts them, and fails if one appears in a PDF. Tests: `AgreementFidelityTest` (negative cases prove a changed/missing/extra/reordered word is caught), `AgreementMailSenderTest`.
+
+### 11.17 Completion stays inside CoreX — no attachment, no bank details by email (cc4, 2026-10-06, Johan)
+Johan: "the agency is completing the document on a CoreX link so that should be secure. From there it stays inside CoreX." The signed
+agreement holds the agency's bank details, so it is never emailed.
+
+* **Completion mails** (`AgreementSignedMail`, replaces `SignedMail` for web documents only; the generic e-sign `SignedMail` is unchanged)
+  go to the agency signer and to RR (the RR signer + the sending user) and say the agreement is fully signed. **No attachment, no entered
+  value.** Agency link = its own token link (`platform-esign.agreement.show`); RR link = the owner-gated document screen
+  (`platform-esign.documents.show`). The wet-ink path is the same: no scan and no attestation PDF is ever attached. Mails checked for
+  attachments or bank details with no change needed: invite + reminder (`AgreementInviteMail`), received (`AgreementReceivedMail`),
+  countersign reminder (`AgreementCountersignReminderMail`) — links and names only.
+* **The agency link after completion** (`platform-esign/agreement/{token}`) opens a read-only **Completed** page: status, the signed
+  agreement on screen (bank numbers masked; the PDF carries them), "Download the signed PDF" (`.../download`) and the agency's own
+  uploaded hand-signed files (`.../wet-file/{file}`). The same token the agency signed on; RR's token never opens anything public.
+* **Access window** — platform setting `platform_esign.agreement_access_months` (default 12, 1–120; Agreement wording page, "Signed
+  agreement link valid for (months)"). Written to `documents.expires_at` at completion (`now + months`); after it passes the link shows
+  "This link has expired…" and opens/downloads nothing. The owner can **re-issue** at any time (owner panel on the document, or
+  `POST …/documents/{id}/resend` on a completed web document → `AgreementService::reissueAccess`): new token (the old link stops working),
+  fresh window, the agency emailed the new link (no attachment), `access_reissued` audited. The pre-signing expiry/reminder settings
+  (§11.14) apply only before signing; the reminder sweep never touches a completed agreement.
+* **Audit** — `completed_viewed` (page opened on the agency link), `signed_copy_downloaded` (agency link or owner), `wetink_downloaded`
+  (agency link or owner), `access_reissued`; each with signer/actor and IP. Downloads are streamed through the controller
+  (`Storage::download`, `Cache-Control: no-store`), never a public file URL.
+* **Not done / reported:** the generic (non-agreement) Platform E-Sign `SignedMail` still attaches the sealed PDF — out of scope here.
+  QA1 test agreements that completed before this change have no access window written (`expires_at` is their old signing expiry).
+
+### 11.18 Wording correction — clause D3.6 (cc4, 2026-10-06, Johan)
+Johan: "3.2 is correct. 3.6 should refer to same — we do not host but we maintain the site." Version 1.0 itself is corrected (no agreement
+had been issued): D3.6 now reads "We maintain the website for as long as this agreement runs. When it ends, we stop maintaining it, and
+the domain name remains the Agency’s." Corrected in `resources/legal/subscription-agreement/agreement-v1.0.md` (the seed source, so every
+fresh database seeds only "1.0 — 28 September 2026" with the corrected clause) and the conductor's reference copy. Environments that already
+hold 1.0 (QA1) get the corrected text as a new published version through §11.14, because published versions are immutable.

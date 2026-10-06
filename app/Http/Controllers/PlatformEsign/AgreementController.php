@@ -136,10 +136,11 @@ class AgreementController extends Controller
     /** One uploaded hand-signed file, streamed to an owner (never a public URL). */
     public function wetinkFile(Request $request, int $id, int $file)
     {
-        $this->owner($request);
+        $u = $this->owner($request);
         $doc = $this->webdoc($id);
         $f = $doc->wetinkFiles()->findOrFail($file);
         abort_unless(\Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
+        app(EsignService::class)->log($doc, 'wetink_downloaded', 'Uploaded hand-signed file downloaded inside Platform E-Sign: ' . $f->original_name, null, $u->id, $request->ip());
 
         return \Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
     }

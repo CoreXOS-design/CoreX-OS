@@ -53,6 +53,21 @@ class AgreementWordingTest extends TestCase
         $this->assertNotEmpty($fp('agreement-v1.0.md'));
     }
 
+    public function test_clause_d3_6_says_we_maintain_the_website_and_nothing_still_says_we_host_it(): void
+    {
+        $new = '**3.6** We maintain the website for as long as this agreement runs. When it ends, we stop maintaining it, and the domain name remains the Agency’s.';
+        $source = file_get_contents(AgreementContent::sourcePath('agreement-v1.0.md'));
+        $seeded = (new AgreementContent)->buildV1();
+
+        $this->assertStringContainsString($new, $source);
+        $this->assertStringContainsString($new, $seeded['part_d']);
+        $this->assertStringContainsString('**3.2** We do not host the website.', $seeded['part_d'], 'clause 3.2 is unchanged');
+        foreach (['source' => $source, 'seeded part D' => $seeded['part_d'], 'every seeded part' => implode("\n", $seeded)] as $where => $text) {
+            $this->assertStringNotContainsString('We host the website', $text, $where);
+            $this->assertStringNotContainsString('we stop hosting it', $text, $where);
+        }
+    }
+
     public function test_rates_in_the_wording_come_from_the_pinned_version_not_the_view(): void
     {
         $content = (new AgreementContent)->buildV1();
