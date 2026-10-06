@@ -526,9 +526,17 @@ class RentalReportService
             default => null,
         };
 
-        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered) {
-            $labourHours = (float) $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
-            $partsUsed = $c->lines->where('type', \App\Models\RentalCatalogueItem::TYPE_PART)
+        // §17.17 — cost, margin and the "lines without cost" count exist ONLY for a user who may see them; without
+        // `rental_job_cards.view_costs` those columns are absent from the report entirely (so from every export/print variant).
+        $canViewCosts = $user->hasPermission('rental_job_cards.view_costs');
+        $pricing = $canViewCosts ? app(RentalPricingService::class) : null;
+        $costVat = $canViewCosts ? ($vatService ?? app(RentalJobCardVatService::class)) : null;
+
+        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered, $canViewCosts, $pricing, $costVat) {
+            // §17.4.6 — a crew's pending line is not work done and not money: ACCEPTED lines only.
+            $lines = $c->lines->filter(fn ($l) => $l->isAccepted());
+            $labourHours = (float) $lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
+            $partsUsed = $lines->where('type', \App\Models\RentalCatalogueItem::TYPE_PART)
                 ->map(fn ($l) => $l->description . ($l->quantity ? " ({$l->quantity})" : ''))
                 ->implode(', ');
 
@@ -543,8 +551,19 @@ class RentalReportService
                 // "never a forced zero" (spec §4.3) — null (not 0) when the
                 // agency hasn't priced this card yet, so the Blade/export
                 // layer renders it blank rather than "R 0.00".
-                'total_cost' => $c->total_amount !== null ? (float) $c->total_amount : null,
+                // §17.17 — this is SELLING (what the owner is charged), formerly mislabelled "Total cost". The agency's own cost is
+                // `total_cost` below, view_costs only.
+                'total_selling' => $c->total_amount !== null ? (float) $c->total_amount : null,
             ];
+
+            if ($canViewCosts) {
+                $m = $pricing->marginFor($c);
+                $hasCost = $m['marginableLines'] > 0 || ($costVat->costBreakdown($c)['costedLines'] ?? 0) > 0;
+                $row['total_cost'] = $hasCost ? $m['costExcl'] : null;
+                $row['total_margin'] = $m['marginableLines'] > 0 ? $m['marginExcl'] : null;
+                $row['margin_pct'] = $m['marginPct'] !== null ? number_format($m['marginPct'], 1) . ' %' : '—';
+                $row['lines_without_cost'] = $m['linesWithoutCost'];
+            }
 
             if ($vatRegistered) {
                 $breakdown = $vatService->breakdown($c);
@@ -565,12 +584,24 @@ class RentalReportService
         $columns = [
             'date' => 'Date', 'property' => 'Property', 'crew_member' => 'Crew member',
             'labour_hours' => 'Labour hours', 'parts_used' => 'Parts used', 'status' => 'Status',
-            'total_cost' => 'Total cost',
         ];
-        $sumKeys = ['labour_hours', 'total_cost'];
+        $sumKeys = ['labour_hours'];
         if ($vatRegistered) {
-            $columns += ['total_excl' => 'Total (excl VAT)', 'total_vat' => 'VAT', 'total_incl' => 'Total (incl VAT)'];
+            // For a VAT-registered agency the three VAT columns ARE the selling price; no separate "as captured" column.
+            $columns += ['total_excl' => 'Selling (excl VAT)', 'total_vat' => 'VAT', 'total_incl' => 'Selling (incl VAT)'];
             $sumKeys = array_merge($sumKeys, ['total_excl', 'total_vat', 'total_incl']);
+        } else {
+            $columns += ['total_selling' => 'Selling'];
+            $sumKeys[] = 'total_selling';
+        }
+        if ($canViewCosts) {
+            $columns += [
+                'total_cost' => $vatRegistered ? 'Cost (excl VAT)' : 'Cost',
+                'total_margin' => 'Margin (R, excl VAT)',
+                'margin_pct' => 'Margin %',
+                'lines_without_cost' => 'Lines without cost',
+            ];
+            $sumKeys = array_merge($sumKeys, ['total_cost', 'total_margin', 'lines_without_cost']);
         }
 
         return [

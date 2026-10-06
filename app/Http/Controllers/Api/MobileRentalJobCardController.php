@@ -100,7 +100,7 @@ class MobileRentalJobCardController extends Controller
             'tasks' => $jobCard->tasks->map(fn ($t) => [
                 'id' => $t->id, 'description' => $t->description, 'is_done' => $t->is_done,
             ]),
-            'lines' => $jobCard->lines->map(fn ($l) => [
+            'lines' => $jobCard->lines->filter(fn ($l) => $l->isAccepted())->values()->map(fn ($l) => [
                 'id' => $l->id, 'description' => $l->description, 'type' => $l->type,
                 'quantity' => $l->quantity, 'unit' => $l->unit, 'unit_price' => $l->unit_price, 'line_total' => $l->line_total,
             ]),

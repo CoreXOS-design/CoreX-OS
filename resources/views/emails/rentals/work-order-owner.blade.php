@@ -48,6 +48,14 @@
             @endif
         @endif
 
+        {{-- §17.11 / R6 — the estimate wording snapshotted onto the quote being sent; printed on the quote mail, never on the completed notice. --}}
+        @if($stage !== \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_COMPLETED)
+            @php $estimateQuote = $workOrder->quotes()->where('is_selected', true)->whereNotNull('term_text')->first(); @endphp
+            @if($estimateQuote && trim((string) $estimateQuote->term_text) !== '')
+                <p style="font-size: 13px; color: #444; border-left: 3px solid #cbd5e0; padding-left: 10px;">{{ $estimateQuote->term_text }}</p>
+            @endif
+        @endif
+
         <p style="color: #666; font-size: 13px;">
             If you have any questions, please contact {{ $agencyName }} directly.
         </p>

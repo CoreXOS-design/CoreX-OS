@@ -74,7 +74,7 @@ class RentalJobCardController extends Controller
             'hasAny' => $list->hasAny(),
             'showArchived' => $request->boolean('archived'),
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(['id', 'name']),
-            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue']),
+            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue', 'needs_pricing']),
             'filteredProperty' => $propertyId ? Property::find($propertyId) : null,
             'tileCounts' => $list->tileCounts(),
             'resolvedScope' => $list->resolvedScope(),
@@ -103,6 +103,7 @@ class RentalJobCardController extends Controller
             'q' => $request->get('q'),
             'status' => $request->get('status'),
             'overdue' => $request->boolean('overdue'),
+            'needs_pricing' => $request->boolean('needs_pricing'),
             'rental_crew_id' => $request->get('rental_crew_id'),
             'property_id' => $request->get('property_id'),
             'from' => $dateFrom,
@@ -203,6 +204,8 @@ class RentalJobCardController extends Controller
             'catalogueItemTypes' => $agency ? RentalCatalogueItemType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get() : collect(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'pricesOn' => $agency ? RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id) : true,
+            // §17.15 — selling can be typed on the create screen only by someone who holds `rental_job_cards.price`.
+            'canPrice' => $request->user()->hasPermission('rental_job_cards.price'),
             'vatTypes' => $agency?->vat_registered
                 ? RentalVatType::active()->where('agency_id', $agency->id)->orderBy('sort_order')->get()
                 : collect(),
@@ -271,8 +274,10 @@ class RentalJobCardController extends Controller
         $rentalJobCard->syncStatusFromWorkOrder();
         $rentalJobCard->load([
             'property', 'lease.tenants.contact', 'crew.members', 'assignedUser',
-            'tasks.lines.catalogueItem', 'tasks.lines.vatType',
-            'lines.catalogueItem', 'lines.vatType', // includes General (task-less) lines
+            // §17.4.6 — the task tables show ACCEPTED lines only; the crew's pending lines get their own block (_pricing-panel).
+            'tasks.acceptedLines.catalogueItem', 'tasks.acceptedLines.vatType',
+            'lines.catalogueItem', 'lines.vatType', // every live line incl. General (task-less) ones; readers filter to accepted
+            'priceRequests',
             'rentalFaultReport',
             'photos.uploadedBy',
             // §15 (AT-447) — "From inspection <type> <date>" back-link,
@@ -298,6 +303,18 @@ class RentalJobCardController extends Controller
         $quoteRevisions = $rentalJobCard->quoteRevisions()->get();
         $currentQuote = $quoteRevisions->first(fn ($q) => $q->superseded_at === null);
 
+        // §17.15 — what THIS user may see and do about money. Cost, margin and the crew's raw figures are rendered server-side
+        // only for `view_costs`; selling edits, markup and accepting crew lines need `price`.
+        $user = $request->user();
+        $pricesOnForCard = RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id);
+        $canViewCosts = $pricesOnForCard && $user->hasPermission('rental_job_cards.view_costs');
+        $canPrice = $pricesOnForCard && $user->hasPermission('rental_job_cards.price');
+        $vatService = app(RentalJobCardVatService::class);
+        $pricingService = app(\App\Services\Rentals\RentalPricingService::class);
+        $awaitingLines = $rentalJobCard->lines->where('office_status', RentalJobCardLine::OFFICE_AWAITING)->values();
+        $awaitingPhotos = $awaitingLines->isEmpty() ? collect() : \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
+            ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->orderBy('id')->get()->groupBy('rental_job_card_line_id');
+
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
             'crewLink' => $crewLink,
@@ -306,8 +323,17 @@ class RentalJobCardController extends Controller
             'quoteRevisions' => $quoteRevisions,
             'currentQuote' => $currentQuote,
             'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote),
-            'generalLines' => $rentalJobCard->generalLines()->with(['catalogueItem', 'vatType'])->get(),
-            'pricesOn' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($rentalJobCard->agency_id),
+            'generalLines' => $rentalJobCard->generalLines()->accepted()->with(['catalogueItem', 'vatType'])->get(),
+            'pricesOn' => $pricesOnForCard,
+            // §17.4.5 / §17.15 — cost + margin are absent (not hidden) without `view_costs`.
+            'canViewCosts' => $canViewCosts,
+            'canPrice' => $canPrice,
+            'costVat' => $canViewCosts ? $vatService->costBreakdown($rentalJobCard) : null,
+            'margin' => $canViewCosts ? $pricingService->marginFor($rentalJobCard) : null,
+            'awaitingLines' => $awaitingLines,
+            'awaitingPhotos' => $awaitingPhotos,
+            'openPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN),
+            'submittedPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_SUBMITTED),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(),
@@ -315,7 +341,8 @@ class RentalJobCardController extends Controller
             'catalogueItemTypes' => RentalCatalogueItemType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get(),
             'catalogueUnits' => RentalCatalogueUnit::query()->active()->orderBy('sort_order')->get(),
             'archivedTasks' => $rentalJobCard->tasks()->onlyTrashed()->get(),
-            'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->get(),
+            // A crew's own discarded draft was never the office's line: it is not offered for restore.
+            'archivedLines' => $rentalJobCard->lines()->onlyTrashed()->where('office_status', '!=', RentalJobCardLine::OFFICE_CREW_DRAFT)->get(),
             // Agency VAT set-up (2026-10-05) — the totals block and per-line
             // VAT type picker. vatTypes empty when the agency isn't VAT
             // registered: the view renders no selector at all in that case.
@@ -576,9 +603,13 @@ class RentalJobCardController extends Controller
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['nullable', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'unit_cost' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'markup_type' => ['nullable', 'in:percent,amount'],
+            'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
+        $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         if (empty($validated['rental_catalogue_item_id']) && empty($validated['description'])) {
             return back()->withErrors(['rental_job_card' => 'Pick a catalogue item or type a description.']);
@@ -617,9 +648,14 @@ class RentalJobCardController extends Controller
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['sometimes', 'required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
+            'unit_cost' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'markup_type' => ['nullable', 'in:percent,amount'],
+            'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
+            'back_to_auto' => ['nullable', 'boolean'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
+        $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         try {
             $service->updateLine($rentalJobCard, $line, $validated, $request->user());
@@ -879,6 +915,25 @@ class RentalJobCardController extends Controller
      * anything left with neither a catalogue item nor a description) —
      * never a 500 on a stray empty row the client-side builder emitted.
      */
+    /**
+     * §17.15 — enforcement behind the screen, not just on it: a user without `rental_job_cards.price` cannot type a selling
+     * price, a markup or "back to automatic" (a hand-crafted POST is dropped here); cost needs `price` AND `view_costs`
+     * (nobody edits a figure they are not allowed to see). Keys that are ABSENT stay absent, so the service leaves them alone.
+     */
+    private function withoutPricingTheUserMayNotSet(array $validated, ?\App\Models\User $user): array
+    {
+        if (! $user || ! $user->hasPermission('rental_job_cards.price')) {
+            unset($validated['unit_price'], $validated['markup_type'], $validated['markup_value'], $validated['back_to_auto'], $validated['unit_cost']);
+
+            return $validated;
+        }
+        if (! $user->hasPermission('rental_job_cards.view_costs')) {
+            unset($validated['unit_cost']);
+        }
+
+        return $validated;
+    }
+
     private function validatedLineAttributes(array $line): array
     {
         $agencyId = auth()->user()->agency_id;
@@ -894,6 +949,7 @@ class RentalJobCardController extends Controller
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
-        return $validator->valid();
+        // The create screen's draft lines carry a typed price at most; cost/markup are set on the saved card.
+        return $this->withoutPricingTheUserMayNotSet($validator->valid(), auth()->user());
     }
 }

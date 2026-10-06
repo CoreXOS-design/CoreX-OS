@@ -431,6 +431,9 @@ return [
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowCostsOnPrintedJobCard'],
             // §17.21.1 — each maintenance-flow build adds ITS savers (own narrow saver per setting, has()-guarded) between its markers.
             // BUILD 1 BEGIN — pricing savers (default markups, estimate term)
+            // §17.14 / §17.11 — own narrow savers, has()-guarded (a key absent from this step's POST is never touched).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateDefaultMarkups'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateQuoteEstimateTerm'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals savers (tolerance, auto-variation mail, external-quote fee)
             // §17.14 — ONE narrow saver for the four approvals controls below; every field is has()-guarded in it, so a wizard step that posts
@@ -677,6 +680,18 @@ return [
              'affects' => 'How quickly stalled repairs are flagged. 3 days is the default — lower it to chase contractors harder, raise it if your jobs routinely take longer.'],
             // §17.21.1 — each maintenance-flow build adds ITS controls (explain + affects) between its markers.
             // BUILD 1 BEGIN — pricing controls
+            ['key' => 'default_parts_markup_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 1000, 'step' => 0.5,
+             'label' => 'Default markup on parts (%)',
+             'explain' => 'When your crew or office records what a part actually cost you, CoreX adds this percentage on top to arrive at the price the owner is charged — unless the office sets a price or a different markup for that line or for the whole job.',
+             'affects' => 'The price an owner sees for every part on a quote. 0 % (the default) charges the owner exactly what the part cost you; for example 20 % turns a R100 part into R120. Each job card can still override it.'],
+            ['key' => 'default_labour_markup_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 1000, 'step' => 0.5,
+             'label' => 'Default markup on labour (%)',
+             'explain' => 'The same idea for labour: the percentage added on top of what the work cost you to arrive at the price the owner is charged, unless the office sets something else for that line or job.',
+             'affects' => 'The price an owner sees for every labour line on a quote. 0 % (the default) charges the owner exactly what the labour cost you; each job card can still override it.'],
+            ['key' => 'quote_estimate_term', 'source' => 'rental_work_orders', 'type' => 'textarea', 'default' => '',
+             'label' => 'Estimate wording on owner quotes',
+             'explain' => 'The short paragraph printed on every quote sent to an owner, telling them the quote is an estimate and what happens if the real cost turns out different. Leave it as it is to use the standard wording, or rewrite it in your own words.',
+             'affects' => 'The wording the owner reads at the bottom of the quote PDF and in the quote email. The wording in force on the day a quote is sent is kept with that quote, so changing it later never alters a quote already sent.'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
             ['key' => 'variation_tolerance_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 100, 'step' => 0.5,

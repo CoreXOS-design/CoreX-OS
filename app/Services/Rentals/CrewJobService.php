@@ -6,7 +6,10 @@ use App\Events\Rentals\RentalJobCardCrewCompleted;
 use App\Events\Rentals\RentalJobCardCrewPhotosAdded;
 use App\Models\Agency;
 use App\Models\RentalJobCard;
+use App\Events\Rentals\RentalCrewLinesSubmitted;
+use App\Models\RentalCatalogueItem;
 use App\Models\RentalJobCardLine;
+use App\Models\RentalJobCardPriceRequest;
 use App\Models\RentalJobCardTask;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderPhoto;
@@ -31,6 +34,8 @@ class CrewJobService
 {
     public const MAX_PHOTOS_PER_SUBMIT = 10;
     public const PHOTO_TYPES = [RentalWorkOrder::PHOTO_IN_PROGRESS, RentalWorkOrder::PHOTO_COMPLETED];
+    /** §17.5.1 — up to three photos explain one crew line (an extra); they are stored against the LINE, not the job gallery. */
+    public const MAX_LINE_PHOTOS = 3;
 
     /**
      * The crew's view of a card (§14.27.5). Deliberately a flat array of
@@ -51,9 +56,11 @@ class CrewJobService
         $tasks = RentalJobCardTask::withoutGlobalScope(AgencyScope::class)
             ->where('rental_job_card_id', $card->id)
             ->orderBy('sort_order')->orderBy('id')
-            ->with(['lines' => fn ($q) => $q->withoutGlobalScope(AgencyScope::class)])
+            ->with(['lines' => fn ($q) => $q->withoutGlobalScope(AgencyScope::class)->accepted()])
             ->get();
-        $generalLines = RentalJobCardLine::withoutGlobalScope(AgencyScope::class)
+        // §17.4.6 — "What to load" / Labour list the lines that are part of the job (ACCEPTED). The crew's own drafts and lines
+        // awaiting the office are shown separately, in the Parts & labour panel (CrewPricingBlock), with their state.
+        $generalLines = RentalJobCardLine::withoutGlobalScope(AgencyScope::class)->accepted()
             ->where('rental_job_card_id', $card->id)->whereNull('rental_job_card_task_id')
             ->orderBy('sort_order')->orderBy('id')->get();
 
@@ -75,6 +82,8 @@ class CrewJobService
         $photos = RentalWorkOrderPhoto::withoutGlobalScopes()
             ->where('rental_job_card_id', $card->id)
             ->where('photo_type', '!=', RentalWorkOrder::PHOTO_REPORTED)
+            // §17.5.1 — a photo that explains one crew line shows against that line (Parts & labour panel), not in the job gallery.
+            ->where('photo_type', '!=', RentalJobCardLine::PHOTO_TYPE)
             ->orderByDesc('created_at')->orderByDesc('id')
             ->get()
             ->map(fn (RentalWorkOrderPhoto $p) => [
@@ -220,6 +229,241 @@ class CrewJobService
 
         RentalJobCardCrewCompleted::dispatch($card, $fullName, $ctx->signOffVia());
         $this->touchToken($ctx);
+    }
+
+    // ───────────── §17.5 — the crew prices a job and adds extras (Build 1) ─────────────
+
+    /**
+     * Add ONE part or labour line from the crew's phone. It is a `crew_draft`: visible only to the crew, in no total, quote
+     * or owner payload until the crew presses "Send to office" and the office accepts it (§17.5.3). The crew types the
+     * ACTUAL COST (required when the agency captures money at all); there is no selling, markup or margin anywhere in this
+     * call or its result. While the office has an open price request a line is a pricing line for it, unless the crew marks
+     * it as an extra.
+     *
+     * @param array{type?: ?string, description?: ?string, rental_catalogue_item_id?: mixed, quantity?: mixed, unit?: ?string, unit_cost?: mixed, note?: ?string, is_extra?: mixed} $data
+     * @param array<int, UploadedFile> $photos up to MAX_LINE_PHOTOS
+     */
+    public function addLine(RentalJobCard $card, array $data, array $photos, CrewViewContext $ctx): RentalJobCardLine
+    {
+        $this->assertReachable($card, $ctx);
+        $card->assertContentEditable();
+
+        $clean = $this->cleanLineData($card, $data, $ctx);
+        $this->assertPhotoCount(count($photos), 0);
+
+        $request = $card->priceRequests()->withoutGlobalScopes()->where('status', RentalJobCardPriceRequest::STATUS_OPEN)->latest('id')->first();
+        $isExtra = ! empty($data['is_extra']) || ! $request;
+
+        $line = DB::transaction(function () use ($card, $clean, $request, $isExtra, $ctx) {
+            return app(RentalJobCardService::class)->addLine($card, $clean + [
+                'origin' => $isExtra ? RentalJobCardLine::ORIGIN_CREW_EXTRA : RentalJobCardLine::ORIGIN_CREW_PRICING,
+                'office_status' => RentalJobCardLine::OFFICE_CREW_DRAFT,
+                'crew_added_by_label' => mb_substr($ctx->actorLabel, 0, 191),
+                'crew_added_at' => now(),
+                'rental_job_card_price_request_id' => $isExtra ? null : $request?->id,
+            ], null, null, false);
+        });
+
+        $this->storeLinePhotos($card, $line, $photos, $ctx);
+        $this->touchToken($ctx);
+
+        return $line;
+    }
+
+    /** Change one of the crew's OWN drafts. Once sent to the office a line is no longer the crew's to change. */
+    public function editDraft(RentalJobCard $card, RentalJobCardLine $line, array $data, array $photos, CrewViewContext $ctx): RentalJobCardLine
+    {
+        $this->assertReachable($card, $ctx);
+        $card->assertContentEditable();
+        $this->assertOwnDraft($card, $line);
+
+        $clean = $this->cleanLineData($card, $data, $ctx);
+        $existingPhotos = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->count();
+        $this->assertPhotoCount(count($photos), $existingPhotos);
+
+        $pricing = app(RentalPricingService::class);
+        $line->forceFill([
+            'rental_catalogue_item_id' => $clean['rental_catalogue_item_id'] ?? null,
+            'code' => $clean['code'] ?? null,
+            'type' => $clean['type'],
+            'description' => $clean['description'],
+            'unit' => $clean['unit'] ?? null,
+            'quantity' => $clean['quantity'],
+            'unit_cost' => $clean['unit_cost'] ?? null,
+            'crew_note' => $clean['crew_note'] ?? null,
+        ]);
+        $pricing->syncCostTotal($line);
+        $line->save();
+
+        $this->storeLinePhotos($card, $line, $photos, $ctx);
+        $this->touchToken($ctx);
+
+        return $line->refresh();
+    }
+
+    /** Remove one of the crew's own drafts — a soft archive (nothing is ever hard-deleted). */
+    public function archiveDraft(RentalJobCard $card, RentalJobCardLine $line, CrewViewContext $ctx): void
+    {
+        $this->assertReachable($card, $ctx);
+        $card->assertContentEditable();
+        $this->assertOwnDraft($card, $line);
+
+        $line->delete();
+        $this->touchToken($ctx);
+    }
+
+    /**
+     * "Send to office": every one of this card's crew drafts becomes `awaiting_office`; an open price request that the crew
+     * answered becomes `submitted` (with who/when/IP/device). ONE audit line, ONE domain event (→ one in-app note to the
+     * property's agent) per send, never per line. Returns how many lines were sent.
+     */
+    public function sendToOffice(RentalJobCard $card, CrewViewContext $ctx): int
+    {
+        $this->assertReachable($card, $ctx);
+        $card->assertContentEditable();
+
+        $sent = 0;
+        $requestId = null;
+        DB::transaction(function () use ($card, $ctx, &$sent, &$requestId) {
+            $drafts = RentalJobCardLine::withoutGlobalScopes()
+                ->where('rental_job_card_id', $card->id)->whereNull('deleted_at')
+                ->whereIn('origin', [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA])
+                ->where('office_status', RentalJobCardLine::OFFICE_CREW_DRAFT)
+                ->lockForUpdate()->get();
+            if ($drafts->isEmpty()) {
+                throw new \InvalidArgumentException('Add at least one part or labour line before you send to the office.');
+            }
+
+            RentalJobCardLine::withoutGlobalScopes()->whereIn('id', $drafts->pluck('id'))
+                ->update(['office_status' => RentalJobCardLine::OFFICE_AWAITING]);
+            $sent = $drafts->count();
+
+            $pricingRequestIds = $drafts->where('origin', RentalJobCardLine::ORIGIN_CREW_PRICING)->pluck('rental_job_card_price_request_id')->filter()->unique();
+            if ($pricingRequestIds->isNotEmpty()) {
+                $requestId = (int) $pricingRequestIds->first();
+                RentalJobCardPriceRequest::withoutGlobalScopes()->whereKey($pricingRequestIds->all())
+                    ->where('status', RentalJobCardPriceRequest::STATUS_OPEN)
+                    ->update([
+                        'status' => RentalJobCardPriceRequest::STATUS_SUBMITTED,
+                        'submitted_at' => now(),
+                        'submitted_label' => mb_substr($ctx->actorLabel, 0, 191),
+                        'submitted_ip' => $ctx->ip,
+                        'submitted_device' => $ctx->userAgent,
+                    ]);
+            }
+
+            $note = "{$sent} line" . ($sent === 1 ? '' : 's') . " ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')';
+            $card->logUpdate('crew_lines_sent', null, $note);
+            if ($requestId) {
+                $card->logUpdate('pricing_submitted', null, "Crew sent their prices ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')');
+            }
+        });
+
+        RentalCrewLinesSubmitted::dispatch($card, $sent, $ctx->via, $requestId);
+        $this->touchToken($ctx);
+
+        return $sent;
+    }
+
+    /** @return array<string, mixed> the line fields, validated in plain language (the crew sees these messages). */
+    private function cleanLineData(RentalJobCard $card, array $data, CrewViewContext $ctx): array
+    {
+        $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($card->agency_id);
+
+        $item = null;
+        if (! empty($data['rental_catalogue_item_id'])) {
+            $item = RentalCatalogueItem::withoutGlobalScopes()->where('agency_id', $ctx->agencyId)->where('is_active', true)
+                ->with('catalogueUnit')->find((int) $data['rental_catalogue_item_id']);
+            if (! $item) {
+                throw new \InvalidArgumentException('That item is not on the list — pick another or type a description.');
+            }
+        }
+
+        $description = trim((string) ($data['description'] ?? ''));
+        if ($description === '' && $item) {
+            $description = (string) $item->description;
+        }
+        if ($description === '') {
+            throw new \InvalidArgumentException('Say what the part or work is — pick an item or type a description.');
+        }
+        if (mb_strlen($description) > 255) {
+            throw new \InvalidArgumentException('The description is too long (255 characters at most).');
+        }
+
+        $type = (string) ($data['type'] ?? ($item?->kind() ?? RentalCatalogueItem::TYPE_PART));
+        if (! in_array($type, [RentalCatalogueItem::TYPE_PART, RentalCatalogueItem::TYPE_LABOUR], true)) {
+            throw new \InvalidArgumentException('Choose Part or Labour.');
+        }
+
+        $quantityRaw = $data['quantity'] ?? 1;
+        if ($quantityRaw === '' || $quantityRaw === null) {
+            $quantityRaw = 1;
+        }
+        if (! is_numeric($quantityRaw) || (float) $quantityRaw <= 0 || (float) $quantityRaw > 100000) {
+            throw new \InvalidArgumentException('Enter how many (a number above 0).');
+        }
+
+        $unit = trim((string) ($data['unit'] ?? ''));
+        if ($unit === '' && $item) {
+            $unit = (string) ($item->catalogueUnit?->name ?? '');
+        }
+        if (mb_strlen($unit) > 30) {
+            throw new \InvalidArgumentException('The unit is too long (30 characters at most).');
+        }
+
+        $unitCost = null;
+        if ($pricesOn) {
+            $costRaw = $data['unit_cost'] ?? null;
+            if ($costRaw === null || $costRaw === '') {
+                throw new \InvalidArgumentException('Enter what it cost you (the actual cost).');
+            }
+            if (! is_numeric($costRaw) || (float) $costRaw < 0 || (float) $costRaw > 99999999) {
+                throw new \InvalidArgumentException('Enter the cost as a number, 0 or more.');
+            }
+            $unitCost = round((float) $costRaw, 2);
+        }
+
+        $note = trim((string) ($data['note'] ?? ''));
+        if (mb_strlen($note) > 1000) {
+            throw new \InvalidArgumentException('The note is too long (1000 characters at most).');
+        }
+
+        return [
+            'rental_catalogue_item_id' => $item?->id,
+            'code' => $item?->code,
+            'type' => $type,
+            'description' => $description,
+            'unit' => $unit !== '' ? $unit : null,
+            'quantity' => round((float) $quantityRaw, 2),
+            'unit_cost' => $unitCost,
+            'crew_note' => $note !== '' ? $note : null,
+        ];
+    }
+
+    private function assertPhotoCount(int $new, int $existing): void
+    {
+        if ($new + $existing > self::MAX_LINE_PHOTOS) {
+            throw new \InvalidArgumentException('You can add up to ' . self::MAX_LINE_PHOTOS . ' photos to one line.');
+        }
+    }
+
+    /** @param array<int, UploadedFile> $photos */
+    private function storeLinePhotos(RentalJobCard $card, RentalJobCardLine $line, array $photos, CrewViewContext $ctx): void
+    {
+        $service = app(RentalJobCardService::class);
+        foreach (array_values($photos) as $file) {
+            $service->storePhoto($card, $file, RentalJobCardLine::PHOTO_TYPE, null, null, null, $ctx->photoVia(), false, $line->id);
+        }
+    }
+
+    /** Only the crew's own, still-draft, live line of THIS card — anything else is the same 404/refusal a stranger would get. */
+    private function assertOwnDraft(RentalJobCard $card, RentalJobCardLine $line): void
+    {
+        abort_unless((int) $line->rental_job_card_id === (int) $card->id && ! $line->trashed(), 404);
+        abort_unless(in_array($line->origin, [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA], true), 404);
+        if ($line->office_status !== RentalJobCardLine::OFFICE_CREW_DRAFT) {
+            throw new \LogicException('This line has already been sent to the office, so it can no longer be changed here.');
+        }
     }
 
     /** A closed (completed / cancelled), archived or other-agency card is never reachable from a crew link. */

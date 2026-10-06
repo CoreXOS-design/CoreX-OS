@@ -294,6 +294,8 @@ class AppServiceProvider extends ServiceProvider
         // matching Agency Timeline item. SYNC on purpose (see AgencyFeatureToggled).
         Event::listen(\App\Events\Platform\AgencyContractSigned::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
+        // §17.5 (maintenance flow, Build 1) — one in-app note to the property's agent per crew "Send to office".
+        Event::listen(\App\Events\Rentals\RentalCrewLinesSubmitted::class, \App\Listeners\Rentals\NotifyAgentOfCrewLines::class);
         // §14.28 (rental-work-orders.md) — the landlord is told when the crew marks a job card's work completed (link OR signed copy).
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.

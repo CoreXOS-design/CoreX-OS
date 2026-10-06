@@ -211,10 +211,41 @@ class RentalJobCard extends Model
         return $this->hasMany(RentalJobCardLine::class)->orderBy('sort_order')->orderBy('id');
     }
 
-    /** Lines with no task — the built-in "General" group (e.g. a call-out fee). */
+    /**
+     * §17.2 / §17.4.6 — the ONLY lines that count in a total, a document, a signature, a materials list or a report.
+     * lines() still returns every live line (a crew's draft and a line awaiting the office included) because the office
+     * screen has to show those too, in their own block; every reader of money or work-to-do reads THIS instead.
+     */
+    public function acceptedLines(): HasMany
+    {
+        return $this->lines()->accepted();
+    }
+
+    /** Lines with no task — the built-in "General" group (e.g. a call-out fee). Every state; see acceptedLines(). */
     public function generalLines(): HasMany
     {
         return $this->lines()->whereNull('rental_job_card_task_id');
+    }
+
+    /** §17.5.3 — crew-added lines that have been sent to the office and wait for Accept / Reject (never counted anywhere). */
+    public function awaitingOfficeLines(): HasMany
+    {
+        return $this->lines()->where('office_status', RentalJobCardLine::OFFICE_AWAITING);
+    }
+
+    /** §17.5.4 — the one request still open for the crew to answer, if any. */
+    public function openPriceRequest(): ?RentalJobCardPriceRequest
+    {
+        return $this->priceRequests()->where('status', RentalJobCardPriceRequest::STATUS_OPEN)->first();
+    }
+
+    /** §17.5.5 — "Needs pricing": an open request, or crew lines the office has not yet decided. */
+    public function scopeNeedsPricing(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q) {
+            $q->whereHas('priceRequests', fn ($r) => $r->where('status', RentalJobCardPriceRequest::STATUS_OPEN))
+                ->orWhereHas('lines', fn ($l) => $l->where('office_status', RentalJobCardLine::OFFICE_AWAITING));
+        });
     }
 
     public function updates(): HasMany
@@ -274,9 +305,10 @@ class RentalJobCard extends Model
 
         $payload = [
             'title' => $this->title,
-            'tasks' => $this->tasks()->with('lines')->get()
+            // §17.4.6 — accepted lines only: a crew's pending line is not on the quote, so it must not flip "changed since sent".
+            'tasks' => $this->tasks()->with(['lines' => fn ($q) => $q->accepted()])->get()
                 ->map(fn ($t) => [$t->description, $t->lines->map($lineData)->all()])->all(),
-            'general' => $this->generalLines()->get()->map($lineData)->all(),
+            'general' => $this->generalLines()->accepted()->get()->map($lineData)->all(),
         ];
 
         return hash('sha256', json_encode($payload));
@@ -393,6 +425,13 @@ class RentalJobCard extends Model
                     'signed_copy_uploaded' => 'Signed copy uploaded',
                     'signed_copy_superseded' => 'Signed copy superseded',
                     'landlord_notified' => 'Landlord notified',
+                    'pricing_requested' => 'Crew asked to price the job',
+                    'pricing_submitted' => 'Crew sent their prices',
+                    'crew_lines_sent' => 'Crew sent parts and labour to the office',
+                    'crew_line_accepted' => 'Crew line accepted',
+                    'crew_line_rejected' => 'Crew line not accepted',
+                    'markup_set' => 'Markup set',
+                    'line_priced' => 'Line priced',
                     'archived' => 'Archived',
                     'restored' => 'Restored',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
@@ -406,10 +445,20 @@ class RentalJobCard extends Model
         return $entries->sortBy('at')->values();
     }
 
-    /** Recalculates total_amount from live, non-archived lines. Never trusts a client-sent total. */
+    /**
+     * Recalculates total_amount (SELLING) and total_cost (the agency's own cost) from live, non-archived,
+     * ACCEPTED lines (§17.4.6). Never trusts a client-sent total. total_cost stays null while no accepted line has a
+     * cost recorded — "never a forced zero" — and is the sum of the costed lines otherwise.
+     */
     public function recalcTotal(): void
     {
-        $this->forceFill(['total_amount' => $this->lines()->sum('line_total')])->save();
+        $accepted = $this->acceptedLines();
+        $hasCost = (clone $accepted)->whereNotNull('cost_total')->exists();
+
+        $this->forceFill([
+            'total_amount' => (clone $accepted)->sum('line_total'),
+            'total_cost' => $hasCost ? (clone $accepted)->sum('cost_total') : null,
+        ])->save();
     }
 
     public function archive(User $by): void

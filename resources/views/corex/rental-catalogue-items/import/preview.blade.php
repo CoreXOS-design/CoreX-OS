@@ -43,6 +43,7 @@
                     <th class="text-left px-3 py-2 font-medium">Unit</th>
                     <th class="text-left px-3 py-2 font-medium">VAT type</th>
                     <th class="text-right px-3 py-2 font-medium">Price (excl)</th>
+                    @if(!empty($with_cost))<th class="text-right px-3 py-2 font-medium">Cost (excl)</th>@endif
                     <th class="text-left px-3 py-2 font-medium">Action</th>
                 </tr>
             </thead>
@@ -56,6 +57,7 @@
                         <td class="px-3 py-2">{{ $row['unit_name'] ?: '—' }}</td>
                         <td class="px-3 py-2">{{ $row['vat_type_name'] ?: '—' }}</td>
                         <td class="px-3 py-2 text-right">{{ $row['resolved']['default_price'] !== null ? 'R' . number_format($row['resolved']['default_price'], 2) : '—' }}</td>
+                        @if(!empty($with_cost))<td class="px-3 py-2 text-right">{{ ($row['resolved']['default_cost'] ?? null) !== null ? 'R' . number_format($row['resolved']['default_cost'], 2) : '—' }}</td>@endif
                         <td class="px-3 py-2">
                             @if($row['action'] === 'create')
                                 <span class="ds-badge ds-badge-info">New</span>

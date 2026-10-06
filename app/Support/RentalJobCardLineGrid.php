@@ -9,15 +9,17 @@ namespace App\Support;
  * one-line fit at 1366/1536 (Johan, 2026-10-05 round 2) stays true no
  * matter which of the three files gets touched next.
  *
- * Column order, fixed: Item, Description, Type, Unit, Qty, Unit price,
- * VAT, (blank for the +/archive action). Unit/Qty/Unit price/VAT only
- * exist at all when $pricesOn; VAT only when the agency is $vatRegistered
- * on top of that.
+ * Column order, fixed: Item, Description, Type, Unit, Qty, [Cost,] Unit price
+ * (the SELLING price), VAT, [Margin,] (blank for the +/archive action).
+ * Unit/Qty/Unit price/VAT only exist at all when $pricesOn; VAT only when the
+ * agency is $vatRegistered on top of that. Cost and Margin (§17.4.5) exist only
+ * when $showCost — the viewer holds `rental_job_cards.view_costs` — and are then
+ * absent from the markup entirely for everyone else (server-side, not CSS).
  */
 class RentalJobCardLineGrid
 {
     /** @return array<int, string> grid-template-columns track list */
-    public static function columns(bool $pricesOn, bool $vatRegistered): array
+    public static function columns(bool $pricesOn, bool $vatRegistered, bool $showCost = false): array
     {
         // Item capped lower (100px, not 130px) and Description given a real
         // floor (70px, not 0) — 2026-10-05 round 3 (Johan browser check at
@@ -32,9 +34,15 @@ class RentalJobCardLineGrid
         if ($pricesOn) {
             $cols[] = '64px';
             $cols[] = '50px';
-            $cols[] = '84px';
+            if ($showCost) {
+                $cols[] = '72px'; // Cost (what the line cost the agency)
+            }
+            $cols[] = '84px';     // Unit price = SELLING
             if ($vatRegistered) {
                 $cols[] = '84px';
+            }
+            if ($showCost) {
+                $cols[] = '76px'; // Margin (selling less cost, excl VAT)
             }
         }
         $cols[] = '36px';
@@ -42,9 +50,9 @@ class RentalJobCardLineGrid
         return $cols;
     }
 
-    public static function gridStyle(bool $pricesOn, bool $vatRegistered): string
+    public static function gridStyle(bool $pricesOn, bool $vatRegistered, bool $showCost = false): string
     {
-        $cols = implode(' ', self::columns($pricesOn, $vatRegistered));
+        $cols = implode(' ', self::columns($pricesOn, $vatRegistered, $showCost));
 
         return "display:grid; grid-template-columns: {$cols}; gap: 6px; align-items:center; min-width:0;";
     }
@@ -56,15 +64,21 @@ class RentalJobCardLineGrid
     }
 
     /** The header row's own labels, in the same fixed order as columns() -- callers slice this to match whichever optional columns are actually rendered. */
-    public static function labels(bool $pricesOn, bool $vatRegistered): array
+    public static function labels(bool $pricesOn, bool $vatRegistered, bool $showCost = false): array
     {
         $labels = ['Item', 'Description', 'Type'];
         if ($pricesOn) {
             $labels[] = 'Unit';
             $labels[] = 'Qty';
-            $labels[] = 'Unit price';
+            if ($showCost) {
+                $labels[] = 'Cost';
+            }
+            $labels[] = $showCost ? 'Selling' : 'Unit price';
             if ($vatRegistered) {
                 $labels[] = 'VAT';
+            }
+            if ($showCost) {
+                $labels[] = 'Margin';
             }
         }
         $labels[] = '';

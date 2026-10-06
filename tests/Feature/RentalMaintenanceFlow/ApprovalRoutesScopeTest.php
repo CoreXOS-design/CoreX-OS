@@ -80,6 +80,7 @@ final class ApprovalRoutesScopeTest extends TestCase
             $status = $this->actingAs($this->stranger)->{$method}($url, $data)->getStatusCode();
             $this->assertContains($status, [403, 404], "{$method} {$url} must not be reachable from another agency");
         }
+        $this->actingAs($this->admin);   // read the result as the owner of the records — as the stranger the agency scope would hide them from us
         $this->assertNotNull($this->wo->fresh()->activeEmergencyApproval(), 'the emergency approval was not voided by the stranger');
         $this->assertNotNull($this->wo->openVariation(), 'the open variation was not decided by the stranger');
     }

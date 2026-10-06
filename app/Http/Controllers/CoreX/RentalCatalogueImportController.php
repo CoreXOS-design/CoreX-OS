@@ -44,7 +44,7 @@ class RentalCatalogueImportController extends Controller
             return back()->withErrors(['file' => 'Switch into an agency before downloading the catalogue import template.']);
         }
 
-        $spreadsheet = $templateService->build($agency);
+        $spreadsheet = $templateService->build($agency, (bool) $request->user()->hasPermission('rental_job_cards.view_costs'));
 
         $tmp = tempnam(sys_get_temp_dir(), 'rcci');
         $templateService->write($spreadsheet, $tmp);
@@ -69,13 +69,16 @@ class RentalCatalogueImportController extends Controller
         $extension = strtolower($file->getClientOriginalExtension()) === 'csv' ? 'csv' : 'xlsx';
         $onDuplicate = $request->string('on_duplicate')->toString();
 
+        // §17.4.4 / §17.15 — the optional Cost column is read only for someone who may see and set costs.
+        $withCost = (bool) $request->user()->hasPermission('rental_job_cards.view_costs');
+
         $rows = [];
         $counts = ['total' => 0, 'create' => 0, 'update' => 0, 'skip' => 0, 'error' => 0];
         $codesSeenThisFile = [];
 
         try {
             foreach ($parser->parse(Storage::path($path), $extension) as $parsed) {
-                $result = $resolver->resolve($parsed['row_number'], $parsed['payload'], $agency, $onDuplicate, $codesSeenThisFile);
+                $result = $resolver->resolve($parsed['row_number'], $parsed['payload'], $agency, $onDuplicate, $codesSeenThisFile, $withCost);
                 $rows[] = $result;
                 $counts['total']++;
                 $counts[$result['action']]++;
@@ -98,6 +101,7 @@ class RentalCatalogueImportController extends Controller
             'user_id' => $request->user()->id,
             'source_filename' => $file->getClientOriginalName(),
             'on_duplicate' => $onDuplicate,
+            'with_cost' => $withCost,
             'counts' => $counts,
             'rows' => $rows,
         ], now()->addMinutes(self::CACHE_TTL_MINUTES));
@@ -135,6 +139,7 @@ class RentalCatalogueImportController extends Controller
                     'description' => $row['description'],
                     'rental_catalogue_unit_id' => $row['resolved']['rental_catalogue_unit_id'],
                     'default_price' => $row['resolved']['default_price'],
+                    'default_cost' => ! empty($batch['with_cost']) ? ($row['resolved']['default_cost'] ?? null) : null,
                     'default_rental_vat_type_id' => $row['resolved']['default_rental_vat_type_id'],
                     'default_custom_vat_rate' => $row['resolved']['default_custom_vat_rate'],
                     'is_active' => true,
@@ -152,7 +157,9 @@ class RentalCatalogueImportController extends Controller
                         'default_price' => $row['resolved']['default_price'],
                         'default_rental_vat_type_id' => $row['resolved']['default_rental_vat_type_id'],
                         'default_custom_vat_rate' => $row['resolved']['default_custom_vat_rate'],
-                    ]);
+                    ] + (! empty($batch['with_cost']) && ($row['resolved']['default_cost'] ?? null) !== null
+                        ? ['default_cost' => $row['resolved']['default_cost']] // a blank cost cell never wipes a stored cost
+                        : []));
                     $updated++;
                 }
             }

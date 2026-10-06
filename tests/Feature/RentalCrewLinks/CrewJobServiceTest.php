@@ -95,7 +95,15 @@ final class CrewJobServiceTest extends TestCase
         $card = $this->makeJobCard();
         $payload = $this->service->payload($card, $this->ctx($card));
 
-        $this->assertSame(['approval' => [], 'dispute' => [], 'pricing' => []], collect($payload['blocks'])->sortKeys()->all());
+        // Build 2 (approval) and Build 3 (dispute) are still empty. Build 1's pricing block (§17.5) is live: a card with no crew lines
+        // of its own has the panel's plain shape — an empty line list, no open request, and the catalogue as NAMES only.
+        $blocks = collect($payload['blocks'])->sortKeys()->all();
+        $this->assertSame([], $blocks['approval']);
+        $this->assertSame([], $blocks['dispute']);
+        $this->assertSame(['catalogue', 'draft_count', 'lines', 'photo_limit', 'prices_on', 'request'], collect($blocks['pricing'])->keys()->sort()->values()->all());
+        $this->assertSame([], $blocks['pricing']['lines']);
+        $this->assertNull($blocks['pricing']['request']);
+        $this->assertSame(0, $blocks['pricing']['draft_count']);
     }
 
     /**

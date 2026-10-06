@@ -40,7 +40,7 @@ class RentalJobCardListQuery
 
     /**
      * @param array{
-     *   q?: ?string, status?: ?string, overdue?: bool, rental_crew_id?: mixed, property_id?: mixed,
+     *   q?: ?string, status?: ?string, overdue?: bool, needs_pricing?: bool, rental_crew_id?: mixed, property_id?: mixed,
      *   from?: ?Carbon, to?: ?Carbon, archived?: bool, sort?: ?string, direction?: ?string
      * } $filters  from/to are already-resolved instants (the controller owns agency-timezone parsing).
      */
@@ -115,6 +115,11 @@ class RentalJobCardListQuery
     {
         $query = $this->filtered();
 
+        // §17.5.5 — "Needs pricing": an open price request, or crew lines the office has not yet accepted or rejected.
+        if (! empty($this->filters['needs_pricing'])) {
+            $query->needsPricing();
+        }
+
         if (! empty($this->filters['overdue'])) {
             $query->overdue();
         } elseif (! empty($this->filters['status'])) {
@@ -152,6 +157,7 @@ class RentalJobCardListQuery
             $counts[$status] = $this->filtered()->where('rental_job_cards.status', $status)->count();
         }
         $counts['overdue'] = $this->filtered()->overdue()->count();
+        $counts['needs_pricing'] = $this->filtered()->needsPricing()->count();
 
         return $counts;
     }
