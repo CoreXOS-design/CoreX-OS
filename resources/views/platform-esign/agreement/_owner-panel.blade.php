@@ -39,6 +39,12 @@
                 <form method="POST" action="{{ route('platform-esign.documents.resend', $doc->id) }}">@csrf<button class="corex-btn-primary">Re-issue — new link, fresh {{ \App\Services\PlatformEsign\Agreement\AgreementService::expiryDays() }} days</button></form>
             </div>
         @endif
+        @if($doc->status === 'completed' && !$doc->trashed())
+            <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-3" style="background: var(--surface-2, #f8fafc); border: 1px solid var(--border);">
+                <span>{{ $doc->expires_at && $doc->expires_at->isPast() ? 'The agency’s link to the signed agreement expired on ' . $doc->expires_at->format('j F Y') . '.' : 'The agency’s own link opens the signed agreement (view and download) until ' . ($doc->expires_at?->format('j F Y') ?? '—') . '.' }} Nothing is attached to any email — it stays inside CoreX.</span>
+                <form method="POST" action="{{ route('platform-esign.documents.resend', $doc->id) }}">@csrf<button class="corex-btn-outline">Re-issue the agency’s link — new link, fresh {{ \App\Services\PlatformEsign\Agreement\AgreementService::accessMonths() }} months</button></form>
+            </div>
+        @endif
         <div class="flex flex-wrap gap-2">
             @unless($doc->status === 'wetink_received')<a href="{{ route('platform-esign.agreements.review', $doc->id) }}" class="corex-btn-outline">Review what has been entered</a>@endunless
             @if(in_array($doc->status, ['awaiting_countersign', 'wetink_received'], true) && !$doc->trashed())

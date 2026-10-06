@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform\Agreement;
 
 use App\Mail\PlatformEsign\AgreementInviteMail;
 use App\Mail\PlatformEsign\AgreementReceivedMail;
+use App\Mail\PlatformEsign\AgreementSignedMail;
 use App\Mail\PlatformEsign\SignedMail;
 use App\Models\Agency;
 use App\Models\Platform\AgencyTimeline;
@@ -230,7 +231,7 @@ class AgreementFlowTest extends TestCase
         $this->assertSame('300', $fresh->rr_data['variation_amount']);
         $this->assertSame('Launch discount', $fresh->rr_data['variation_text']);
         $this->assertArrayNotHasKey('bogus', $fresh->form_data);
-        $this->assertSame('', $fresh->form_data['plan']);
+        $this->assertSame('team', $fresh->form_data['plan'], 'the plan is derived from the number of agents (2), never taken from the request');
         $this->assertSame('2', $fresh->form_data['agents']);
     }
 
@@ -292,7 +293,7 @@ class AgreementFlowTest extends TestCase
         $token = $this->tokenOf($doc);
         $res = $this->postJson(route('platform-esign.agreement.submit', $token), ['values' => ['registered_name' => 'X'], 'consent' => 0])->assertStatus(422);
         $errors = $res->json('errors');
-        foreach (['reg_no', 'plan', 'entity', 'da_account', 'sigA', 'sigM', 'm_first_payment', 'consent', 'initials', 'id_number'] as $k) {
+        foreach (['reg_no', 'agents', 'branches', 'entity', 'da_account', 'sigA', 'sigM', 'm_first_payment', 'consent', 'initials', 'id_number'] as $k) {
             $this->assertArrayHasKey($k, $errors, "missing error for {$k}");
         }
         $this->assertArrayNotHasKey('vat_no', $errors);
@@ -400,8 +401,9 @@ class AgreementFlowTest extends TestCase
         $this->assertGreaterThanOrEqual($total + 1, preg_match_all('#/Type\s*/Page(?![a-zA-Z])#', $pdf), 'contract pages plus the signing record');
         $this->assertSame('done', $step->fresh()->status, 'signing ticks the agency timeline');
         $this->assertSame('contract_signed', $step->fresh()->completed_source);
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo($owner->email));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo($owner->email));
+        Mail::assertNotSent(SignedMail::class); // the attachment-carrying mail is never used for the agreement (spec §11.15)
 
         $events = $fresh->events->pluck('event')->all();
         foreach (['created', 'invited', 'saved', 'page_initialled', 'signed', 'countersigned', 'sealed', 'signed_copy_sent'] as $e) {

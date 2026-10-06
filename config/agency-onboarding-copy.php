@@ -428,7 +428,14 @@ return [
             // Conductor's ruling, AT-442 follow-up — own narrow saver, same
             // discipline as the one directly above; the worker's printed
             // copy and the owner's quote PDF are not the same audience.
-            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowPricesOnPrintedJobCard'],
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowCostsOnPrintedJobCard'],
+            // §17.21.1 — each maintenance-flow build adds ITS savers (own narrow saver per setting, has()-guarded) between its markers.
+            // BUILD 1 BEGIN — pricing savers (default markups, estimate term)
+            // BUILD 1 END
+            // BUILD 2 BEGIN — approvals savers (tolerance, auto-variation mail, external-quote fee)
+            // BUILD 2 END
+            // BUILD 3 BEGIN — completion-check savers (enabled, window, dispute mail, notify crew)
+            // BUILD 3 END
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
             // has()-guarded canonical savers (credit bureau / tenanted label /
@@ -474,7 +481,7 @@ return [
             // has()-guarded (onboarding §6.1) — an absent field leaves the saved value alone.
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinksEnabled'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewJobLinkExpiryDays'],
-            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkShowPrices'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkShowCosts'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkShowTenantContact'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnCrewCompletion'],
             // rental-work-orders.md §14.27.3 — Build 2. Narrow, has()-guarded saver.
@@ -573,10 +580,10 @@ return [
              'affects' => 'Whether price and total columns appear anywhere on an internal job card. On by default — turn it off if you\'d rather job cards stayed a pure work record with no pricing.'],
             // Conductor's ruling, AT-442 follow-up — the worker's printed
             // copy and the owner's quote PDF are not the same audience.
-            ['key' => 'show_prices_on_printed_job_card', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Show prices on the printed job card',
-             'explain' => 'The job card your maintenance worker takes on site can print with or without prices showing next to the parts and labour lines.',
-             'affects' => 'Whether the printed copy a worker carries shows prices, or just tasks, parts and quantities. Off by default — the quote you send the owner always shows prices either way, this only affects the worker\'s own printed copy.'],
+            ['key' => 'show_costs_on_printed_job_card', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show costs on the printed job card',
+             'explain' => 'The job card your maintenance worker takes on site can print with or without the cost of each part and job showing next to the parts and labour lines. It never shows the price you charge the owner.',
+             'affects' => 'Whether the printed copy a worker carries shows what things cost, or just tasks, parts and quantities. Off by default — the quote you send the owner always shows the selling price either way, this only affects the worker\'s own printed copy.'],
             // AT-445 — .ai/specs/rental-portal-access.md §7. Defaults ON —
             // the whole point of this stage is that the portal works out of
             // the box; an agency that genuinely doesn't want it switches it off.
@@ -605,10 +612,10 @@ return [
              'label' => 'Crew job link expiry (days)',
              'explain' => 'A crew\'s link to one job card stops working after this many days. It also stops the moment the job card is completed, cancelled or archived — whichever comes first.',
              'affects' => 'How long a job link stays valid for a job that drags on. 14 days suits most agencies — an agent can always create a fresh link from the job card.'],
-            ['key' => 'crew_link_show_prices', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
-             'label' => 'Show prices on the crew\'s job view',
-             'explain' => 'Whether the crew sees unit prices and line totals on the job they open from a link, or only the tasks, parts and quantities.',
-             'affects' => 'What the crew can read on their phone. Off by default — a worker usually needs what to do and what to load, not what it costs.'],
+            ['key' => 'crew_link_show_costs', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show costs on the crew\'s job view',
+             'explain' => 'Whether the crew also sees the cost figures your office entered against the parts and labour on the job they open from a link, or only the tasks, parts and quantities. The crew never sees the price you charge the owner.',
+             'affects' => 'What the crew can read on their phone. Off by default — a worker usually needs what to do and what to load, not what it costs. (Whenever a crew adds a part from their link they can always type what it cost.)'],
             ['key' => 'crew_link_show_tenant_contact', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the tenant\'s name and phone to the crew',
              'explain' => 'Whether the crew sees the tenant\'s name and phone number on the job, so they can call ahead before arriving.',
@@ -665,6 +672,13 @@ return [
              'label' => 'Overdue work order reminder (days)',
              'explain' => 'How many days a work order can sit with no progress before CoreX reminds the responsible agent that it is overdue.',
              'affects' => 'How quickly stalled repairs are flagged. 3 days is the default — lower it to chase contractors harder, raise it if your jobs routinely take longer.'],
+            // §17.21.1 — each maintenance-flow build adds ITS controls (explain + affects) between its markers.
+            // BUILD 1 BEGIN — pricing controls
+            // BUILD 1 END
+            // BUILD 2 BEGIN — approvals controls
+            // BUILD 2 END
+            // BUILD 3 BEGIN — completion-check controls
+            // BUILD 3 END
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the lease type field on a lease',

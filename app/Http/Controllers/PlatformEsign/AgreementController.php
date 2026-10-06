@@ -62,6 +62,7 @@ class AgreementController extends Controller
             'name' => 'required|string|max:255', 'email' => 'required|email|max:255', 'cell' => 'nullable|string|max:40',
             'agency_id' => 'nullable|integer|exists:agencies,id', 'note' => 'nullable|string|max:490',
             'variation_text' => 'nullable|string|max:500', 'variation_amount' => 'nullable|string|max:14',
+            'plan' => 'nullable|in:team,agency',
         ], ['name.required' => 'Enter the recipient’s full name.', 'email.required' => 'Enter the recipient’s email address.', 'email.email' => 'Enter a valid email address.']);
         try {
             $doc = $this->svc->send($data, $u->id);
@@ -135,10 +136,11 @@ class AgreementController extends Controller
     /** One uploaded hand-signed file, streamed to an owner (never a public URL). */
     public function wetinkFile(Request $request, int $id, int $file)
     {
-        $this->owner($request);
+        $u = $this->owner($request);
         $doc = $this->webdoc($id);
         $f = $doc->wetinkFiles()->findOrFail($file);
         abort_unless(\Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
+        app(EsignService::class)->log($doc, 'wetink_downloaded', 'Uploaded hand-signed file downloaded inside Platform E-Sign: ' . $f->original_name, null, $u->id, $request->ip());
 
         return \Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
     }

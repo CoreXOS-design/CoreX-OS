@@ -42,6 +42,9 @@ class AgreementSigningController extends Controller
         $blocked = $this->svc->blockedReason($doc, $signer);
         $headers = ['Cache-Control' => 'no-store', 'X-Robots-Tag' => 'noindex'];
 
+        if ($doc->status === 'completed') {
+            return $this->completed($request, $signer, $doc, $token)->withHeaders($headers);
+        }
         if ($blocked) {
             return response()->view('platform-esign.agreement.message', [
                 'doc' => $doc, 'signer' => $signer, 'message' => $blocked, 'token' => $token,
@@ -156,14 +159,50 @@ class AgreementSigningController extends Controller
         return redirect()->route('platform-esign.agreement.show', $token)->with('agr_notice', $n . ' file' . ($n === 1 ? '' : 's') . ' received. ' . \App\Services\PlatformEsign\Agreement\AgreementCompany::for($signer->document)->legalName() . ' will countersign and email you the signed copy.');
     }
 
-    /** The signed copy, offered to the recipient once completed. */
+    /**
+     * The completed agreement, read-only, on the agency's own link (spec §11.15): status, the signed agreement on screen (bank numbers
+     * stay masked — the PDF carries them), the signed PDF and the agency's own uploaded hand-signed copy. Audited; window-limited.
+     */
+    private function completed(Request $request, Signer $signer, Document $doc, string $token)
+    {
+        if ($why = $this->svc->completedAccessBlocked($doc)) {
+            return response()->view('platform-esign.agreement.message', ['doc' => $doc, 'signer' => $signer, 'message' => $why, 'token' => $token, 'canDownload' => false, 'canReplaceUpload' => false, 'files' => collect()]);
+        }
+        $this->esign->log($doc, 'completed_viewed', 'Completed agreement opened on the agency link', $signer, null, $request->ip());
+        $ctx = $this->svc->context($doc, ['mask' => true]);
+        $layout = $this->layout->ensure($doc->wording);
+        $staticIni = Initial::where('document_id', $doc->id)->get()->groupBy('page_no')->map(fn ($g) => $g->pluck('initials')->implode(' · '))->all();
+
+        return response()->view('platform-esign.agreement.completed', [
+            'doc' => $doc, 'signer' => $signer, 'token' => $token, 'pages' => $this->pdf->pages($doc->wording, $layout, 'preview', $ctx),
+            'total' => $layout['total'], 'versionLabel' => $doc->wording->label(), 'staticIni' => $staticIni,
+            'hasPdf' => (bool) ($doc->sealed_pdf_path && Storage::disk(EsignService::DISK)->exists($doc->sealed_pdf_path)),
+            'files' => $doc->wetinkFiles()->whereNull('superseded_at')->get(), 'handSigned' => $this->svc->isWetInk($doc),
+        ]);
+    }
+
+    /** The signed copy — streamed through the app, never a public file URL; audited; only inside the access window. */
     public function download(Request $request, string $token)
     {
         $signer = $this->signerOr404($token);
         $doc = $signer->document;
-        abort_unless($doc->status === 'completed' && $doc->sealed_pdf_path && Storage::disk(EsignService::DISK)->exists($doc->sealed_pdf_path), 404);
+        abort_unless($doc->status === 'completed' && $doc->sealed_pdf_path && !$this->svc->completedAccessBlocked($doc) && Storage::disk(EsignService::DISK)->exists($doc->sealed_pdf_path), 404);
+        $this->esign->log($doc, 'signed_copy_downloaded', 'Signed PDF downloaded from the agency link', $signer, null, $request->ip());
 
-        return Storage::disk(EsignService::DISK)->download($doc->sealed_pdf_path, 'CoreX-OS-Subscription-Agreement-' . $doc->contract_ref . '-signed.pdf');
+        return Storage::disk(EsignService::DISK)->download($doc->sealed_pdf_path, 'CoreX-OS-Subscription-Agreement-' . $doc->contract_ref . '-signed.pdf', ['Cache-Control' => 'no-store']);
+    }
+
+    /** The agency's own uploaded hand-signed copy, back to them once the agreement is completed (audited, streamed). */
+    public function wetFile(Request $request, string $token, int $file)
+    {
+        $signer = $this->signerOr404($token);
+        $doc = $signer->document;
+        abort_unless($doc->status === 'completed' && !$this->svc->completedAccessBlocked($doc), 404);
+        $f = $doc->wetinkFiles()->whereNull('superseded_at')->find($file);
+        abort_unless($f && Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
+        $this->esign->log($doc, 'wetink_downloaded', 'Uploaded hand-signed file downloaded from the agency link: ' . $f->original_name, $signer, null, $request->ip());
+
+        return Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
     }
 
     /** Values safe to hand back to the browser (never RR-side). */

@@ -137,15 +137,13 @@ class RentalDocumentPdfService
         $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
-        // AT-442 follow-up, conductor's ruling — the worker's printed copy
-        // needs BOTH settings on to show a price: prices must be captured
-        // at all (capture_prices_on_job_cards), AND the agency has chosen
-        // to show them on this specific, worker-facing document
-        // (show_prices_on_printed_job_card, default off). The owner quote
-        // PDF (jobCardQuotePdf() above) is a different document for a
-        // different audience and is never gated by the second setting.
-        $pricesOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id)
-            && \App\Models\RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($jobCard->agency_id);
+        // AT-442 follow-up, conductor's ruling, restated in COST terms (§17.4.7 — "Crew works on actual costs, not
+        // selling."): the worker's printed copy shows the crew's COST figures — NEVER selling — and only when money is
+        // captured at all (capture_prices_on_job_cards) AND the agency chose to show costs on this worker-facing
+        // document (show_costs_on_printed_job_card, default off). The owner quote PDF (jobCardQuotePdf() above) is a
+        // different document for a different audience: it shows SELLING only and is never gated by the second setting.
+        $costsOn = \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id)
+            && \App\Models\RentalWorkOrderSetting::showCostsOnPrintedJobCardFor($jobCard->agency_id);
 
         // §14.27.1 Q10 — only when "Print with link" minted one: the QR (pure-PHP
         // endroid/qr-code, no external call) that opens the crew's job link.
@@ -163,8 +161,7 @@ class RentalDocumentPdfService
             'jobCard' => $jobCard,
             'crewLinkQr' => $crewLinkQr,
             'crewLinkExpires' => $crewLinkExpires,
-            'pricesOn' => $pricesOn,
-            'vat' => $pricesOn ? app(RentalJobCardVatService::class)->breakdown($jobCard) : ['registered' => false, 'pricesOn' => false, 'groups' => []],
+            'costsOn' => $costsOn,
             'vatNumber' => $workOrder?->agency?->vat_no,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',

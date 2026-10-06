@@ -305,19 +305,26 @@ final class CrewPageLinkTest extends TestCase
         $resp->assertSee('Mark work completed')->assertSee('Upload photos');
     }
 
-    public function test_prices_appear_only_with_the_agency_setting(): void
+    public function test_costs_appear_only_with_the_agency_setting_and_never_the_selling_price(): void
     {
         $card = $this->makeJobCard(['scheduled_at' => now()->addHours(3)]);
+        // 2 x R200 part cost; the part SELLS at 2 x R450 = R900 (never shown to a crew).
+        \App\Models\RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'part')->update(['unit_cost' => 200, 'cost_total' => 400]);
 
         $off = $this->page()->getContent() . $this->get("/secure/crews/{$this->raw}/job-cards/{$card->id}")->getContent();
-        $this->assertStringNotContainsString('900.00', $off);   // 2 x R450 part line
+        $this->assertStringNotContainsString('400.00', $off);
+        $this->assertStringNotContainsString('900.00', $off);
         $this->assertStringNotContainsString('1,800', $off);
 
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_prices' => true]);
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_costs' => true]);
 
         $on = $this->page()->getContent();
-        $this->assertStringContainsString('900.00', $on);
-        $this->assertStringContainsString('900.00', $this->get("/secure/crews/{$this->raw}/job-cards/{$card->id}")->getContent());
+        $this->assertStringContainsString('400.00', $on);
+        $this->assertStringNotContainsString('900.00', $on);
+        $job = $this->get("/secure/crews/{$this->raw}/job-cards/{$card->id}")->getContent();
+        $this->assertStringContainsString('400.00', $job);
+        $this->assertStringNotContainsString('900.00', $job);
+        $this->assertStringNotContainsString('1,800', $job);
     }
 
     public function test_tenant_contact_only_with_the_setting_and_landlord_data_never(): void

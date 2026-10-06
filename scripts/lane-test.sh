@@ -6,10 +6,13 @@
 # concurrency model — see "LOCKS" below; before that ONE global lock was held
 # for the whole run, so a single cold schema bootstrap queued every lane):
 #   1. Takes THREE kinds of flock, in this order: a per-schema lock (held for
-#      the whole run), one of MAX_SLOTS run slots (held for the whole run), and
-#      the global setup lock /tmp/corex-lane-test.lock (held ONLY while the
-#      schema is created/migrated, then released before PHPUnit starts).
-#   2. While waiting, prints who holds what and for how long.
+#      the whole run), the global setup lock /tmp/corex-lane-test.lock (held
+#      ONLY while the schema is created/migrated -- and NOT TAKEN AT ALL when
+#      the schema is already current), then one of MAX_SLOTS run slots (held
+#      for the whole run). The setup lock is released BEFORE the slot is taken,
+#      so a run waiting for a long migrate never sits on a slot doing nothing.
+#   2. While waiting for ANY lock, prints every WAIT_MSG_INTERVAL (60s) who
+#      holds it, since when, and how long this run has waited -- never silent.
 #   3. Resolves this worktree's own TEST_DB_DATABASE (same precedence as
 #      tests/bootstrap.php) and keeps it PERSISTENT — never dropped at the
 #      end of a run. A fingerprint (hash of database/schema/mysql-schema.sql
@@ -56,13 +59,18 @@
 #           MAX_SLOTS (top of this file) runs execute at once; the next one
 #           waits and prints which slots are held, by whom, for how long.
 #   setup   /tmp/corex-lane-test.lock              fd 200  schema bootstrap /
-#           migrate ONLY (the 200s+ cold path). Serialised on purpose: several
+#           migrate ONLY (the 200s+ cold path); a warm run (fingerprint match)
+#           never touches it. Serialised on purpose: several
 #           concurrent snapshot loads thrash the tests instance's small redo
 #           log. Same file the old single lock used, so a run started by an
 #           OLDER copy of this script (which held it for its whole run) still
 #           makes new runs wait during setup — they interoperate.
-#   Order is always schema -> slot -> setup, and a holder of any later lock
-#   never waits for an earlier one, so the locks cannot deadlock.
+#   Order is always schema -> setup -> slot, the setup lock is dropped before
+#   the slot is requested, and a holder of any later lock never waits for an
+#   earlier one, so the locks cannot deadlock. (2026-10-06 fix: before this, the
+#   order was schema -> slot -> setup and EVERY run took the setup lock, so one
+#   20-minute schema-dump.sh / cold bootstrap froze all runs -- warm ones too --
+#   and its waiters sat on both slots, blocking every other lane.)
 #
 # SCHEMA NAME: TEST_DB_DATABASE from the shell, else the worktree's .env, else
 # a name DERIVED FROM THE WORKTREE PATH (hfc_dash_test_<cksum of the path>) —
@@ -89,7 +97,8 @@ INFO_FILE=/tmp/corex-lane-test.lock.info
 SLOT_PREFIX=/tmp/corex-lane-test.slot          # .<N>.lock / .<N>.info
 SCHEMA_PREFIX=/tmp/corex-lane-test.schema      # .<DB>.lock / .<DB>.info
 WHITELIST_RE='^hfc_dash_test(_[0-9]+)?$'
-POLL_INTERVAL=5
+POLL_INTERVAL="${LANE_TEST_POLL_INTERVAL:-5}"
+WAIT_MSG_INTERVAL="${LANE_TEST_WAIT_MSG_INTERVAL:-60}"   # how often a waiting run says who it waits on
 PHP_BIN="${PHP_BIN:-php8.2}"
 FINGERPRINT_TABLE='_corex_lane_test_fingerprint'
 
@@ -112,8 +121,46 @@ describe_holder() {
         echo "      started  : $started_human  ($(( now - started_epoch ))s ago)"
         echo "      command  : $cmd"
     else
-        echo "      (no holder info recorded -- held by an older copy of this script, or by a child of a killed run)"
+        # No label (e.g. scripts/schema-dump.sh, or an older copy of this script, holds it):
+        # ask the kernel who has the file open. `sleep` children of a polling waiter are skipped.
+        local pids pid c any=0
+        pids=$(lsof -t "$lock" 2>/dev/null | sort -un || true)
+        for pid in $pids; do
+            c=$(tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" | cut -c1-110 || true)
+            [[ -n "$c" && "$c" != sleep* ]] || continue
+            any=1
+            echo "      pid $pid : $c  (cwd $(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?'), up $(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ' || echo '?'))"
+        done
+        [[ "$any" == 1 ]] || echo "      (no holder info recorded and no live process found holding it)"
     fi
+}
+
+# Block until flock on fd $1 is acquired, printing every WAIT_MSG_INTERVAL who holds it.
+#   $1 fd   $2 what we wait for   $3 info label file   $4 lock file
+# A waiter holds the lock file open only for the instant of each try (open, flock -n, close
+# on failure) -- never while sleeping -- so `lsof` on the file shows the real holder, not the queue.
+try_flock() { # $1 fd  $2 lock file
+    eval "exec $1>\"\$2\""
+    flock -n "$1" && return 0
+    eval "exec $1>&-"
+    return 1
+}
+wait_flock() {
+    local fd="$1" what="$2" info="$3" lock="$4" t0 last now
+    try_flock "$fd" "$lock" && return 0
+    t0=$(date +%s); last=$t0
+    log "waiting for $what -- held by:"
+    describe_holder "$info" "$lock" >&2
+    until try_flock "$fd" "$lock"; do
+        sleep "$POLL_INTERVAL"
+        now=$(date +%s)
+        if (( now - last >= WAIT_MSG_INTERVAL )); then
+            log "still waiting for $what ($(( now - t0 ))s so far) -- held by:"
+            describe_holder "$info" "$lock" >&2
+            last=$now
+        fi
+    done
+    log "$what acquired after $(( $(date +%s) - t0 ))s."
 }
 
 print_status() {
@@ -365,6 +412,7 @@ SCHEMA_INFO="${SCHEMA_PREFIX}.${DB}.info"
 SLOT_INFO=""
 SLOT_N=""
 CHILD_PID=""
+SETUP_HELD=0
 
 cleanup() {
     if [[ -n "$CHILD_PID" ]]; then
@@ -381,6 +429,7 @@ cleanup() {
 # Remove OUR info labels before the kernel drops our locks (a kill -9 skips this,
 # harmlessly: --status trusts flock, and the next holder overwrites the label).
 release_labels() {
+    [[ "$SETUP_HELD" == 1 ]] && rm -f "$INFO_FILE" 2>/dev/null || true
     [[ -n "$SLOT_INFO" ]] && rm -f "$SLOT_INFO" 2>/dev/null || true
     rm -f "$SCHEMA_INFO" 2>/dev/null || true
 }
@@ -388,16 +437,43 @@ trap cleanup INT TERM
 trap release_labels EXIT
 
 # 1. Schema lock: same schema name == same data, so strictly one run at a time.
-exec 201>"$SCHEMA_LOCK"
-if ! flock -n 201; then
-    log "schema '$DB' is in use by another run (same TEST_DB_DATABASE) -- waiting so we don't corrupt each other's data:"
-    describe_holder "$SCHEMA_INFO" "$SCHEMA_LOCK" >&2
-    while ! flock -n 201; do sleep "$POLL_INTERVAL"; done
-    log "schema lock acquired."
-fi
+wait_flock 201 "schema '$DB' (same TEST_DB_DATABASE as another run -- queued so we don't corrupt each other's data)" "$SCHEMA_INFO" "$SCHEMA_LOCK"
 write_info "$SCHEMA_INFO" "$@"
 
-# 2. Run slot: at most MAX_SLOTS concurrent runs.
+# 2. Setup lock: ONLY when the schema needs creating/migrating, and released before a slot
+#    is requested. A schema that already matches the dump + migrations (the normal case)
+#    never touches it, so a long schema-dump.sh / cold bootstrap by another lane cannot
+#    block a warm run.
+schema_is_current() {
+    [[ "$FORCE_FRESH" != "1" ]] || return 1
+    [[ "$(mysql_q -e "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '${DB}'" 2>/dev/null || echo 0)" == "1" ]] || return 1
+    local existing_fp
+    existing_fp=$(stored_fingerprint)
+    [[ -n "$existing_fp" && "$existing_fp" == "$(compute_fingerprint)" ]]
+}
+
+if schema_is_current; then
+    log "schema '$DB' already current (fingerprint match) -- no setup lock needed"
+    SCHEMA_READY=1
+else
+    wait_flock 200 "the schema setup lock (setup is serialised; warm runs do not need it)" "$INFO_FILE" "$LOCK_FILE"
+    SETUP_HELD=1
+    write_info "$INFO_FILE" "$@"
+
+    SCHEMA_SETUP_START=$(date +%s)
+    ensure_schema
+    SCHEMA_SETUP_SECS=$(( $(date +%s) - SCHEMA_SETUP_START ))
+    log "schema setup took ${SCHEMA_SETUP_SECS}s (ready=${SCHEMA_READY})"
+
+    # Release the setup lock NOW: the run itself only needs its schema + slot locks.
+    rm -f "$INFO_FILE" 2>/dev/null || true
+    SETUP_HELD=0
+    flock -u 200
+    exec 200>&-
+fi
+
+# 3. Run slot: at most MAX_SLOTS concurrent runs (taken AFTER setup, so a run that spent
+#    20 minutes waiting on / doing setup never held a slot while idle).
 acquire_slot() {
     local i
     for (( i = 1; i <= MAX_SLOTS; i++ )); do
@@ -408,37 +484,21 @@ acquire_slot() {
     return 1
 }
 if ! acquire_slot; then
-    log "all $MAX_SLOTS run slots are busy -- waiting (checking every ${POLL_INTERVAL}s). Slots right now:"
+    SLOT_T0=$(date +%s)
+    log "all $MAX_SLOTS run slots are busy -- waiting (checking every ${POLL_INTERVAL}s, reporting every ${WAIT_MSG_INTERVAL}s). Slots right now:"
     print_status >&2
-    LAST_PRINT=$(date +%s)
+    LAST_PRINT=$SLOT_T0
     until acquire_slot; do
         sleep "$POLL_INTERVAL"
-        if (( $(date +%s) - LAST_PRINT >= 30 )); then print_status >&2; LAST_PRINT=$(date +%s); fi
+        if (( $(date +%s) - LAST_PRINT >= WAIT_MSG_INTERVAL )); then
+            log "still waiting for a run slot ($(( $(date +%s) - SLOT_T0 ))s so far). Slots right now:"
+            print_status >&2; LAST_PRINT=$(date +%s)
+        fi
     done
 fi
 SLOT_INFO="${SLOT_PREFIX}.${SLOT_N}.info"
 write_info "$SLOT_INFO" "$@"
 log "slot $SLOT_N of $MAX_SLOTS acquired (schema: $DB)."
-
-# 3. Setup lock: ONLY around schema create/migrate, released before PHPUnit.
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    log "schema setup lock held by another run -- waiting (setup is serialised; tests are not):"
-    describe_holder "$INFO_FILE" "$LOCK_FILE" >&2
-    while ! flock -n 200; do sleep "$POLL_INTERVAL"; done
-    log "setup lock acquired."
-fi
-write_info "$INFO_FILE" "$@"
-
-SCHEMA_SETUP_START=$(date +%s)
-ensure_schema
-SCHEMA_SETUP_SECS=$(( $(date +%s) - SCHEMA_SETUP_START ))
-log "schema setup took ${SCHEMA_SETUP_SECS}s (ready=${SCHEMA_READY})"
-
-# Release the setup lock NOW: the run itself only needs its schema + slot locks.
-rm -f "$INFO_FILE" 2>/dev/null || true
-flock -u 200
-exec 200>&-
 
 log "running: php8.2 artisan test $* (schema: $DB)"
 # Own process group (setsid) so cleanup() can take the whole tree down on kill/Ctrl-C.

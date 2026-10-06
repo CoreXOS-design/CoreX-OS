@@ -31,6 +31,7 @@ class AgreementService
 {
     public const EXPIRY_KEY = 'platform_esign.agreement_expiry_days';
     public const REMINDER_KEY = 'platform_esign.agreement_reminder_days';
+    public const ACCESS_KEY = 'platform_esign.agreement_access_months';
 
     public function __construct(
         private AgreementContent $content,
@@ -51,10 +52,16 @@ class AgreementService
         return max(1, min(60, (int) DevSetting::get(self::REMINDER_KEY, 3)));
     }
 
+    /** How long the agency's link keeps opening its completed agreement (months from completion or re-issue). */
+    public static function accessMonths(): int
+    {
+        return max(1, min(120, (int) DevSetting::get(self::ACCESS_KEY, 12)));
+    }
+
     // ── Send ───────────────────────────────────────────────────────────────
 
     /**
-     * @param array{name:string,email:string,cell?:?string,agency_id?:?int,note?:?string,variation_text?:?string,variation_amount?:?string} $d
+     * @param array{name:string,email:string,cell?:?string,agency_id?:?int,note?:?string,variation_text?:?string,variation_amount?:?string,plan?:?string} $d
      * @throws \DomainException
      */
     public function send(array $d, int $userId): Document
@@ -83,9 +90,11 @@ class AgreementService
         $values = AgreementFields::prefillFromAgency($agency) + array_filter([
             'sig_name' => $name, 'billing_name' => $name, 'billing_email' => $email, 'billing_cell' => $cell,
         ], fn ($v) => $v !== '');
-        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount], fn ($v) => $v !== '');
+        // Optional owner-only override for a negotiated case: the recipient then sees that plan fixed whatever the number of agents.
+        $forcedPlan = in_array($d['plan'] ?? '', ['team', 'agency'], true) ? $d['plan'] : '';
+        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount, 'plan_forced' => $forcedPlan], fn ($v) => $v !== '');
 
-        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId) {
+        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan) {
             $doc = Document::create([
                 'template_id' => $tpl->id, 'template_version' => (int) $tpl->version, 'wording_version_id' => $version->id,
                 'agency_id' => $agency?->id, 'title' => 'CoreX Subscription Agreement — ' . ($agency?->name ?: $name),
@@ -105,6 +114,9 @@ class AgreementService
                 'name' => $sender->name, 'email' => strtolower((string) $sender->email), 'token' => Str::random(48), 'status' => 'pending']);
 
             $this->esign->log($doc, 'created', 'Subscription Agreement ' . $version->label() . ' prepared for ' . $name, null, $userId);
+            if ($forcedPlan !== '') {
+                $this->esign->log($doc, 'plan_forced', 'Plan fixed by ' . $sender->name . ' to CoreX ' . ucfirst($forcedPlan) . ' (negotiated) — the recipient sees it fixed', null, $userId);
+            }
 
             if ($agency && $tpl->kind === 'subscription_agreement') {
                 $timeline = AgencyTimeline::where('agency_id', $agency->id)->first();
@@ -149,6 +161,35 @@ class AgreementService
         $this->invite($doc->fresh(), $userId);
     }
 
+    /**
+     * A COMPLETED agreement: new link, fresh access window, the agency is emailed the new link (no attachment — the old link stops
+     * working). Nothing about the signed agreement changes (spec §11.15).
+     */
+    public function reissueAccess(Document $doc, ?int $userId): void
+    {
+        if ($doc->status !== 'completed' || $doc->trashed()) {
+            throw new \DomainException('Only a fully signed agreement has an access link to re-issue.');
+        }
+        $signer = $this->agencySigner($doc);
+        $signer->update(['token' => Str::random(48), 'invited_at' => now()]);
+        $doc->update(['expires_at' => now()->addMonths(self::accessMonths())->endOfDay()]);
+        $this->esign->log($doc, 'access_reissued', 'New link issued to ' . $signer->name . ' <' . $signer->email . '>, valid for ' . self::accessMonths() . ' months', $signer, $userId);
+        $this->esign->mailAgreementCompleted($doc->fresh(['signers', 'agency']), 'agency');
+    }
+
+    /** Why the agency's link to its COMPLETED agreement no longer opens, or null while the access window is open. */
+    public function completedAccessBlocked(Document $doc): ?string
+    {
+        if ($doc->trashed()) {
+            return 'This agreement is no longer available.';
+        }
+        if ($doc->expires_at && $doc->expires_at->isPast()) {
+            return 'This link has expired. Reply to the email we sent you and we will send a fresh link — your signed agreement is kept safe.';
+        }
+
+        return null;
+    }
+
     // ── Context for rendering ──────────────────────────────────────────────
 
     public function agencySigner(Document $doc): Signer
@@ -169,10 +210,13 @@ class AgreementService
         $r = $this->rrSigner($doc);
         $values = (array) ($doc->form_data ?? []);
         $rr = (array) ($doc->rr_data ?? []);
+        $calc = $this->calc($values, $rr, $v->rates_json ?? []);
+        // Section 3 completes itself: every rendering shows the plan and branches the entries select, whatever an older save stored.
+        $values = $this->withDerived($values, $calc);
 
         return $over + [
             'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => (string) $doc->contract_ref,
-            'calc' => $this->calc($values, $rr, $v->rates_json ?? []),
+            'calc' => $calc,
             'initials' => ['agency' => (string) $a->initials, 'rr' => (string) $r->initials],
             'sigs' => [
                 'agency' => (string) ($a->signature_image ?: ($values['sigA'] ?? '')),
@@ -184,12 +228,44 @@ class AgreementService
         ];
     }
 
+    /** The single fee calculation (AgreementPricing::derive): plan from the agents, extra branches from the branches. */
     public function calc(array $values, array $rr, array $rates): array
     {
-        return AgreementPricing::compute(
-            (string) ($values['plan'] ?? ''), (int) ($values['agents'] ?? 0), (int) ($values['extra_branches'] ?? 0),
-            (float) ($rr['variation_amount'] ?? 0), $rates,
-        );
+        return AgreementPricing::derive($values, $rr, $rates);
+    }
+
+    /** Recipient keys the entries decide — never taken from the recipient's request. */
+    public const DERIVED_KEYS = ['plan', 'extra_branches', 'branches_start'];
+
+    /** @param array<string,mixed> $values @param array $calc result of calc() @return array<string,mixed> */
+    private function withDerived(array $values, array $calc): array
+    {
+        $values['plan'] = (string) $calc['plan'];
+        $values['extra_branches'] = $calc['plan'] === '' ? '' : (string) $calc['extra_branches'];
+        $values['branches_start'] = (string) ($values['branches'] ?? '');
+
+        return $values;
+    }
+
+    /**
+     * Stores the derived entries, and keeps the mandate Amount equal to the monthly total while the recipient has not
+     * typed a different amount of their own.
+     *
+     * @param array<string,mixed> $before values as last saved @param array<string,mixed> $after values after this change
+     * @return array<string,mixed>
+     */
+    private function settle(array $before, array $after, array $rr, array $rates): array
+    {
+        $old = $this->calc($before, $rr, $rates);
+        $new = $this->calc($after, $rr, $rates);
+        $after = $this->withDerived($after, $new);
+        $cur = trim((string) ($after['m_amount'] ?? ''));
+        $untouched = $cur === '' || ($old['plan'] !== '' && abs((float) str_replace(' ', '', $cur) - $old['total']) < 0.005);
+        if ($untouched && $new['plan'] !== '') {
+            $after['m_amount'] = rtrim(rtrim(number_format($new['total'], 2, '.', ''), '0'), '.');
+        }
+
+        return $after;
     }
 
     public function totalPages(Document $doc): int
@@ -239,11 +315,12 @@ class AgreementService
             if ($rev !== (int) $locked->form_rev) {
                 throw new AgreementConflict((int) $locked->form_rev, (array) $locked->form_data);
             }
-            $clean = AgreementFields::clean($input, 'r');
+            $clean = array_diff_key(AgreementFields::clean($input, 'r'), array_flip(self::DERIVED_KEYS));
+            $rates = $locked->wording->rates_json ?? [];
             if (!$clean) {
-                return ['rev' => (int) $locked->form_rev, 'calc' => $this->calc((array) $locked->form_data, (array) $locked->rr_data, $locked->wording->rates_json ?? [])];
+                return ['rev' => (int) $locked->form_rev, 'calc' => $this->calc((array) $locked->form_data, (array) $locked->rr_data, $rates)];
             }
-            $data = array_merge((array) $locked->form_data, $clean);
+            $data = $this->settle((array) $locked->form_data, array_merge((array) $locked->form_data, $clean), (array) $locked->rr_data, $rates);
             $locked->form_data = $data;
             $locked->form_rev = (int) $locked->form_rev + 1;
             if ($locked->status === 'sent') {
@@ -254,7 +331,7 @@ class AgreementService
             $keys = array_map(fn ($k) => in_array($k, ['sigA', 'sigM'], true) ? 'signature' : $k, array_keys($clean));
             $this->esign->log($locked, 'saved', 'Saved ' . count($keys) . ' field' . (count($keys) === 1 ? '' : 's') . ': ' . implode(', ', array_slice($keys, 0, 8)) . (count($keys) > 8 ? '…' : ''), $signer);
 
-            return ['rev' => (int) $locked->form_rev, 'calc' => $this->calc($data, (array) $locked->rr_data, $locked->wording->rates_json ?? [])];
+            return ['rev' => (int) $locked->form_rev, 'calc' => $this->calc($data, (array) $locked->rr_data, $rates)];
         });
     }
 
@@ -309,8 +386,9 @@ class AgreementService
             if ($reason = $this->blockedReason($locked, $sg)) {
                 throw new \DomainException($reason);
             }
-            $data = array_merge((array) $locked->form_data, AgreementFields::clean($values, 'r'));
             $rates = $locked->wording->rates_json ?? [];
+            $incoming = array_diff_key(AgreementFields::clean($values, 'r'), array_flip(self::DERIVED_KEYS));
+            $data = $this->settle((array) $locked->form_data, array_merge((array) $locked->form_data, $incoming), (array) $locked->rr_data, $rates);
             $errors = AgreementFields::validateRecipient($data, $rates);
 
             $idNumber = trim((string) ($input['id_number'] ?? '')) ?: (string) $sg->id_number;
@@ -406,6 +484,7 @@ class AgreementService
             $locked->rr_data = $rr;
             $locked->status = 'completed';
             $locked->completed_at = now();
+            $locked->expires_at = now()->addMonths(self::accessMonths())->endOfDay(); // from here on: the agency's access window
             $locked->save();
             $sg->forceFill([
                 'name' => $rr['rr_name'], 'status' => 'signed', 'signed_at' => now(), 'typed_name' => $rr['rr_name'], 'initials' => $ini,
@@ -576,6 +655,7 @@ class AgreementService
             $locked->rr_data = $rr;
             $locked->status = 'completed';
             $locked->completed_at = now();
+            $locked->expires_at = now()->addMonths(self::accessMonths())->endOfDay(); // from here on: the agency's access window
             $locked->save();
             $sg->forceFill(['name' => $rr['rr_name'], 'status' => 'signed', 'signed_at' => now(), 'typed_name' => $rr['rr_name'], 'signature_image' => $rr['sigR'],
                 'signed_ip' => $ip, 'signed_user_agent' => Str::limit((string) $ua, 480, ''), 'consent_text_snapshot' => EsignService::CONSENT,
