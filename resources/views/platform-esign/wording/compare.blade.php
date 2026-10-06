@@ -14,10 +14,10 @@
         .cmp-row { display:grid; grid-template-columns: 1fr 1fr; gap: 0; border-top:1px solid var(--border); }
         .cmp-cell { padding:.55rem .8rem; font-size:.86rem; line-height:1.5; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; min-width:0; }
         .cmp-cell + .cmp-cell { border-left:1px solid var(--border); }
-        .cmp-removed .cmp-cell:first-child { background:#fef2f2; }
-        .cmp-added .cmp-cell:last-child { background:#f0fdf4; }
-        .cmp-changed .cmp-cell { background:#fffdf5; }
-        .cmp-empty { background: repeating-linear-gradient(45deg, #f8fafc, #f8fafc 6px, #f1f5f9 6px, #f1f5f9 12px); }
+        .cmp-removed .cmp-cell:first-child { background:#fef2f2; color:#111827; }
+        .cmp-added .cmp-cell:last-child { background:#f0fdf4; color:#111827; }
+        .cmp-changed .cmp-cell { background:#fffdf5; color:#111827; }
+        .cmp-empty { background: repeating-linear-gradient(45deg, #f8fafc, #f8fafc 6px, #f1f5f9 6px, #f1f5f9 12px); color:#111827; }
         .cmp-same { color: var(--text-muted); }
         @media (max-width: 760px) { .cmp-row { grid-template-columns: 1fr; } .cmp-cell + .cmp-cell { border-left:0; border-top:1px dashed var(--border); } }
     </style>
