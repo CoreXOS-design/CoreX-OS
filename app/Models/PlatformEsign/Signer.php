@@ -10,11 +10,11 @@ class Signer extends Model
 
     protected $fillable = [
         'document_id', 'role_key', 'role_label', 'sign_order', 'name', 'email', 'id_number', 'token', 'status',
-        'invited_at', 'first_viewed_at', 'signed_at', 'typed_name', 'signature_image', 'signed_ip', 'signed_user_agent',
+        'invited_at', 'first_viewed_at', 'signed_at', 'typed_name', 'initials', 'signature_image', 'signature2_image', 'signed_ip', 'signed_user_agent',
         'consent_text_snapshot', 'reminders_sent', 'last_reminded_at',
     ];
 
-    protected $hidden = ['token', 'signature_image'];
+    protected $hidden = ['token', 'signature_image', 'signature2_image'];
 
     protected $casts = ['invited_at' => 'datetime', 'first_viewed_at' => 'datetime', 'signed_at' => 'datetime', 'last_reminded_at' => 'datetime'];
 

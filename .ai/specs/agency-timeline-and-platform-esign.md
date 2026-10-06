@@ -217,3 +217,129 @@ Tests: `tests/Feature/Platform/{AgencyTimelineTest,PlatformEsignModeTest,Platfor
 * Deployment: two additive migrations (`150000` create tables, `160000` retire). `pdftoppm` (poppler-utils) must exist on the
   host (it does on Staging). QA only: `php artisan platform-esign:demo [--remove]` (never on live).
 * Not in the setup wizard (non-negotiable #10a): no agency setting was added — this is platform-owner tooling.
+
+
+## 11. Web documents — CoreX Subscription Agreement (AT-447 follow-up, 2026-10-06, Johan)
+
+> Status: spec written before code. Delivery is in four separable phases (§11.12): **(b)** core build — what Johan sends today;
+> **(c)** wet-ink download/upload; **(d)** wording editor, `/legal` page, agency-screen button, reminders/expiry settings.
+> (c) and (d) touch disjoint files and can be given to another lane. Source wording: `resources/legal/subscription-agreement/
+> agreement-v1.0.md` + `netcash-mandate-v1.0.md` — the ONLY source of legal text; never reworded here.
+
+### 11.1 What it is and why
+Johan's ruling: the Subscription Agreement is a **web document**, not a PDF with dragged boxes and not pre-completed by RR. The
+**recipient** (the agency) opens a link, fills in the form fields, initials every page, signs; **RR Technologies** reviews and
+countersigns; a sealed PDF (letterhead, values, initials, both signatures, audit page) goes to both parties; the "signed platform
+contract ticks the agency timeline" hook fires. Alternative on the same link: download, sign by hand, upload (§11.8). One-click send
+(§11.9). Everything lives INSIDE the Platform E-Sign module (own tables, tokens, signers, sealing, audit, mail path, owner gate,
+timeline hook). DocuPerfect is not touched. Pillars: **Agent** (the agency principal signs). Owner-only on the RR side; the
+recipient side is token-gated and public by design (same as `platform-esign/sign/{token}`).
+
+### 11.2 Data model (migration `2026_10_06_100000_create_platform_esign_web_documents`)
+* `platform_esign_templates.source` gains the value **`webdoc`** (third source beside `web`/`pdf`). Kind `subscription_agreement`; roles
+  `r1` Agency (signs first), `r2` RR Technologies (countersigns). Webdoc templates are excluded from the generic Send screen.
+* **`platform_esign_wording_versions`** — `template_id`, `version` (string, e.g. `1.0`), `version_date`, `content_json`
+  (intro, part_a, part_b, part_c, part_d, mandate — markdown with field tokens, §11.4), `rates_json` (§11.5), `layout_json`
+  (calibrated pagination, §11.6), `is_published`, `published_at`, `created_by`. Unique `(template_id, version)`. **Never deleted,
+  never updated once a document pins it** (editing = a new version).
+* `platform_esign_documents` gains: `wording_version_id` (the pinned version — a sent document always renders that version),
+  `contract_ref` (unique, `CX` + 6-digit document id — shown in Part A and mandate sections A and E), `form_data` and `rr_data`
+  (**encrypted** `encrypted:array` casts — recipient entries / RR entries; no key is ever stored in clear), `form_rev` (optimistic
+  counter for two-tab saves), `recipient_note`.
+* `platform_esign_signers` gains `initials`, `signature2_image` (the mandate signature "as used for operating on the account").
+* **`platform_esign_initials`** — one row per signer per page (`page_no`, `initials`, `ip`, `created_at`), unique `(signer_id, page_no)`.
+* Statuses added to `Document::STATUSES`: `awaiting_countersign` ("Signed by agency — awaiting RR"), `wetink_received` (phase c).
+  Display labels for webdoc: Sent · Opened (sent + recipient viewed) · In progress · Signed by agency — awaiting RR countersign ·
+  Completed · Signed copy received (wet ink). No hard deletes anywhere; cancel = existing void; archive = soft delete.
+* Phase (c) adds `platform_esign_wetink_files`. Phase (d) adds nothing but `DevSetting` keys.
+
+### 11.3 Sources → stored version (seeding)
+`AgreementContent::ensureSeeded()` (idempotent; also `php artisan platform-esign:seed-agreement`) creates the template and version
+**1.0, 28 September 2026** from the two source files by **exact-substring replacements** of blanks with tokens (each replacement
+must match exactly once or the seeder throws — the source cannot silently drift). Replacements only ever swap a blank (`______`,
+`☐`, `……`, an empty table cell) for a token or insert a token next to existing words; no legal word is added, removed, or reordered.
+Two intentional exceptions, both inside the mandate: its beneficiary name/address blanks are filled with the fixed RR Technologies
+details (name from the source; address from clause B25). A fidelity test renders the stored version with every token blank and
+compares it word for word against the source files.
+
+### 11.4 Field tokens and schema
+Tokens (written inside the markdown, rendered per mode): `{{f:key}}` recipient input · `{{o:key:value}}` radio/tick option ·
+`{{q:key}}` quantity · `{{rate:key}}` rate (from `rates_json`) · `{{amt:key}}` calculated amount · `{{rr:key}}` RR-side field ·
+`{{sig:agency|mandate|rr}}` signature · `{{ini:agency|rr}}` initials · `{{ref}}` contract reference · `{{auto:day|monthyear}}`.
+`AgreementFields` holds the schema (key, label, side, type, required, max length, sensitive). **Part A**: registered name, trading
+name, registration no, VAT no (optional), PPRA FFC no, physical address, email for notices and invoices, principal full name, billing
+contact name/email/cell, number of branches · entity type (juristic | natural, required) · plan (team | agency, required) · branches at
+start · **number of agents** (one entry, §11.5) · additional branches · start date · initial term (1 month | other: N months) · debit
+order (account holder, bank, branch code, account number, account type) · signature block (name, capacity, signature, date, place).
+**Mandate**: accountholder, address, bank name, branch name and town, branch number, account number, type of account (Current /
+Savings / Transmission), date, contact number, amount, first payment date, day of month, assisted by / capacity, place, signature.
+**Pre-fill** (nothing typed twice, all still editable): mandate accountholder ← debit-order account holder; address ← physical
+address; bank ← bank; branch number ← branch code; account number/type ← debit-order; contact ← billing cell; amount ← monthly total.
+**RR-side** (never editable by the recipient): contract reference (auto), agreed variation text + amount, RR initials, RR
+name/capacity/date/place, RR signature. Beneficiary (RR Technologies (Pty) Ltd, address, shortname RR TECHNOL) is fixed text.
+
+### 11.5 Pricing — from the pinned version's `rates_json`, never from a view
+Team R450/seat (max 10 seats); Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional branch R750. One "number of
+agents" input; tier quantities are derived (25 agents = base + 10×295 + 10×250 + 5×195). Only the lines for the ticked plan are
+live. Line amounts and the monthly total are calculated live in the page and **re-computed server-side** at every save and on
+submit (the server value wins). Total = lines − agreed variation (≥ 0, ≤ lines). More than 40 agents shows the "quoted rate under
+Agreed variations" notice. Rate cells in the source text are `{{rate:…}}` tokens that render `R450`, `R1 495`, … identically to the source.
+
+### 11.6 Pagination — the screen and the PDF are the same pages
+`AgreementLayout` renders the document in canonical mode, splits it into top-level blocks, estimates each block's height and packs
+blocks into pages (forced break before every Part and before the mandate; headings keep with next; tables are never split), then
+**calibrates** against a real DomPDF render of a worst-case filled sample (reduces the page budget until the physical page count
+equals the planned page count) and stores the result in `layout_json`. The screen shows exactly those pages as sheets, each with
+letterhead, footer and an "Initial this page" control; the PDF uses one page division per planned page. Footer on every PDF page:
+`CoreX OS Subscription Agreement · Version <n> — <date> · Page x of y` (y from a two-pass render). If a filled PDF still ends up with
+a different physical page count, the seal logs `page_count_mismatch` in the audit trail (initials are also printed in the footer of
+every physical page, so no page is ever without them).
+Letterhead on every page: the CoreX OS mark (the repo's `application-logo` SVG) + wordmark, "RR Technologies (Pty) Ltd", 3123 San Lameer,
+Lower South Coast Road, Southbroom 4277 · +27 (039) 004 0125 · +27 (0)76 618 5578 · www.corexweb.co.za.
+
+### 11.7 Recipient flow (token link `platform-esign/agreement/{token}`, no login, mobile-friendly)
+open (audited) → read → fill (**autosave** debounced, resume from the same link, inline validation, an "outstanding" list that jumps
+to each gap; two-tab guard via `form_rev` → "updated in another window" notice) → **initial every page** (initials captured once from
+the recipient's name, editable; then one explicit tap per page, persisted per tap) → sign (typed name + capacity + drawn/typed
+signature for Part A and, separately, for the mandate; the module's existing identity rule — ID/passport — is kept) → submit
+(transaction, row lock; a second submit/tab gets "already submitted"). Expired / voided / completed links show a clear message; the
+owner can re-issue (resend = new token, fresh expiry, form data kept). Status: sent → in progress (first save) → awaiting RR.
+**RR countersign** (owner screen `…/documents/{id}/countersign`): sees every recipient entry read-only, cannot change them; completes
+name/capacity/place/date, initials every page, signs → seal. Order is recipient first, RR second. **Deviation from the brief, reported:**
+the agreed-variation text and amount are RR-side fields set **at send** (visible to the recipient before they sign), read-only at
+countersign — otherwise the monthly total and the mandate debit amount would change after the agency has signed. To change them after
+sending, void and re-send.
+
+### 11.8 Wet-ink option (phase c)
+"Download to sign by hand": PDF with the values typed so far and blank initial/signature lines (audited). "Upload signed copy":
+pdf/jpg/png, ≤ 10240 KB each, several files allowed, private disk, SHA-256, earlier uploads become *Superseded* (kept). Status
+`wetink_received`. RR then **countersigns electronically on a countersignature & attestation page** (a short sealed PDF carrying RR's
+name, capacity, signature, date and the SHA-256 of every file received) — the simplest sound option, because merging onto the
+recipient's scan needs a PDF-import library the platform does not have. Completion + timeline hook fire as in the e-sign flow.
+
+### 11.9 One-click send
+"Send Subscription Agreement" on the hub (and on the agency timeline screen in phase d): recipient full name + email (+ optional
+cell), optional agency link (pre-fills the fields the agency record already holds — the recipient can correct them), optional note,
+optional agreed variation. Email through the module's `corex` mailer; the owner screen shows a copyable link, status, resend, void.
+List screen = the existing Documents list (search, sort, filters, pagination, empty state) with the new statuses. Link expiry
+(`platform_esign.agreement_expiry_days`, default 30) and reminder interval (`platform_esign.agreement_reminder_days`, default 3) are
+`DevSetting` values (editable in phase d). Not in the agency setup wizard (non-negotiable #10a): platform-owner tooling.
+
+### 11.10 Sensitive data
+All form data is stored encrypted (`encrypted:array`). Owner screens mask account numbers (••••1234) and reveal only on an explicit,
+audited action (`bank_revealed` event: who/when/IP). Values are never written to logs or audit details and never put in email
+bodies. Sealed PDFs and wet-ink files live on the private disk and are served only by owner-gated streams (and the signer's own
+completed-copy link). Brief item 4 says the sealed PDF is emailed to both parties, so it is attached to those two emails; this
+means bank details are in that attachment (reported).
+
+### 11.11 Public terms page (phase d)
+`/legal` renders the current published Parts B, C, D (same typesetting); `/legal/v/{version}` older versions. Unauthenticated, throttled.
+
+### 11.12 Phases, routes, files, tests
+**(b)** migration; models; `AgreementContent`, `AgreementFields`, `AgreementPricing`, `AgreementRenderer`, `AgreementLayout`,
+`AgreementPdf`, `AgreementService`; controllers `PlatformEsign/AgreementController` (owner) and `AgreementSigningController` (public);
+views `platform-esign/agreement/*`; routes `platform-esign.agreements.*` (owner), `platform-esign.agreement.*` (public). **(c)**
+`WetInk*` + migration `110000`. **(d)** wording editor/versions, `Public/LegalController` additions, timeline button, settings page,
+`platform-esign:remind-agreements` (scheduled). Tests: `tests/Feature/Platform/Agreement/*` — wording fidelity, pricing tiers (25
+agents), pinned-version rendering, token scoping, signing order, RR cannot edit recipient entries, encryption/masking/reveal audit,
+wet-ink supersede, `/legal`.

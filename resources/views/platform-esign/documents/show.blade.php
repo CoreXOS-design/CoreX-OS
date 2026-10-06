@@ -3,7 +3,7 @@
 
 @section('corex-content')
 @php
-    $tone = ['draft' => 'default', 'sent' => 'info', 'in_progress' => 'orange', 'completed' => 'success', 'declined' => 'default', 'voided' => 'default', 'expired' => 'default'];
+    $tone = ['awaiting_countersign' => 'orange', 'wetink_received' => 'orange', 'draft' => 'default', 'sent' => 'info', 'in_progress' => 'orange', 'completed' => 'success', 'declined' => 'default', 'voided' => 'default', 'expired' => 'default'];
     $actions = '<a href="' . route('platform-esign.documents.index') . '" class="corex-btn-outline">← Documents</a>';
     if ($doc->sealed_pdf_path) { $actions .= '<a href="' . route('platform-esign.documents.download', $doc->id) . '" class="corex-btn-primary">Download signed PDF</a>'; }
 @endphp
@@ -12,10 +12,11 @@
 
     <div class="grid lg:grid-cols-3 gap-5">
         <div class="lg:col-span-2 space-y-5">
+            @if($doc->isWebdoc())@include('platform-esign.agreement._owner-panel', ['doc' => $doc])@endif
             <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                     <div class="ds-section-header">Signers</div>
-                    <span class="ds-badge ds-badge-{{ $tone[$doc->status] ?? 'default' }}">{{ \App\Models\PlatformEsign\Document::STATUSES[$doc->status] ?? $doc->status }}@if($doc->trashed()) · archived @endif</span>
+                    <span class="ds-badge ds-badge-{{ $tone[$doc->status] ?? 'default' }}">{{ $doc->statusLabel() }}@if($doc->trashed()) · archived @endif</span>
                 </div>
                 @foreach($doc->signers as $s)
                     <div class="px-5 py-4" style="border-top: 1px solid var(--border);">

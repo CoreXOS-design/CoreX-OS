@@ -4,7 +4,7 @@
 @section('corex-content')
 @php
     $kpis = [
-        ['Awaiting signature', ($counts['sent'] ?? 0) + ($counts['in_progress'] ?? 0), 'var(--ds-amber)', route('platform-esign.documents.index', ['status' => 'sent'])],
+        ['Awaiting signature', ($counts['sent'] ?? 0) + ($counts['in_progress'] ?? 0) + ($counts['awaiting_countersign'] ?? 0) + ($counts['wetink_received'] ?? 0), 'var(--ds-amber)', route('platform-esign.documents.index', ['status' => 'sent'])],
         ['Signed', $counts['completed'] ?? 0, 'var(--ds-green)', route('platform-esign.documents.index', ['status' => 'completed'])],
         ['Declined / expired', ($counts['declined'] ?? 0) + ($counts['expired'] ?? 0), 'var(--ds-crimson)', route('platform-esign.documents.index', ['status' => 'declined'])],
         ['Active templates', $templates, 'var(--brand-icon)', route('platform-esign.templates.index')],
@@ -14,7 +14,7 @@
     @include('platform-esign._header', [
         'title' => 'Platform E-Sign', 'tab' => 'hub',
         'sub' => "CoreX's own contracts — Subscription Agreement, debit-order form and anything else CoreX sends. Separate from agency e-sign; no agency can see it.",
-        'actions' => '<a href="' . route('platform-esign.documents.create') . '" class="corex-btn-primary">Send a contract</a><a href="' . route('admin.agency-timelines.index') . '" class="corex-btn-outline">Agency Timeline</a>',
+        'actions' => '<a href="' . route('platform-esign.agreements.create') . '" class="corex-btn-primary">Send Subscription Agreement</a><a href="' . route('platform-esign.documents.create') . '" class="corex-btn-outline">Send another contract</a><a href="' . route('admin.agency-timelines.index') . '" class="corex-btn-outline">Agency Timeline</a>',
     ])
 
     <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
