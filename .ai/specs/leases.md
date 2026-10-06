@@ -634,6 +634,38 @@ pickers (`RentalApplicationController::searchProperties()` / `RentalWorkOrderCon
   type only (the property is fixed at creation, §6a), so there is no second property picker to fix.
 - **Proof:** `tests/Feature/Leases/LeaseCreatePropertySearchTest.php`.
 
+### 7.3 New Lease form — fields survive an error, and only a rental property the user may see (2026-10-06)
+
+Three defects found on `/corex/leases/create` while building §7.2, fixed together.
+
+1. **Nothing is lost after a validation error.** A bounce used to clear the tenants and every field except the
+   property. Now the tenant list (in the order chosen — the first is the primary), monthly rental, deposit, start
+   and end date, month-to-month, lease type and activate-immediately all come back from `old()`. Tenants are
+   re-resolved from their ids under the same rule `store()` validates (same agency), so a stale or forged id
+   comes back as nothing. A fresh form is blank.
+2. **A lease can only be saved on a rental property the user may see.** `store()` validates `property_id`
+   against the picker's own query, so a sale listing, another agent's / branch's / agency's property, a made-up
+   id and a malformed id all fail the same way with "Please choose a property from the list." (no lease is
+   created, nothing to enumerate; previously out-of-scope ids were a 404 and sale listings were accepted).
+3. **`?property_id=` pre-fills only a property the picker could have offered.** Out-of-scope, other-agency,
+   sale or malformed ids pre-fill nothing and show no error page — the form just opens with the picker.
+
+**One shared query:** `Property::scopeRentalVisibleTo($user)` (rental listings → `visibleTo` own/branch/agency, on
+top of the global AgencyScope) is used by the search endpoint, the `store()` validation and the pre-fill, so they
+cannot drift. A test asserts the picker and the save agree on every fixture property for every user type.
+
+**Status rule (Johan's ruling, 2026-10-06):** the New Lease search returns **any rental property regardless of
+status** — To Let, Rented, Withdrawn, Expired, Draft and so on. Example: an agent phones a withdrawn owner who
+agrees to rent the property out; it must be findable and saveable on a lease. There is deliberately **no status
+filter** in the query, and each result keeps its status badge (`Property::statusBadge()`) so the agent can tell a
+live listing from a dead one. **Sale-only listings (`listing_type` ≠ `rental`) stay excluded**, whatever their
+status. Overlap with an existing active lease is still caught at activation (§3.5), not by hiding the property.
+
+**Proof:** `tests/Feature/Leases/LeaseCreatePropertySearchTest.php` (sale listing refused, out-of-scope refused,
+other-agency / made-up / array / non-numeric refused, in-scope still saves, picker-vs-save drift guard, withdrawn /
+rented / expired rentals findable with badge and saveable, withdrawn sale-only still excluded, pre-fill cases,
+full field + tenant restore round trip, forged tenant ids not restored).
+
 ---
 
 ## 8. Permissions

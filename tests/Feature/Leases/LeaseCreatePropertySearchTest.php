@@ -29,6 +29,11 @@ use Tests\TestCase;
  * after a validation error, an old id the user can no longer see coming back
  * empty, the friendly "choose a property" message, and direct-by-id POST of a
  * property outside the user's scope refused.
+ *
+ * leases.md §7.3 (2026-10-06) adds: store() refuses sale listings / out-of-scope /
+ * other-agency / malformed property ids with the same plain message; picker and save
+ * agree on every property (drift guard); ?property_id= pre-fills only a property the
+ * picker could offer; every field and the tenant list survive a validation error.
  */
 final class LeaseCreatePropertySearchTest extends TestCase
 {
@@ -240,20 +245,220 @@ final class LeaseCreatePropertySearchTest extends TestCase
             ->assertSessionHasErrors(['property_id' => 'Please choose a property from the list.']);
     }
 
+    // ── 2. store() accepts only a rental property the user may see (leases.md §7.3) ──
+
     public function test_posting_a_property_outside_the_users_scope_by_id_is_refused(): void
     {
         // Direct-by-id: even bypassing the picker, store() must not accept another agent's property.
+        $this->assertStoreRefused($this->ownAgent, $this->beachRoad->id);
+    }
+
+    public function test_posting_a_sale_listing_is_refused(): void
+    {
+        // marineForSale is in scope for ownAgent and wideUser — the ONLY thing wrong with it is listing_type.
+        $this->assertStoreRefused($this->wideUser, $this->marineForSale->id);
+        $this->assertStoreRefused($this->ownAgent, $this->marineForSale->id);
+    }
+
+    public function test_posting_another_agencys_rental_or_a_made_up_or_malformed_id_is_refused(): void
+    {
+        $this->assertStoreRefused($this->wideUser, $this->durbanMarine->id);
+        $this->assertStoreRefused($this->wideUser, 99999999);
+        $this->assertStoreRefused($this->wideUser, [$this->marineDrive->id]);
+        $this->assertStoreRefused($this->wideUser, 'abc');
+    }
+
+    public function test_posting_an_in_scope_rental_property_still_creates_the_lease(): void
+    {
         $this->actingAs($this->ownAgent)
+            ->post(route('corex.leases.store'), $this->leasePayload($this->marineDrive->id))
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('leases', ['property_id' => $this->marineDrive->id, 'rental_amount' => 8500]);
+    }
+
+    public function test_a_rental_property_of_any_status_is_findable_with_its_badge_and_can_be_saved_on_a_lease(): void
+    {
+        // Johan, 2026-10-06: an agent phones a withdrawn owner who agrees to rent out — the picker
+        // must offer the property whatever its status, and say what that status is.
+        $badges = ['active' => 'To Let', 'withdrawn' => 'Withdrawn', 'rented' => 'Rented', 'expired' => 'Expired'];
+
+        foreach ($badges as $status => $badge) {
+            $property = $this->makeProperty($this->margate, $this->ownAgent, [
+                'title' => "Status {$status} Cottage", 'street_name' => 'Statusweg', 'street_number' => '1', 'status' => $status,
+            ]);
+
+            $row = collect($this->actingAs($this->ownAgent)
+                ->getJson(route('corex.leases.search-rental-properties', ['q' => "Status {$status}"]))
+                ->assertOk()->json())->firstWhere('id', $property->id);
+
+            $this->assertNotNull($row, "a {$status} rental must be findable");
+            $this->assertSame($badge, $row['status'], "{$status} keeps its status badge in the results");
+
+            $this->actingAs($this->ownAgent)
+                ->post(route('corex.leases.store'), $this->leasePayload($property->id))
+                ->assertSessionHasNoErrors();
+            $this->assertDatabaseHas('leases', ['property_id' => $property->id]);
+        }
+    }
+
+    public function test_a_withdrawn_sale_only_listing_is_still_excluded(): void
+    {
+        $withdrawnSale = $this->makeProperty($this->margate, $this->ownAgent, [
+            'title' => 'Withdrawn Sale House', 'street_name' => 'Verkoopstraat', 'street_number' => '2',
+            'status' => 'withdrawn', 'listing_type' => 'sale',
+        ]);
+
+        $this->assertNotContains($withdrawnSale->id, $this->search($this->wideUser, 'Withdrawn Sale'));
+        $this->assertStoreRefused($this->wideUser, $withdrawnSale->id);
+    }
+
+    public function test_the_picker_and_the_save_accept_exactly_the_same_properties(): void
+    {
+        // Drift guard: for every fixture property and every kind of user, "the search offers it"
+        // must equal "the save accepts it" (both resolve through Property::rentalVisibleTo()).
+        $all = [$this->marineDrive, $this->beachRoad, $this->shellyFlat, $this->marineForSale, $this->durbanMarine];
+
+        foreach ([$this->ownAgent, $this->wideUser] as $user) {
+            $offered = $this->search($user, '');
+            foreach ($all as $property) {
+                $before = \App\Models\Lease::withoutGlobalScopes()->count();
+                $this->actingAs($user)->post(route('corex.leases.store'), $this->leasePayload($property->id));
+                $saved = \App\Models\Lease::withoutGlobalScopes()->count() > $before;
+
+                $this->assertSame(
+                    in_array($property->id, $offered, true),
+                    $saved,
+                    "picker vs save disagree on property #{$property->id} for user #{$user->id}"
+                );
+            }
+        }
+    }
+
+    // ── 3. ?property_id= pre-fills only what the picker could have offered ───
+
+    public function test_preset_property_outside_the_users_scope_is_not_prefilled(): void
+    {
+        $html = $this->actingAs($this->ownAgent)
+            ->get(route('corex.leases.create', ['property_id' => $this->beachRoad->id]))
+            ->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('Beach Road', $html);
+        $this->assertStringContainsString('id="lease-property-search"', $html);
+    }
+
+    public function test_preset_sale_listing_other_agency_and_malformed_ids_are_not_prefilled(): void
+    {
+        foreach ([
+            [$this->marineForSale->id, 'Marine Drive'],      // in scope, but a sale listing
+            [$this->durbanMarine->id, 'Marine Parade'],      // another agency
+            [99999999, null],
+            ['abc', null],
+        ] as [$id, $address]) {
+            $html = $this->actingAs($this->wideUser)
+                ->get(route('corex.leases.create', ['property_id' => $id]))
+                ->assertOk()->getContent();
+
+            $this->assertStringContainsString('id="lease-property-search"', $html, "no picker for preset {$id}");
+            $address && $this->assertStringNotContainsString($address === 'Marine Drive' ? '30 Marine Drive' : $address, $html);
+        }
+
+        $this->actingAs($this->wideUser)
+            ->get(route('corex.leases.create') . '?property_id[]=' . $this->marineDrive->id)
+            ->assertOk();
+    }
+
+    // ── 1. every field survives a validation error (leases.md §7.3) ──────────
+
+    public function test_every_field_comes_back_after_a_validation_error(): void
+    {
+        $thandi = $this->makeContact('Thandi', 'Nkosi');
+        $sipho = $this->makeContact('Sipho', 'Dlamini');
+        $leaseType = \App\Models\PropertySettingItem::create([
+            'agency_id' => $this->agency->id, 'group' => 'lease_type', 'name' => 'Residential', 'active' => true,
+        ]);
+
+        // A real round trip: submit with an end date BEFORE the start date, follow the bounce back.
+        $this->actingAs($this->wideUser)
+            ->from(route('corex.leases.create'))
             ->post(route('corex.leases.store'), [
-                'property_id' => $this->beachRoad->id, 'rental_amount' => 8500, 'start_date' => '2026-11-01',
-                'tenant_contact_ids' => [\App\Models\Contact::create([
-                    'agency_id' => $this->agency->id, 'first_name' => 'Thandi', 'last_name' => 'Nkosi',
-                ])->id],
+                'property_id' => $this->marineDrive->id,
+                'rental_amount' => '8500.50', 'deposit_amount' => '17001', 'start_date' => '2026-11-01', 'end_date' => '2026-10-01',
+                'is_month_to_month' => '1', 'lease_type' => 'Residential', 'activate_immediately' => '1',
+                'tenant_contact_ids' => [$sipho->id, $thandi->id],
             ])
-            ->assertNotFound();
+            ->assertRedirect(route('corex.leases.create'))
+            ->assertSessionHasErrors('end_date');
+
+        $html = $this->actingAs($this->wideUser)->get(route('corex.leases.create'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('name="rental_amount" value="8500.50"', $html);
+        $this->assertStringContainsString('name="deposit_amount" value="17001"', $html);
+        $this->assertStringContainsString('name="start_date" value="2026-11-01"', $html);
+        $this->assertStringContainsString('name="end_date" value="2026-10-01"', $html);
+        $this->assertMatchesRegularExpression('/name="is_month_to_month" value="1" checked/', $html);
+        $this->assertMatchesRegularExpression('/name="activate_immediately" value="1" checked/', $html);
+        $this->assertMatchesRegularExpression('/<option value="Residential" selected>/', $html);
+        // Tenants are seeded into the Alpine list, primary (first chosen) first.
+        $seed = strpos($html, 'Sipho Dlamini');
+        $this->assertNotFalse($seed);
+        $this->assertNotFalse(strpos($html, 'Thandi Nkosi'));
+        $this->assertLessThan(strpos($html, 'Thandi Nkosi'), $seed);
+        // The picked property still comes back too.
+        $this->assertMatchesRegularExpression('/u0022id\\\\?u0022:' . $this->marineDrive->id . '[,}]/', $html);
+    }
+
+    public function test_a_fresh_form_has_blank_fields_and_nothing_checked(): void
+    {
+        $html = $this->actingAs($this->wideUser)->get(route('corex.leases.create'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('name="rental_amount" value=""', $html);
+        $this->assertDoesNotMatchRegularExpression('/name="is_month_to_month" value="1" checked/', $html);
+        $this->assertDoesNotMatchRegularExpression('/name="activate_immediately" value="1" checked/', $html);
+    }
+
+    public function test_an_old_tenant_from_another_agency_or_a_made_up_id_is_not_restored(): void
+    {
+        $mine = $this->makeContact('Thandi', 'Nkosi');
+        $foreign = \App\Models\Contact::create(['agency_id' => $this->rival->id, 'first_name' => 'Rival', 'last_name' => 'Tenant']);
+
+        $html = $this->actingAs($this->wideUser)
+            ->withSession(['_old_input' => ['tenant_contact_ids' => [$foreign->id, 99999999, $mine->id, 'x']]])
+            ->get(route('corex.leases.create'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Thandi Nkosi', $html);
+        $this->assertStringNotContainsString('Rival Tenant', $html);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    private function makeContact(string $first, string $last): \App\Models\Contact
+    {
+        return \App\Models\Contact::create(['agency_id' => $this->agency->id, 'first_name' => $first, 'last_name' => $last]);
+    }
+
+    /** @return array<string,mixed> a complete, valid POST body for $propertyId */
+    private function leasePayload(mixed $propertyId): array
+    {
+        return [
+            'property_id' => $propertyId, 'rental_amount' => 8500, 'start_date' => '2026-11-01',
+            'tenant_contact_ids' => [$this->makeContact('Thandi', 'Nkosi')->id],
+        ];
+    }
+
+    /** The save must bounce with the plain "choose a property" message and create nothing. */
+    private function assertStoreRefused(User $user, mixed $propertyId): void
+    {
+        $before = \App\Models\Lease::withoutGlobalScopes()->count();
+
+        $this->actingAs($user)
+            ->from(route('corex.leases.create'))
+            ->post(route('corex.leases.store'), $this->leasePayload($propertyId))
+            ->assertRedirect(route('corex.leases.create'))
+            ->assertSessionHasErrors(['property_id' => 'Please choose a property from the list.']);
+
+        $this->assertSame($before, \App\Models\Lease::withoutGlobalScopes()->count(), 'a lease was created for ' . json_encode($propertyId));
+    }
 
     /** @return list<int> ids returned by the picker endpoint for $term, in the order returned. */
     private function search(User $user, string $term): array
