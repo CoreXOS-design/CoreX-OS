@@ -15,17 +15,20 @@
     <h1>Job Cards</h1>
     <table>
         <thead>
-            <tr><th>Property</th><th>Title</th><th>Tenant</th><th>Crew</th><th>Status</th><th>Due</th></tr>
+            <tr><th>No.</th><th>Property</th><th>Title</th><th>Tenant</th><th>Crew</th><th>Status</th><th>Due</th><th>Created</th><th style="text-align:right">Total incl</th></tr>
         </thead>
         <tbody>
             @foreach($jobCards as $jc)
                 <tr>
+                    <td>#{{ $jc->id }}</td>
                     <td>{{ $jc->property?->buildDisplayAddress() ?? '—' }}</td>
                     <td>{{ $jc->title }}</td>
                     <td>{{ $jc->lease?->tenantNames() ?? '—' }}</td>
                     <td>{{ $jc->crew?->name ?? ($jc->assigned_user_id ? 'Previously assigned: ' . ($jc->assignedUser?->name ?? '—') : '—') }}</td>
                     <td>{{ ucfirst(str_replace('_', ' ', $jc->status)) }}</td>
                     <td>{{ $jc->due_at?->format('Y-m-d H:i') ?? '—' }}</td>
+                    <td>{{ $jc->created_at?->format('Y-m-d') ?? '—' }}</td>
+                    <td style="text-align:right">{{ ($t = $list->inclusiveTotal($jc)) === null ? '—' : 'R ' . number_format($t, 2, '.', ',') }}</td>
                 </tr>
             @endforeach
         </tbody>

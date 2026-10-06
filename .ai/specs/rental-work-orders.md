@@ -2906,6 +2906,63 @@ the two test files above.
 
 ---
 
+### 14.23 Job Cards LIST — design-standard rebuild (2026-10-06, Johan; supersedes the list parts of §14.8)
+
+`/corex/rental-job-cards` (Rentals → Job Cards). One query object — `App\Services\Rentals\RentalJobCardListQuery`
+— builds the list, the status tiles, the scope-switch counts and the Print list. Nothing else builds a job-card
+list query, so the numbers on screen, the rows, and the printout can never disagree.
+
+**Scoping (OWN / BRANCH / AGENCY), at the query layer.** The query starts from `RentalJobCard::visibleTo($user,
+$requestedScope)` — the global `AgencyScope` (agency isolation) plus `scopeVisibleTo()` (own = cards the user
+created, branch = cards on a property in the user's branch, all = the agency), clamped to the user's role ceiling
+by `PermissionService::clampScope()`. A requested scope wider than the ceiling silently becomes the ceiling. List,
+tiles, scope counts and Print list all start from that one scoped query; every other filter narrows it and can
+never widen it. Direct-URL access by id stays guarded by `guardRentalRecordScope()` (unchanged).
+
+**Search (`q`)** — one box, any of: property address, title, tenant name (first, last or full), crew name (plus the
+legacy "previously assigned" user on pre-crew cards), job card number (`123`, `#123` or `JC-123` — the number is
+the card's id).
+
+**Sort (`sort`, `direction`)** — clickable headers, ▲/▼ on the active one, click again to reverse. Columns:
+`property`, `title`, `tenant`, `crew`, `status`, `due_at`, `created_at`, `total` (VAT-inclusive total — the
+figure shown). **Default: `due_at` ascending, cards with no due date last** (what is due soonest is looked at
+first; a draft with no date never tops the list). Ties break on newest id. Sorting by `total` is done on the
+computed inclusive figure (it depends on the agency's VAT registration and each line's VAT type), so that one path
+loads the matching set and sorts it in memory — the matching set for one agency's maintenance cards is small and
+bounded; every other sort is SQL.
+
+**Filters** — status (via the tiles), Overdue (tile), crew, property, due date From/To, Show archived. Every filter
+lives in the URL and survives sort, page and scope changes.
+
+**Status tiles** — Total, Draft, Quoted, Approved, Scheduled, In progress, Overdue, Completed, Cancelled. Each is a
+filter link. A tile's number is the row count of the list you land on by clicking it: tiles are computed from the
+same scoped query with every filter EXCEPT status/overdue applied (search, crew, property, dates, archived).
+
+**Scope switch** — Own | Branch | All pills, only the ones the role ceiling permits, each showing its own count
+under the current non-scope filters. Default is the widest permitted.
+
+**Page size** — 25, standard Laravel pagination; footer shows "from–to of total".
+
+**Columns** — Job card number, Property, Title, Tenant, Crew, Status, Due, Created, Total incl. VAT, Actions
+(Open). The number column exists because the number is searchable and a searchable thing must be visible.
+
+**Quote indicator** — in the Status cell, ONLY where it applies: "Rev N" when the quote currently out with the owner
+is revision 2 or later, and an amber "Changed since sent" when the card's content no longer matches the sent quote
+(`quoteChangedSinceSent()`). Cards with no sent quote, or an unchanged one, show nothing extra.
+
+**Empty state** — no job cards at all: "No job cards" + the New Job Card button (when permitted). Filters hide
+everything: "No job cards match" + Clear filters. No helper copy anywhere on the screen.
+
+**Layout** — the header, tiles and filter bar are fixed; the table scrolls inside its own panel with a sticky
+header; the pagination footer is fixed below it. No whole-page scroll.
+
+**Print list** — same `RentalJobCardListQuery` with the request's own filters/sort/scope, all matching rows (no
+paging), same columns including Created and Total incl. VAT.
+
+**Files** — `RentalJobCardListQuery` (new), `RentalJobCardController::index()`/`printList()`, `rental-job-cards/
+index.blade.php`, `print-list.blade.php`, `tests/Feature/RentalJobCards/RentalJobCardListScreenTest.php`.
+No migration, no new permission, no new setting (nothing to surface in the Setup Wizard).
+
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
 
 **Johan's requirement, verbatim (via the conductor's investigation brief):** "at the end of an

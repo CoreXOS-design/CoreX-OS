@@ -19,6 +19,7 @@ use App\Models\RentalVatType;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
 use App\Services\Rentals\RentalDocumentPdfService;
+use App\Services\Rentals\RentalJobCardListQuery;
 use App\Services\Rentals\RentalJobCardService;
 use App\Services\Rentals\RentalJobCardVatService;
 use Carbon\Carbon;
@@ -54,63 +55,39 @@ class RentalJobCardController extends Controller
     use SearchesQualifyingRentalProperties;
 
     /**
-     * Search: property address, tenant name, crew member, title.
-     * Sort: due_at (default, ascending — what's due soonest is looked at
-     * first), scheduled_at, status, property.
-     * Filter: crew member, status, date range (minimum per §1b).
-     * Status tiles (pstat-v2 style): Total, Draft, Quoted, Scheduled,
-     * In progress, Overdue, Completed.
+     * .ai/specs/rental-work-orders.md §14.23 — search, sort, filters, tiles, scope
+     * counts and paging all come from RentalJobCardListQuery, the same object
+     * printList() uses, so the screen and the printout can never disagree.
      */
     public function index(Request $request): View
     {
         $user = $request->user();
+        $list = $this->listQuery($request);
 
-        // Req #7 — "Own | Branch | All switch (default widest permitted)."
-        // Same pattern as RentalApplicationController::index() — a null
-        // requested scope resolves to the user's own ceiling, not a
-        // hardcoded 'own'; the toggle only ever offers what that ceiling
-        // actually permits.
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_job_cards');
-        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
-        $scopeOptions = match ($maxScope) {
-            'all' => ['own', 'branch', 'all'],
-            'branch' => ['own', 'branch'],
-            default => ['own'],
-        };
+        $propertyId = $request->get('property_id');
 
-        $sort = $request->get('sort', 'due_at');
-        $direction = $request->get('direction', 'asc');
-        $allowedSorts = ['due_at', 'scheduled_at', 'status', 'property'];
-        if (!in_array($sort, $allowedSorts, true)) {
-            $sort = 'due_at';
-        }
-        $direction = $direction === 'desc' ? 'desc' : 'asc';
+        return view('corex.rental-job-cards.index', [
+            'jobCards' => $list->paginate(max(1, (int) $request->get('page', 1)))->withQueryString(),
+            'list' => $list,
+            'sort' => $list->sort(),
+            'direction' => $list->direction(),
+            'hasAny' => $list->hasAny(),
+            'showArchived' => $request->boolean('archived'),
+            'crews' => RentalCrew::query()->active()->orderBy('name')->get(['id', 'name']),
+            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue']),
+            'filteredProperty' => $propertyId ? Property::find($propertyId) : null,
+            'tileCounts' => $list->tileCounts(),
+            'resolvedScope' => $list->resolvedScope(),
+            'scopeOptions' => RentalJobCardListQuery::scopeOptionsFor($user),
+            'scopeCounts' => $list->scopeCounts(),
+        ]);
+    }
 
-        $base = fn () => RentalJobCard::query()->visibleTo($user, $request->get('scope'));
+    /** One place the request becomes a list query — index() and printList() both call it. */
+    private function listQuery(Request $request): RentalJobCardListQuery
+    {
+        $user = $request->user();
 
-        $query = $base()->with(['property', 'lease.tenants.contact', 'crew', 'assignedUser']);
-
-        if ($search = trim((string) $request->get('q', ''))) {
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('property', fn ($p) => $p->searchAddress($search))
-                    ->orWhereHas('lease.tenants.contact', function ($c) use ($search) {
-                        $c->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%");
-                    })
-                    ->orWhereHas('crew', fn ($c) => $c->where('name', 'like', "%{$search}%"))
-                    ->orWhereHas('assignedUser', fn ($u) => $u->where('name', 'like', "%{$search}%")) // legacy rows only
-                    ->orWhere('rental_job_cards.title', 'like', "%{$search}%");
-            });
-        }
-
-        if ($status = $request->get('status')) {
-            $query->where('rental_job_cards.status', $status);
-        }
-        if ($propertyId = $request->get('property_id')) {
-            $query->where('rental_job_cards.property_id', $propertyId);
-        }
-        if ($crewId = $request->get('rental_crew_id')) {
-            $query->where('rental_job_cards.rental_crew_id', $crewId);
-        }
         // §14.22 — the filter's dates are parsed/validated like the schedule's, and
         // "to" is the END of that day (a bare date compared against a datetime
         // column meant midnight, so cards due later on the "to" day were dropped).
@@ -121,58 +98,18 @@ class RentalJobCardController extends Controller
         if ($filterErrors) {
             throw ValidationException::withMessages($filterErrors);
         }
-        if ($dateFrom) {
-            $query->where('rental_job_cards.due_at', '>=', $dateFrom);
-        }
-        if ($dateTo) {
-            $query->where('rental_job_cards.due_at', '<=', $dateTo->copy()->setTimezone($filterTz)->endOfDay()->setTimezone(config('app.timezone') ?: $filterTz));
-        }
-        if ($request->boolean('overdue')) {
-            $query->overdue();
-        }
 
-        $showArchived = $request->boolean('archived');
-        if ($showArchived) {
-            $query->onlyTrashed();
-        }
-
-        if ($sort === 'property') {
-            $query->join('properties', 'properties.id', '=', 'rental_job_cards.property_id')
-                ->orderBy('properties.title', $direction)
-                ->select('rental_job_cards.*');
-        } else {
-            $query->orderBy("rental_job_cards.{$sort}", $direction);
-        }
-
-        $hasAny = $base()->exists();
-        $jobCards = $query->paginate(25)->withQueryString();
-
-        $tileCounts = [
-            'total' => $base()->count(),
-            'draft' => $base()->where('rental_job_cards.status', RentalJobCard::STATUS_DRAFT)->count(),
-            'quoted' => $base()->where('rental_job_cards.status', RentalJobCard::STATUS_QUOTED)->count(),
-            'scheduled' => $base()->where('rental_job_cards.status', RentalJobCard::STATUS_SCHEDULED)->count(),
-            'in_progress' => $base()->where('rental_job_cards.status', RentalJobCard::STATUS_IN_PROGRESS)->count(),
-            'overdue' => $base()->overdue()->count(),
-            'completed' => $base()->where('rental_job_cards.status', RentalJobCard::STATUS_COMPLETED)->count(),
-        ];
-
-        $crews = RentalCrew::query()->active()->orderBy('name')->get(['id', 'name']);
-
-        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
-
-        return view('corex.rental-job-cards.index', [
-            'jobCards' => $jobCards,
-            'sort' => $sort,
-            'direction' => $direction,
-            'hasAny' => $hasAny,
-            'showArchived' => $showArchived,
-            'crews' => $crews,
-            'filters' => $request->only(['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue']),
-            'filteredProperty' => $filteredProperty,
-            'tileCounts' => $tileCounts,
-            'resolvedScope' => $resolvedScope,
-            'scopeOptions' => $scopeOptions,
+        return new RentalJobCardListQuery($user, $request->get('scope'), [
+            'q' => $request->get('q'),
+            'status' => $request->get('status'),
+            'overdue' => $request->boolean('overdue'),
+            'rental_crew_id' => $request->get('rental_crew_id'),
+            'property_id' => $request->get('property_id'),
+            'from' => $dateFrom,
+            'to' => $dateTo?->copy()->setTimezone($filterTz)->endOfDay()->setTimezone(config('app.timezone') ?: $filterTz),
+            'archived' => $request->boolean('archived'),
+            'sort' => $request->get('sort'),
+            'direction' => $request->get('direction'),
         ]);
     }
 
@@ -856,16 +793,12 @@ class RentalJobCardController extends Controller
             : $pdf->stream($service->jobCardFilename($rentalJobCard));
     }
 
-    /** req #7 — print the (filtered) list itself as a simple PDF-friendly page. No per-record guard — same list-level query-layer scoping as index(). */
+    /** req #7 — print the (filtered, sorted) list itself. Same RentalJobCardListQuery as index(), so the same scoping and filters; all matching rows, no paging. */
     public function printList(Request $request): View
     {
-        $user = $request->user();
-        $jobCards = RentalJobCard::query()->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'crew', 'assignedUser'])
-            ->orderBy('due_at')
-            ->get();
+        $list = $this->listQuery($request);
 
-        return view('corex.rental-job-cards.print-list', ['jobCards' => $jobCards]);
+        return view('corex.rental-job-cards.print-list', ['jobCards' => $list->all(), 'list' => $list]);
     }
 
     /** req #10 — same photo pipeline as the linked work order, reused, not duplicated. */
