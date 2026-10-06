@@ -42,9 +42,10 @@
             <label class="ds-label block mb-1">Started to</label>
             <input type="date" name="start_to" value="{{ request('start_to') }}" class="ds-field">
         </div>
+        <label class="flex items-center gap-2 text-xs pb-2" style="color: var(--text-secondary);"><input type="checkbox" name="hide_demo" value="1" @checked(request()->boolean('hide_demo'))> Hide demo and inactive agencies</label>
         <input type="hidden" name="sort" value="{{ $sort }}"><input type="hidden" name="dir" value="{{ $dir }}">
         <button class="corex-btn-primary text-xs" type="submit">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'start_from', 'start_to']))<a href="{{ route('admin.agency-timelines.index') }}" class="text-xs underline" style="color:var(--text-muted);">Clear</a>@endif
+        @if(request()->hasAny(['q', 'status', 'start_from', 'start_to', 'hide_demo']))<a href="{{ route('admin.agency-timelines.index') }}" class="text-xs underline" style="color:var(--text-muted);">Clear</a>@endif
     </form>
 
     @if($archivedRows !== null)

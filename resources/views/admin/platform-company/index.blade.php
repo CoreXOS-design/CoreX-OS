@@ -92,7 +92,7 @@
     <div id="pc-logo" data-pc-section="logo" x-show="sec === 'logo'" x-cloak class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ dirty: false, fileName: '', over: false }" @pc-dirty.window="dirty = true">
         <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
             <div class="ds-section-header">Logo</div>
-            <p class="text-xs mt-1" style="color: var(--text-muted);">Used on the letterhead, the contract and platform emails. PNG, JPG or SVG, up to 2 MB. Replacing it keeps the old one &mdash; nothing is ever deleted. Logo changes apply straight away.</p>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">Used on the letterhead, the contract and platform emails. PNG, JPG or SVG, up to 2 MB and 2000 px on the longest side. Replacing it keeps the old one &mdash; nothing is ever deleted. Logo changes apply straight away.</p>
         </div>
         <div class="p-5 grid lg:grid-cols-[18rem_1fr] gap-6">
             <div>
@@ -115,7 +115,7 @@
                         <input id="pc-logo-file" x-ref="logoFile" type="file" name="logo" required accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" @change="fileName = $event.target.files[0]?.name ?? ''">
                         <svg viewBox="0 0 24 24" aria-hidden="true" style="width:26px;height:26px;stroke:var(--brand-icon);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
                         <span class="text-sm font-semibold" style="color: var(--text-primary);" x-text="fileName || 'Drop a logo here or click to browse'"></span>
-                        <span class="text-xs" style="color: var(--text-muted);">PNG, JPG or SVG, up to 2 MB. Replacing it keeps the old one.</span>
+                        <span class="text-xs" style="color: var(--text-muted);">PNG, JPG or SVG, up to 2 MB and 2000 px. Replacing it keeps the old one.</span>
                     </label>
                     <button type="submit" class="corex-btn-primary" x-show="fileName" x-cloak>Upload logo</button>
                 </form>
@@ -210,7 +210,8 @@
                     <div class="grid sm:grid-cols-2 gap-4">
                         <div><label class="ds-label block mb-1" for="pc-from">Sending address <span style="color:var(--ds-crimson);">*</span></label>
                             <input id="pc-from" type="email" name="send_from_address" required maxlength="255" value="{{ old('send_from_address', $company->send_from_address) }}" class="ds-field w-full">
-                            <p class="text-xs mt-1" style="color: var(--text-muted);">Every Platform E-Sign and Subscription Agreement email is sent from this address. Replies go to the person who sent the agreement.</p></div>
+                            <p class="text-xs mt-1" style="color: var(--text-muted);">Every Platform E-Sign and Subscription Agreement email is sent from this address. Replies go to the person who sent the agreement.</p>
+                            @if(!empty($senderDomainWarning))<p class="text-xs mt-1" style="color: var(--ds-amber, #b45309);" role="alert">{{ $senderDomainWarning }}</p>@endif</div>
                         <div><label class="ds-label block mb-1" for="pc-from-name">Sender name <span style="color:var(--ds-crimson);">*</span></label>
                             <input id="pc-from-name" type="text" name="send_from_name" required maxlength="150" value="{{ old('send_from_name', $company->send_from_name) }}" class="ds-field w-full">
                             <p class="text-xs mt-1" style="color: var(--text-muted);">The name the recipient sees beside that address.</p></div>

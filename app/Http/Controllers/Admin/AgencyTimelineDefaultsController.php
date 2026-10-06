@@ -107,7 +107,13 @@ class AgencyTimelineDefaultsController extends Controller
     public function destroy(Request $request, int $item)
     {
         $this->owner($request);
-        AgencyTimelineDefaultItem::findOrFail($item)->delete();
+        $row = AgencyTimelineDefaultItem::findOrFail($item);
+        // The go-live default is what gives every new timeline its go-live date: archiving the only one
+        // would leave new timelines with no go-live step at all.
+        if ($row->is_go_live && !AgencyTimelineDefaultItem::where('is_go_live', true)->where('id', '!=', $row->id)->exists()) {
+            return back()->with('warning', 'This is the go-live step. Make another step the go-live step first, then archive this one.');
+        }
+        $row->delete();
 
         return back()->with('success', 'Archived. Restore it from "Show archived".');
     }

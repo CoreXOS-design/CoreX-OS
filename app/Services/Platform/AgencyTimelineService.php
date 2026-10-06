@@ -12,6 +12,7 @@ use App\Models\Platform\AgencyTimelineItem;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -34,11 +35,15 @@ class AgencyTimelineService
      */
     public function start(Agency $agency, CarbonInterface $startDate, ?int $userId = null, array $dateOverrides = []): AgencyTimeline
     {
-        if (AgencyTimeline::where('agency_id', $agency->id)->exists()) {
-            throw new \DomainException('This agency already has a timeline.');
-        }
-
         $timeline = DB::transaction(function () use ($agency, $startDate, $userId, $dateOverrides) {
+            // B-M3: there is no unique index (older data may already hold duplicates), so serialise
+            // concurrent starts on the agency row and re-check INSIDE the lock — a double-click
+            // waits here and then sees the first request's timeline.
+            Agency::withoutGlobalScopes()->whereKey($agency->id)->lockForUpdate()->first();
+            if (AgencyTimeline::where('agency_id', $agency->id)->exists()) {
+                throw new \DomainException('This agency already has a timeline.');
+            }
+
             $timeline = AgencyTimeline::create([
                 'agency_id'  => $agency->id,
                 'token'      => Str::random(48),
@@ -74,7 +79,32 @@ class AgencyTimelineService
 
         event(new AgencyTimelineStarted($agency->id, $timeline->id, $userId));
 
+        // B-M2: the agency may have finished the setup wizard before this timeline existed.
+        $this->reconcileSetupWizard($timeline);
+
         return $timeline;
+    }
+
+    /**
+     * Catch-up for the `setup_wizard_completed` trigger: the wizard event fires exactly once, so a timeline
+     * that starts (or is restored) AFTER the wizard finished would otherwise wait on that step forever.
+     * Only called when a timeline starts or is restored — never from a read path, so an owner's manual
+     * reopen of the step is never undone. Never throws.
+     */
+    public function reconcileSetupWizard(AgencyTimeline $timeline): void
+    {
+        try {
+            $finished = \App\Models\AgencyOnboardingSetup::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->where('agency_id', $timeline->agency_id)->whereNotNull('completed_at')->exists();
+            if (!$finished) {
+                return;
+            }
+            AgencyTimelineItem::where('timeline_id', $timeline->id)
+                ->where('auto_complete_trigger', 'setup_wizard_completed')->where('status', 'pending')->get()
+                ->each(fn ($item) => $this->setStatus($item, 'done', null, 'setup_wizard_completed'));
+        } catch (\Throwable $e) {
+            Log::error('AgencyTimeline: setup-wizard reconcile failed', ['timeline_id' => $timeline->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /** Preview the dates a start would produce (used by the Start screen). */
@@ -116,6 +146,9 @@ class AgencyTimelineService
 
     public function updateItem(AgencyTimelineItem $item, array $data, ?int $userId): AgencyTimelineItem
     {
+        if ($item->trashed()) {   // B-L7: an archived step is frozen until it is restored
+            return $item;
+        }
         $before = $this->snapshot($item);
         $item->fill(array_intersect_key($data, array_flip(['title', 'body', 'due_date', 'is_public', 'agency_can_complete'])));
         if (!$item->isMilestone()) {
@@ -138,20 +171,35 @@ class AgencyTimelineService
 
     public function setStatus(AgencyTimelineItem $item, string $status, ?int $userId, string $source = 'manual'): AgencyTimelineItem
     {
-        if (!in_array($status, ['pending', 'done', 'skipped'], true) || $item->status === $status) {
+        if (!in_array($status, ['pending', 'done', 'skipped'], true) || $item->status === $status || $item->trashed()) {
             return $item;
         }
-        $before = ['status' => $item->status];
-        $item->status = $status;
-        $item->completed_at = $status === 'pending' ? null : now();
-        $item->completed_by = $status === 'pending' ? null : $userId;
-        $item->completed_source = $status === 'pending' ? null : $source;
-        $item->save();
 
-        $verb = ['pending' => 'Reopened', 'done' => 'Completed', 'skipped' => 'Skipped'][$status];
-        $this->log($item->timeline, $item->id, 'status_' . $status, $verb . ' "' . $item->title . '"' . ($source === 'agency' ? ' (by the agency, from their public link)' : ($source !== 'manual' ? ' (automatic: ' . $source . ')' : '')), $before, ['status' => $status], $userId, $source);
+        // B-L4: atomic + idempotent. The row is locked and its CURRENT status re-read, so two
+        // concurrent ticks (double-click, second tab) change it once and fire the event once.
+        $changed = DB::transaction(function () use ($item, $status, $userId, $source) {
+            $locked = AgencyTimelineItem::whereKey($item->id)->lockForUpdate()->first();   // soft-deleted rows excluded
+            if (!$locked) {
+                return false;
+            }
+            $item->setRawAttributes($locked->getAttributes(), true);
+            if ($item->status === $status) {
+                return false;
+            }
+            $before = ['status' => $item->status];
+            $item->status = $status;
+            $item->completed_at = $status === 'pending' ? null : now();
+            $item->completed_by = $status === 'pending' ? null : $userId;
+            $item->completed_source = $status === 'pending' ? null : $source;
+            $item->save();
 
-        if ($status === 'done') {
+            $verb = ['pending' => 'Reopened', 'done' => 'Completed', 'skipped' => 'Skipped'][$status];
+            $this->log($item->timeline, $item->id, 'status_' . $status, $verb . ' "' . $item->title . '"' . ($source === 'agency' ? ' (by the agency, from their public link)' : ($source !== 'manual' ? ' (automatic: ' . $source . ')' : '')), $before, ['status' => $status], $userId, $source);
+
+            return true;
+        });
+
+        if ($changed && $status === 'done') {
             event(new AgencyTimelineMilestoneCompleted($item->timeline->agency_id, $item->timeline_id, $item->id, $source, $userId));
         }
 
@@ -160,32 +208,48 @@ class AgencyTimelineService
 
     public function archiveItem(AgencyTimelineItem $item, ?int $userId): void
     {
+        if ($item->trashed()) {   // B-L7: already archived — no second delete, no second history line
+            return;
+        }
         $item->delete();
         $this->log($item->timeline, $item->id, 'item_archived', 'Archived "' . $item->title . '"', null, null, $userId);
     }
 
     public function restoreItem(AgencyTimelineItem $item, ?int $userId): void
     {
+        if (!$item->trashed()) {   // B-L7: nothing to restore
+            return;
+        }
         $item->restore();
         $this->log($item->timeline, $item->id, 'item_restored', 'Restored "' . $item->title . '"', null, null, $userId);
     }
 
-    /** Move an item one place up/down among items of its own kind. */
+    /**
+     * Move an item one place up/down among items of its own kind. Milestones are displayed by date first,
+     * so a milestone only swaps places with a neighbour on the SAME date (the "same-day order" the buttons
+     * promise); anything else would change sort_order without changing the screen (B-L2).
+     */
     public function move(AgencyTimelineItem $item, string $direction, ?int $userId): void
     {
-        $siblings = AgencyTimelineItem::where('timeline_id', $item->timeline_id)->where('kind', $item->kind)
-            ->orderBy('sort_order')->orderBy('id')->get()->values();
-        $i = $siblings->search(fn ($s) => $s->id === $item->id);
-        $j = $direction === 'up' ? $i - 1 : $i + 1;
-        if ($i === false || !isset($siblings[$j])) {
+        if ($item->trashed()) {
             return;
         }
-        $a = $siblings[$i];
-        $b = $siblings[$j];
+        $siblings = AgencyTimelineItem::where('timeline_id', $item->timeline_id)->where('kind', $item->kind)
+            ->orderBy('sort_order')->orderBy('id')->get()->values();
         // Equal sort_orders would make a swap a no-op, so renumber the whole set first.
         foreach ($siblings as $n => $s) {
             $s->sort_order = ($n + 1) * 10;
         }
+        $pool = $item->isMilestone()
+            ? $siblings->filter(fn ($s) => ($s->due_date?->toDateString()) === ($item->due_date?->toDateString()))->values()
+            : $siblings;
+        $i = $pool->search(fn ($s) => $s->id === $item->id);
+        $j = $direction === 'up' ? $i - 1 : $i + 1;
+        if ($i === false || !isset($pool[$j])) {
+            return;
+        }
+        $a = $pool[$i];
+        $b = $pool[$j];
         [$a->sort_order, $b->sort_order] = [$b->sort_order, $a->sort_order];
         $siblings->each->save();
         $this->log($item->timeline, $item->id, 'reordered', 'Moved "' . $item->title . '" ' . $direction, null, null, $userId);
@@ -219,11 +283,14 @@ class AgencyTimelineService
         });
     }
 
-    /** Put every milestone that came from a default back to start_date + its offset. */
+    /**
+     * Put every still-open milestone that came from a default back to start_date + its offset.
+     * Done and skipped steps keep their dates — they are history (same rule as changeStartDate).
+     */
     public function resetDates(AgencyTimeline $timeline, ?int $userId): int
     {
         $n = 0;
-        AgencyTimelineItem::where('timeline_id', $timeline->id)->where('kind', 'milestone')->whereNotNull('offset_days')->get()
+        AgencyTimelineItem::where('timeline_id', $timeline->id)->where('kind', 'milestone')->where('status', 'pending')->whereNotNull('offset_days')->get()
             ->each(function ($m) use ($timeline, &$n) {
                 $due = Carbon::parse($timeline->start_date)->addDays($m->offset_days)->toDateString();
                 if (!$m->due_date || $m->due_date->toDateString() !== $due) {
@@ -276,6 +343,7 @@ class AgencyTimelineService
         }
         $timeline->restore();
         $this->log($timeline, null, 'timeline_restored', 'Restored the timeline', null, null, $userId);
+        $this->reconcileSetupWizard($timeline);   // the wizard may have finished while it was archived
     }
 
     // ── Agreement (platform e-sign document) ───────────────────────────────
@@ -291,13 +359,34 @@ class AgencyTimelineService
     }
 
     /**
-     * If the linked e-sign document is fully signed, fire AgencyContractSigned so the
-     * `contract_signed` steps tick. Idempotent (listener only touches pending items),
-     * and called whenever a timeline is read, so no hook inside the e-sign is needed.
+     * Platform E-Sign documents that may be linked as this agency's agreement: the Subscription Agreement
+     * (template kind `subscription_agreement`) that is ABOUT this agency. Another agency's document, or a
+     * different kind of document, is never linkable (B-L3).
+     */
+    public function linkableAgreements(AgencyTimeline $timeline): \Illuminate\Database\Eloquent\Builder
+    {
+        return \App\Models\PlatformEsign\Document::query()
+            ->where('agency_id', $timeline->agency_id)
+            ->whereIn('template_id', \App\Models\PlatformEsign\Template::withTrashed()->where('kind', 'subscription_agreement')->select('id'));
+    }
+
+    /**
+     * If the linked e-sign document is fully signed AND a `contract_signed` step is still waiting, fire
+     * AgencyContractSigned so that step ticks.
+     *
+     * Called ONLY at the real transitions — when the document completes (EsignService) and when it is linked —
+     * never from a page read (B-M1/B-L1): a read must not write domain_event_log rows, and must not undo an
+     * owner's manual reopen. The pending-item guard keeps even a repeated call silent (no event when nothing
+     * would change).
      */
     public function syncAgreement(AgencyTimeline $timeline): void
     {
         if (!$timeline->agreement_document_id) {
+            return;
+        }
+        $waiting = AgencyTimelineItem::where('timeline_id', $timeline->id)
+            ->where('auto_complete_trigger', 'contract_signed')->where('status', 'pending')->exists();
+        if (!$waiting) {
             return;
         }
         $signed = \App\Models\PlatformEsign\Document::where('id', $timeline->agreement_document_id)
@@ -338,12 +427,16 @@ class AgencyTimelineService
      * "overdue … push the live date further on"). Only milestones due on or before
      * the planned go-live count; the go-live item itself is never its own slip.
      *
+     * With $publicOnly (the agency's own page) only steps shown on that page count — an internal, hidden
+     * step can neither move the date the agency sees nor be the go-live date itself (B-L6).
+     *
      * @return array{planned:?Carbon, expected:?Carbon, slip_days:int}
      */
-    public function goLive(AgencyTimeline $timeline, ?CarbonInterface $today = null): array
+    public function goLive(AgencyTimeline $timeline, ?CarbonInterface $today = null, bool $publicOnly = false): array
     {
         $today = ($today ?? now())->copy()->startOfDay();
-        $items = AgencyTimelineItem::where('timeline_id', $timeline->id)->where('kind', 'milestone')->get();
+        $items = AgencyTimelineItem::where('timeline_id', $timeline->id)->where('kind', 'milestone')
+            ->when($publicOnly, fn ($q) => $q->where('is_public', true))->get();
         $live = $items->firstWhere('is_go_live', true);
         if (!$live || !$live->due_date) {
             return ['planned' => null, 'expected' => null, 'slip_days' => 0];
