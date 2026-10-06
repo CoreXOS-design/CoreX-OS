@@ -21,6 +21,9 @@ use League\CommonMark\Renderer\HtmlRenderer;
 class AgreementRenderer
 {
     private const TOKEN = '/\{\{(f|o|q|rate|amt|rr|sig|ini|ref|auto|ctl|co)(?::([a-z0-9_]+))?(?::([a-z0-9_]+))?\}\}/';
+    /** Screen-only helper text beside the dates RR sets (never in a PDF; a declared addition of the proof). */
+    public const TAKE_ON_TIP = 'Set by CoreX as agreed for your take-on month.';
+
     private const LINE_APPLIES = ['team' => ['team_seats'], 'agency' => ['agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches']];
 
     /** @var array<string,mixed> */
@@ -130,6 +133,11 @@ class AgreementRenderer
             return '';
         }
         if ($this->isForm()) {
+            if (isset(AgreementTakeOn::FIELDS[$key]) && !empty($this->ctx['rr']['take_on_month'])) {
+                // Start date / first payment date: set by RR through the take-on month (spec §11.19) — shown, never typed by the agency.
+                return '<input type="text" class="fld" value="' . e($this->date($this->value($key))) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '">'
+                    . '<span class="auto-tip" data-screen-only="1">' . self::TAKE_ON_TIP . '</span>';
+            }
             if ($key === 'branches') {
                 // Entered once, in section 3 beside the number of agents; this row of the original form just shows it.
                 return '<input type="text" class="fld num" value="' . e($this->value('branches')) . '" readonly tabindex="-1" data-derived="1" data-mirror="branches" aria-label="' . e($f['label']) . '">' . $this->tip();

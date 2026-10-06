@@ -491,3 +491,17 @@ had been issued): D3.6 now reads "We maintain the website for as long as this ag
 the domain name remains the Agency’s." Corrected in `resources/legal/subscription-agreement/agreement-v1.0.md` (the seed source, so every
 fresh database seeds only "1.0 — 28 September 2026" with the corrected clause) and the conductor's reference copy. Environments that already
 hold 1.0 (QA1) get the corrected text as a new published version through §11.14, because published versions are immutable.
+
+### 11.19 Take-on month — the start and first-billing dates are set by RR (cc2, 2026-10-06, Johan)
+Rule: the free take-on month is the whole calendar month in which take-on / go-live happens. **Agreement start date = the 1st of the take-on month; billing start / first debit = the 1st of the following month**
+(take-on October → starts 1 October, billing 1 November; November → 1 December; December → 1 January of the next year). Derived in ONE place, `AgreementTakeOn` (`derive()` / `values()` / `options()` / `valid()`).
+- **Send form (owner):** required "Take-on month" list (this month + the next 17, default this month, past months cannot be chosen — also enforced server-side), with both derived dates shown before sending.
+  Stored as `rr_data.take_on_month` (YYYY-MM) and audited as a `take_on_set` event. `AgreementService::send()` also pre-sets `form_data.start_date` / `m_first_payment`.
+- **Document:** the two fields that carry these dates — Part A §4 "Start date" and the mandate "first payment instruction … on ___ (date)" — are filled from the take-on month on every rendering
+  (recipient form, RR/preview screens, wet-ink and sealed PDF; `AgreementService::context()` overlays them) and are read-only for the recipient: shown as plain read-only boxes with the screen-only tip
+  "Set by CoreX as agreed for your take-on month." (never in a PDF; a declared addition of the §11.15 proof). The server strips any recipient attempt to write them. No wording change.
+- **Not mapped (reported, not guessed):** the mandate "___ of each month" (day of the month) keeps its default 1 (it is a day, not a date, and the wording already prints "the 1st"); the two signing dates (Part A §6 "Date", mandate "Date") and
+  "on this ___ day of ___" are signing dates, not start/billing dates, and are untouched.
+- **Already-sent agreements** (no `take_on_month` on the record) keep exactly what they have and stay typeable.
+Tests: `AgreementTakeOnTest` (Oct→1 Nov, Nov→1 Dec, Dec→1 Jan rollover, Feb, past/junk months, send form, audit, read-only + server strip, wet-ink PDF, legacy agreement).
+

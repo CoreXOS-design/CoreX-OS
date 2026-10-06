@@ -116,7 +116,7 @@ class AgreementFidelityTest extends TestCase
 
         Mail::fake();
         $svc = app(AgreementService::class);
-        $doc = $svc->send(['name' => 'Pat Principal', 'email' => 'pat@caprivi.test', 'cell' => '+27 82 555 0123'], $owner->id);
+        $doc = $svc->send(['name' => 'Pat Principal', 'email' => 'pat@caprivi.test', 'cell' => '+27 82 555 0123', 'take_on_month' => now()->format('Y-m')], $owner->id);
         $this->assertSame('1.0', $doc->wording->version);
 
         // The recipient page as the server renders it for the browser (fields carry no text; the browser run reads the same).
@@ -141,6 +141,8 @@ class AgreementFidelityTest extends TestCase
         $web = substr($out, strpos($out, 'RECIPIENT WEB PAGE'), strpos($out, 'WET-INK DOWNLOAD PDF') - strpos($out, 'RECIPIENT WEB PAGE'));
         $this->assertStringContainsString('3 × "Fills in automatically', $web, 'the three tips are reported as declared additions of the web page');
         $this->assertSame(1, substr_count($out, 'Fills in automatically'), 'and appear nowhere else (wet-ink PDF, sealed PDF)');
+        $this->assertStringContainsString('2 × "Set by CoreX as agreed for your take-on month."', $web, 'the two take-on tips are reported as declared additions of the web page');
+        $this->assertSame(1, substr_count($out, 'Set by CoreX as agreed'), 'and appear nowhere else');
         $this->assertStringContainsString('Version 1.0 — 28 September 2026', $out, 'the footer of the PDFs reads the v1.0 label');
         $this->assertSame(0, $exit, $out);
     }
