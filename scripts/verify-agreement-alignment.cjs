@@ -21,7 +21,9 @@ async function measure(page, label) {
       box: (p.querySelector('.sigpad, .sigline, .sigimg, .blank.sigline') ? r(p.querySelector('.sigpad, .sigline, .sigimg, .blank.sigline')) : null),
       field: (p.querySelector('input, .val, .blank') ? r(p.querySelector('input, .val, .blank')) : null) })));
     const mf = [...document.querySelectorAll('p.mf')].map((p) => ({ label: p.querySelector('.mf-l').textContent.trim(), l: r(p.querySelector('.mf-l')), v: r(p.querySelector('.mf-v')), row: r(p), field: p.querySelector('.mf-v .fld') ? r(p.querySelector('.mf-v .fld')) : null }));
-    return { ths: [...t.querySelectorAll('th')].map(r), rows, mf };
+    // inside each block: where the label, and the input / line / box, start and end relative to the block's own left edge
+    const edges = tds.map((td) => { const tl = td.getBoundingClientRect().left; return [...td.querySelectorAll('p.sr')].map((p) => { const f = p.querySelector('input, .sigpad, .sigline, .sigimg, .val, .blank'); const l = p.querySelector('.sr-l'); const fr = f.getBoundingClientRect(); return { cls: p.className.replace('sr ', ''), labelLeft: l ? l.getBoundingClientRect().left - tl : null, left: fr.left - tl, right: fr.right - tl }; }); });
+    return { ths: [...t.querySelectorAll('th')].map(r), rows, mf, edges };
   });
   check(m.ths.length === 2 && near(m.ths[0].width, m.ths[1].width) && near(m.ths[0].top, m.ths[1].top), label + ': the two columns are equal width and start on the same line (' + Math.round(m.ths[0].width) + ' / ' + Math.round(m.ths[1].width) + ' px)');
   const [a, b] = m.rows;
@@ -32,6 +34,14 @@ async function measure(page, label) {
     if (row.box && o.box) check(near(row.box.top, o.box.top) && near(row.box.height, o.box.height) && near(row.box.width, o.box.width, 2), label + ': signature boxes equal (top ' + Math.round(row.box.top) + '/' + Math.round(o.box.top) + ', ' + Math.round(row.box.width) + '×' + Math.round(row.box.height) + ' vs ' + Math.round(o.box.width) + '×' + Math.round(o.box.height) + ')');
     if (row.field && o.field && !row.box) check(near(row.field.left - row.left, o.field.left - o.left, 6) && near(row.field.top, o.field.top, 4) && near(row.field.width, o.field.width, 4), label + ': "' + row.cls.replace('sr-', '') + '" fields start/length/line up');
   });
+  // every input / line / box of BOTH blocks shares one left edge and one right edge (and the labels one left edge)
+  const all = m.edges.flat();
+  const uniq = (xs) => xs.filter((x, i) => xs.findIndex((y) => Math.abs(y - x) <= 1.5) === i);
+  check(all.length === 10, label + ': ten signature-block rows measured');
+  const lefts = uniq(all.map((e) => e.left)), rights = uniq(all.map((e) => e.right)), labels = uniq(all.map((e) => e.labelLeft));
+  check(lefts.length === 1, label + ': every input / line / box starts at one left edge in both blocks (' + lefts.map(Math.round) + ' px from the block edge)');
+  check(rights.length === 1, label + ': every input / line / box ends at one right edge in both blocks (' + rights.map(Math.round) + ' px from the block edge)');
+  check(labels.length === 1 && labels[0] !== null, label + ': every label starts at one left edge (' + labels.map(Math.round) + ' px)');
   // mandate grid
   check(m.mf.length === 13, label + ': 13 mandate rows on the grid (found ' + m.mf.length + ')');
   const L = m.mf.map((x) => Math.round(x.l.left)), V = m.mf.map((x) => Math.round(x.v.left));

@@ -510,7 +510,7 @@ Tests: `AgreementTakeOnTest` (Oct→1 Nov, Nov→1 Dec, Dec→1 Jan rollover, Fe
 
 ### 11.20 Single entry — typed once, mirrored everywhere else (cc2, 2026-10-06, Johan: "option A, ruled")
 Section 5 (debit order authority) keeps its wording and layout exactly, but its bank fields are **read-only** on the recipient web form and fill themselves from the Netcash mandate — **the mandate is the one place bank details are typed.**
-Every other value that used to be typed in both documents gets the same treatment (typed once, mirrored, screen-only tip with a link that jumps to and focuses where it is typed). `AgreementFields::MIRRORS` (target ⇐ source), applied server-side by `AgreementService::withMirrors()`:
+Every other value that used to be typed in both documents gets the same treatment (typed once, mirrored, screen-only tip with a link that jumps to and focuses where it is typed) — except the mandate address and contact number, which FOLLOW Part A and stay editable (below). `AgreementFields::MIRRORS` (target ⇐ source), applied server-side by `AgreementService::withMirrors()`:
 
 | Mirrored (read-only) | Typed once in | Tip link goes to |
 |---|---|---|
@@ -519,10 +519,13 @@ Every other value that used to be typed in both documents gets the same treatmen
 | §5 Branch code | Mandate "Branch Number" | `fld-m_bank` |
 | §5 Account number | Mandate "Account Number" | `fld-m_account` |
 | §5 Account type | Mandate "Type of Account" ticks | first tick box |
-| Mandate address | Part A §1 Physical address | `fld-address` |
-| Mandate contact number | Part A §1 Billing contact cell | `fld-billing_cell` |
 | Mandate "Signed ___ on this" place | Part A §6 Place | `fld-sig_place` |
 | Mandate Date | Part A §6 Date | `fld-sig_date` |
+
+**Follow, not mirror — mandate address and contact number (Johan, 13:20):** they start from Part A (physical address §1, billing contact cell §1) and follow it while the recipient has not edited the mandate field; once edited the recipient's own value sticks and no longer follows Part A;
+clearing the field makes it follow Part A again (a value typed equal to Part A is not an override). Editable, accepted by the server (`AgreementFields::FOLLOW`, `AgreementService::withFollow()` / `normaliseOverrides()`): only an override is stored, the effective value is what the renderers
+(review, both PDFs) print, and the signed record stores the effective value. Screen-only tip: "Filled in from your details above — change it here if the debit order needs a different address." (… "number." for the contact number).
+Place and date stay mirrored (read-only) as built.
 
 Plus (§11.5, §11.19): branches (typed once beside agents), plan, start date, first collection date, collection day, mandate Amount — set from other entries / by RR.
 - **Server-side:** the mirrored keys are stripped from every recipient request, recomputed from their source on every save/submit/render and stored explicitly; validation runs on the source only (`validateRecipient(..., $skip)`). Both PDFs, the RR screen and the preview print the mirrored values (section 5 shows the mandate's bank details).
@@ -533,7 +536,7 @@ Tests: `AgreementSingleEntryTest`.
 
 ### 11.21 Alignment — signature blocks and the mandate grid (cc2, 2026-10-06, Johan: "I hate it if things are placed as scattered")
 Layout only — no wording, order of clauses or mandate text changes. One set of rules (`agreement/_css.blade.php`, shared by the screen sheets and the PDF) over markup hooks added in `AgreementRenderer::alignmentHooks()`:
-- **Signature blocks (Part A §6):** the Agency / RR Technologies table gets `class="sigtable"` — two equal-width columns, and each row paragraph `class="sr sr-name|capacity|signature|date|place"` has ONE fixed height per row class, so the same row sits on the same baseline in both columns: same box heights, same label position, same line length, tops and bottoms aligned.
+- **Signature blocks (Part A §6):** each row is one fixed label column (`.sr-l`, 24%) followed by one field column (72%) — every input, line and signature box starts on the same left edge and ends on the same right edge, identical in both blocks. The Agency / RR Technologies table gets `class="sigtable"` — two equal-width columns, and each row paragraph `class="sr sr-name|capacity|signature|date|place"` has ONE fixed height per row class, so the same row sits on the same baseline in both columns: same box heights, same label position, same line length, tops and bottoms aligned.
   The signature box is the same size in both columns (the drawing pad, the RR pad on the countersign screen, the static signature image and the blank line all share one box). The signature pad is built from `<span>`s (display:block), not `<div>`s: a block inside a `<p>` makes the browser close the paragraph early, which is what scattered the rows before.
   Applies on the recipient page, owner preview, RR countersign screen, wet-ink PDF and sealed PDF.
 - **Netcash mandate:** every "Label: field" line (Given by, Address, Bank Name, Branch Name and Town, Branch Number, Account Number, Type of Account, Date, Contact Number, Amount, To (Name of Beneficiary), Address, Abbreviated Shortname) is a `p.mf` row of one grid: labels in one column, fields on a common left edge with one width, equal row heights (screen),

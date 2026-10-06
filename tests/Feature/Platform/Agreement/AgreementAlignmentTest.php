@@ -57,6 +57,11 @@ class AgreementAlignmentTest extends TestCase
                 preg_match_all('#<p class="sr sr-(name|capacity|signature|date|place)">#', $cell, $m);
                 $this->assertSame(['name', 'capacity', 'signature', 'date', 'place'], $m[1], "$mode column $i: the same five rows, in the same order");
             }
+            // each row is a fixed label column followed by the field, so every input/line starts and ends on the same edges in both blocks
+            $this->assertSame(10, substr_count($table, '<span class="sr-l">'), "$mode: a label cell in every row of both blocks");
+            foreach (['Name:', 'Capacity:', 'Signature:', 'Date:', 'Place:'] as $label) {
+                $this->assertSame(2, substr_count($table, '<span class="sr-l">' . $label . '</span>'), "$mode: $label");
+            }
             // a block element inside a <p> makes the browser close the paragraph early and scatters the rows
             $this->assertDoesNotMatchRegularExpression('#<p class="sr[^"]*">(?:(?!</p>).)*<div#s', $table, $mode);
         }
@@ -97,6 +102,10 @@ class AgreementAlignmentTest extends TestCase
             $this->assertStringContainsString('table.sigtable', $css);
             $this->assertStringContainsString('p.sr-signature', $css);
             $this->assertStringContainsString('p.mf', $css);
+            // one label width and one field width, shared by every row of both blocks
+            $this->assertSame(1, preg_match_all('#\.sigtable td p\.sr \.sr-l \{[^}]*width: 24%#', $css), 'one label column width');
+            $this->assertSame(1, preg_match_all('#\.sigtable td p\.sr \.val, [^{]*\.fld \{[^}]*width: 72%#', $css), 'one field width');
+            $this->assertStringContainsString('p.sr-signature .sigpad { display:inline-block', $css, 'the signature box shares the field column');
             // equal row heights in both columns come from ONE height per row class
             $this->assertSame(1, preg_match_all('#\.sigtable td p\.sr \{[^}]*height:#', $css));
         }
