@@ -4759,6 +4759,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
     });
 
+    // Platform Company Profile (RR Technologies / CoreX OS) — owner-only, no permission key by design
+    // (same reasoning as Platform E-Sign above). The public logo stream is registered near the top of the file.
+    // Spec: .ai/specs/platform-company-profile.md §5.
+    Route::middleware('owner_only')->prefix('admin/platform-company')->name('admin.platform-company.')->group(function () {
+        $c = \App\Http\Controllers\Admin\PlatformCompanyController::class;
+        Route::get('/',                    [$c, 'index'])->name('index');
+        Route::put('/',                    [$c, 'update'])->name('update');
+        Route::get('/logo/{logo}',         [$c, 'logoVersion'])->whereNumber('logo')->name('logo.version');
+        Route::post('/logo',               [$c, 'logoStore'])->name('logo.store');
+        Route::post('/logo/{logo}/restore', [$c, 'logoRestore'])->where('logo', 'built-in|[0-9]+')->name('logo.restore');
+        Route::post('/preview',            [$c, 'preview'])->name('preview');
+    });
+
     // Agency Setup Progress board — platform-owner cross-agency tracking of the
     // onboarding wizard. Owner-only. Spec: agency-onboarding-setup.md §7.4.
     Route::middleware('owner_only')->get('/admin/agency-setup-progress', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'index'])
