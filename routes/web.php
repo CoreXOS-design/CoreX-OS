@@ -833,6 +833,8 @@ Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreemen
     Route::post('/initials',       [$c, 'initials'])->middleware('throttle:60,1')->name('initials');
     Route::post('/initial/{page}', [$c, 'initialPage'])->whereNumber('page')->middleware('throttle:120,1')->name('initial-page');
     Route::post('/submit',         [$c, 'submit'])->middleware('throttle:30,1')->name('submit');
+    Route::get('/wet-copy',        [$c, 'wetCopy'])->middleware('throttle:20,1')->name('wet-copy');
+    Route::post('/upload',         [$c, 'upload'])->middleware('throttle:20,1')->name('upload');
     Route::get('/download',        [$c, 'download'])->middleware('throttle:30,1')->name('download');
 });
 
@@ -4297,6 +4299,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/documents/{id}/countersign',         [$a, 'countersignForm'])->whereNumber('id')->name('agreements.countersign');
             Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
             Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
+            Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
         });
 
         Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');

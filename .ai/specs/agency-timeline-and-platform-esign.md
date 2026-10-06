@@ -343,3 +343,12 @@ views `platform-esign/agreement/*`; routes `platform-esign.agreements.*` (owner)
 `platform-esign:remind-agreements` (scheduled). Tests: `tests/Feature/Platform/Agreement/*` — wording fidelity, pricing tiers (25
 agents), pinned-version rendering, token scoping, signing order, RR cannot edit recipient entries, encryption/masking/reveal audit,
 wet-ink supersede, `/legal`.
+
+
+### 11.13 Phase (c) as built (wet-ink)
+`platform_esign_wetink_files` (migration `2026_10_06_110000`) holds each upload (batch, sha256, mime, size, `superseded_at`); nothing is deleted. Recipient routes
+`platform-esign.agreement.wet-copy` (PDF in `wet` mode: entries typed so far, blank initials/signatures) and `.upload` (pdf/jpg/png by content type, ≤ 10 240 KB
+each, ≤ 12 per upload, ≤ 60 per agreement; a new upload supersedes the active files). Status `wetink_received`; the agency signer is marked signed. RR countersigns on
+`…/countersign` (a wet-ink variant of the screen: files with SHA-256, name/capacity/place/date/signature — no page initials) → `AgreementService::countersignWetInk()` →
+a countersignature-and-attestation PDF listing every active file's SHA-256 + the signing record is sealed and emailed; the timeline hook fires as usual. Owner files are streamed
+only through `platform-esign.agreements.wetink` (owner-gated). Electronic countersign refuses a hand-signed document and vice-versa.
