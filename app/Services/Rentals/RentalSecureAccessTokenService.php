@@ -142,6 +142,55 @@ class RentalSecureAccessTokenService
             ->update(['revoked_at' => now()]);
     }
 
+    /**
+     * Archiving a crew kills every link it holds — its standing crew-page link
+     * AND every still-open per-job link on the crew's cards — and each one is
+     * audited (crew link log; the card's own history for a per-job link).
+     * Restoring the crew deliberately does NOT undo this: `revoked_at` stays
+     * set, so the office generates a fresh link. Returns how many links died.
+     */
+    public function revokeAllForArchivedCrew(RentalCrew $crew, ?User $by = null): int
+    {
+        return DB::transaction(function () use ($crew, $by) {
+            $cardIds = RentalJobCard::withoutGlobalScopes()
+                ->where('agency_id', $crew->agency_id)
+                ->where('rental_crew_id', $crew->id)
+                ->pluck('id')->all();
+
+            $live = RentalSecureAccessToken::withoutGlobalScopes()
+                ->where('agency_id', $crew->agency_id)
+                ->whereNull('revoked_at')
+                ->where(function ($q) use ($crew, $cardIds) {
+                    $q->where('rental_crew_id', $crew->id);
+                    if ($cardIds) {
+                        $q->orWhereIn('rental_job_card_id', $cardIds);
+                    }
+                })
+                ->get();
+
+            foreach ($live as $token) {
+                $token->forceFill(['revoked_at' => now()])->save();
+
+                $jobCardId = $token->rental_job_card_id ? (int) $token->rental_job_card_id : null;
+                \App\Models\RentalCrewLinkEvent::record(
+                    \App\Models\RentalCrewLinkEvent::EVENT_REVOKED,
+                    (int) $crew->agency_id,
+                    (int) $crew->id,
+                    (int) $token->id,
+                    $jobCardId,
+                    'Crew archived — link revoked',
+                    $by,
+                );
+                if ($jobCardId) {
+                    RentalJobCard::withoutGlobalScopes()->find($jobCardId)
+                        ?->logUpdate('link_revoked', $by, "Crew link revoked — crew '{$crew->name}' was archived");
+                }
+            }
+
+            return $live->count();
+        });
+    }
+
     public function revoke(RentalSecureAccessToken $token): void
     {
         $token->forceFill(['revoked_at' => now()])->save();

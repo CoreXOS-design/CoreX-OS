@@ -51,9 +51,17 @@ class RentalCrew extends Model
         return $query->where('is_active', true);
     }
 
+    /**
+     * Archiving also revokes every link this crew holds (standing + open
+     * per-job). Restoring does NOT bring any back — the office issues a new one.
+     */
     public function archive(): void
     {
-        $this->delete();
+        \Illuminate\Support\Facades\DB::transaction(function () {
+            app(\App\Services\Rentals\RentalSecureAccessTokenService::class)
+                ->revokeAllForArchivedCrew($this, auth()->user());
+            $this->delete();
+        });
     }
 
     public function restoreRecord(): void

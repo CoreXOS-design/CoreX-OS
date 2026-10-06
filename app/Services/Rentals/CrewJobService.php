@@ -10,6 +10,7 @@ use App\Models\RentalJobCardLine;
 use App\Models\RentalJobCardTask;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderPhoto;
+use App\Models\Scopes\AgencyScope;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -45,12 +46,14 @@ class CrewJobService
         $address = $property?->buildDisplayAddress() ?: '';
         $tz = $this->timezone($card);
 
-        $tasks = RentalJobCardTask::withoutGlobalScopes()
+        // Agency scope off (a public crew link has no staff user to resolve it) but SoftDeletes ON:
+        // an archived task or line is never shown to the crew — same rule as the crew page list and the office card.
+        $tasks = RentalJobCardTask::withoutGlobalScope(AgencyScope::class)
             ->where('rental_job_card_id', $card->id)
             ->orderBy('sort_order')->orderBy('id')
-            ->with(['lines' => fn ($q) => $q->withoutGlobalScopes()])
+            ->with(['lines' => fn ($q) => $q->withoutGlobalScope(AgencyScope::class)])
             ->get();
-        $generalLines = RentalJobCardLine::withoutGlobalScopes()
+        $generalLines = RentalJobCardLine::withoutGlobalScope(AgencyScope::class)
             ->where('rental_job_card_id', $card->id)->whereNull('rental_job_card_task_id')
             ->orderBy('sort_order')->orderBy('id')->get();
 

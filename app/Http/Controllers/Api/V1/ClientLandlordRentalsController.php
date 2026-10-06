@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Api\V1\Concerns\ResolvesPortalContact;
-use App\Models\Lease;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
 use App\Models\RentalWorkOrder;
@@ -75,11 +74,7 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'Property not found.'], 404);
         }
 
-        $leases = \App\Models\Lease::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->where('property_id', $propertyModel->id)
-            ->orderByDesc('id')
-            ->get();
+        $leases = $this->scope->landlordPropertyLeases($contact, $propertyModel->id);
         $current = $leases->firstWhere('status', 'active');
 
         return response()->json(['property' => [
@@ -182,11 +177,7 @@ class ClientLandlordRentalsController extends Controller
             ? RentalFaultType::withoutGlobalScopes()->where('agency_id', $contact->agency_id)->where('is_active', true)->find($data['rental_fault_type_id'])
             : null;
 
-        $leaseId = Lease::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->where('property_id', $propertyModel->id)
-            ->where('status', Lease::STATUS_ACTIVE)
-            ->value('id');
+        $leaseId = $this->scope->landlordActiveLeaseId($contact, $propertyModel->id);
 
         $attributes = [
             'lease_id' => $leaseId,
@@ -331,19 +322,8 @@ class ClientLandlordRentalsController extends Controller
             return $contact;
         }
 
-        $propertyIds = $this->scope->landlordPropertyIds($contact);
-
-        $faultReports = RentalFaultReport::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->whereIn('property_id', $propertyIds)
-            ->where('owner_approval_status', RentalFaultReport::APPROVAL_PENDING)
-            ->get();
-
-        $workOrders = RentalWorkOrder::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->whereIn('property_id', $propertyIds)
-            ->where('owner_approval_status', RentalWorkOrder::APPROVAL_PENDING)
-            ->get();
+        $faultReports = $this->scope->landlordPendingFaultReports($contact);
+        $workOrders = $this->scope->landlordPendingWorkOrders($contact);
 
         return response()->json([
             'fault_reports' => $faultReports->map(fn ($f) => [
@@ -369,11 +349,7 @@ class ClientLandlordRentalsController extends Controller
             return $contact;
         }
 
-        $propertyIds = $this->scope->landlordPropertyIds($contact);
-        $fault = RentalFaultReport::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->whereIn('property_id', $propertyIds)
-            ->find($faultReport);
+        $fault = $this->scope->landlordFaultReport($contact, $faultReport);
         if (!$fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
