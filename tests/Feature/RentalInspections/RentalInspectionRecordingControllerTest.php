@@ -686,6 +686,9 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         // controller is ever reached — same seeding technique the file's own
         // sign_on_behalf tests already use for a specific-scope need.
         \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'branch']);
+        // .create is seeded too: seeding .view alone flips the table to strictly-enrolled,
+        // and the observation/photo routes are gated on rental_inspections.create.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
         \App\Services\PermissionService::clearCache();
 
         $item = $this->makeItem();
@@ -857,6 +860,9 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         // conditions_produce_one_discrepancy() above — collaborative recording by a
         // second agent needs 'branch' scope or wider to even reach the controller.
         \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'branch']);
+        // .create is seeded too: seeding .view alone flips the table to strictly-enrolled,
+        // and the observation/photo routes are gated on rental_inspections.create.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
         \App\Services\PermissionService::clearCache();
 
         \Illuminate\Support\Facades\Storage::fake('public');

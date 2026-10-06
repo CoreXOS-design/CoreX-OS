@@ -690,10 +690,26 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      * whereDoesntHave('nextInChain') is what finds the tail directly — no
      * need to walk from the chain's root forward; the tail IS, by
      * definition, the one nothing points back to as a predecessor.
+     *
+     * Scoped to the property's active lease while one exists — with ONE
+     * deliberate exception: once the out-inspection completes,
+     * RentalInspectionCompletionObserver (rental-renewals.md §15, GATE 2
+     * row 6) correctly flips that lease to EXPIRED, so "active lease" goes
+     * null at exactly the moment this method matters most (the completed
+     * Out is the tail; the tab must keep showing it and the §41 completed
+     * lock must keep firing). With no active lease it falls back to the
+     * property's most recent tenancy that has a (non-cancelled) inspection.
+     * It never reaches back past an ACTIVE lease, so a new tenancy that
+     * has no inspection yet still reads as "no chain", never the previous
+     * tenant's finished one.
      */
     public static function chainTailFor(Property $property): ?self
     {
-        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first()
+            ?? Lease::where('property_id', $property->id)
+                ->whereIn('id', self::where('status', '!=', self::STATUS_CANCELLED)->select('lease_id'))
+                ->latest('id')
+                ->first();
         if (! $lease) {
             return null;
         }
@@ -732,7 +748,11 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         return self::where('lease_id', $tail->lease_id)
             ->where('id', '!=', $tail->id)
             ->where('status', '!=', self::STATUS_CANCELLED)
-            ->where('created_at', '<', $tail->created_at)
+            // created_at has one-second resolution, so two inspections made in
+            // the same second tie — id is the tiebreaker (matching the orderBy
+            // below), otherwise the earlier of the pair has no predecessor.
+            ->where(fn ($q) => $q->where('created_at', '<', $tail->created_at)
+                ->orWhere(fn ($same) => $same->where('created_at', $tail->created_at)->where('id', '<', $tail->id)))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->first();
