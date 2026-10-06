@@ -98,9 +98,11 @@ final class MdfRecipientFieldAndConditionInitialTest extends TestCase
             $html,
         );
 
-        // MUST NOT pre-render a locked initials token inside the current signer's active slot.
+        // MUST NOT pre-render a locked initials token inside the current signer's active slot. Scoped to
+        // that slot's own <button>…</button>: other parties' pending slots (which legitimately carry a
+        // <strong>AVD</strong> token) sit alongside it, so an unbounded `.*?<strong` would match them.
         $this->assertDoesNotMatchRegularExpression(
-            '/initial-active[^>]*data-party-key="seller_2".*?<strong/s',
+            '/<button[^>]*initial-active[^>]*data-party-key="seller_2"[^>]*>(?:(?!<\/button>).)*<strong/s',
             $html,
             'the active (own, un-filled) condition-initial slot must render BLANK, not a pre-filled token',
         );

@@ -1092,6 +1092,40 @@ tests.
 
 ---
 
+## Standard −1z — `scripts/lane-test.sh` runs up to 2 test runs at once; schema names are unique per worktree (2026-10-06, conductor's go)
+
+Standard −1y left the single exclusive lock in place and recommended "a semaphore of ~3". The lock was
+held for the WHOLE run, so one 200s+ cold schema bootstrap queued every lane even though warm runs
+take ~5s. It also protected nothing the tests still share (cache/session=array, queue=sync, no fixed
+ports, temp files are random-named, `storage/` is per-worktree) — except that **schema names were not
+unique**: 4 worktrees used `hfc_dash_test_1`, 9 used `_6`, 2 each `_9` and `_270927`, and every
+worktree with no `TEST_DB_DATABASE` silently fell back to the bare shared `hfc_dash_test`.
+
+**What a lane needs to know (nothing to do — it is automatic):**
+- **No `TEST_DB_DATABASE`? You now get your own schema.** `lane-test.sh` derives
+  `hfc_dash_test_<cksum of the worktree path>`, prints it, and exports it to PHPUnit. Setting
+  `TEST_DB_DATABASE` in your worktree `.env` still wins. The first run on a new name is a cold bootstrap (~200s, once).
+- **Per-schema lock (whole run):** two worktrees that resolve to the SAME name wait for each other
+  instead of corrupting each other's data. (Existing duplicates were deliberately NOT renamed — give
+  your worktree a unique `TEST_DB_DATABASE` to stop waiting on a namesake.)
+- **Run slots (whole run):** at most `MAX_SLOTS` (top of the script, default **2**; `LANE_TEST_MAX_SLOTS=3`
+  overrides for one run) test runs execute at once. A further run waits and prints which slots are held,
+  by which worktree, for how long.
+- **Setup lock (`/tmp/corex-lane-test.lock`) is now held ONLY while a schema is created/migrated**, then
+  released before PHPUnit starts. Bootstraps stay serial on purpose (several concurrent snapshot loads
+  thrash the tests instance's 100 MB redo log); test runs no longer queue behind them.
+- `scripts/lane-test.sh --status` lists the setup lock, every slot and every busy schema with holder info.
+- Killing a run (Ctrl-C / `kill <wrapper pid>`) takes its whole test process group down, so its slot and schema
+  free within seconds. A `kill -9` of the wrapper alone leaves phpunit running — and correctly still holding the locks.
+  Locks are `flock`s on open fds, released by the kernel; the `.info` label
+  files are cosmetic, so a stale label can never block anyone. A lane still on an OLDER copy of the script
+  holds the setup lock for its whole run — merge `origin/QA1` to get the new behaviour.
+- The truncated-snapshot guard (Standard −1x/ `check-schema-snapshot.sh`) is unchanged and runs first.
+
+Raising `MAX_SLOTS` is a one-line change; do it only while `free -g` shows real headroom (the box runs with swap full).
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

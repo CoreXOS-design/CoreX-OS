@@ -28,12 +28,10 @@ class ContractorSecureLinkController extends Controller
 {
     private function resolveToken(string $token): ?RentalSecureAccessToken
     {
-        $record = RentalSecureAccessToken::findLiveByRawToken($token);
-        if (!$record || !$record->isLive()) {
-            return null;
-        }
-
-        return $record;
+        // Purpose-checked (§14.27.6): a crew link's token must never open the
+        // contractor page, nor the reverse.
+        return app(\App\Services\Rentals\RentalSecureAccessTokenService::class)
+            ->resolveLive($token, RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER);
     }
 
     public function show(Request $request, string $token): View

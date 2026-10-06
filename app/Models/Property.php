@@ -173,6 +173,29 @@ class Property extends Model
     }
 
     /**
+     * Is this raw status string off-market? Substring match against
+     * OFF_MARKET_STATUSES (underscore AND space form) so variants like
+     * "sold • cash" or "let out" resolve — the same rule PropertyObserver uses
+     * when it DISPATCHES a de-syndication, so a queued job re-checking at run
+     * time agrees with what queued it. Empty status is not off-market.
+     */
+    public static function matchesOffMarketStatus(string $status): bool
+    {
+        $s = strtolower(trim($status));
+        if ($s === '') {
+            return false;
+        }
+
+        foreach (self::OFF_MARKET_STATUSES as $needle) {
+            if (str_contains($s, $needle) || str_contains($s, str_replace('_', ' ', $needle))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Instance mirror of scopeOnMarket() — true when this property is live on
      * the market. Same single source of truth (OFF_MARKET_STATUSES) so the
      * row-level check can never drift from the query scope. Used by the MIC

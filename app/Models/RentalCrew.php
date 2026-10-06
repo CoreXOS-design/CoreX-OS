@@ -25,6 +25,8 @@ class RentalCrew extends Model
     protected $fillable = [
         'agency_id',
         'name',
+        'email',
+        'phone',
         'notes',
         'is_active',
         'created_by_user_id',
