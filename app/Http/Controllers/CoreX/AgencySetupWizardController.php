@@ -626,6 +626,26 @@ class AgencySetupWizardController extends Controller
                     'overdue_reminder_days' => \App\Models\RentalWorkOrderSetting::overdueReminderDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
+                // §6.2 — the 'rental_portal' source had NO arm at all, so its controls fell
+                // through to the agency-column default and always rendered the hardcoded
+                // control default, never the agency's saved value (the guard test in
+                // AgencySetupWizardCurrentValuesTest caught it). Explicit per-key match,
+                // naming EVERY control declared under this source. Crew links:
+                // .ai/specs/rental-work-orders.md §14.27.3 — Build 2 appends its own keys.
+                'rental_portal' => match ($key) {
+                    'tenant_portal_enabled' => \App\Models\RentalPortalSetting::tenantPortalEnabledFor($agency->id),
+                    'landlord_portal_enabled' => \App\Models\RentalPortalSetting::landlordPortalEnabledFor($agency->id),
+                    'contractor_links_enabled' => \App\Models\RentalPortalSetting::contractorLinksEnabledFor($agency->id),
+                    'contractor_secure_link_expiry_days' => \App\Models\RentalPortalSetting::contractorSecureLinkExpiryDaysFor($agency->id),
+                    'notify_landlord_on_decision_needed' => \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agency->id),
+                    'notify_tenant_on_status_change' => \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($agency->id),
+                    'crew_links_enabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($agency->id),
+                    'crew_job_link_expiry_days' => \App\Models\RentalPortalSetting::crewJobLinkExpiryDaysFor($agency->id),
+                    'crew_link_show_prices' => \App\Models\RentalPortalSetting::crewLinkShowPricesFor($agency->id),
+                    'crew_link_show_tenant_contact' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($agency->id),
+                    'notify_landlord_on_crew_completion' => \App\Models\RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
                 'rental_inspections' => match ($key) {
                     'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),

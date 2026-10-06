@@ -3384,6 +3384,24 @@ photo upload, mark completed, signed-copy upload) with `@example.invalid` test a
 (5) signed copy uploads, supersedes, never deletes, records the same crew completion; (6) crew photos appear on the card;
 (7) agent sign-off + complete kills the link; (8) every action is in the card history.
 
+**BUILT 2026-10-06 (cc4) — Build 1, both steps on QA1.** Step 0 = the §14.27.6 shared interface (migrations `2026_10_10_1000xx`:
+crew contact, token table, sign-off via/ip/device, photo caption + `uploaded_via`, the five settings, the `rental_job_cards.share`
+grant); Step 1 = everything else (migration `2026_10_10_110000` signed copies). Where the build made a call the spec left open:
+- **"Email to crew" and the one-time URL.** The raw link is never stored, so the email action either posts back the link just
+  generated (the panel carries it in a hidden field and the server only trusts it if it resolves LIVE for THIS card) or, with
+  no link in hand, issues a fresh one — replacing the old — and emails that. The old link dies in the same transaction.
+- **WhatsApp** uses the canonical `App\Support\WhatsAppNumberFormatter` (crew phone has no dial code; +27 default like contacts).
+- **The landlord email** is a synchronous domain-event listener (`SendLandlordCrewCompletionMail`) that dispatches a queued job
+  (`SendLandlordCrewCompletionMailJob`) — domain events hold readonly state and cannot be queued themselves. The job checks the
+  `notify_landlord_on_crew_completion` setting, sends through `RentalMailDispatcher` AS the property's responsible agent (fallback:
+  the card's creator, then the shared mailer) and writes `landlord_notified` to the card; a failure never breaks the crew's sign-off.
+- **`RentalMailDispatcher`** extends `ComplianceMailDispatcher` (one implementation of the mailbox routing, own class for rentals).
+- **Wizard current values:** `AgencySetupWizardController::currentValues()` gained an explicit `'rental_portal'` arm naming every
+  control under that source (it had none, so all six pre-existing portal controls always showed their hardcoded default — §6.2).
+  Build 2 appends its four keys to that arm.
+- A signed copy uploaded to a **Completed** card is filed only (no sign-off, no event); a **Cancelled** card refuses it.
+- The public job page uses inline CSS and a few lines of vanilla JS (no Vite bundle), so it loads on a weak phone connection.
+
 ---
 
 ### 14.29 BUILD 2 — crew general page, crew-link management, and tenant / landlord visibility of crew photos and completion

@@ -14638,6 +14638,34 @@ CREATE TABLE `rental_job_card_lines` (
   CONSTRAINT `rjcl_vat_type_fk` FOREIGN KEY (`rental_vat_type_id`) REFERENCES `rental_vat_types` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_job_card_signed_copies`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_job_card_signed_copies` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rental_job_card_id` bigint unsigned NOT NULL,
+  `storage_path` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mime_type` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `size_kb` int unsigned NOT NULL,
+  `signed_by_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `uploaded_by_user_id` bigint unsigned DEFAULT NULL,
+  `uploaded_at` timestamp NOT NULL,
+  `superseded_at` timestamp NULL DEFAULT NULL,
+  `superseded_by_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_job_card_signed_copies_uploaded_by_user_id_foreign` (`uploaded_by_user_id`),
+  KEY `rjcsc_card_superseded_idx` (`rental_job_card_id`,`superseded_at`),
+  KEY `rjcsc_agency_idx` (`agency_id`),
+  CONSTRAINT `rental_job_card_signed_copies_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_job_card_signed_copies_rental_job_card_id_foreign` FOREIGN KEY (`rental_job_card_id`) REFERENCES `rental_job_cards` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_job_card_signed_copies_uploaded_by_user_id_foreign` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_job_card_tasks`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -19590,3 +19618,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1575,'2026_10_10_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1576,'2026_10_10_100300_add_caption_and_uploaded_via_to_rental_work_order_photos_table',2);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1577,'2026_10_10_100400_add_crew_link_settings_to_rental_portal_settings_table',2);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1578,'2026_10_10_100500_grant_rental_job_cards_share_permission',2);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1579,'2026_10_10_110000_create_rental_job_card_signed_copies_table',3);
