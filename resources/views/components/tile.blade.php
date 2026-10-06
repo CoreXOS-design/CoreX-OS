@@ -188,7 +188,11 @@ window.CoreXTile = (function () {
                 {{-- Breakdown list (label + value rows with a RAG dot) --}}
                 <template x-if="['active_buyer_pipeline','esign_activity','prospecting_activity','listings_pending_marketing'].includes({{ $var }}.card_id)">
                     <div class="space-y-2.5 text-xs">
-                        <template x-for="item in {{ $var }}.items" :key="item.label">
+                        {{-- Key = index + label: a label is NOT unique (two listings with the same title) and a
+                             duplicate x-for key makes Alpine call .after() on an undefined lookup entry
+                             ("reading 'after'"), dropping rows. These rows hold no per-row state, so an
+                             index-qualified key costs nothing. --}}
+                        <template x-for="(item, idx) in {{ $var }}.items" :key="idx + ':' + item.label">
                             <div class="flex items-center justify-between gap-2 min-w-0">
                                 <div class="flex items-center gap-2 min-w-0 flex-1">
                                     <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + (item.colour || 'var(--text-muted)')"></span>

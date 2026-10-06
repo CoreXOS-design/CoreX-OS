@@ -93,6 +93,22 @@ class PropertyObserver
     private static array $renewalResyndicateReminders = [];
 
     /**
+     * Johan 2026-10-06 — properties whose status moved from an OFF-market value
+     * (let_out, withdrawn, sold…) to an ON-market one, captured in saving() where
+     * getOriginal('status') is reliable (saved()'s first nested save syncs the
+     * original) and consumed in saved()'s P24 status block (keyed by property ID).
+     */
+    private static array $returningToMarket = [];
+
+    /**
+     * p24_syndication_status values that say "P24 is not showing this as a live
+     * for-sale/to-let advert": withdrawn off the portal, or parked as sold/rented
+     * stock. A listing in one of these goes BACK on P24 through reactivateListing()
+     * (BackOnMarket), never a bare 'Active'.
+     */
+    private const P24_NOT_LIVE_MARKERS = [Property::PORTAL_OFF_STATUS, 'sold', 'rented'];
+
+    /**
      * AT-321 — NOISE columns excluded from the audit trail everywhere: pure
      * timestamps, derived/normalised mirrors, portal sync stamps, signatures and
      * transient status/errors. (Approved exclusion list, spec §3.1.) Everything
@@ -217,6 +233,18 @@ class PropertyObserver
                 && $newExpiry->startOfDay()->gte(\Illuminate\Support\Carbon::today())
             ) {
                 self::$renewalResyndicateReminders[$property->id] = true;
+            }
+        }
+
+        // Portal presence follows property status (Johan, 2026-10-06): remember an
+        // off-market → on-market status move so saved() can send P24 down the
+        // re-list path. The active lease is deliberately never consulted.
+        if ($property->exists && $property->isDirty('status')) {
+            if ($this->isOffMarketStatus((string) $property->getOriginal('status'))
+                && !$this->isOffMarketStatus((string) $property->status)) {
+                self::$returningToMarket[$property->id] = true;
+            } else {
+                unset(self::$returningToMarket[$property->id]);
             }
         }
 
@@ -423,6 +451,10 @@ class PropertyObserver
         // Eloquent UPDATE/INSERT (and its trigger evaluation) has passed. Any
         // subsequent quiet/raw write on this connection is then caught by the trigger.
         \App\Support\Audit\PropertyAuditContext::clearHandled();
+
+        // Consume the saving() capture up front so it can never leak into a later save.
+        $returningToMarket = !empty(self::$returningToMarket[$property->id]);
+        unset(self::$returningToMarket[$property->id]);
 
         // AT-108 — stock changed → buyers' canonical Core Match counts may shift.
         // Queue an ASYNC, COALESCED recompute (Freshness Option B). Never sync —
@@ -778,6 +810,32 @@ class PropertyObserver
                     ['attempted_p24_status' => $p24Status]
                 );
                 return;
+            }
+
+            // Portal presence follows property status (Johan, 2026-10-06): a listing
+            // that went off-market and is now back on-market is a RE-LIST. Withdrawn
+            // (or parked sold/rented) on P24 means a bare 'Active' push is not the
+            // portal's back-on-market path and never reset CoreX's own off-portal
+            // marker, so CoreX kept showing the listing as off Property24.
+            // reactivateListing() sends BackOnMarket, re-checks the PP-exclusive and
+            // approval gates, and writes the marker ONLY after P24 accepts the push
+            // (a failed/transient push leaves it untouched). The active lease is
+            // never consulted — an active lease blocks nothing about portals.
+            if ($returningToMarket
+                && !Property24ListingMapper::isTerminalStatus($p24Status)
+                && in_array($property->p24_syndication_status, self::P24_NOT_LIVE_MARKERS, true)) {
+                try {
+                    $result = app(\App\Services\Syndication\Property24\Property24SyndicationService::class)
+                        ->reactivateListing($property);
+                    Log::channel('property24')->info(
+                        "Back-on-market re-list for property #{$property->id}: " . (($result['success'] ?? false) ? 'accepted' : 'not applied'),
+                        ['message' => $result['message'] ?? null]
+                    );
+                } catch (\Throwable $e) {
+                    Log::channel('property24')->error("Back-on-market re-list failed for property #{$property->id}: {$e->getMessage()}");
+                }
+
+                return; // Don't also push a bare status or re-submit the full listing
             }
 
             try {

@@ -56,11 +56,18 @@
                             <span class="truncate" style="{{ $cell }}">{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}</span>
                             <span class="truncate" style="{{ $cell }}">{{ $line->unit_price !== null ? 'R' . number_format((float) $line->unit_price, 2) : '—' }}</span>
                             @if($vat['registered'])
-                                <span class="truncate" title="{{ $line->vat_display_label ?? $line->vatType?->name ?? '—' }}" style="{{ $cell }}">
-                                    {{ $line->vat_display_label ?? $line->vatType?->name ?? '—' }}
-                                    @if($line->vat_display_rate !== null)
-                                        <span style="color: var(--text-muted);">({{ rtrim(rtrim(number_format((float) $line->vat_display_rate, 2), '0'), '.') }}%)</span>
-                                    @endif
+                                {{-- §14.25 — the line's EFFECTIVE VAT type, resolved through the VAT service and keyed by line id
+                                     (breakdown() writes its vat_display_* attributes onto $jobCard->lines, which are NOT the instances
+                                     this partial iterates, so those were always empty and a line with no VAT type of its own showed "—").
+                                     Wording = the add-line select's: Standard / None / Custom. --}}
+                                @php
+                                    $fig = $vat['lineFigures'][$line->id] ?? null;
+                                    $vatTypeLabel = $fig['type_label'] ?? app(\App\Services\Rentals\RentalJobCardVatService::class)->effectiveTypeLabel($line);
+                                    $vatRate = $fig['rate'] ?? null;
+                                @endphp
+                                <span class="truncate" title="{{ $vatTypeLabel }}{{ $vatRate ? ' (' . rtrim(rtrim(number_format((float) $vatRate, 2), '0'), '.') . '%)' : '' }}" style="{{ $cell }}">
+                                    {{-- label only in the cell (the 84px column cannot hold "Standard (15%)" at 1366 wide); the rate is in the tooltip --}}
+                                    {{ $vatTypeLabel }}
                                 </span>
                             @endif
                         @endif

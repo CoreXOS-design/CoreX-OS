@@ -515,19 +515,23 @@ final class RentalInspectionChainTest extends TestCase
 
         // The row container is a real CSS Grid with two columns — never a
         // flex pair of two independently-run loops (the exact shape Johan
-        // rejected: "not by luck").
+        // rejected: "not by luck"). The grid now lives in the stylesheet
+        // rule for .rir-compare-row (it used to be an inline style on each
+        // row div), so assert the rule itself.
         self::assertMatchesRegularExpression(
-            '/<div class="rir-compare-row[^"]*" style="display:grid; grid-template-columns:1fr 1fr;/',
+            '/\.rir-compare-row\s*\{\s*display:grid;\s*grid-template-columns:1fr 1fr;/',
             $html
         );
 
-        // Immediately inside that row: two .rir-compare-cell divs back to
-        // back — the left reads chainPredecessor through the read-only
-        // accessor (conditionForInspection), the right reads tailSection()
-        // through the live/editable one (selectedConditionFor) — proving
-        // they are the SAME row's two siblings, not two separate lists.
+        // Immediately inside that row: two .rir-compare-cell siblings — the
+        // left (wrapped in a <template x-if="chainPredecessor">, so a first
+        // inspection with no predecessor collapses to a solo row) reads
+        // chainPredecessor through the read-only accessor
+        // (conditionForInspection), the right reads tailSection() through
+        // the live/editable one (selectedConditionFor) — proving they are
+        // the SAME row's two siblings, not two separate lists.
         self::assertMatchesRegularExpression(
-            '/<div class="rir-compare-row[^"]*"[^>]*>\s*<div class="rir-compare-cell[^"]*">.*?conditionForInspection\(chainPredecessor.*?<\/div>\s*<div class="rir-compare-cell[^"]*">.*?selectedConditionFor\(tailSection\(\)/s',
+            '/<div class="rir-compare-row[^"]*"[^>]*>\s*<template x-if="chainPredecessor">\s*<div class="rir-compare-cell[^"]*">.*?conditionForInspection\(chainPredecessor.*?<\/template>\s*<div class="rir-compare-cell[^"]*">.*?selectedConditionFor\(tailSection\(\)/s',
             $html
         );
     }
@@ -554,9 +558,9 @@ final class RentalInspectionChainTest extends TestCase
     /**
      * The standalone Compare section is being removed (cc2) — every photo
      * tile on both cells must open cc2's shared openCompareViewer() modal,
-     * with the SAME call shape already used elsewhere on this page
-     * ('item', 'item_' + item.id, null, item). Never the old, now-orphaned
-     * openInspectionPhoto() single-viewer path from either cell.
+     * passing the cell's own inspection (openCompareViewer(photo, insp)).
+     * Never the old, now-orphaned openInspectionPhoto() single-viewer path
+     * from either cell.
      */
     public function test_both_comparison_cells_open_the_shared_compare_viewer_on_photo_click(): void
     {
@@ -568,21 +572,28 @@ final class RentalInspectionChainTest extends TestCase
         $resp = $this->get(route('corex.properties.show', $this->property->id));
         $html = $resp->getContent();
 
-        // >= 4, not an exact count: rental-inspection-recording.blade.php
-        // is included TWICE (the active and completed x-show branches —
-        // see show.blade.php's own FIX docblock on why), each rendering
-        // BOTH cells of the shared item-cell partial with this exact call
-        // — 2 cells x 2 branches = 4 from this file alone. The still-
-        // present (not yet removed — that's cc2's own, separate change)
-        // standalone Compare section already used this identical call
-        // shape too, so the real page total is higher; asserting the
-        // floor this file is responsible for avoids coupling to whether
-        // cc2 has removed that section yet.
+        // Current call shape (item-cell partial): the tile image on each cell
+        // calls openCompareViewer(tile.photo, <that cell's inspection>) —
+        // chainPredecessor on the read-only left cell, chainTail on the
+        // live right cell. (This used to be openCompareViewer('item',
+        // 'item_' + item.id, null, item), the pre-photo-matching signature.)
+        // The left cell's tile image AND its "linked" badge both call it,
+        // and the recording partial is included in two x-show branches (see
+        // show.blade.php's own FIX docblock), so the predecessor call
+        // appears >= 4 times; the live tail tile at least once. Floors, not
+        // exact counts, so an unrelated extra caller can't break this.
         self::assertGreaterThanOrEqual(
             4,
-            substr_count($html, "openCompareViewer('item', 'item_' + item.id, null, item)"),
-            'both the predecessor and tail item-cell photo tiles must call the same shared viewer'
+            substr_count($html, 'openCompareViewer(tile.photo, chainPredecessor)'),
+            'the predecessor (read-only) cell photo tiles must open the shared compare viewer'
         );
+        self::assertGreaterThanOrEqual(
+            1,
+            substr_count($html, 'openCompareViewer(tile.photo, chainTail)'),
+            'the tail (live) cell photo tiles must open the same shared compare viewer'
+        );
+        // Never the old, orphaned single-photo viewer, from either cell.
+        self::assertStringNotContainsString('@click="tile.photo && openInspectionPhoto(', $html);
     }
 
     /**

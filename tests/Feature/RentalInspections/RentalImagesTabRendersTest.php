@@ -72,7 +72,13 @@ final class RentalImagesTabRendersTest extends TestCase
             ->get(route('corex.properties.show', $property->id))
             ->assertOk()
             ->assertSee('Inspection Items')
-            ->assertSee('Record…');
+            // The per-item "Record…" dropdown was replaced on 2026-09-22 (8bf712837) by one-tap
+            // condition buttons built from the agency's own vocabulary
+            // (RentalInspectionSetting::conditionStatesFor()). So prove what the dropdown proved —
+            // the item reaches the page AND the recording vocabulary that drives its buttons does
+            // (the shipped default set includes "Not working").
+            ->assertSee('Main Bedroom')
+            ->assertSee('Not working');
     }
 
     /**
