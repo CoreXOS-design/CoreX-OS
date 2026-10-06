@@ -465,10 +465,28 @@ class AgencyTimelineTest extends TestCase
         $this->svc()->start($this->agency('Early Agency'), now()->addDays(1), null);
         $this->svc()->start($this->agency('Late Agency'), now()->addDays(40), null);
 
-        $this->get(route('admin.agency-timelines.index', ['start_from' => now()->addDays(30)->toDateString()]))
-            ->assertOk()->assertSee('Late Agency')->assertDontSee('Early Agency');
-        $this->get(route('admin.agency-timelines.index', ['start_to' => now()->addDays(10)->toDateString()]))
-            ->assertOk()->assertSee('Early Agency')->assertDontSee('Late Agency');
+        // Assert against the timeline list table only, not the whole page: the app layout prints every
+        // agency name for an owner (agency-switcher JSON + a debug comment), so a page-wide assertDontSee
+        // would trip on the layout even when the filter works.
+        $list = fn (array $query): string => $this->listRegion(
+            $this->get(route('admin.agency-timelines.index', $query))->assertOk()->getContent()
+        );
+
+        $from = $list(['start_from' => now()->addDays(30)->toDateString()]);
+        $this->assertStringContainsString('Late Agency', $from);
+        $this->assertStringNotContainsString('Early Agency', $from);
+
+        $to = $list(['start_to' => now()->addDays(10)->toDateString()]);
+        $this->assertStringContainsString('Early Agency', $to);
+        $this->assertStringNotContainsString('Late Agency', $to);
+    }
+
+    /** The timeline list table (the only <table> on the page when archived rows are not requested). */
+    private function listRegion(string $html): string
+    {
+        $this->assertSame(1, preg_match('~<table\b.*?</table>~s', $html, $m), 'timeline list table not found on the page');
+
+        return $m[0];
     }
 
     public function test_owner_edits_defaults_with_single_go_live_enforced(): void

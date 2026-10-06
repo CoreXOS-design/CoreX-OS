@@ -16,11 +16,18 @@ class RentalWorkOrderPhoto extends Model
 
     public const UPDATED_AT = null;
 
+    /** rental_work_order_photos.uploaded_via — where the photo came from (§14.27.6 item 6). Null = uploaded before the column existed. */
+    public const VIA_CREW_LINK = 'crew_link';
+    public const VIA_CREW_PAGE = 'crew_page';
+    public const VIA_OFFICE = 'office';
+
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',
         'rental_job_card_id',
         'photo_type',
+        'caption',
+        'uploaded_via',
         'storage_path',
         'uploaded_by_user_id',
         'client_idempotency_key',

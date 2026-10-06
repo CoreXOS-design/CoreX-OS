@@ -42,12 +42,24 @@ final class SigningSetupExpansionMatchTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function attachMatch(array $recipients, array $signingSetup): array
+    private function attachMatch(array $recipients, array $signingSetup, array &$unmatched = []): array
     {
         $m = new ReflectionMethod(ESignWizardController::class, 'attachSigningSetupMatch');
         $m->setAccessible(true);
 
-        return $m->invoke(app(ESignWizardController::class), $recipients, $signingSetup);
+        // attachSigningSetupMatch() takes $unmatched by reference, so build the arg list by hand.
+        $args = [$recipients, $signingSetup, &$unmatched];
+
+        return $m->invokeArgs(app(ESignWizardController::class), $args);
+    }
+
+    /** The post-expansion fallback pass — where an entry that matched nothing pre-expansion is re-tried, and finally throws. */
+    private function matchPostExpansion(array $recipients, array $unmatched): array
+    {
+        $m = new ReflectionMethod(ESignWizardController::class, 'matchUnmatchedSigningSetupPostExpansion');
+        $m->setAccessible(true);
+
+        return $m->invoke(app(ESignWizardController::class), $recipients, $unmatched);
     }
 
     private function expand(array $recipients, $user): array
@@ -85,7 +97,13 @@ final class SigningSetupExpansionMatchTest extends TestCase
         $this->assertArrayNotHasKey('_matched_signing_setup_index', $tagged[0]);
     }
 
-    /** THE EXACT BUG: a signing_setup entry naming a party that no longer exists in $recipients must throw, never silently drop. */
+    /**
+     * THE EXACT BUG: a signing_setup entry naming a party that no longer exists in $recipients must
+     * never silently drop. Matching is two-pass now: attachSigningSetupMatch() (pre-expansion) no
+     * longer throws — it hands back whatever it could not match, so an expansion-renamed row gets a
+     * second chance — and matchUnmatchedSigningSetupPostExpansion() throws, naming the party, only
+     * when the entry matches nothing anywhere.
+     */
     public function test_unmatched_signing_setup_entry_throws_instead_of_silently_dropping(): void
     {
         $recipients = [
@@ -99,8 +117,20 @@ final class SigningSetupExpansionMatchTest extends TestCase
             ['role' => 'seller', 'name' => 'A Represented Party Whose Name Changed', 'signing_order' => 3],
         ];
 
-        $this->expectException(ValidationException::class);
-        $this->attachMatch($recipients, $signingSetup);
+        $unmatched = [];
+        $tagged = $this->attachMatch($recipients, $signingSetup, $unmatched);
+
+        // Pass 1 does not throw, and reports exactly the orphaned entry (original index 2).
+        $this->assertSame([2], array_keys($unmatched));
+        $this->assertSame(1, $tagged[0]['_matched_signing_setup_index']);
+
+        // Pass 2 finds nothing for it either, so it throws and names the party.
+        try {
+            $this->matchPostExpansion($tagged, $unmatched);
+            $this->fail('An unmatched signing_setup entry must throw, never silently vanish a party.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('A Represented Party Whose Name Changed', $e->errors()['recipients'][0]);
+        }
     }
 
     public function test_agent_entries_in_signing_setup_are_never_matched_or_required(): void
@@ -153,7 +183,10 @@ final class SigningSetupExpansionMatchTest extends TestCase
         ]);
 
         $recipients = [
-            ['role' => 'seller', 'name' => $piet->full_name, '_contact_id' => $piet->id],
+            // A natural person only expands when THIS document flags them as represented (per-recipient
+            // `_is_deceased`, partyNeedsRepresentativeExpansion) — a stored POA link alone no longer
+            // decides what a brand-new document prints.
+            ['role' => 'seller', 'name' => $piet->full_name, '_contact_id' => $piet->id, '_is_deceased' => true],
         ];
         $signingSetup = [
             ['role' => 'agent', 'name' => 'Agent User', 'signing_order' => 1],

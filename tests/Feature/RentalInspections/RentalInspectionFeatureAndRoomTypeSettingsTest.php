@@ -600,19 +600,24 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'some_key_nobody_configured'));
     }
 
-    /** Johan: N/A is "not an argument at all" — the one exception alongside Good. */
-    public function test_good_and_na_do_not_require_notes_by_default_every_other_state_does(): void
+    /**
+     * Johan's ruling (property 5792 progression-gate build; DEFAULT_CONDITION_STATES docblock): only
+     * conditions that assert something ADVERSE need a reason — Damaged, Not working, Missing, Other.
+     * Good, Fair and N/A do not. (Was: "everything but Good and N/A", which wrongly included Fair.)
+     */
+    public function test_only_adverse_states_require_notes_by_default(): void
     {
         $agency = $this->newAgency('Coastal Realty');
 
         $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'good'));
         $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'n_a'));
-        foreach (['fair', 'damaged', 'not_working', 'missing', 'other'] as $key) {
+        $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'fair'));
+        foreach (['damaged', 'not_working', 'missing', 'other'] as $key) {
             $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, $key), "'{$key}' should require a reason by default");
         }
     }
 
-    // ── §27.2 (recording-screen navigation, 2026-09-27) — needs_attention ──
+    // ── §27.2 needs_attention, superseded by §36 severity (2026-09-28) — needs-attention is derived from severity ──
 
     public function test_condition_needs_attention_for_an_unknown_key_defaults_to_true(): void
     {
@@ -621,20 +626,25 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'some_key_nobody_configured'));
     }
 
-    /** Johan's explicit ruling: Good and N/A off, everything else on. */
-    public function test_good_and_na_do_not_need_attention_by_default_every_other_state_does(): void
+    /**
+     * §36 (Johan, 2026-09-28): "needs attention" is derived from severity — red/amber only. Defaults:
+     * good/fair blue and n_a grey do NOT need attention; damaged/not_working/missing red and other amber do.
+     * (Was §27.2's stored needs_attention flag, under which Fair needed attention — superseded by §36.)
+     */
+    public function test_only_red_and_amber_states_need_attention_by_default(): void
     {
         $agency = $this->newAgency('Coastal Realty');
 
         $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
         $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'n_a'));
-        foreach (['fair', 'damaged', 'not_working', 'missing', 'other'] as $key) {
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'fair'));
+        foreach (['damaged', 'not_working', 'missing', 'other'] as $key) {
             $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, $key), "'{$key}' should need attention by default");
         }
     }
 
-    /** A row saved before needs_attention existed reads as TRUE, never silently filtered out of view. */
-    public function test_a_condition_state_saved_before_needs_attention_existed_defaults_to_true(): void
+    /** §36: a row with neither severity nor the legacy needs_attention reads as 'red' (so it still needs attention) — never silently filtered out of view. */
+    public function test_a_condition_state_saved_before_severity_existed_defaults_to_red(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         RentalInspectionSetting::create([
@@ -644,10 +654,28 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
         $state = collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'good');
-        $this->assertTrue($state['needs_attention']);
+        $this->assertSame('red', $state['severity']);
     }
 
-    public function test_an_agency_can_save_needs_attention_per_condition_state(): void
+    /** §36: a legacy row carrying only the old needs_attention boolean maps true -> red, false -> blue. */
+    public function test_a_legacy_needs_attention_boolean_maps_to_severity(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        RentalInspectionSetting::create([
+            'agency_id' => $agency->id,
+            'condition_states' => [
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => false, 'needs_attention' => false],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => true, 'needs_attention' => true],
+            ],
+        ]);
+
+        $states = collect(RentalInspectionSetting::conditionStatesFor($agency->id));
+        $this->assertSame('blue', $states->firstWhere('key', 'ok')['severity']);
+        $this->assertSame('red', $states->firstWhere('key', 'bad')['severity']);
+    }
+
+    /** §36: the settings form posts a per-state `severity`; needs-attention is derived (red/amber yes, blue/grey no). */
+    public function test_an_agency_can_save_severity_per_condition_state(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $admin = $this->admin($agency);
@@ -655,9 +683,10 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
             'condition_states_submitted' => '1',
             'condition_states' => [
-                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0', 'needs_attention' => '0'],
-                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => '0', 'needs_attention' => '1'],
-                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => '1', 'needs_attention' => '1'],
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0', 'severity' => 'blue'],
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => '0', 'severity' => 'amber'],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => '1', 'severity' => 'red'],
+                ['key' => 'na', 'label' => 'NA', 'requires_notes' => '0', 'severity' => 'grey'],
             ],
         ]);
 
@@ -665,10 +694,12 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'ok'));
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'bad'));
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'na'));
+        $this->assertSame('amber', collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'ok')['severity']);
     }
 
-    /** The lazy-but-valid shortcut — the checkbox omitted entirely (unchecked, no hidden fallback) must not 500 or silently default wrong. */
-    public function test_a_condition_state_saved_with_needs_attention_omitted_defaults_to_false(): void
+    /** §36: severity omitted (or unrecognised) must not 500 — the saver falls back to 'red', so the state is never silently hidden from the Needs-attention filter. */
+    public function test_a_condition_state_saved_with_severity_omitted_defaults_to_red(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $admin = $this->admin($agency);
@@ -681,7 +712,8 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         ]);
 
         $response->assertSessionHasNoErrors();
-        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
+        $this->assertSame('red', collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'good')['severity']);
+        $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
     }
 
     // ── Shared: the edit screen renders both sections with real state ──
