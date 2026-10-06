@@ -479,6 +479,9 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnCrewCompletion'],
             // rental-work-orders.md §14.27.3 — Build 2. Narrow, has()-guarded saver.
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPhotosVisibleToClients'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewStandingLinkExpiryDays'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPageRecentCompletedDays'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPageUpcomingDays'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -629,6 +632,18 @@ return [
              'label' => 'Crew photos tenants and landlords can see',
              'explain' => 'When your maintenance crew photographs a job, those photos can show on the job in the tenant\'s and the landlord\'s portal so they can see the work is being done.',
              'affects' => 'Whether a tenant or landlord sees the photos taken while the crew is working as well as the finished-job photos, or only the finished-job photos. The photos taken when a problem was first reported are never shown to either of them.'],
+            ['key' => 'crew_standing_link_expiry_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => null, 'min' => 1, 'max' => 365,
+             'label' => 'Crew page link lasts (days — blank = until revoked)',
+             'explain' => 'Each maintenance crew gets one standing link to a page listing the jobs booked for them. Leave this blank and the link keeps working until you revoke or regenerate it; fill it in to make a crew link stop after that many days.',
+             'affects' => 'How long a crew\'s jobs-page link stays valid after you create it. Blank suits most agencies — a crew bookmarks the page and uses it for months; an agent can revoke or regenerate the link at any time from the crew\'s screen.'],
+            ['key' => 'crew_page_recent_completed_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 7, 'min' => 0, 'max' => 30,
+             'label' => 'Show completed jobs on the crew page for (days)',
+             'explain' => 'After the office closes a job it drops off the crew\'s jobs page. This keeps it listed (read-only) for a few days so the crew can look back at what was just done.',
+             'affects' => 'How many days a finished job stays visible on the crew page. 7 days suits most agencies; set 0 to hide the finished-jobs list entirely.'],
+            ['key' => 'crew_page_upcoming_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 60,
+             'label' => 'Crew page "upcoming" reaches (days ahead)',
+             'explain' => 'The crew page shows today\'s jobs, then the jobs booked over the next few days, and adds up the parts they need to load for all of them.',
+             'affects' => 'How far ahead the crew can see booked jobs, and which jobs count towards the "what to load" list. 14 days suits most agencies — a longer window means loading for more jobs at once.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()

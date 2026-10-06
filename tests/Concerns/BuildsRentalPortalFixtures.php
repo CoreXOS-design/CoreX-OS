@@ -9,7 +9,13 @@ use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\LeaseTenant;
 use App\Models\Property;
+use App\Models\RentalCatalogueItem;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
+use App\Models\RentalCrew;
 use App\Models\RentalJobCard;
+use App\Models\RentalJobCardLine;
+use App\Models\RentalJobCardTask;
 use App\Models\RentalPortalSetting;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderPhoto;
@@ -140,5 +146,46 @@ trait BuildsRentalPortalFixtures
             ['agency_id' => $agency->id],
             ['crew_photos_visible_to_clients' => $value],
         );
+    }
+
+    protected function makeCrew(Agency $agency, string $name = 'Team 1', array $overrides = []): RentalCrew
+    {
+        return RentalCrew::withoutGlobalScopes()->create(array_merge([
+            'agency_id' => $agency->id, 'name' => $name, 'is_active' => true,
+            'email' => 'crew+' . uniqid() . '@example.invalid', 'phone' => '082 123 4567',
+        ], $overrides));
+    }
+
+    protected function makeTask(RentalJobCard $card, string $description = 'Drain the geyser', array $overrides = []): RentalJobCardTask
+    {
+        return RentalJobCardTask::withoutGlobalScopes()->create(array_merge([
+            'agency_id' => $card->agency_id, 'rental_job_card_id' => $card->id, 'description' => $description, 'sort_order' => 1,
+        ], $overrides));
+    }
+
+    /** A catalogue PART (or labour) item for the agency, with its type + unit seeded. */
+    protected function makeCatalogueItem(Agency $agency, string $code, string $description, string $kind = 'part', string $unitName = 'each'): RentalCatalogueItem
+    {
+        RentalCatalogueItemType::seedDefaultsFor($agency->id);
+        RentalCatalogueUnit::seedDefaultsFor($agency->id);
+        $type = RentalCatalogueItemType::withoutGlobalScopes()->where('agency_id', $agency->id)->where('kind', $kind)->orderBy('id')->firstOrFail();
+        $unit = RentalCatalogueUnit::withoutGlobalScopes()->where('agency_id', $agency->id)->orderBy('id')->firstOrFail();
+
+        return RentalCatalogueItem::withoutGlobalScopes()->create([
+            'agency_id' => $agency->id, 'rental_catalogue_item_type_id' => $type->id, 'code' => $code,
+            'description' => $description, 'rental_catalogue_unit_id' => $unit->id, 'default_price' => 100, 'is_active' => true,
+        ]);
+    }
+
+    /** A job card line. type 'part' = stock to load; 'labour' = not stock. */
+    protected function makeLine(RentalJobCard $card, string $type, string $description, float $quantity, ?string $unit = 'each', array $overrides = []): RentalJobCardLine
+    {
+        $unitPrice = $overrides['unit_price'] ?? 100.0;
+
+        return RentalJobCardLine::withoutGlobalScopes()->create(array_merge([
+            'agency_id' => $card->agency_id, 'rental_job_card_id' => $card->id, 'type' => $type,
+            'description' => $description, 'unit' => $unit, 'quantity' => $quantity,
+            'unit_price' => $unitPrice, 'line_total' => round($quantity * $unitPrice, 2), 'sort_order' => 1,
+        ], $overrides));
     }
 }

@@ -52,6 +52,8 @@
         </div>
     </form>
 
+    @include('corex.rental-crews._crew-link-panel', ['crew' => $crew])
+
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Members</h2>
         @forelse($crew->members as $member)

@@ -643,6 +643,9 @@ class AgencySetupWizardController extends Controller
                     'crew_link_show_tenant_contact' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($agency->id),
                     'notify_landlord_on_crew_completion' => \App\Models\RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agency->id),
                     'crew_photos_visible_to_clients' => \App\Models\RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id),
+                    'crew_standing_link_expiry_days' => \App\Models\RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id),
+                    'crew_page_recent_completed_days' => \App\Models\RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id),
+                    'crew_page_upcoming_days' => \App\Models\RentalPortalSetting::crewPageUpcomingDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 'rental_inspections' => match ($key) {
