@@ -54,24 +54,29 @@ function mintCookie(userId) {
 async function newPage(browser, { cookie = null, width, height, mobile = false }) {
   const page = await browser.newPage();
   const errors = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); if (process.env.DEBUG) console.log('   [console.' + m.type() + ']', m.text().slice(0, 200)); });
   page.on('pageerror', (e) => errors.push('UNCAUGHT: ' + e.message));
-  page.on('dialog', async (d) => { await d.accept(); }); // the screens use confirm() before archive / send; accept and carry on
+  page.on('dialog', async (d) => { if (process.env.DEBUG) console.log('   [dialog]', d.type(), d.message().slice(0, 120)); await d.accept(); }); // the screens use confirm() before archive / send; accept and carry on
   if (cookie) await page.setCookie({ ...cookie, domain: new URL(BASE_URL).hostname, path: '/', httpOnly: true, secure: true });
   await page.setViewport({ width, height, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+  page.posts = [];
+  page.on('response', (r) => { if (r.request().method() === 'POST') page.posts.push(`${r.status()} ${r.url().replace(BASE_URL, '')}`); });
   page.errors = errors;
   return page;
 }
-const go = async (page, url) => { const r = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 }); await sleep(900); return r.status(); };
+// Several tabs are open at once (office, phone, clerk): a background tab is throttled, which hangs screenshots and swallows clicks — always bring the one we use to the front.
+const go = async (page, url) => { await page.bringToFront(); const r = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 }); await sleep(900); return r.status(); };
 const text = (page) => page.evaluate(() => document.body.innerText);
-const shot = (page, name) => page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true });
+// Only the phone pages are shot full-length: resizing the desktop viewport to the page height re-runs the card screen's own panel-sizing script and leaves it in a state a real user never sees.
+const shot = async (page, name, fullPage = false) => { await page.bringToFront(); return page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage }); };
 async function submitAndWait(page, clickFn) {
+  await page.bringToFront();
   try { await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }), clickFn()]); }
   catch (e) {
     const where = page.url();
     const msgs = await page.evaluate(() => [...document.querySelectorAll('.alert-error, .alert-success, [role=alert], :invalid')].map((n) => (n.name || '') + ':' + (n.innerText || n.validationMessage || '').slice(0, 120)).slice(0, 6)).catch(() => []);
-    await page.screenshot({ path: path.join(SHOTS, 'timeout-' + Date.now() + '.png'), fullPage: true }).catch(() => {});
-    throw new Error(`${e.message} at ${where}; page says: ${JSON.stringify(msgs)}`);
+    await Promise.race([page.screenshot({ path: path.join(SHOTS, 'timeout-' + Date.now() + '.png') }), sleep(8000)]).catch(() => {});
+    throw new Error(`${e.message} at ${where}; POSTs so far: ${JSON.stringify((page.posts || []).slice(-4))}; page says: ${JSON.stringify(msgs)}`);
   }
   await sleep(900);
 }
@@ -149,7 +154,7 @@ async function main() {
     check('crew page: opens', (await go(phone, crewPage)) === 200);
     t = await text(phone);
     check('crew page: the Draft card is listed under "To price"', /to price/i.test(t) && t.includes('ZZ Build 1 smoke'));
-    await shot(phone, '02-crew-page-to-price');
+    await shot(phone, '02-crew-page-to-price', true);
 
     check('crew link: opens', (await go(phone, crewLink)) === 200);
     t = await text(phone);
@@ -188,14 +193,14 @@ async function main() {
     check('crew link: no horizontal scroll at phone width (390 px)', overflow.sw <= overflow.cw + 1, JSON.stringify(overflow));
     const smallTargets = await phone.$$eval('#cj-pricing button, #cj-pricing summary, #cj-pricing input:not([type=checkbox]):not([type=file]), #cj-pricing select', (els) => els.filter((e) => e.offsetParent !== null && e.getBoundingClientRect().height < 44).map((e) => e.tagName + ':' + (e.name || e.textContent.trim().slice(0, 20))));
     check('crew link: every tap target on the panel is at least 44 px tall', smallTargets.length === 0, smallTargets.join(' | ') || 'ok');
-    await shot(phone, '03-crew-link-drafts');
+    await shot(phone, '03-crew-link-drafts', true);
 
     // send to office
     await phone.evaluate(() => { document.querySelector('.cj-send-form input[name=confirm]').checked = true; });
     await submitAndWait(phone, () => clickByText(phone, '.cj-send-form button', 'Send to office'));
     t = await text(phone);
     check('crew link: "Sent 2 lines to the office" and both lines now read "Sent to office"', t.includes('Sent 2 lines') && (t.match(/Sent to office/g) || []).length >= 2);
-    await shot(phone, '04-crew-link-sent');
+    await shot(phone, '04-crew-link-sent', true);
 
     // ───────────────────────────── OFFICE: accept / reject ─────────────────────────────
     await go(office, card);
@@ -207,10 +212,12 @@ async function main() {
     await shot(office, '05-office-awaiting-block');
 
     // accept the washer (selling blank = rules: the card's parts 20 % applies)
-    await submitAndWait(office, async () => {
-      const handle = await office.evaluateHandle(() => { const blk = [...document.querySelectorAll('[data-awaiting-line]')].find((b) => b.innerText.includes('Smoke washer')); return blk.querySelector('form[action$="/accept"] button'); });
-      await handle.asElement().click();
-    });
+    const acceptBtn = (await office.evaluateHandle(() => { const blk = [...document.querySelectorAll('[data-awaiting-line]')].find((b) => b.innerText.includes('Smoke washer')); return blk.querySelector('form[action$="/accept"] button'); })).asElement();
+    await acceptBtn.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+    await sleep(300);
+    const top = await acceptBtn.evaluate((e) => { const r = e.getBoundingClientRect(); const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { isButton: el === e || e.contains(el), topmost: el ? (el.tagName + '.' + String(el.className).slice(0, 60) + ' ' + (el.innerText || '').slice(0, 30)) : null, disabled: e.disabled, rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] }; });
+    check('office: the Accept button is clickable (nothing on top of it, not disabled)', top.isButton && !top.disabled, JSON.stringify(top));
+    await submitAndWait(office, () => acceptBtn.click());
     t = await text(office);
     check('office: accepting prices the washer by the parts 20 % rule: cost R30.00, selling R36.00', t.includes('Smoke washer') && t.includes('R36.00'));
     // reject the extra with a reason
@@ -228,7 +235,7 @@ async function main() {
     t = await text(phone);
     check('crew link: sees "Accepted" and "Not accepted" with the office\'s reason', t.includes('Accepted') && t.includes('Not accepted') && t.includes('Already on site — smoke'));
     check('crew link: still no selling after acceptance', !['selling', 'markup', 'margin', 'r36.00', 'r 36'].some((w) => t.toLowerCase().includes(w)));
-    await shot(phone, '07-crew-link-outcome');
+    await shot(phone, '07-crew-link-outcome', true);
 
     // ───────────────────────────── QUOTE: blocked when unpriced, sent when priced ─────────────────────────────
     await office.waitForSelector('form[action$="/lines"] input[name=description]');
