@@ -204,8 +204,8 @@
                                     <div class="card" data-job-card>
                                         <div class="row"><h2 x-text="j.title"></h2><span class="badge" x-text="j.status.replace('_',' ')"></span></div>
                                         <p class="muted" x-show="j.property_address" x-text="j.property_address"></p>
-                                        <p class="muted" x-show="j.completed_at" x-text="'Completed ' + j.completed_at.substring(0,10)"></p>
-                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="'Scheduled ' + (j.scheduled_at || '').substring(0,10)"></p>
+                                        <p class="muted" x-show="j.completed_at" x-text="j.completed_at ? 'Completed ' + j.completed_at.substring(0,10) : ''"></p>
+                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="j.scheduled_at ? 'Scheduled ' + j.scheduled_at.substring(0,10) : ''"></p>
                                         <p class="muted" x-show="j.crew_completion" x-text="j.crew_completion ? ('Work completed' + (j.crew_completion.signed_by ? ' — signed by ' + j.crew_completion.signed_by : '')) : ''"></p>
                                         <div class="photo-grid" x-show="j.photos.length">
                                             <template x-for="ph in j.photos" :key="ph.id">
@@ -296,10 +296,10 @@
                                     <div class="card" data-job-card>
                                         <div class="row"><h2 x-text="j.title"></h2><span class="badge" x-text="j.status.replace('_',' ')"></span></div>
                                         <p class="muted" x-show="j.property_address" x-text="j.property_address"></p>
-                                        <p class="muted" x-show="j.completed_at" x-text="'Completed ' + j.completed_at.substring(0,10)"></p>
-                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="'Scheduled ' + (j.scheduled_at || '').substring(0,10)"></p>
+                                        <p class="muted" x-show="j.completed_at" x-text="j.completed_at ? 'Completed ' + j.completed_at.substring(0,10) : ''"></p>
+                                        <p class="muted" x-show="!j.completed_at && j.scheduled_at" x-text="j.scheduled_at ? 'Scheduled ' + j.scheduled_at.substring(0,10) : ''"></p>
                                         <p class="muted" x-show="j.crew_completion" x-text="j.crew_completion ? ('Work completed' + (j.crew_completion.signed_by ? ' — signed by ' + j.crew_completion.signed_by : '')) : ''"></p>
-                                        <p class="muted" x-show="j.selected_quote_amount" x-text="'Quote: R ' + j.selected_quote_amount"></p>
+                                        <p class="muted" x-show="j.selected_quote_amount" x-text="j.selected_quote_amount ? 'Quote: R ' + j.selected_quote_amount : ''"></p>
                                         <div class="photo-grid" x-show="j.photos.length">
                                             <template x-for="ph in j.photos" :key="ph.id">
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
