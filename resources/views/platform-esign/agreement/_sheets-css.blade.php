@@ -40,6 +40,14 @@
     .agr .ctl-pair { display:flex; flex-wrap:wrap; gap:.6rem 1.6rem; align-items:center; }
     .agr .ctl-item { white-space:nowrap; }
     .agr .fld[data-derived] { background:#f3f4f6; color:#374151; cursor:default; }
+    .agr .auto-tip { display:inline-block; vertical-align:middle; margin-left:.6rem; font-size:.76rem; line-height:1.3; color:#64748b; max-width:34em; }
+    .agr .auto-tip::before { content:'i'; display:inline-block; width:1.15em; height:1.15em; line-height:1.15em; margin-right:.4em; text-align:center; font-weight:700; font-style:italic; font-size:.9em; color:#0369a1; border:1px solid #7dd3fc; border-radius:50%; background:#f0f9ff; }
+    .agr .auto-tip a { color:#0369a1; text-decoration:underline; cursor:pointer; }
+    .agr .auto-tip-float { float:right; max-width:52%; margin:0 0 .3rem .8rem; text-align:left; }
+    .agr .fld[readonly] { background:#f3f4f6; color:#374151; border-style:dashed; cursor:not-allowed; }
+    .agr .opt input:disabled + .tick { background:#f3f4f6; border-style:dashed; border-color:#94a3b8; cursor:not-allowed; }
+    .agr .opt input:disabled:checked + .tick { background:#7dd3fc; border-color:#0369a1; box-shadow: inset 0 0 0 3px #f3f4f6; }
+    .agr .opt:has(input:disabled) { cursor:not-allowed; }
     .agr .ctl-note { display:block; font-size:.78rem; color:#92400e; margin-top:.25rem; }
     .agr .masked { cursor: pointer; }
     .agr [data-calc] { font-variant-numeric: tabular-nums; }

@@ -262,6 +262,14 @@
         });
     });
 
+    // "Fills in automatically" tips: the link takes the recipient to the agents entry above the fee table.
+    document.addEventListener('click', function (e) {
+        var a = e.target.closest && e.target.closest('[data-goto-agents]'); if (!a) return;
+        var f = $('#fld-agents'); if (!f) return;
+        e.preventDefault(); f.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(function () { f.focus({ preventScroll: true }); f.select && f.select(); }, 350);
+    });
+
     // ── boot ───────────────────────────────────────────────────────────────
     $$('.sigpad').forEach(initPad);
     if (mode === 'form') { applyMirrors(true); }
