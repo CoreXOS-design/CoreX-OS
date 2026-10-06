@@ -154,6 +154,30 @@ fi
 WORKTREE="$(pwd)"
 [[ -f "$WORKTREE/artisan" ]] || die "run this from a Laravel worktree root (no ./artisan found in $WORKTREE)"
 
+# --- Fail fast when the selected tests need mammoth and this worktree has no node_modules ---
+#
+# A fresh worktree has no node_modules (gitignored). The Word-import pipeline shells out to
+# `node resources/js/mammoth-convert.mjs`, so those tests don't fail with "mammoth missing" --
+# they fail with an opaque HTTP 500 from inside the importer, after a full queue + schema wait.
+# Checked BEFORE any lock/queue/schema work. Only fires when a selected test file actually
+# references the Word-import code (path args that exist are searched; no path arg = all of
+# tests/). Fix is the printed one-liner: a READ-ONLY symlink to QA1's node_modules (plain JS
+# packages; nothing is ever installed through it). LANE_TEST_SKIP_NODE_CHECK=1 bypasses.
+check_node_modules() {
+    [[ -d "$WORKTREE/node_modules/mammoth" ]] && return 0
+    [[ "${LANE_TEST_SKIP_NODE_CHECK:-0}" == "1" ]] && return 0
+    local a targets=() hit
+    for a in "$@"; do
+        [[ "$a" == -* ]] && continue
+        [[ -e "$WORKTREE/$a" ]] && targets+=("$WORKTREE/$a")
+    done
+    [[ ${#targets[@]} -gt 0 ]] || targets=("$WORKTREE/tests")
+    hit=$(grep -rlE -m1 'mammoth|DocxParser|DocumentImporter|ImporterAi|CorexDocumentRenderer' "${targets[@]}" --include='*.php' 2>/dev/null | head -n 1 || true)
+    [[ -z "$hit" ]] && return 0
+    die "node_modules/mammoth is missing in this worktree and ${hit#"$WORKTREE"/} needs it (Word-import tests 500 without it). Fix: ln -s /corex-qa1/node_modules node_modules   (read-only; never npm install through it) — then re-run."
+}
+check_node_modules "$@"
+
 # --- Refuse a truncated snapshot BEFORE anything else (lock, DROP, CREATE, load) ---
 #
 # a5194c9a1 committed a half-written mysql-schema.sql (345 of 616 tables); lanes
