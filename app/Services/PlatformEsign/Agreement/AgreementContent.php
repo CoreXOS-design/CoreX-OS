@@ -15,6 +15,7 @@ class AgreementContent
     public const TEMPLATE_NAME = 'CoreX Subscription Agreement';
     public const VERSION = '1.0';
     public const VERSION_DATE = '2026-09-28';
+    public const V1_NOTE = 'First published version — the wording as signed off on 28 September 2026.';
     public const PARTS = ['intro' => 'Cover', 'part_a' => 'Part A', 'part_b' => 'Part B', 'part_c' => 'Part C', 'part_d' => 'Part D', 'mandate' => 'Debit order mandate'];
 
     public static function sourcePath(string $file): string
@@ -22,8 +23,26 @@ class AgreementContent
         return resource_path('legal/subscription-agreement/' . $file);
     }
 
-    /** Idempotent: the template + published version 1.0. Safe to call on every request that needs it. */
+    /**
+     * Idempotent: makes sure the template + the seed version 1.0 exist, and returns the CURRENT published version
+     * (v1.0 until the owner publishes a newer one in the wording editor, spec §11.13). Safe on every request.
+     */
     public function ensureSeeded(?int $userId = null): WordingVersion
+    {
+        $this->seedV1($userId);
+
+        return self::current() ?? $this->seedV1($userId);
+    }
+
+    /** The newest published version (what a new agreement pins and /legal shows), or null before the first seed. */
+    public static function current(): ?WordingVersion
+    {
+        $tpl = self::template();
+
+        return $tpl ? WordingVersion::currentFor($tpl->id)->first() : null;
+    }
+
+    private function seedV1(?int $userId = null): WordingVersion
     {
         $tpl = Template::withTrashed()->where('source', 'webdoc')->where('name', self::TEMPLATE_NAME)->first();
         if (!$tpl) {
@@ -33,15 +52,15 @@ class AgreementContent
                 'version' => 1, 'is_active' => true, 'created_by' => $userId,
             ]);
         }
-        $v = WordingVersion::where('template_id', $tpl->id)->where('version', self::VERSION)->first();
+        $v = WordingVersion::withTrashed()->where('template_id', $tpl->id)->where('version', self::VERSION)->first();
         if ($v) {
             return $v;
         }
 
         return WordingVersion::create([
             'template_id' => $tpl->id, 'version' => self::VERSION, 'version_date' => self::VERSION_DATE,
-            'content_json' => $this->buildV1(), 'rates_json' => AgreementPricing::DEFAULT_RATES,
-            'is_published' => true, 'published_at' => now(), 'created_by' => $userId,
+            'content_json' => $this->buildV1(), 'rates_json' => AgreementPricing::DEFAULT_RATES, 'change_note' => self::V1_NOTE,
+            'is_published' => true, 'published_at' => now(), 'created_by' => $userId, 'published_by' => $userId,
         ]);
     }
 
