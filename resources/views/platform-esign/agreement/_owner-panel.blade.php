@@ -21,6 +21,12 @@
                 </div>
             </div>
         @endif
+        @if($doc->status === 'expired' && !$doc->trashed())
+            <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-3" style="background: #fffbeb; border: 1px solid #fde68a; color: #92400e;">
+                <span>The agency’s link expired{{ $doc->expires_at ? ' on ' . $doc->expires_at->format('j F Y') : '' }}. Everything they entered is kept.</span>
+                <form method="POST" action="{{ route('platform-esign.documents.resend', $doc->id) }}">@csrf<button class="corex-btn-primary">Re-issue — new link, fresh {{ \App\Services\PlatformEsign\Agreement\AgreementService::expiryDays() }} days</button></form>
+            </div>
+        @endif
         <div class="flex flex-wrap gap-2">
             <a href="{{ route('platform-esign.agreements.review', $doc->id) }}" class="corex-btn-outline">Review what has been entered</a>
             @if(in_array($doc->status, ['awaiting_countersign', 'wetink_received'], true) && !$doc->trashed())

@@ -14,6 +14,7 @@
         'documents' => ['Documents', route('platform-esign.documents.index')],
         'templates' => ['Templates', route('platform-esign.templates.index')],
         'agreement' => ['Send Subscription Agreement', route('platform-esign.agreements.create')],
+        'wording'   => ['Agreement wording', route('platform-esign.wording.index')],
         'send'      => ['Send another contract', route('platform-esign.documents.create')],
     ];
 @endphp

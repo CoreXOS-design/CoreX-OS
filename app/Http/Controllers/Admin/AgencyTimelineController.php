@@ -183,6 +183,8 @@ class AgencyTimelineController extends Controller
             'events'     => AgencyTimelineEvent::where('timeline_id', $timeline->id)->orderByDesc('id')->limit(100)->get(),
             'actors'     => User::withoutGlobalScopes()->whereIn('id', AgencyTimelineEvent::where('timeline_id', $timeline->id)->pluck('actor_user_id')->filter()->unique())->pluck('name', 'id'),
             'agreementDocs' => $this->platformDocuments($timeline->agency_id),
+            // The agency's latest Subscription Agreement (web document) — status + re-issue on the agreement card (spec §11.13).
+            'agreementWebdoc' => \App\Models\PlatformEsign\Document::where('agency_id', $timeline->agency_id)->where('source', 'webdoc')->with('signers')->orderByDesc('id')->first(),
             'tab'        => $request->get('tab') === 'history' ? 'history' : 'plan',
         ]);
     }

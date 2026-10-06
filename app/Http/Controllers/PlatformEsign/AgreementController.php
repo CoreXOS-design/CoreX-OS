@@ -8,6 +8,7 @@ use App\Models\PlatformEsign\Document;
 use App\Services\PlatformEsign\Agreement\AgreementContent;
 use App\Services\PlatformEsign\Agreement\AgreementLayout;
 use App\Services\PlatformEsign\Agreement\AgreementPdf;
+use App\Services\PlatformEsign\Agreement\AgreementRecipientPrefill;
 use App\Services\PlatformEsign\Agreement\AgreementService;
 use App\Services\PlatformEsign\EsignService;
 use Illuminate\Http\Request;
@@ -43,9 +44,13 @@ class AgreementController extends Controller
         $this->owner($request);
         $version = $this->content->ensureSeeded($request->user()->id);
 
+        $agencies = Agency::orderBy('name')->get(['id', 'name']);
+        $agencyId = (int) ($request->old('agency_id') ?? $request->query('agency'));
+        $prefill = AgreementRecipientPrefill::forAgencies($agencies->pluck('id')->all());
+
         return view('platform-esign.agreement.send', [
-            'agencies' => Agency::orderBy('name')->get(['id', 'name']),
-            'agencyId' => (int) ($request->old('agency_id') ?? $request->query('agency')),
+            'agencies' => $agencies, 'agencyId' => $agencyId, 'prefill' => $prefill,
+            'start' => $prefill[$agencyId] ?? ['name' => '', 'email' => '', 'cell' => ''],
             'version' => $version, 'expiryDays' => AgreementService::expiryDays(),
         ]);
     }

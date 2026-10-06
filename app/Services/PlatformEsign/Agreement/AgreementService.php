@@ -137,7 +137,7 @@ class AgreementService
             throw new \DomainException('Only an unsigned, un-voided agreement can be re-sent.');
         }
         $signer = $this->agencySigner($doc);
-        $signer->update(['token' => Str::random(48)]);
+        $signer->update(['token' => Str::random(48), 'invited_at' => now(), 'reminders_sent' => 0, 'last_reminded_at' => null]);
         $doc->update(['status' => ($doc->status === 'expired' && $doc->form_rev === 0) ? 'sent' : ($doc->form_rev > 0 ? 'in_progress' : 'sent'),
             'expires_at' => now()->addDays(self::expiryDays())->endOfDay()]);
         $this->invite($doc->fresh(), $userId);
@@ -200,14 +200,14 @@ class AgreementService
         if ($doc->trashed()) {
             return 'This agreement is no longer available.';
         }
-        if ($doc->isOpen() && $doc->status !== 'expired' && $doc->expires_at && $doc->expires_at->isPast()) {
+        if (in_array($doc->status, ['sent', 'in_progress'], true) && $doc->expires_at && $doc->expires_at->isPast()) {
             $doc->update(['status' => 'expired']);
             $this->esign->log($doc, 'expired', 'Link expired');
         }
 
         return match ($doc->status) {
             'voided' => 'This agreement was cancelled by the sender.',
-            'expired' => 'This link has expired. Ask the sender for a new one — everything you entered is kept.',
+            'expired' => 'This link has expired. Reply to the email we sent you and we will send a fresh link — everything you entered has been kept.',
             'completed' => 'This agreement has been fully signed.',
             'declined' => 'This agreement was declined.',
             'awaiting_countersign', 'wetink_received' => 'You have signed this agreement. RR Technologies will countersign it and email you the signed copy.',

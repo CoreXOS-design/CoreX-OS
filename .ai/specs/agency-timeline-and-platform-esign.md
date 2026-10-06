@@ -343,3 +343,71 @@ views `platform-esign/agreement/*`; routes `platform-esign.agreements.*` (owner)
 `platform-esign:remind-agreements` (scheduled). Tests: `tests/Feature/Platform/Agreement/*` — wording fidelity, pricing tiers (25
 agents), pinned-version rendering, token scoping, signing order, RR cannot edit recipient entries, encryption/masking/reveal audit,
 wet-ink supersede, `/legal`.
+
+### 11.13 Phase (d) — wording editor, public terms, agency-screen send, expiry + reminders (cc2, 2026-10-06; extends §11.2/§11.9/§11.11)
+Business: Johan, 6 Oct — "the terms of the document may change over time and having access to edit it is great"; sending "should be an
+easy one click send button and adding the recipient details"; the agreement says Parts B, C, D "are published at
+www.corexos.co.za/legal" (was a 404). Owner-only on every RR-side screen, no permission key (same as the rest of the module). No hard
+deletes. Nothing here changes what a signing agency sees except that **new** agreements pin the **current published** version.
+
+**Data (migration `2026_10_06_140000_agreement_wording_editor`)** — `platform_esign_wording_versions` gains `change_note`,
+`parent_version_id` (the version a draft was copied from), `rev` (edit counter — two-tab guard), `published_by`, `deleted_at`
+(a discarded draft is soft-deleted, never published ones). New `platform_esign_wording_audit` (template, version, action, user, detail,
+created_at): draft_created · section_saved · rates_saved · previewed-not-logged · published · discarded · restored · settings_changed.
+A draft's `version` column holds `draft-<id>` until publish (so discarded drafts never block a real number); `is_published=false`.
+**Published rows are immutable** — enforced in the model (`updating` guard: only `layout_json` may change, because pagination is
+lazily recalculated when the layout engine's REV moves; `deleting` of a published row throws). "Current" = the published version with the
+latest `published_at` (a restoring v1.2 therefore becomes current). `AgreementContent::ensureSeeded()` now returns the current version
+(v1.0 is only the seed), so **send always pins the current published version**; a sent document keeps its `wording_version_id` forever.
+
+**Editor (nav tab "Agreement wording", `platform-esign.wording.*`)** — versions list (number, date, status, change note, who/when, sent
+count) · "New version" copies the current version (or any published version — "start a new version from this one", which is how an
+earlier wording is restored) into ONE draft (a second draft is refused; the owner continues or discards it). A draft is edited **section
+by section** (Cover, Part A, B, C, D, Debit-order mandate) at **clause level**: each clause (a top-level Markdown block — paragraph,
+heading, numbered clause, list, table) is shown as it will print; click to edit it in a small editor with a toolbar limited to what the
+document uses (heading, bold, italic, link, numbered clause, table), a live preview of that clause, add-clause-below, move up/down, remove.
+Rates are edited in a form (Team seat, Agency base, seat tiers + their breakpoints, extra branch, the quote-above-agents notice).
+**Field markers** (`{{f:reg_no}}`, `{{rate:agency_base}}` …) are shown as grey chips and are guarded: on every save and again at publish,
+each marker must be known, and every form field / option / quantity / amount / signature / initials / agents-control marker must occur
+exactly as many times as in the version the draft was copied from — wording can be rewritten around a field but a field cannot be
+removed, duplicated or invented from this screen (that needs a developer). Free markers (`{{rate:…}}`, `{{ref}}`, `{{auto:…}}`,
+`{{co:…}}`) may be added where a known key exists. Clause splitting uses the Markdown parser's own line positions and is verified
+lossless against v1.0 (join(split(x)) renders identically).
+**Preview** — "Preview as the recipient will see it": the paginated sheets in the real form look (inputs disabled) from the stored
+layout, plus a sample PDF (the same renderer, a worst-case filled sample). Calibration runs on preview/publish and is stored on the draft.
+**Publish** — version number (`n.n`, suggested next minor, unique), version date (default today), required change note (≥ 5 chars).
+Re-validates everything, calibrates layout, flips `is_published`, writes audit. **Discard** (soft) with a confirm; **Restore** a discarded
+draft while no other draft exists. **What changed** — pick any two versions: side by side, per section, aligned by clause; removed clauses
+red on the left, added green on the right, edited clauses show a word-level diff; rate and date/note changes listed above it.
+
+**Public terms (`GET /legal`, `GET /legal/v/{version}`, no login, throttled)** — current published Parts B, C, D only (never Part A,
+the cover, the mandate or any agency data), in the agreement's typesetting with the platform letterhead (company adapter), heading with
+version + date + change note, an index of every published version (current marked). `/legal/v/{current}` 301s to `/legal`. HTTP caching
+(ETag from version + company record revision, `Cache-Control: public, max-age=300`), print stylesheet (letterhead once, no controls,
+clauses not split across pages where the browser allows), indexable on `/legal`; superseded versions are `noindex,follow`.
+
+**Send from the agency screen** — the agency's timeline screen gets a primary "Send Subscription Agreement" button opening the §11.9
+send form with the agency pre-selected; recipient name / email / cell are pre-filled from the agency's principal (falls back to the
+agency's own email/phone) and stay editable; picking a different agency in the form re-fills them. The screen also shows the agency's
+latest Subscription Agreement (status, sent date, link expiry, "Open") and a one-click re-issue when it has expired.
+
+**Expiry + reminders (platform settings, `DevSetting`, editable on the Agreement wording page, owner-only; defaults in brackets)** —
+`agreement_expiry_days` (30), `agreement_reminder_days` (3: first reminder after this many days with no progress), `agreement_reminder_repeat_days` (3),
+`agreement_reminder_max` (3, 0 = off), `agreement_countersign_reminder_days` (1: RR reminded when an agency-signed agreement is still
+un-countersigned; repeats at the same interval, same max). "Progress" = the recipient saved, initialled a page or signed (opening the link is not
+progress). `platform-esign:remind-agreements` (hourly, `withoutOverlapping`; `--dry-run` lists without sending): (1) marks unsigned
+agreements past their link expiry `expired` (event logged; agreements already signed by the agency never expire); (2) emails the recipient
+a reminder (same link) when `max(sent, last progress, last reminder) + interval ≤ now` and fewer than max reminders went; (3) emails the
+RR signer likewise for `awaiting_countersign`/`wetink_received`. Every decision re-reads the document's current state, so reminders stop the
+instant it is signed, voided, expired, completed or archived. A resend/re-issue resets the reminder counters. Expired links show the recipient a
+clear message (nothing they entered is lost); the owner sees a one-click "Re-issue" (= resend: new link, fresh expiry, data kept) on the document and on the agency screen.
+No values are ever put in a reminder email. Not in the agency wizard (non-negotiable #10a): platform-owner tooling.
+
+**Files (d)** — migration `…140000`; `Models/PlatformEsign/WordingAudit`, `WordingVersion` (guards, scopes); `Services/PlatformEsign/Agreement/`
+`AgreementVersions` (draft/save/publish/discard/restore/audit), `AgreementTokens` (marker parse + guard), `AgreementBlocks` (split/join),
+`AgreementDiff`, `AgreementReminders`; `AgreementContent::current()`; `Console/Commands/PlatformEsignRemindAgreements`; `Http/Controllers/PlatformEsign/AgreementWordingController`;
+`Http/Controllers/Public/LegalController` (+`agreementTerms`, `agreementTermsVersion`); views `platform-esign/wording/*`, `public/legal/agreement-terms`;
+`Mail/PlatformEsign/AgreementCountersignReminderMail`; `routes/web.php`, `routes/console.php`; timeline show view + send view (prefill); header tab.
+Touched outside the (d)-only files, minimal: `AgreementRenderer` (+`edit` mode: field markers as labelled chips; /legal uses the existing `text` mode), `AgreementService` (current version on send; expiry applies only
+before the agency signs — an agency-signed agreement waiting for RR must never flip to "expired"; resend resets reminders), `AgreementController::create` (prefill),
+`platform-esign/_header` (tab), `documents/show` + `_owner-panel` (re-issue prompt). Tests: `tests/Feature/Platform/Agreement/{WordingVersions,LegalTerms,AgencyScreenSend,Reminders}Test.php`.
