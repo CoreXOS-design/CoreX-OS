@@ -20,16 +20,37 @@
             <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Branch</dt><dd style="color:var(--text-primary);">{{ $letter->branch?->name ?? '—' }}</dd></div>
             <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Principal</dt><dd style="color:var(--text-primary);">{{ $letter->principal?->name ?? '—' }}</dd></div>
             <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Created by</dt><dd style="color:var(--text-primary);">{{ $letter->createdBy?->name ?? '—' }}</dd></div>
-            <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Agent signed</dt><dd style="color:var(--text-primary);">{{ $letter->agent_signed_at?->format('d M Y H:i') ?? 'Not yet' }} @if($letter->agent_signed_ip) <span class="text-xs" style="color:var(--text-muted);">({{ $letter->agent_signed_ip }})</span>@endif</dd></div>
-            <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Principal signed</dt><dd style="color:var(--text-primary);">{{ $letter->principal_signed_at?->format('d M Y H:i') ?? 'Not yet' }} @if($letter->principal_signed_ip) <span class="text-xs" style="color:var(--text-muted);">({{ $letter->principal_signed_ip }})</span>@endif</dd></div>
+            {{-- LEGACY: only letters made under the retired PIN ceremony carry these timestamps (spec §20). --}}
+            @if($letter->agent_signed_at)
+            <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Signed electronically by agent (retired)</dt><dd style="color:var(--text-primary);">{{ $letter->agent_signed_at->format('d M Y H:i') }}</dd></div>
+            @endif
+            @if($letter->principal_signed_at)
+            <div><dt class="text-xs font-semibold" style="color:var(--text-muted);">Signed electronically by principal (retired)</dt><dd style="color:var(--text-primary);">{{ $letter->principal_signed_at->format('d M Y H:i') }}</dd></div>
+            @endif
         </dl>
     </div>
+
+    @if(session('success'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, #15803d 10%, transparent); color:#15803d; border:1px solid color-mix(in srgb, #15803d 25%, transparent);">{{ session('success') }}</div>
+    @endif
+    @if(session('error') || $errors->has('signed_copy'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb, #c41e3a 10%, transparent); color:#c41e3a; border:1px solid color-mix(in srgb, #c41e3a 25%, transparent);">{{ $errors->first('signed_copy') ?: session('error') }}</div>
+    @endif
 
     <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
         <iframe src="{{ route('admin.ppra-employment-letters.download', $letter->id) }}" style="width:100%; height:640px; border:none; border-radius:4px; background:#fff;"></iframe>
         <div class="mt-3">
             <a href="{{ route('admin.ppra-employment-letters.download', $letter->id) }}?inline=0" class="corex-btn-outline text-xs">Download</a>
         </div>
+    </div>
+
+    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+        <h2 class="text-sm font-bold mb-2" style="color:var(--text-primary);">Signed copy</h2>
+        @include('compliance.ppra-employment-letters._signed-copies', [
+            'letter'        => $letter,
+            'uploadUrl'     => route('admin.ppra-employment-letters.upload', $letter->id),
+            'scanRouteName' => 'admin.ppra-employment-letters.signed-copy',
+        ])
     </div>
 
     @if($letter->trashed())

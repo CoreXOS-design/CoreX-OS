@@ -7,12 +7,11 @@ namespace App\Http\Controllers\Compliance;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Compliance\PpraEmploymentLetter;
+use App\Models\Compliance\PpraEmploymentLetterFile;
 use App\Models\User;
-use App\Services\AgentSignatureService;
 use App\Services\Compliance\PpraEmploymentLetterPdfService;
 use App\Services\Compliance\PpraEmploymentLetterService;
 use App\Services\Compliance\PractitionerFfcRosterService;
-use App\Support\Impersonation;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Storage;
@@ -20,21 +19,19 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * PPRA FFC renewal — Confirmation of Employment letter. My Portal (self-service)
- * side. .ai/specs/ppra-ffc-employment-letter.md
+ * side. .ai/specs/ppra-ffc-employment-letter.md (§20 — wet-ink flow)
  *
- * Signing is self-service and fixed-order: the authenticated agent can only
- * ever start/sign a letter ABOUT THEMSELVES, and only ever sign the
- * principal block when they themselves are the letter's resolved
- * principal. Mirrors EvaluationCertificateController's guardSigner/unlock
- * shape (AgentSignatureService PIN mechanism), not the canon e-sign pipeline.
+ * The authenticated agent can only ever start a letter ABOUT THEMSELVES, print it, sign it in wet ink and upload the
+ * signed copy of THEIR OWN letter. There is no electronic signing any more. The upload and the scan download go
+ * through PpraEmploymentLetterService::attachSignedCopy() / streamSignedCopy() — the same single write/read path the
+ * Admin register uses, so both screens show one and the same record.
  */
 class PpraEmploymentLetterController extends Controller
 {
     /**
      * The real list/create UI lives embedded in My Portal > Documents
      * (resources/views/agent/portal.blade.php) — AgentPortalController@index
-     * already loads the same "mine" + "awaiting my signature as principal"
-     * data for that card. A bare GET to the index route (e.g. a bookmarked
+     * already loads the same "mine" data for that card. A bare GET to the index route (e.g. a bookmarked
      * link, or a redirect target) lands back on that same screen rather than
      * duplicating a second full list page nobody asked for.
      */
@@ -64,7 +61,7 @@ class PpraEmploymentLetterController extends Controller
         $letter = $service->create($user, $user, $validated['principal_user_id'] ?? null);
 
         return redirect()->route('ppra-employment-letters.show', $letter)
-            ->with('success', 'Letter generated — review and sign below.');
+            ->with('success', 'Letter generated — print it, sign it, then upload the signed copy.');
     }
 
     public function show(Request $request, PpraEmploymentLetter $letter)
@@ -72,54 +69,53 @@ class PpraEmploymentLetterController extends Controller
         $user = $request->user();
         $this->guardViewable($letter, $user);
 
+        $letter->load(['files.uploader']);
+
         return view('compliance.ppra-employment-letters.show', [
-            'letter'            => $letter,
-            'agent'             => $letter->user,
-            'principal'         => $letter->principal,
-            'isAgent'           => (int) $letter->user_id === (int) $user->id,
-            'isPrincipal'       => (int) $letter->principal_user_id === (int) $user->id
-                                    && $user->hasPermission('ppra_employment_letters.sign_as_principal'),
-            'canSignAgentNow'   => (int) $letter->user_id === (int) $user->id && $letter->isAwaitingAgentSignature(),
-            'canSignPrincipalNow' => (int) $letter->principal_user_id === (int) $user->id
-                                    && $user->hasPermission('ppra_employment_letters.sign_as_principal')
-                                    && $letter->isAwaitingPrincipalSignature(),
-            'savedSigConfigured' => app(AgentSignatureService::class)->isConfigured($user),
+            'letter'    => $letter,
+            'agent'     => $letter->user,
+            'principal' => $letter->principal,
+            'isAgent'   => (int) $letter->user_id === (int) $user->id,
+            'canUpload' => (int) $letter->user_id === (int) $user->id,
+            'files'     => $letter->files,
         ]);
     }
 
-    public function signAsAgent(Request $request, PpraEmploymentLetter $letter, AgentSignatureService $signatures, PpraEmploymentLetterService $service)
+    /** Upload the wet-ink signed copy of the viewer's OWN letter — spec §20. */
+    public function uploadSignedCopy(Request $request, PpraEmploymentLetter $letter, PpraEmploymentLetterService $service): RedirectResponse
     {
-        $user = $this->guardSigner($request, $letter, $signatures);
-        abort_unless((int) $letter->user_id === (int) $user->id, 403, 'You can only sign your own letter.');
-        abort_unless($letter->isAwaitingAgentSignature(), 409, 'This letter is not awaiting your signature.');
+        $user = $request->user();
+        $this->guardViewable($letter, $user);
+        abort_unless((int) $letter->user_id === (int) $user->id, 403, 'You can only upload the signed copy of your own letter.');
 
-        $contextKey = 'ppra-employment-letter:' . $letter->id . ':agent';
-        if (($err = $this->unlock($request, $user, $signatures, $contextKey)) !== null) {
-            return $err;
+        $request->validate([
+            'signed_copy' => ['required', 'file', 'mimes:' . PpraEmploymentLetterService::UPLOAD_MIMES, 'max:' . PpraEmploymentLetterService::MAX_UPLOAD_KB],
+        ], [
+            'signed_copy.required' => 'Choose the signed letter to upload.',
+            'signed_copy.mimes'    => 'The signed copy must be a PDF, JPG or PNG file.',
+            'signed_copy.max'      => 'The signed copy must be 10 MB or smaller.',
+            'signed_copy.uploaded' => 'The file could not be uploaded — it may be larger than 10 MB.',
+        ]);
+
+        $service->attachSignedCopy($letter, $request->file('signed_copy'), $user, PpraEmploymentLetterFile::VIA_PORTAL);
+
+        // From the letter page → stay on it. From the My Portal row → back to My Portal with the PPRA pane open.
+        if (rtrim(strtok(url()->previous(), '?#'), '/') === rtrim(route('ppra-employment-letters.show', $letter), '/')) {
+            return back()->with('success', 'Signed copy uploaded and filed.');
         }
 
-        $service->signAsAgent($letter, $user, (string) $signatures->image($user, 'signature', $contextKey), (string) $request->ip());
-        $signatures->lock($user, $contextKey);
-
-        return redirect()->route('ppra-employment-letters.show', $letter)->with('success', 'Signed. Sent to the principal for signature.');
+        return redirect()->route('agent.portal')->withFragment('documents')
+            ->with('success', 'Signed copy uploaded and filed.')->with('ppra_letter_flash', true);
     }
 
-    public function signAsPrincipal(Request $request, PpraEmploymentLetter $letter, AgentSignatureService $signatures, PpraEmploymentLetterService $service)
+    /** Stream one signed copy (current or superseded) of a letter the viewer may see. */
+    public function signedCopy(Request $request, PpraEmploymentLetter $letter, int $file, PpraEmploymentLetterService $service): Response
     {
-        $user = $this->guardSigner($request, $letter, $signatures);
-        abort_unless($user->hasPermission('ppra_employment_letters.sign_as_principal'), 403);
-        abort_unless((int) $letter->principal_user_id === (int) $user->id, 403, 'You are not the principal for this letter.');
-        abort_unless($letter->isAwaitingPrincipalSignature(), 409, 'This letter is not awaiting principal signature.');
+        $this->guardViewable($letter, $request->user());
 
-        $contextKey = 'ppra-employment-letter:' . $letter->id . ':principal';
-        if (($err = $this->unlock($request, $user, $signatures, $contextKey)) !== null) {
-            return $err;
-        }
+        $record = $letter->files()->whereKey($file)->firstOrFail();
 
-        $service->signAsPrincipal($letter, $user, (string) $signatures->image($user, 'signature', $contextKey), (string) $request->ip());
-        $signatures->lock($user, $contextKey);
-
-        return redirect()->route('ppra-employment-letters.show', $letter)->with('success', 'Signed. The letter is now fully signed.');
+        return $service->streamSignedCopy($record, $request->boolean('inline'));
     }
 
     public function cancel(Request $request, PpraEmploymentLetter $letter, PpraEmploymentLetterService $service): RedirectResponse
@@ -140,6 +136,7 @@ class PpraEmploymentLetterController extends Controller
         $filename = 'PPRA-Confirmation-of-Employment-' . ($letter->user?->name ? str_replace(' ', '-', $letter->user->name) : $letter->id) . '.pdf';
         $inline = $request->boolean('inline');
 
+        // LEGACY: a letter signed through the retired PIN ceremony keeps the PDF baked at the time, untouched.
         if ($letter->isSigned() && $letter->signed_pdf_path && Storage::exists($letter->signed_pdf_path)) {
             return $inline
                 ? Storage::response($letter->signed_pdf_path, $filename, ['Content-Disposition' => 'inline; filename="' . $filename . '"'])
@@ -147,10 +144,9 @@ class PpraEmploymentLetterController extends Controller
         }
 
         $agency = Agency::withoutGlobalScopes()->find($letter->agency_id);
-        $agent  = $letter->user;
-        $principal = $letter->principal;
 
-        $pdfPath = $pdfService->generate($letter, $agent, $principal, $agency, $letter->agent_signature_image, null);
+        // Printed for wet-ink signing: signature lines stay empty.
+        $pdfPath = $pdfService->generate($letter, $letter->user, $letter->principal, $agency, null, null);
 
         return response()->download($pdfPath, $filename, [], $inline ? 'inline' : 'attachment')->deleteFileAfterSend(true);
     }
@@ -163,28 +159,5 @@ class PpraEmploymentLetterController extends Controller
         $inAdminScope = PpraEmploymentLetter::where('id', $letter->id)->visibleTo($user)->exists();
 
         abort_unless($isAgent || $isPrincipal || $inAdminScope, 404);
-    }
-
-    private function guardSigner(Request $request, PpraEmploymentLetter $letter, AgentSignatureService $signatures): User
-    {
-        $user = $request->user();
-        abort_if(Impersonation::actingAdminId() !== null, 403, 'Saved signatures are unavailable while acting as another user.');
-        abort_unless($signatures->isConfigured($user), 422, 'Set up your saved signature and signing PIN in My Portal first.');
-
-        return $user;
-    }
-
-    private function unlock(Request $request, User $user, AgentSignatureService $signatures, string $contextKey)
-    {
-        $pin = (string) $request->input('pin', '');
-        if ($pin !== '') {
-            if (! $signatures->verifyPinAndUnlock($user, $pin, $contextKey)) {
-                return back()->with('error', 'Incorrect signing PIN.');
-            }
-        } elseif (! $signatures->isUnlocked($user, $contextKey)) {
-            return back()->with('error', 'Enter your signing PIN to place your saved signature.');
-        }
-
-        return null;
     }
 }

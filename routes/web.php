@@ -1266,6 +1266,9 @@ Route::prefix('admin/ppra-employment-letters')->middleware(['auth', 'agency.requ
 
     Route::get('/create', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'create'])->name('create');
     Route::post('/', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'store'])->name('store');
+    // Wet-ink flow (spec §20): upload the signed copy / stream one (current or superseded).
+    Route::post('/{letter}/signed-copy', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'uploadSignedCopy'])->whereNumber('letter')->name('upload');
+    Route::get('/{letter}/signed-copy/{file}', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'signedCopy'])->whereNumber(['letter', 'file'])->middleware('deny_assistant_download')->name('signed-copy');
     Route::post('/{letter}/archive', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'archive'])->whereNumber('letter')->name('archive');
     Route::post('/{letter}/restore', [\App\Http\Controllers\Admin\PpraEmploymentLetterController::class, 'restore'])->whereNumber('letter')->name('restore');
 });
@@ -2337,8 +2340,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/my-portal/ppra-employment-letters', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'store'])->name('ppra-employment-letters.store');
         Route::get('/my-portal/ppra-employment-letters/{letter}', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'show'])->whereNumber('letter')->name('ppra-employment-letters.show');
         Route::get('/my-portal/ppra-employment-letters/{letter}/download', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'download'])->whereNumber('letter')->middleware('deny_assistant_download')->name('ppra-employment-letters.download');
-        Route::post('/my-portal/ppra-employment-letters/{letter}/sign-as-agent', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'signAsAgent'])->whereNumber('letter')->name('ppra-employment-letters.sign-as-agent');
-        Route::post('/my-portal/ppra-employment-letters/{letter}/sign-as-principal', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'signAsPrincipal'])->whereNumber('letter')->name('ppra-employment-letters.sign-as-principal');
+        // Wet-ink flow (spec §20): the agent uploads the signed copy of their OWN letter / anyone allowed to view it streams a copy.
+        Route::post('/my-portal/ppra-employment-letters/{letter}/signed-copy', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'uploadSignedCopy'])->whereNumber('letter')->name('ppra-employment-letters.upload');
+        Route::get('/my-portal/ppra-employment-letters/{letter}/signed-copy/{file}', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'signedCopy'])->whereNumber(['letter', 'file'])->middleware('deny_assistant_download')->name('ppra-employment-letters.signed-copy');
         Route::post('/my-portal/ppra-employment-letters/{letter}/cancel', [\App\Http\Controllers\Compliance\PpraEmploymentLetterController::class, 'cancel'])->whereNumber('letter')->name('ppra-employment-letters.cancel');
     });
 

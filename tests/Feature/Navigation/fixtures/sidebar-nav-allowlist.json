@@ -17,6 +17,12 @@
     ],
     "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
   },
+  "ppra-employment-letters.signed-copy": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (wet-ink signed-copy download, spec §20) — a file stream reached from the letter row/page in My Portal, no sidebar link by design. Same family as ppra-employment-letters.download."
+  },
   "admin.activity-mappings.index": {
     "flags": [
       "NO_ITEM"

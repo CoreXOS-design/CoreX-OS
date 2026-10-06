@@ -1,5 +1,9 @@
 # PPRA FFC Renewal — Confirmation of Employment Letter
 
+> **2026-10-06 (Johan): PIN/electronic signing REMOVED — print, wet-ink sign, upload the signed copy. §20 is authoritative
+> and supersedes §1 (signing ceremony), §3 status machine, §5, §6 (signed-PDF baking), §7 sign blocks, §8 steps 4-9, §9
+> `sign_as_principal`, §11 reminder setting, §12 audit-by-PIN and §13 signing criteria. Everything else still stands.**
+>
 > Status: Landed on QA1, then fixed again same day (2026-10-05) after Johan's QA1
 > testing found four real bugs — see §15 below. Branch `ppra-letter-fixes-2026-10-05`.
 > Investigation report: `/tmp/ppra-employment-letter-investigation-2026-10-05.md` (2026-10-05).
@@ -519,3 +523,73 @@ both ids to int in `store()`; covered by `test_admin_start_letter_form_works_wit
 `test_switch_user_clears_the_admins_view_as_lens_so_the_target_gets_only_their_own_access`.
 
 No migration, no new setting (nothing for the Setup Wizard). Only the label of the existing `.manage` key changed.
+
+## 20. Wet-ink flow — PIN signing removed (2026-10-06, Johan)
+
+Branch `cc6-ppra-wetink-2026-10-06`. Investigation: `/tmp/qa1-cc6-ppra-esign-2026-10-06.md`. This letter never used the
+DocuPerfect/CDS e-sign pipeline (own PIN ceremony on `AgentSignatureService`); none of the pipeline-gate files are touched.
+
+**Rulings.** No electronic/PIN signing for agent, principal or admin. Flow: create letter -> download/print the PDF -> sign in
+wet ink outside CoreX -> upload the signed copy from EITHER screen -> filed. Existing letters are test data: no data migration,
+old statuses just display sensibly; nothing is deleted.
+
+**Statuses.** `awaiting_signed_copy` (created/printed) -> `signed_copy_filed` (first upload; stays filed on every re-upload).
+Labels are neutral because they show on the admin list for someone else's letter: "Awaiting signed copy" / "Signed copy filed".
+Legacy values stay in the enum and display sensibly: `draft`, `awaiting_agent_signature`, `awaiting_principal_signature` ->
+"Awaiting signed copy" (they accept an upload like a new letter); `signed` -> "Signed (electronic)" (its baked PDF stays
+downloadable; a scan may still be uploaded, which files it). Migration is additive: new enum values + the files table.
+
+**ONE record.** The signed scan lives in ONE place: `ppra_employment_letter_files` (agency_id, letter_id, path, original_name,
+size, mime, uploaded_by_user_id, uploaded_via `admin|portal`, SoftDeletes), reached only through `PpraEmploymentLetter::files()`
+(newest first) and `currentFile()` (latest). No copy goes to `user_documents`/`documents`, so there is no sync: an upload on
+either screen shows on the other, same file, same status. Both list queries eager-load `files` + `currentFile`.
+- Write path: `PpraEmploymentLetterService::attachSignedCopy($letter, $file, $actor, $via)` — one DB transaction: store the file,
+  insert the row, set `signed_copy_filed`. Called by BOTH controllers. Refuses an archived letter. No reason field (any role).
+- Read path: `PpraEmploymentLetterService::streamSignedCopy($file, $inline)` — one shared streamer, called by both download
+  actions only AFTER each screen's own access check. Private disk, never a public URL; `deny_assistant_download` on both routes.
+- File rules = the staff-document pattern (`AgentPortalController::uploadDocument`): pdf, jpg, jpeg, png, max 10240 KB,
+  `local` (private) disk, random stored name `ppra-employment-letters/{agency}/{letter}/signed-copies/…`.
+- Re-upload: allowed while the letter is not archived. The new row becomes Current; earlier rows stay listed "Superseded
+  <date> by <name>" and stay downloadable through the same gate. Nothing is overwritten or hard-deleted. Archived letters: no upload.
+
+**Screens (search/sort/filter/scoping unchanged from §10 except the status filter, below).**
+- Admin register (`admin.ppra-employment-letters.*`): list row action "Upload signed letter" (non-archived rows) + "Signed
+  copy" link; detail page lists current + superseded files with an upload form. Status filter = Awaiting signed copy / Signed
+  copy filed (the awaiting filter also matches the legacy awaiting values).
+- My Portal -> Documents -> PPRA Employment Letter: each letter row has an inline upload + current-file link; the letter page
+  (`ppra-employment-letters.show`) replaces the PIN blocks with "Print, sign, upload" and the same files list. The
+  "Awaiting your signature as principal" list is removed.
+
+**Scoping / permissions.**
+- Portal upload: route group `access_my_portal`; the letter must be the viewer's own (`user_id` = self). A viewer who may see a
+  letter but is not its agent (e.g. its principal) gets 403; a stranger 404. Needs no `.receive`/`.create` (filing paper must
+  not depend on a later un-tick).
+- Admin upload/download: `ppra_employment_letters.manage` (`userCanUseAdminRegister`, route middleware + `assertAdminAccess`),
+  letter resolved through `visibleTo()` (own/branch/agency) -> out-of-scope 404; other agency 404 (`BelongsToAgency`).
+- Portal scan download: `guardViewable` (agent, principal, in-scope admin). Admin scan download: manage + `visibleTo()`.
+- `ppra_employment_letters.sign_as_principal` is retired: removed from `config/corex-permissions.php` (Role Manager no longer
+  lists it) and from every role default; existing `role_permissions` rows are left in place, inert (nothing reads the key).
+
+**PDF.** The letter date is fixed to the day the letter was created (`created_at`), never the day of printing. A not-yet-signed
+letter always renders EMPTY signature lines (the agent's saved signature is never baked in any more). A legacy `signed` letter
+still streams its stored PDF unchanged.
+
+**Retired.** Routes `sign-as-agent` / `sign-as-principal`; the PIN screens; `signAsAgent`/`signAsPrincipal`/`notifyPrincipal`/
+`notifyAgentSigned`; the principal + signed emails; the daily reminder job (`ppra-employment-letters:send-reminders`) and its
+schedule line; the "Remind the principal every N days" setting (control + saver removed). Columns kept, unused:
+`agent_/principal_signature_image`, `*_signed_at`, `*_signed_ip`, `signed_pdf_path` (legacy signed only), `reminder_last_sent_at`,
+`agencies.ppra_employment_letter_reminder_days`. No Setup Wizard change (the removed setting was never in it; §11 omission stands).
+
+**Acceptance (20).**
+- [ ] Upload on admin shows in the agent's My Portal (same file id + status); upload on My Portal shows on admin.
+- [ ] Re-upload from the other screen leaves exactly one Current; earlier files Superseded (date + who), still downloadable.
+- [ ] Own/branch/agency + cross-agency 404; an agent cannot upload to another's letter; an archived letter refuses upload.
+- [ ] Sign routes gone; no PIN UI; no emails sent by the letter; reminder job unscheduled.
+- [ ] Printed letter date = created date on every print.
+
+**Files.** Migration `2026_10_09_090000_create_ppra_employment_letter_files_table`; `Models/Compliance/PpraEmploymentLetterFile`;
+`PpraEmploymentLetter` (statuses, labels, relations); `PpraEmploymentLetterService`; `PpraEmploymentLetterPdfService`
+(date); `Compliance/` + `Admin/PpraEmploymentLetterController`; `routes/web.php`, `routes/console.php`; `AgentPortalController`;
+views (`agent/portal`, `compliance/…/show`, `admin/…/{index,show,create}`, `corex/settings`); `SettingsController`;
+`config/corex-permissions.php`; deleted: reminder command, 2 mail classes, 2 email views;
+`tests/Feature/Compliance/PpraEmploymentLetterTest.php` (rewritten sign tests) + `PpraEmploymentLetterWetInkTest.php`.

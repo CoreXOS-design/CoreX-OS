@@ -4190,7 +4190,7 @@
         <div x-show="activeSection === 'ppra-employment-letter-settings'" x-cloak class="p-6 space-y-6">
             <div>
                 <h2 class="text-lg font-bold" style="color:var(--text-primary);">PPRA FFC Employment Letter</h2>
-                <p class="text-sm mt-1" style="color:var(--text-secondary);">Settings for the Confirmation of Employment letter agents sign for their FFC renewal.</p>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Settings for the Confirmation of Employment letter agents print, sign and file for their FFC renewal.</p>
             </div>
 
             <form method="POST" action="{{ route('corex.settings.ppra-employment-letter.save') }}" class="space-y-6">
@@ -4202,22 +4202,12 @@
                     <textarea name="ppra_employment_letter_address_block" rows="4" class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" placeholder="{{ \App\Models\Compliance\PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK }}">{{ $agency->ppra_employment_letter_address_block }}</textarea>
                 </div>
 
-                <div>
-                    <label class="text-sm font-semibold" style="color:var(--text-primary);">Remind the principal every</label>
-                    <p class="text-xs mb-2" style="color:var(--text-muted);">While a letter awaits the principal's signature, re-send the reminder email this often. Set to 0 to turn reminders off — the letter still waits indefinitely either way.</p>
-                    <div class="flex items-center gap-2">
-                        <input type="number" min="0" max="60" name="ppra_employment_letter_reminder_days" value="{{ $agency->ppra_employment_letter_reminder_days ?? 2 }}"
-                            class="w-24 rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        <span class="text-sm" style="color:var(--text-muted);">days (0 = off)</span>
-                    </div>
-                </div>
-
                 <button type="submit" class="corex-btn-primary">Save Settings</button>
             </form>
 
             <div class="rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
                 <p class="text-xs" style="color:var(--text-secondary);">
-                    Agents start and sign their own letter from <span class="font-semibold">My Portal → Documents</span>.
+                    Agents start their own letter, print it, sign it and upload the signed copy from <span class="font-semibold">My Portal → Documents</span>.
                     The full register of every agency's letters lives under
                     <a href="{{ route('admin.ppra-employment-letters.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Employment Letters</a>.
                 </p>

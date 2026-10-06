@@ -1463,7 +1463,7 @@
             $firstDocKey = ! empty($docTypeConfig) ? ($docTypeToKey[$docTypeConfig[0]['type']] ?? $docTypeConfig[0]['type']) : '';
             $docDotColors = ['verified' => 'var(--ds-green)', 'pending' => 'var(--ds-amber)', 'rejected' => 'var(--ds-crimson)', 'expired' => 'var(--ds-crimson)', 'missing' => 'var(--text-muted)'];
         @endphp
-        <div x-init="if (! sub.documents) sub.documents = '{{ $firstDocKey }}'"></div>
+        <div x-init="@if((session('ppra_letter_flash') || $errors->has('signed_copy')) && ($ppraLetterCanReceive ?? false)) sub.documents = 'ppra_employment_letter'; @endif if (! sub.documents) sub.documents = '{{ $firstDocKey }}'"></div>
         <nav class="pg-subs" aria-label="Sections">
             @foreach($docTypeConfig as $docCfg)
             @php
@@ -1474,7 +1474,7 @@
             <button type="button" class="pg-sub" @click="sub.documents = '{{ $navKey }}'" :aria-current="sub.documents === '{{ $navKey }}' ? 'page' : null">{{ $docCfg['label'] }}<span class="pg-dot" style="background:{{ $docDotColors[$navStatus] ?? 'var(--text-muted)' }};" title="{{ $statusPills[$navStatus]['text'] ?? '' }}"></span></button>
             @endforeach
             @unless($isAssistant ?? false)
-            @if(($ppraLetterCanReceive ?? false) || ($ppraAwaitingMySignature ?? collect())->isNotEmpty())
+            @if($ppraLetterCanReceive ?? false)
             <button type="button" class="pg-sub" @click="sub.documents = 'ppra_employment_letter'" :aria-current="sub.documents === 'ppra_employment_letter' ? 'page' : null">PPRA Employment Letter</button>
             @endif
             @endunless
@@ -1639,36 +1639,38 @@
                 </form>
                 @endif
 
+                @if(session('success'))
+                <div class="rounded-md" style="font-size:0.75rem; color:var(--ds-green); background:color-mix(in srgb, var(--ds-green) 10%, transparent); padding:8px 10px; margin-bottom:10px;">{{ session('success') }}</div>
+                @endif
+                @if($errors->has('signed_copy') || session('error'))
+                <div class="rounded-md" style="font-size:0.75rem; color:var(--ds-crimson); background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); padding:8px 10px; margin-bottom:10px;">{{ $errors->first('signed_copy') ?: session('error') }}</div>
+                @endif
+
                 @if(($ppraLetters ?? collect())->isNotEmpty())
                 <div class="space-y-2" style="margin-bottom:14px;">
                     @foreach($ppraLetters as $letter)
-                    <div class="flex items-center justify-between py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
-                        <div>
-                            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}</div>
-                            <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
+                    <div class="py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}</div>
+                                <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
+                            </div>
+                            <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); text-decoration:none; font-weight:600;">Open</a>
                         </div>
-                        <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); text-decoration:none; font-weight:600;">Open</a>
+                        <div style="margin-top:6px;">
+                            @include('compliance.ppra-employment-letters._signed-copies', [
+                                'letter'         => $letter,
+                                'uploadUrl'      => route('ppra-employment-letters.upload', $letter),
+                                'scanRouteName'  => 'ppra-employment-letters.signed-copy',
+                                'showHistory'    => false,
+                            ])
+                        </div>
                     </div>
                     @endforeach
                 </div>
                 @endif
 
-                @if(($ppraAwaitingMySignature ?? collect())->isNotEmpty())
-                <div style="font-size:0.75rem; font-weight:700; color:var(--text-primary); margin-bottom:6px;">Awaiting your signature as principal</div>
-                <div class="space-y-2">
-                    @foreach($ppraAwaitingMySignature as $letter)
-                    <div class="flex items-center justify-between py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
-                        <div>
-                            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ $letter->user->name ?? 'Agent' }}</div>
-                            <div style="font-size:0.6875rem; color:var(--text-muted);">{{ $letter->created_at->format('d M Y') }}</div>
-                        </div>
-                        <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); text-decoration:none; font-weight:600;">Review &amp; sign</a>
-                    </div>
-                    @endforeach
-                </div>
-                @endif
-
-                @if(($ppraLetters ?? collect())->isEmpty() && ($ppraAwaitingMySignature ?? collect())->isEmpty() && ($ppraLetterMissing ?? []) === [])
+                @if(($ppraLetters ?? collect())->isEmpty() && ($ppraLetterMissing ?? []) === [])
                 <p style="font-size:0.75rem; color:var(--text-muted);">No letters yet.</p>
                 @endif
             </div>

@@ -64,7 +64,9 @@ class AgentPortalController extends Controller
         $complianceStatus = $this->computeComplianceStatus($user, $documents);
 
         // ── PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) ──
+        // `files` + `currentFile` are eager-loaded: the signed copy is ONE record the admin register shows too (spec §20).
         $ppraLetters = \App\Models\Compliance\PpraEmploymentLetter::where('user_id', $user->id)
+            ->with(['files.uploader', 'currentFile'])
             ->orderByDesc('created_at')->limit(10)->get();
         // Eligibility is the Role Manager setting "Can receive PPRA employment letter" (Johan, 2026-10-05) —
         // it gates the whole tab; .create then gates the Start button within it.
@@ -74,13 +76,6 @@ class AgentPortalController extends Controller
         if ($ppraLetterCanCreate && $user->agency) {
             $ppraLetterMissing = app(\App\Services\Compliance\PpraEmploymentLetterService::class)
                 ->missingFieldsFor($user, $user->agency, $user);
-        }
-        $ppraAwaitingMySignature = collect();
-        if ($user->hasPermission('ppra_employment_letters.sign_as_principal')) {
-            $ppraAwaitingMySignature = \App\Models\Compliance\PpraEmploymentLetter::where('principal_user_id', $user->id)
-                ->where('status', \App\Models\Compliance\PpraEmploymentLetter::STATUS_AWAITING_PRINCIPAL_SIGNATURE)
-                ->where('user_id', '!=', $user->id)
-                ->orderBy('created_at')->get();
         }
 
         // ── Training status ──
@@ -287,8 +282,7 @@ class AgentPortalController extends Controller
             'ppraLetters',
             'ppraLetterCanReceive',
             'ppraLetterCanCreate',
-            'ppraLetterMissing',
-            'ppraAwaitingMySignature'
+            'ppraLetterMissing'
         ));
     }
 

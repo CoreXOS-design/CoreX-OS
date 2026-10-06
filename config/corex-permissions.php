@@ -839,11 +839,11 @@ return [
         // A genuinely separate feature from PPRA Inspection Pack above. .view's
         // scope (own/branch/all, via Role Manager + scope_defaults) drives the
         // Admin register's visibility (PpraEmploymentLetter::scopeVisibleTo()).
-        // .create and .sign_as_principal are self-service actions on My Portal —
-        // not scoped, since an agent only ever acts on records about themselves.
+        // .create is a self-service action on My Portal — not scoped, since an agent only ever acts on records
+        // about themselves. (.sign_as_principal was RETIRED 2026-10-06 with PIN signing — wet-ink flow, spec §20;
+        // existing role_permissions rows for it are left in place, inert: nothing reads the key.)
         ['key' => 'ppra_employment_letters.view',              'label' => 'View PPRA Employment Letters (Admin register)', 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 1],
         ['key' => 'ppra_employment_letters.create',            'label' => 'Start a PPRA Employment Letter',                 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 2],
-        ['key' => 'ppra_employment_letters.sign_as_principal', 'label' => 'Sign PPRA Employment Letters as Principal',     'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 3],
         ['key' => 'ppra_employment_letters.manage',            'label' => 'Manage PPRA Employment Letters for others (Admin register: list, start, archive/restore)',       'section' => 'admin', 'type' => 'action', 'module' => 'ppra_employment_letters', 'sort_order' => 4],
 
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
@@ -1091,10 +1091,8 @@ return [
                 'access_viewing_packs',
                 'viewing_packs.view', 'viewing_packs.create', 'viewing_packs.edit',
                 // PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) —
-                // branch scope for BM via scope_defaults; sign_as_principal only takes
-                // effect when combined with the resolved principal_user_id on a given
-                // letter, so granting it broadly here is safe.
-                'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
+                // branch scope for BM via scope_defaults.
+                'ppra_employment_letters.view', 'ppra_employment_letters.create',
                 // Inspection Pack staff roster — the roles that qualify today (agent/branch_manager/admin); an admin ticks others in Role Manager.
                 'ppra_inspection_pack.roster',
                 // Can receive a PPRA Employment Letter — same practitioner roles; an admin ticks others in Role Manager.
@@ -1231,9 +1229,8 @@ return [
                 'access_viewing_packs',
                 'viewing_packs.view', 'viewing_packs.create', 'viewing_packs.edit',
                 // PPRA FFC Employment Letter (.ai/specs/ppra-ffc-employment-letter.md) —
-                // own scope via scope_defaults; sign_as_principal only takes effect for
-                // an agent who is ALSO the resolved principal on a given letter.
-                'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
+                // own scope via scope_defaults.
+                'ppra_employment_letters.view', 'ppra_employment_letters.create',
                 // Inspection Pack staff roster — the roles that qualify today (agent/branch_manager/admin); an admin ticks others in Role Manager.
                 'ppra_inspection_pack.roster',
                 // Can receive a PPRA Employment Letter — same practitioner roles; an admin ticks others in Role Manager.
@@ -1372,11 +1369,8 @@ return [
                 // so an office_admin holding a property-practitioner designation and
                 // their own FFC number (e.g. a "Candidate Property Practitioner") had
                 // no way to see or start their letter — not even the My Portal nav
-                // entry appeared. own scope for .view via scope_defaults fallback;
-                // sign_as_principal only takes effect when combined with the resolved
-                // principal_user_id on a given letter, so granting it broadly here is
-                // safe — same reasoning already used for agent/branch_manager above.
-                'ppra_employment_letters.view', 'ppra_employment_letters.create', 'ppra_employment_letters.sign_as_principal',
+                // entry appeared. own scope for .view via scope_defaults fallback.
+                'ppra_employment_letters.view', 'ppra_employment_letters.create',
             ],
         ],
 
