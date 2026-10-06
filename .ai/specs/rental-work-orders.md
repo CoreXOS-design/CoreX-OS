@@ -2968,7 +2968,64 @@ Cancelled, and a send from Scheduled keeps status Scheduled.
 
 ---
 
-### 14.23 Job Cards LIST — design-standard rebuild (2026-10-06, Johan; supersedes the list parts of §14.8)
+### 14.24 Job card lines — one column grid for header, saved rows and the add row; compact end-of-row controls (2026-10-06, Johan; layout only, no behaviour change)
+
+**What Johan saw (card /corex/rental-job-cards/1):** under a task, the Item / Description / Type / Unit / Qty / Unit
+price / VAT of the saved lines did not read as one table with the add-line inputs below them, and the × at the end of a
+saved line was "a large dark block".
+
+**Root causes (measured in a real browser, 1366×768, column x-positions of the three rows):**
+1. The three rows already share one set of tracks (`App\Support\RentalJobCardLineGrid::columns()`; every track starts
+   at the same x: 343 / 433 / 509 / 605 / 675 / 731 / 821 / 911). What did not line up was the TEXT inside the tracks:
+   the inputs/selects carry `px-2` + a 1px border, so what an agent types starts 9px into its track, while the header
+   labels and the saved values were flush at the track edge — every label sat 9px left of the box below it.
+2. The × (and the + in a form-mode add row) is a `<button type="submit">` inside `.hfc-card`, and corex.css paints every
+   such button with `!important` background (solid blue/navy), `padding: 10px 18px`, radius 10px — measured 44×36px in a
+   36px track (spilling out of the column and making the row 36px tall against 30px inputs). The pencil is a
+   `type="button"`, so it escaped the rule and stayed a plain glyph — hence the mismatch.
+
+**The column grid (the one source of truth, unchanged):** Item `minmax(0,100px)` · Description `minmax(70px,1fr)` ·
+Type `90px` · [prices on: Unit `64px` · Qty `50px` · Unit price `84px` · [VAT-registered: VAT `84px`]] · Action `36px`;
+`gap: 6px`. Header row, saved rows, the add row and an open line editor all use `gridStyle()`.
+
+**Fix:**
+- `RentalJobCardLineGrid::cellStyle()` = `padding-left: 9px` (8px input padding + 1px border) applied to every header
+  label and every saved value, so label ↔ saved value ↔ input text start on the same x in each column.
+- `RentalJobCardLineGrid::iconButtonStyle()` — ONE compact 17×17px icon control, every declaration `!important` so it
+  beats the card-wide submit rule: edit ✎ and archive × are plain glyphs (transparent, no border), the add + is the same
+  size as a small outlined square, right-aligned (`justify-self:end`) so the saved rows and the add row end in the same
+  narrow action column. Row height is back to the text height. The add-line row stays on ONE line (5 Oct ruling), the two
+  panels still scroll independently, and no behaviour changes (same forms, same confirm on archive, same routes).
+- Not touched: the create (draft) screen's pre-save lines list; the "Remove" control there is a different component.
+
+**On-screen VAT column showed "—" on some lines (cc4 finding, added to this section the same day).** Cause:
+`RentalJobCardVatService::breakdown()` writes the `vat_display_*` attributes onto `$jobCard->lines`, but the saved-lines
+partial renders `$task->lines` and the separately loaded General lines — different model instances — so those
+attributes were always empty and the column fell back to the line's OWN VAT type, which a free-text line, or a line picked
+from a catalogue item with no default VAT type, simply does not have. (The printouts were fixed for the same reason in
+§14.21 and are untouched.) **Fix:** the column shows the line's EFFECTIVE VAT type — Standard / None / Custom, the add-line
+select's own wording (`RentalVatType::shortenName()`, shared with `shortLabel()` so the two cannot drift) — resolved through
+the VAT service and keyed by line id: `breakdown()['lineFigures'][$line->id]['type_label']` (the cell shows the label only —
+the 84px column cannot hold "Standard (15%)" at 1366 wide — and the tooltip carries the rate, e.g. "Standard (15%)", "Custom (7.5%)"); a line with no VAT type is charged 0% = **None**; a line with no price yet (no
+lineFigures entry) falls back to `RentalJobCardVatService::effectiveTypeLabel($line)`; a frozen (quoted) line words the type
+name it was issued with the same way. Never a dash.
+
+**Tests:** `tests/Feature/RentalJobCards/RentalJobCardGridAlignmentTest.php` — header, saved row and add row render from
+the same grid style string, saved cells and header labels carry the 9px inset, and the ✎ / × / + carry the compact icon
+style with `!important` (no `corex-btn` class on the +); VAT column: a free-text line with no VAT type (in a task and in General), a line with no price, Standard/Custom wording + rate, a frozen quote's lines, the shared wording, and the printouts unchanged. Real-browser proof on QA1 card 1: column x per row + action
+control sizes + screenshot (`/tmp/qa1-cc3-jobcard-align.png`).
+
+**Files:** `app/Support/RentalJobCardLineGrid.php`, `app/Services/Rentals/RentalJobCardVatService.php` (`type_label`, `effectiveTypeLabel`), `app/Models/RentalVatType.php` (`shortenName`), `resources/views/corex/rental-job-cards/{_line-columns-header,_lines-table,_add-line-row}.blade.php`.
+
+(Numbering resolved 6 Oct: the Job Cards LIST that also carried "§14.23" is now §14.26; §14.25 is parked — see below.)
+
+### 14.25 (number not used as a section)
+
+Code comments written on 6 Oct (`RentalVatType::shortenName()`, `RentalJobCardVatService::effectiveTypeLabel()`, `_lines-table.blade.php`) cite "§14.25" for the on-screen VAT-column fix; that text is in **§14.24** above. The number is parked here so it is not re-used for something else.
+
+### 14.26 Job Cards LIST — design-standard rebuild (2026-10-06, Johan; supersedes the list parts of §14.8)
+
+> **Renumbered 6 Oct** from a second "§14.23" (the print follow-ups above hold §14.23). Code and tests written for the LIST cite "§14.23" — `RentalJobCardListQuery.php`, `resources/views/corex/rental-job-cards/index.blade.php`, `RentalJobCardListQueryTest.php` and `RentalJobCardController::index()` — and mean THIS section. Every other "§14.23" in code (the rental PDF templates, `RentalJobCard::scheduleInputValue()`, `show.blade.php` quote box, `RentalJobCardPrintFollowUpsTest`) means the print follow-ups.
 
 `/corex/rental-job-cards` (Rentals → Job Cards). One query object — `App\Services\Rentals\RentalJobCardListQuery`
 — builds the list, the status tiles, the scope-switch counts and the Print list. Nothing else builds a job-card
@@ -3025,57 +3082,412 @@ paging), same columns including Created and Total incl. VAT.
 index.blade.php`, `print-list.blade.php`, `tests/Feature/RentalJobCards/RentalJobCardListScreenTest.php`.
 No migration, no new permission, no new setting (nothing to surface in the Setup Wizard).
 
-### 14.24 Job card lines — one column grid for header, saved rows and the add row; compact end-of-row controls (2026-10-06, Johan; layout only, no behaviour change)
+### 14.27 Crew links, crew completion and job-card visibility for tenants and landlords — FINAL (conductor's decisions on Johan's requirements, 6 Oct 2026; spec only — no app code yet)
 
-**What Johan saw (card /corex/rental-job-cards/1):** under a task, the Item / Description / Type / Unit / Qty / Unit
-price / VAT of the saved lines did not read as one table with the add-line inputs below them, and the × at the end of a
-saved line was "a large dark block".
+**Johan's requirements (6 Oct), restated:**
+- (a) Once a job card exists it can already be downloaded and printed; he also wants a **share link** for it.
+- (b) **Crews get an email address and a contact number** (Rental Crews set-up), used to share the job card with the crew.
+  Crew are NOT CoreX users and get no login (ruling 5 Oct). Access = a **per-job secure link**, the same doctrine as
+  contractors (ruling 29 Sep, rental-portal-access.md §4).
+- (c) **Completion, two routes:** (1) the crew signs on the link that the work is completed; (2) wet ink — the crew brings the
+  signed job card back to the office and the signed copy is **uploaded** against the job card as the confirmation.
+- (d) **Crew photos:** from the link, on their phone, the crew take pictures of the work and upload them; the photos attach to
+  the job card and **flow back so the tenant and the landlord can see the work is completed** (tenancy log / lease hub /
+  tenant and owner portal views of the fault and work order).
+- (e) **Crew general page:** "same like sharing the jobcard" — a simple screen per crew showing the job cards assigned to that
+  crew, from which they open the cards, **prep stock** and know their schedule.
 
-**Root causes (measured in a real browser, 1366×768, column x-positions of the three rows):**
-1. The three rows already share one set of tracks (`App\Support\RentalJobCardLineGrid::columns()`; every track starts
-   at the same x: 343 / 433 / 509 / 605 / 675 / 731 / 821 / 911). What did not line up was the TEXT inside the tracks:
-   the inputs/selects carry `px-2` + a 1px border, so what an agent types starts 9px into its track, while the header
-   labels and the saved values were flush at the track edge — every label sat 9px left of the box below it.
-2. The × (and the + in a form-mode add row) is a `<button type="submit">` inside `.hfc-card`, and corex.css paints every
-   such button with `!important` background (solid blue/navy), `padding: 10px 18px`, radius 10px — measured 44×36px in a
-   36px track (spilling out of the column and making the row 36px tall against 30px inputs). The pencil is a
-   `type="button"`, so it escaped the rule and stayed a plain glyph — hence the mismatch.
+**CoreX doctrine applied: build the options, the agency sets it up.** Every behaviour Johan could reasonably want
+different for another agency is an **agency setting with a stated default** (§14.27.3), per agency, on the Rental Portal
+settings screen next to the existing contractor-link settings, and surfaced in the Setup Wizard (non-negotiable #10a).
+Nothing here assumes one agency: wording is neutral, the agency name/logo come from the agency record.
 
-**The column grid (the one source of truth, unchanged):** Item `minmax(0,100px)` · Description `minmax(70px,1fr)` ·
-Type `90px` · [prices on: Unit `64px` · Qty `50px` · Unit price `84px` · [VAT-registered: VAT `84px`]] · Action `36px`;
-`gap: 6px`. Header row, saved rows, the add row and an open line editor all use `gridStyle()`.
+#### 14.27.1 Decisions (the 18 open questions, closed)
+All 18: **option (a), as recommended**, with the refinements below. (Numbers match the question list the lane produced.)
+1. **One per-job link** serves both "share the card" and "crew acts on it" (no separate view-only link).
+2. The link may be emailed to the **crew's address or any address the agent types**.
+3. Crew sees the **tenant's name + phone: agency setting `crew_link_show_tenant_contact`, default OFF** (access notes only).
+4. The crew **can tick tasks** on the link.
+5. Crew "completed" **never closes the card.** The existing **Agent sign-off stays the close** (`complete()` unchanged: needs the
+   worker sign-off AND the agent sign-off). **Wet-ink route:** the office uploads the signed job card (pdf / jpg / png,
+   **10240 KB** max, an earlier upload is kept and marked **Superseded**, **no hard delete**), which records the crew completion
+   **the same way** the link does (§14.27.5).
+6. Crew signs with **typed full name + a tick**, stored with **timestamp, IP address and device** (user-agent).
+7. Which crew photos the tenant/landlord see: **agency setting `crew_photos_visible_to_clients`, default "all in-progress +
+   completed"** (alternative value: completed only).
+8. **Per-job link validity: agency setting `crew_job_link_expiry_days`, default 14.** The link **always dies** when the card is
+   Completed (i.e. after the agent sign-off), Cancelled or archived — whatever the expiry says.
+9. **Prices on crew links: agency setting `crew_link_show_prices`, default OFF.**
+10. A **QR code on the printed job card** that opens the link — only when the agent chooses **"Print with link"** (a printed QR
+    is a live credential on paper, so it is minted on demand, replaces any earlier link, and is never in the normal print).
+11. **Landlord email when the crew marks completed: agency setting `notify_landlord_on_crew_completion`, default ON.** The mail
+    goes through **the agency mailbox path** (the sending agent's own communication mailbox, SMTP + Sent-folder append, same as
+    every `fromAgent()` send site — `BaseSignatureMail::fromAgent()` + `PerMailboxMailTransportBuilder` +
+    `ImapSentFolderAppender`, dispatched as `ComplianceMailDispatcher` does), **never a plain `Mail::to()->send(Mailable)`**.
+    The same path carries the crew-link emails (§14.28, §14.29). Sending agent = the user who pressed the button; for the
+    automatic landlord mail, the property's responsible agent (fallback: the card's creator; fallback: the shared CoreX mailer,
+    exactly as AT-395 already falls back). On QA1 the outbound mail guard catches everything; verification uses
+    `@example.invalid` addresses only.
+12. **Crew page link stands until revoked**, with an **optional agency-set expiry: `crew_standing_link_expiry_days`**
+    (blank = no expiry).
+13. **"Recently completed" window on the crew page: `crew_page_recent_completed_days`, default 7** (0 = list hidden).
+14. **"Upcoming" window on the crew page: `crew_page_upcoming_days`, default 14.**
+15. The materials list covers **today + upcoming** cards only (not unscheduled).
+16. **Draft cards do not appear** on the crew page — only booked work: Approved, Scheduled, In progress (§14.27.5).
+17. The materials list says **"what to load" only** — CoreX rentals holds no stock-on-hand data, so it never says "short of".
+18. **One link per crew** (shared by its members); actions are logged "via crew page/link — {crew}" plus the typed name on a sign-off.
 
-**Fix:**
-- `RentalJobCardLineGrid::cellStyle()` = `padding-left: 9px` (8px input padding + 1px border) applied to every header
-  label and every saved value, so label ↔ saved value ↔ input text start on the same x in each column.
-- `RentalJobCardLineGrid::iconButtonStyle()` — ONE compact 17×17px icon control, every declaration `!important` so it
-  beats the card-wide submit rule: edit ✎ and archive × are plain glyphs (transparent, no border), the add + is the same
-  size as a small outlined square, right-aligned (`justify-self:end`) so the saved rows and the add row end in the same
-  narrow action column. Row height is back to the text height. The add-line row stays on ONE line (5 Oct ruling), the two
-  panels still scroll independently, and no behaviour changes (same forms, same confirm on archive, same routes).
-- Not touched: the create (draft) screen's pre-save lines list; the "Remove" control there is a different component.
+#### 14.27.2 Terms
+- **Per-job crew link** = a secure link scoped to ONE job card (Build 1). **Crew page link** = ONE standing link per crew that
+  lists that crew's open cards (Build 2). Both are "crew links": no CoreX user, no password, SHA-256-hashed token, same
+  "unavailable" page for expired / revoked / unknown / closed.
+- **Crew completion** = the worker sign-off on a job card recorded by the crew (link) or on their behalf (signed copy); it is
+  NOT card completion.
 
-**On-screen VAT column showed "—" on some lines (cc4 finding, added to this section the same day).** Cause:
-`RentalJobCardVatService::breakdown()` writes the `vat_display_*` attributes onto `$jobCard->lines`, but the saved-lines
-partial renders `$task->lines` and the separately loaded General lines — different model instances — so those
-attributes were always empty and the column fell back to the line's OWN VAT type, which a free-text line, or a line picked
-from a catalogue item with no default VAT type, simply does not have. (The printouts were fixed for the same reason in
-§14.21 and are untouched.) **Fix:** the column shows the line's EFFECTIVE VAT type — Standard / None / Custom, the add-line
-select's own wording (`RentalVatType::shortenName()`, shared with `shortLabel()` so the two cannot drift) — resolved through
-the VAT service and keyed by line id: `breakdown()['lineFigures'][$line->id]['type_label']` (the cell shows the label only —
-the 84px column cannot hold "Standard (15%)" at 1366 wide — and the tooltip carries the rate, e.g. "Standard (15%)", "Custom (7.5%)"); a line with no VAT type is charged 0% = **None**; a line with no price yet (no
-lineFigures entry) falls back to `RentalJobCardVatService::effectiveTypeLabel($line)`; a frozen (quoted) line words the type
-name it was issued with the same way. Never a dash.
+#### 14.27.3 Agency settings (per agency; defaults stated; all in `rental_portal_settings` / `RentalPortalSetting`)
+Shown on **Settings → Rental Portal** (`corex/settings/rental-portal.blade.php`) in a new **"Crew links"** section under the
+existing "Access" block, and in the **Setup Wizard** (`config/agency-onboarding-copy.php`, `source => 'rental_portal'`, each with
+`explain` + `affects`; savers guard every boolean write with `$request->has()` — onboarding spec §6.1). No setting is
+withheld from the wizard.
 
-**Tests:** `tests/Feature/RentalJobCards/RentalJobCardGridAlignmentTest.php` — header, saved row and add row render from
-the same grid style string, saved cells and header labels carry the 9px inset, and the ✎ / × / + carry the compact icon
-style with `!important` (no `corex-btn` class on the +); VAT column: a free-text line with no VAT type (in a task and in General), a line with no price, Standard/Custom wording + rate, a frozen quote's lines, the shared wording, and the printouts unchanged. Real-browser proof on QA1 card 1: column x per row + action
-control sizes + screenshot (`/tmp/qa1-cc3-jobcard-align.png`).
+| Key | Type | Default | Range | Used by | Owner |
+|---|---|---|---|---|---|
+| `crew_links_enabled` | toggle | **on** | — | master switch: off = every crew link (per-job and crew page) is "unavailable" at once | Build 1 |
+| `crew_job_link_expiry_days` | number | **14** | 1–90 | per-job link validity (Q8) | Build 1 |
+| `crew_link_show_prices` | toggle | **off** | — | prices on per-job view AND crew page (Q9) | Build 1 |
+| `crew_link_show_tenant_contact` | toggle | **off** | — | tenant name + phone on the crew views (Q3) | Build 1 |
+| `notify_landlord_on_crew_completion` | toggle | **on** | — | landlord email when crew marks completed (Q11) | Build 1 |
+| `crew_photos_visible_to_clients` | select | **`in_progress_and_completed`** | `in_progress_and_completed` \| `completed_only` | which crew photos tenant/landlord see (Q7) | Build 2 |
+| `crew_standing_link_expiry_days` | number, nullable | **blank = until revoked** | 1–365 | crew page link (Q12) | Build 2 |
+| `crew_page_recent_completed_days` | number | **7** | 0–30 (0 hides) | crew page "recently completed" (Q13) | Build 2 |
+| `crew_page_upcoming_days` | number | **14** | 1–60 | crew page "upcoming" window (Q14) | Build 2 |
 
-**Files:** `app/Support/RentalJobCardLineGrid.php`, `app/Services/Rentals/RentalJobCardVatService.php` (`type_label`, `effectiveTypeLabel`), `app/Models/RentalVatType.php` (`shortenName`), `resources/views/corex/rental-job-cards/{_line-columns-header,_lines-table,_add-line-row}.blade.php`.
+Accessors follow the existing `RentalPortalSetting::…For(?int $agencyId)` pattern (default when no row). Existing
+`contractor_links_enabled` / `contractor_secure_link_expiry_days` are unchanged.
 
-(Numbering note: two §14.23 sections exist — the print follow-ups and cc4's Job Cards LIST; both landed the same
-morning. Left as is; whoever next touches this file may renumber the list one to 14.25.)
+#### 14.27.4 What already exists and is reused (verified 6 Oct on origin/QA1)
+
+| Need | Exists | Where | Reuse |
+|---|---|---|---|
+| Per-job no-login secure link | Token model, SHA-256 hash only, `expires_at`, `revoked_at`, `last_used_at`, `isLive()` | `app/Models/RentalSecureAccessToken.php:15-79` (`isLive` :49) | Extend the same table/model (§14.28.2) |
+| Mint / revoke | `issueFor()` (revokes previous, one live link per target, expiry from agency setting), `revokeAllFor()`, `revoke()` | `app/Services/Rentals/RentalSecureAccessTokenService.php:18-49` | Generalise (§14.27.6) |
+| **No UI mints a link today** | `issueFor()` is called only from `tests/Feature/RentalPortalAccess/ContractorSecureLinkTest.php` — there is **no "generate contractor link" button or controller** | grep of `app/ routes/ resources/` | Build 1's panel is the first office-side issue/revoke UI; the contractor side can adopt the same service later (not in scope) |
+| Public routes, no session, throttled | `secure/work-orders/{token}` GET + `quote` / `photo` / `mark-done` POST, `throttle:30,1`, same "unavailable" page | `routes/web.php:58-62`; `app/Http/Controllers/ContractorSecureLinkController.php:29-124` (`resolveToken` :29, `storePhoto` :87, `markDone` :105) | New sibling controllers, same shape |
+| Phone page | `<input type="file" accept="image/*" capture="environment">`, viewport meta | `resources/views/rentals/secure-link/show.blade.php:13,88-90` | Copy the layout |
+| Agency settings + wizard | `contractor_links_enabled`, `contractor_secure_link_expiry_days` | `app/Models/RentalPortalSetting.php:22-23,66-74`; screen `resources/views/corex/settings/rental-portal.blade.php:41-81`; controller `RentalPortalSettingsController.php:45-68`; wizard `config/agency-onboarding-copy.php:579-583` | Add the §14.27.3 rows beside them |
+| "Worker — done" | `workerSignOff(User $by, ?string $name)` → `worker_signed_off_at`, `worker_signed_off_by_user_id`, `worker_sign_off_name`; logs `sign_off` | `app/Models/RentalJobCard.php:444` | `recordCrewCompletion()` (§14.28.4) |
+| Agent sign-off / tenant confirm / complete | `agentSignOff` :455, `tenantConfirm` :466, `complete(User)` :482 requires worker AND agent sign-off; service `complete()` also completes the linked work order | `RentalJobCard.php`; `RentalJobCardService.php:656` | Unchanged |
+| Closed card locked | `isClosed()`, `assertContentEditable()`, `assertOpen()` | `RentalJobCard.php:348-371` | Link + uploads refuse on a closed card |
+| Audit trail | `logUpdate(type, ?User by, note, from, to)` → `rental_job_card_updates` (nullable actor) | `RentalJobCard.php:265` | New update types |
+| Crew model / screens | `RentalCrew` fillable `agency_id, name, notes, is_active, created_by_user_id` (**no phone/email at crew level**); `RentalCrewMember` `name, phone, role`; routes `routes/web.php:3922-3944`; views `resources/views/corex/rental-crews/{index,create,edit}.blade.php` (form `edit.blade.php:30-37`, member row `:66-68`) | `RentalCrew.php:25`; `RentalCrewMember.php:16` | Add the two fields |
+| Job card print / PDF | `jobCardPrintPdf()` :132, `jobCardFilename()` :164; route `corex.rental-job-cards.print` `routes/web.php:3987`; QR already generated for rentals PDFs with `endroid/qr-code` (`composer.json:14`; `RentalInspectionReportPdfService.php:10-12`) | `app/Services/Rentals/RentalDocumentPdfService.php` | "Print with link" QR |
+| Photo storage | `RentalJobCardService::storePhoto(card, file, type, ?User, ?clientKey)` → `PropertyImageStorer::store()` (public disk `properties/{id}`, EXIF-normalised, downscaled) → immutable `rental_work_order_photos` row (`rental_job_card_id`, `rental_work_order_id` when linked, `photo_type` reported / in_progress / completed, `uploaded_by_user_id` **nullable**, `client_idempotency_key`) | `RentalJobCardService.php:627`; `app/Services/Images/PropertyImageStorer.php:32`; `RentalWorkOrderPhoto.php`; web `RentalJobCardController.php:805`; mobile `Api/MobileRentalJobCardController.php:64` (also `tickTask` :49) | Crew = one more caller with a `null` actor, as `ContractorSecureLinkController.php:98` already does |
+| Office photo display | Card "Photos" block merges card + linked work-order photos | `resources/views/corex/rental-job-cards/show.blade.php:494-496` | Unchanged |
+| Signed-copy precedent | Inspection wet-ink scans: "a superseded scan is archived, never removed"; `supersede-wet-ink` flow | `app/Models/RentalInspectionScan.php:18`; `RentalInspectionRecordingController.php:1376` | Mirror for the signed job card |
+| Tenant / landlord visibility **today** | Portal API only (no web views in this repo). Tenant `workOrderShow` returns title/status/`completed_at`/confirmation — **no photos, no job card**; fault show — **no photos**; landlord `workOrders` — title/status/approval/amount, **no photos**; **job cards are not exposed at all** | `Api/V1/ClientTenantRentalsController.php:168,266`; `Api/V1/ClientLandlordRentalsController.php:237`; routes `routes/api.php:215-242`; scope `RentalPortalScopeService.php:110,190,198` | §14.29 |
+| Tenancy log | Sources: application, lease, inspection, fault, work_order, notice, rental_notice — the docblock names job cards as the planned next source | `app/Services/Rentals/LeaseTimelineService.php:21` (docblock), `:29` (`TYPES`), `:77-78`, `:204` | One more builder |
+| Office permissions | `rental_job_cards.view / create / send_quote / sign_off / cancel` | `config/corex-permissions.php:248-257` | Add `rental_job_cards.share` |
+| Agency mailbox send path | `BaseSignatureMail::fromAgent()`; `ComplianceMailDispatcher::send(?string $to, BaseSignatureMail $mail)` routes through the agent's resolved mailbox with Sent-folder append and an audited fallback | `app/Mail/Signatures/BaseSignatureMail.php:51,94`; `app/Services/Compliance/ComplianceMailDispatcher.php:27-60`; `app/Services/Communications/ImapSentFolderAppender.php` | A scoped `RentalMailDispatcher` (Build 1) — same reason compliance has its own copy |
+| Existing rentals mails (do NOT copy) | Plain `Mail::to()->send(new …Mailable)` | `RentalWorkOrderService.php:178,200,221`; `RentalPortalNotificationService.php:38,56` | Out of scope; new mails use the agency mailbox path |
+
+#### 14.27.5 Rules common to both builds
+**Token doctrine.** 64-character random token shown once, only its SHA-256 stored, one live link per target (job card or crew);
+issuing again revokes the previous **in the same transaction** (the old link is dead on the very next request); unauthorised,
+expired, revoked, closed, archived and forged all render the **identical "unavailable" page**; public routes `throttle:30,1`
+(photo POST also `throttle:60,10`); never route-model-bound — the token is resolved and its liveness checked explicitly.
+
+**A per-job link is live only while ALL hold:** not revoked; not expired (`crew_job_link_expiry_days`); `crew_links_enabled`;
+the card is not **Completed**, not **Cancelled**, not **archived**, its property not archived. **A crew page link is live while
+ALL hold:** not revoked; not expired (`crew_standing_link_expiry_days`, if set); `crew_links_enabled`; the crew is active and not
+archived. (`RentalSecureAccessToken::isLive()` today calls `$this->expires_at->isPast()` unguarded —
+`app/Models/RentalSecureAccessToken.php:53` — so `expires_at` becomes nullable and null means "no expiry".)
+
+**The crew's per-job view** (Build 1; Build 2 embeds it): title; property address + map link; **access notes**; scheduled / due;
+crew name; **tasks** with ticks; the **materials** (part lines: description, quantity, unit) and labour lines **without prices**
+unless `crew_link_show_prices`; the **tenant's name + phone only** if `crew_link_show_tenant_contact`; the photos uploaded so far;
+the two actions **Add photos** and **Mark work completed**. **Never shown:** landlord/owner name or contact, quote amounts or
+approval state, other cards, history, other crews.
+
+**Completion states** (all on the existing card fields; nothing here closes a card):
+
+| State | Who records it | How |
+|---|---|---|
+| Crew completed (via link) | The crew, no login | "Mark work completed": **typed full name + confirmation tick**; stores `worker_signed_off_at` (timestamp), `worker_sign_off_name`, `worker_sign_off_via = crew_link`, `worker_sign_off_ip`, `worker_sign_off_device` (user-agent); actor null; history line |
+| Crew completed (signed copy) | Office user with `rental_job_cards.sign_off` | Uploads the signed job card; in the same transaction records the same worker sign-off with `via = signed_copy`, the "signed by" name typed by the office, IP/device of the uploader |
+| Crew completed (manual) | Office user with `sign_off` | Existing "Worker — done" button, now `via = office` |
+| Agent checked | Office user with `sign_off` | Existing `agentSignOff()` |
+| Completed (the close) | Office user with `sign_off` | Existing `complete()` — needs both sign-offs; this is the moment the link dies |
+
+After the crew completes, the per-job link **stays live** (so late photos can still be added) until the card is Completed,
+Cancelled, archived, expired or revoked; the "Mark work completed" button is replaced by "Completed — signed by {name}". There
+is no undo on the link; a mistaken crew completion is simply not agent-signed (and may be superseded by a corrected signed copy).
+
+**Signed-copy rules** (`rental_job_card_signed_copies`): pdf / jpg / png only, **max 10240 KB**; stored on the **private**
+disk (a signed document), served only through an authenticated route that runs `guardRentalRecordScope`; an earlier upload is
+**kept and stamped Superseded** (`superseded_at`, `superseded_by_id`), shown as history, never hard-deleted (non-negotiable #1);
+refused on a Cancelled card; allowed on a Completed card (paper often arrives late) without changing completion.
+
+**Photo rules:** multiple files per submit (max 10), each ≤ 50 MB, jpg / png / webp / heic (same as existing photo rules); type
+**Work in progress** or **Completed** (`photo_type`), optional caption; through `RentalJobCardService::storePhoto(…, null actor)` →
+`PropertyImageStorer`; per-file client UUID as `client_idempotency_key` so a flaky connection cannot double-post; immutable (no
+delete from the link; the office cannot hard-delete — no `deleted_at` today).
+
+**Materials list rule (Build 2, also the per-job "materials" block):** only lines whose catalogue type kind is **part**
+(`RentalCatalogueItemType::KIND_PART`) — labour is not stock — summed by **catalogue item + unit**; a free-text part line with no
+catalogue item is grouped by normalised description (trim, lower-case, collapsed spaces) + unit. Quantities and units only; **no
+prices** unless `crew_link_show_prices`; labelled "**What to load**". There is **no stock-on-hand data** in CoreX rentals, so the
+list never says "short of".
+
+**Open cards that count for a crew** (`rental_job_cards.rental_crew_id = crew`, same agency, not archived, property not
+archived): status **Approved, Scheduled or In progress** — booked work. **Draft** (Q16) and **Quoted** (still waiting for the
+owner's approval, so not yet booked work) are not shown. Completed / Cancelled / archived drop off immediately. The statuses that
+count are ONE constant, `RentalJobCard::CREW_VISIBLE_STATUSES = [approved, scheduled, in_progress]`, so an agency-wide change
+later is a one-line edit.
+
+**Scoping.** Office side: every action runs `guardRentalRecordScope($card, 'rental_job_cards', $property->branch_id)` — own /
+branch / agency at the query layer; direct-URL access by id is blocked, not just unlinked. Public side: a crew link resolves
+`agency_id` + `rental_crew_id` / `rental_job_card_id` from the token only — nothing in the URL or request can widen it; a crew
+link never shows another crew's or another agency's cards (tested with two crews in two agencies).
+
+**Audit** (`rental_job_card_updates`, actor null for the crew; `note` carries name / counts / "via crew link — {crew}"):
+`link_issued`, `link_emailed` (address), `link_revoked`, `link_opened` (first open + `last_used_at` on the token),
+`crew_photos_added` (count, types), `crew_completed` (name, via, IP, device), `signed_copy_uploaded`, `signed_copy_superseded`,
+`landlord_notified`. Crew-level events are in `rental_crew_link_events` (Build 2).
+
+**Domain events** (non-negotiable #9; add to `.ai/specs/corex-domain-events-spec.md` when built): `RentalJobCardLinkIssued`,
+`RentalJobCardCrewCompleted`, `RentalJobCardSignedCopyUploaded`, `RentalJobCardCrewPhotosAdded`. The landlord email listens to
+`RentalJobCardCrewCompleted`.
+
+**Navigation (non-negotiable #2).** No new top-level page. Build 1: "Share with crew" and "Signed copy" panels in the job card's
+right column; email/phone fields on the Rental Crews forms and list; the Print menu gets "Print with link". Build 2: a "Crew
+link" panel on the Rental Crews edit page and a link-status column on the list; a "Job card" filter option in the lease hub
+tenancy log. The public pages are reached only by link.
+
+**Multi-agency.** Wording neutral; agency name/logo from the agency record; no agency-1 defaults; every default above is sensible
+for an agency that is not HFC.
+
+#### 14.27.6 Shared interface — what Build 2 depends on from Build 1
+Build 2 may start against this interface before Build 1 merges; Build 2's integration tests need Build 1's migrations on the test
+schema (they seed rows using these exact names).
+
+1. **Crew fields:** `rental_crews.email` (nullable string 191), `rental_crews.phone` (nullable string 30); `RentalCrew` fillable +
+   casts; crew form validation (`email:rfc` max 191; phone `^[0-9+()\- .]{5,30}$`).
+2. **Token table** `rental_secure_access_tokens` (Build 1's single migration): `rental_job_card_id` (nullable FK),
+   `rental_crew_id` (nullable FK), `rental_work_order_id` **now nullable**, `expires_at` **now nullable**, `purpose` string(30)
+   (`contractor_work_order` | `crew_job_card` | **`crew_standing`**; existing rows back-filled `contractor_work_order`);
+   exactly one target set (service-enforced + test).
+3. **Token service** `App\Services\Rentals\RentalSecureAccessTokenService`:
+   `issue(Model $target, string $purpose, User $by, ?int $expiryDays): array{token: RentalSecureAccessToken, raw_token: string}`
+   (revokes any live token for that target first, same transaction); `revokeAllFor(Model $target): void`;
+   `revoke(RentalSecureAccessToken $t): void`; `resolveLive(string $rawToken, string $purpose): ?RentalSecureAccessToken`
+   (hash lookup + generalised `isLive()`); wrappers `issueForJobCard(RentalJobCard, User): array` (Build 1) and
+   `issueForCrew(RentalCrew, User): array` (Build 2 adds this wrapper, additive). `RentalSecureAccessToken::isLive()` switches on
+   `purpose` and treats null `expires_at` as no expiry.
+4. **Crew view layer** (Build 1, so the per-job link and the crew page share one implementation):
+   `App\Services\Rentals\CrewViewContext` (value object: `agencyId`, `crewId`, `tokenId`, `via` = `job_link`|`crew_page`,
+   `showPrices`, `showTenantContact`, `ip`, `userAgent`, `actorLabel`) and `App\Services\Rentals\CrewJobService` with
+   `payload(RentalJobCard, CrewViewContext): array`, `tick(RentalJobCard, RentalJobCardTask, CrewViewContext): void`,
+   `addPhotos(RentalJobCard, UploadedFile[], string $type, ?string $caption, CrewViewContext): int`,
+   `markCompleted(RentalJobCard, string $fullName, bool $confirmed, CrewViewContext): void` — each refuses a closed/archived card
+   and writes the audit rows. Blade partial `resources/views/rentals/crew-link/_job-body.blade.php` renders `payload()`.
+5. **Model:** `RentalJobCard::recordCrewCompletion(string $name, string $via, ?string $ip, ?string $device, ?User $by): void` and
+   the columns `worker_sign_off_via`, `worker_sign_off_ip`, `worker_sign_off_device`; `RentalJobCard::CREW_VISIBLE_STATUSES`.
+6. **Photos:** `rental_work_order_photos.caption` (nullable string 255) and `uploaded_via` (nullable string 20: `crew_link`,
+   `crew_page`, `office`).
+7. **Audit vocabulary** (§14.27.5) and the four domain events.
+8. **Permission** `rental_job_cards.share` (Build 2's link panel reuses it).
+9. **Mail path:** `App\Services\Rentals\RentalMailDispatcher::send(?string $to, BaseSignatureMail $mail)`; Build 2's
+   `RentalCrewStandingLinkMail` uses it.
+10. **Settings accessors** for Build 1's five keys + `crew_links_enabled` on `RentalPortalSetting`; Build 2 adds its four.
+
+---
+
+### 14.28 BUILD 1 — per-job crew link, crew contact details, signed-copy upload, crew completion
+
+**Goal:** Johan's (a)(b)(c)(d-upload) — crew email + phone on Rental Crews; mint / copy / email / revoke a per-job link from the
+job card; the mobile crew job view (tick tasks, see materials, upload photos, mark completed); wet-ink signed-copy upload;
+completion states; audit trail; the settings these need. Independent of Build 2 except that Build 2 consumes §14.27.6.
+
+**Migrations** (each with `php artisan schema:dump` + DEFINER strip, non-negotiable #12a; migrations idempotent on Staging data):
+1. `…_add_contact_to_rental_crews` — `email`, `phone`.
+2. `…_extend_rental_secure_access_tokens_for_crew_links` — `rental_job_card_id`, `rental_crew_id`, `purpose`; make
+   `rental_work_order_id` and `expires_at` nullable; back-fill `purpose`.
+3. `…_add_crew_completion_columns_to_rental_job_cards` — `worker_sign_off_via`, `worker_sign_off_ip`, `worker_sign_off_device`.
+4. `…_create_rental_job_card_signed_copies_table` — `id`, `agency_id`, `rental_job_card_id`, `storage_path`, `original_name`,
+   `mime_type`, `size_kb`, `uploaded_by_user_id`, `uploaded_at`, `superseded_at`, `superseded_by_id`, soft deletes, indexes.
+5. `…_add_caption_and_uploaded_via_to_rental_work_order_photos`.
+6. `…_add_crew_link_settings_to_rental_portal_settings` — `crew_links_enabled`, `crew_job_link_expiry_days`,
+   `crew_link_show_prices`, `crew_link_show_tenant_contact`, `notify_landlord_on_crew_completion`.
+
+**Routes**
+- Public (`routes/web.php`, new block after the contractor block at :58-62, `throttle:30,1`):
+  `GET secure/job-cards/{token}` → `rentals.crew-job.show`; `POST secure/job-cards/{token}/tasks/{task}/tick` →
+  `rentals.crew-job.tick`; `POST secure/job-cards/{token}/photos` (+`throttle:60,10`) → `rentals.crew-job.photos`;
+  `POST secure/job-cards/{token}/complete` → `rentals.crew-job.complete`.
+- Office (in the `rental-job-cards` group near `routes/web.php:3987-4038`): `POST rental-job-cards/{rentalJobCard}/crew-link`
+  (issue / re-issue; `rental_job_cards.share`) → `corex.rental-job-cards.crew-link.issue`; `DELETE …/crew-link` →
+  `…crew-link.revoke`; `POST …/crew-link/email` → `…crew-link.email`; `POST …/signed-copy` (`rental_job_cards.sign_off`) →
+  `…signed-copy.store`; `GET …/signed-copy/{copy}` (view/download, scope-checked) → `…signed-copy.download`;
+  the existing `GET …/print` accepts `?with_link=1` (requires `share`; mints a new link and embeds its QR).
+- Rental Crews: no new routes (existing store/update take the two new fields).
+
+**Controllers / services / mail**
+- New: `App\Http\Controllers\CrewJobLinkController` (public, mirrors `ContractorSecureLinkController`),
+  `App\Http\Controllers\CoreX\RentalJobCardCrewLinkController` (issue / revoke / email),
+  `App\Http\Controllers\CoreX\RentalJobCardSignedCopyController`, `App\Services\Rentals\CrewJobService`,
+  `CrewViewContext`, `RentalMailDispatcher`, `App\Mail\Rentals\RentalJobCardCrewLinkMail` and
+  `RentalJobCardCrewCompletedLandlordMail` (both `extends BaseSignatureMail`, `fromAgent()`, neutral agency-branded wording),
+  the four domain events + one listener (`SendLandlordCrewCompletionMail`, gated by `notify_landlord_on_crew_completion`; fires on the `RentalJobCardCrewCompleted` event, i.e. for BOTH the link and the signed-copy route — the work is done either way),
+  `RentalJobCardSignedCopy` model.
+- Changed: `RentalSecureAccessToken` + `RentalSecureAccessTokenService` (§14.27.6 items 2-3), `RentalJobCard`
+  (`recordCrewCompletion`, constants, `signedCopies()` relation), `RentalJobCardService` (completion/photo hooks),
+  `RentalCrewController` (+ validation), `RentalDocumentPdfService`/`print.blade.php` (QR), `RentalPortalSetting` +
+  `RentalPortalSettingsController` + routes for the five settings, `config/corex-permissions.php`, `config/agency-onboarding-copy.php`.
+
+**Views**
+- New: `resources/views/rentals/crew-link/{job,unavailable}.blade.php`, `_job-body.blade.php` (shared partial),
+  `resources/views/corex/rental-job-cards/{_crew-link-panel,_signed-copy-panel}.blade.php`, mail views.
+- Changed: `show.blade.php` (two `@include`s in the right column; header shows "Crew completed — {name}, {via}" chip),
+  `print.blade.php` (QR block when `with_link`), `rental-crews/{create,edit,index}.blade.php` (email + phone; list gets a Contact
+  column and searches name / email / phone), `corex/settings/rental-portal.blade.php` ("Crew links" section, five settings).
+- "Share with crew" panel (open cards only): **Generate link** (URL shown once with **Copy**), **Email to crew** (crew address,
+  editable, or any typed address — Q2), **WhatsApp** (`wa.me` prefilled, manual), **Revoke**; once a link exists it shows issued
+  by/when, expiry, last opened and "Re-issue (replaces the old link)" — the raw URL can never be shown again.
+
+**Settings keys:** `crew_links_enabled`, `crew_job_link_expiry_days`, `crew_link_show_prices`, `crew_link_show_tenant_contact`,
+`notify_landlord_on_crew_completion` (§14.27.3). **Wizard rows:** one per key, inserted directly **after** the
+`contractor_secure_link_expiry_days` entry (`config/agency-onboarding-copy.php:583`).
+
+**Permissions:** new `rental_job_cards.share` ("Share Job Cards with Crew", action, section `agency-tracker`) in
+`config/corex-permissions.php` next to `rental_job_cards.sign_off`, default-granted to the same roles that hold
+`rental_job_cards.create`, enforced by route middleware + controller check; signed-copy upload/download reuse
+`rental_job_cards.sign_off` / `.view`; the public link has no permission (the token is the credential). Role Manager picks it up
+from the config.
+
+**Tests** (single files, via `scripts/lane-test.sh`): `RentalCrewContactTest` (create/update/validation/list search/archive-restore);
+`CrewJobLinkTokenTest` (issue shows raw once, hash only, re-issue kills old on next request, revoke, expiry, closed/cancelled/
+archived/agency-off/forged all render the identical unavailable page, completed-after-agent-sign-off kills the link);
+`CrewJobLinkViewTest` (no prices by default, prices with the setting, tenant contact only with the setting, never landlord/quote
+data, scoping to the card); `CrewJobLinkActionsTest` (tick, photo upload types/limits/idempotent key, mark completed requires name +
+tick and records timestamp/IP/device/`via`, does NOT complete the card, refuses closed); `RentalJobCardSignedCopyTest`
+(pdf/jpg/png only, 10240 KB limit, private disk, scoped download, supersede keeps the earlier copy, refused when cancelled,
+records worker sign-off `via=signed_copy`); `RentalJobCardCrewLinkOfficeTest` (own/branch/agency scoping, permission matrix,
+email goes through the agency mailbox path — asserted with a fake dispatcher — and to `@example.invalid` only, audit rows);
+`RentalJobCardCrewCompletionMailTest` (landlord email on completion when the setting is on, none when off, via the dispatcher,
+never a plain Mailable — asserted by `Mail::fake()` receiving nothing); `RentalCrewLinkSettingsTest` (defaults, ranges, wizard
+saver does not wipe unrendered settings); print-with-link QR test. Real-browser mobile-viewport proof on QA1 (link open, tick,
+photo upload, mark completed, signed-copy upload) with `@example.invalid` test addresses.
+
+**Acceptance:** (1) crew email/phone save + validate; (2) Generate → URL once; Email → one mail via the agency mailbox path
+(QA1: caught); second Generate kills the first; (3) the link opens on a phone with no login and shows exactly §14.27.5's view;
+(4) crew "Mark work completed" records name/timestamp/IP/device, the card is NOT completed, the landlord mail follows if on;
+(5) signed copy uploads, supersedes, never deletes, records the same crew completion; (6) crew photos appear on the card;
+(7) agent sign-off + complete kills the link; (8) every action is in the card history.
+
+---
+
+### 14.29 BUILD 2 — crew general page, crew-link management, and tenant / landlord visibility of crew photos and completion
+
+**Goal:** Johan's (e) and the "flow back" half of (d) — one standing link per crew with a mobile page (grouped job list +
+combined materials list), link management on Rental Crews, and tenant/landlord visibility of job-card photos + completion
+(tenancy log, lease hub, tenant and owner portal API). Consumes §14.27.6; touches none of Build 1's new files.
+
+**The crew page** (`secure/crews/{token}`, mobile-first): header (crew, agency name/logo, today's date); **Today** (by time),
+**Upcoming** (next `crew_page_upcoming_days`, by date), **Unscheduled** (assigned, no date) — each row: scheduled time + due,
+title, property address, **access notes**, status chip, tap to open; optional collapsed **Recently completed** (last
+`crew_page_recent_completed_days`, read-only, 0 hides); **Materials to prep — "What to load"**: the §14.27.5 materials rule over
+**today + upcoming** cards, each row item code · description · total quantity + unit · "needed from {first date} ({n} jobs)",
+expandable to the per-job breakdown; no prices unless `crew_link_show_prices`. Opening a card shows the **same per-job view** as
+Build 1 (`_job-body` partial + `CrewJobService`), authorised by the **crew token**: the card must be one of **that crew's open
+cards** or the identical unavailable page is returned. Only cards assigned to **that crew and that agency** appear; completed /
+cancelled / archived cards drop off on the next refresh.
+
+**Migrations:** (1) `…_create_rental_crew_link_events_table` — `id`, `agency_id`, `rental_crew_id`, `token_id`, `event`
+(`issued` | `emailed` | `opened` | `job_opened` | `revoked` | `regenerated` | `action`), `rental_job_card_id` (nullable), `note`,
+`ip`, `user_agent`, `actor_user_id` (nullable, office actions), `created_at`; (2) `…_add_crew_page_settings_to_rental_portal_settings`
+— `crew_photos_visible_to_clients`, `crew_standing_link_expiry_days`, `crew_page_recent_completed_days`, `crew_page_upcoming_days`.
+(No token migration — Build 1's.)
+
+**Routes**
+- Public (`routes/web.php`, own block, `throttle:30,1`): `GET secure/crews/{token}` → `rentals.crew-page.show`;
+  `GET secure/crews/{token}/job-cards/{card}` → `rentals.crew-page.job`; `POST …/job-cards/{card}/tasks/{task}/tick`,
+  `POST …/job-cards/{card}/photos`, `POST …/job-cards/{card}/complete` — each delegating to `CrewJobService` with a
+  `CrewViewContext(via: 'crew_page')`.
+- Office (beside the crews block `routes/web.php:3922-3944`, `rental_job_cards.share` + `rental_catalogue.view`):
+  `POST corex/rental-crews/{crew}/link` (issue / regenerate) → `corex.rental-crews.link.issue`; `DELETE …/link` →
+  `…link.revoke`; `POST …/link/email` → `…link.email`; `GET …/link/events` → `…link.events`.
+- API (named, in the Admin → API catalog — non-negotiable #7), added to the existing client groups in `routes/api.php`
+  (tenant block :215-226, landlord block :230-242): tenant `GET rentals/job-cards` → `job-cards.index`,
+  `GET rentals/job-cards/{jobCard}` → `job-cards.show`; landlord `GET rentals/landlord/job-cards`,
+  `GET rentals/landlord/job-cards/{jobCard}`. The existing tenant `work-orders.show`, `fault-reports.show` and landlord
+  `work-orders.index` responses gain a `photos` array (same visibility rule).
+
+**Controllers / services**
+- New: `App\Http\Controllers\CrewPageController` (public), `App\Http\Controllers\CoreX\RentalCrewLinkController` (office),
+  `App\Services\Rentals\RentalCrewScheduleService` (the ONE query for "this crew's open cards" + grouping + the materials
+  summation, so the page, tests and any future API share it), `RentalCrewLinkEvent` model,
+  `App\Mail\Rentals\RentalCrewStandingLinkMail` (agency mailbox path via Build 1's `RentalMailDispatcher`).
+- Changed: `RentalPortalScopeService` (`tenantJobCards()/tenantJobCard()` = card's lease is the tenant's; `landlordJobCards()/
+  landlordJobCard()` = card's property is the landlord's; both `withoutGlobalScopes()` + explicit `agency_id`, so another
+  party's / agency's card is a 404), `Api/V1/ClientTenantRentalsController` + `ClientLandlordRentalsController` (the new
+  actions + `photos`), `LeaseTimelineService` (`jobCardEntries()`; type `job_card` added to `TYPES` :29 and merged at :77),
+  `RentalSecureAccessTokenService` (`issueForCrew()` wrapper only), `RentalPortalSetting` + `RentalPortalSettingsController` +
+  routes (four keys).
+- **What tenant/landlord receive for a job card:** title, status, scheduled / due, `completed_at`, who signed the crew completion
+  and how (name, `via`), and the **photo URLs** allowed by `crew_photos_visible_to_clients` (default in-progress + completed;
+  `reported` photos never). **Tenant: no prices. Landlord: the quote amount only as the existing work-order endpoint already
+  shows it.** Timeline entries: "Job card opened", "Crew photos added (n)", "Work completed — signed by {name} via link /
+  signed copy", "Job card completed" (the lease hub and anything reading `LeaseTimelineService` show them).
+
+**Views**
+- New: `resources/views/rentals/crew-link/{crew-page,crew-page-unavailable}.blade.php` (embeds Build 1's `_job-body`),
+  `resources/views/corex/rental-crews/_crew-link-panel.blade.php`, mail view.
+- Changed (one `@include` / one column each, to keep the diff away from Build 1's edits): `rental-crews/edit.blade.php`
+  (panel), `rental-crews/index.blade.php` (link-status column), the lease hub tenancy-log filter (new "Job card" type),
+  `corex/settings/rental-portal.blade.php` (four rows appended **after** Build 1's "Crew links" rows, in a sub-group "Crew page &
+  client visibility").
+- **Crew link panel (Rental Crews edit page):** Generate (URL once + Copy), **Email to crew** (crew address, editable;
+  agency mailbox path), **WhatsApp**, **Revoke**, **Regenerate** (the old link dies on the very next request); status line:
+  issued by/when, expiry (or "stands until revoked"), last opened, open count; newest-first **event log** (every open is a row,
+  throttled to one row per token per 10 minutes — `last_used_at` still updates every time; every action the crew takes
+  from the crew page also writes the card's own history line tagged "via crew page — {crew}"). Archived crews: read-only.
+
+**Settings keys:** `crew_photos_visible_to_clients`, `crew_standing_link_expiry_days`, `crew_page_recent_completed_days`,
+`crew_page_upcoming_days` (§14.27.3). **Wizard rows:** appended at the end of the `rental_portal` block (after
+`notify_tenant_on_status_change`), so they never collide with Build 1's insertion point.
+
+**Permissions:** reuses `rental_job_cards.share` (Build 1) for the link panel; no other new keys. Portal endpoints use the existing
+`rental-portal.enabled:{tenant|landlord}` middleware; the public crew pages use the token only.
+
+**Tests:** `RentalCrewScheduleServiceTest` (grouping Today / Upcoming / Unscheduled, windows from settings, Draft excluded,
+completed / cancelled / archived drop off, **two crews in two agencies never see each other's cards**, materials summed per
+catalogue item + unit incl. free-text grouping, labour excluded, prices only with the setting); `CrewPageLinkTest` (standing
+link lives until revoked, optional expiry, regenerate/revoke kill the old link on the next request, archived/inactive crew,
+agency switch, forged job id = unavailable); `CrewPageActionsTest` (tick / photo / complete through the crew token, `via =
+crew_page`, logged on card + crew log); `RentalCrewLinkPanelTest` (permission, email via the dispatcher, event log throttling);
+`TenantLandlordJobCardApiTest` (scoping — another tenant/landlord/agency = 404; photos filtered by `crew_photos_visible_to_clients`;
+tenant never sees prices; landlord amount rule; the `photos` array on the existing endpoints); `LeaseTimelineJobCardTest` (entries
+appear in the right order, type filter); `CrewPageSettingsTest` (defaults, ranges, wizard saver safety). Real-browser mobile proof
+on QA1: open the crew page, open a job from it, see the materials total, regenerate and see the old link die.
+
+**Acceptance:** (1) a crew link lists exactly that crew's open assigned cards, none from another crew or agency; (2) a card
+completed / cancelled / archived after the page loaded drops off on refresh and its direct URL is "unavailable"; (3) the
+materials total equals the part lines of the listed (today + upcoming) cards summed per catalogue item + unit; (4) regenerate /
+revoke kill the old link on the very next request; (5) every open and action is in the crew log and the card's history;
+(6) prices only with `crew_link_show_prices`; (7) tenant and landlord see the job card, its completion and the allowed photos —
+and a different tenant / landlord gets a 404.
+
+---
+
+### 14.30 Conflict map — what the two builds both touch (all additive, in separate blocks)
+`routes/web.php` (Build 1: after :58-62 and in the job-card group; Build 2: own public block and beside the crews block),
+`routes/api.php` (Build 2 only), `config/agency-onboarding-copy.php` (Build 1 inserts after `contractor_secure_link_expiry_days`;
+Build 2 appends at the end of the rental_portal block), `corex/settings/rental-portal.blade.php` + `RentalPortalSetting.php` +
+`RentalPortalSettingsController.php` (Build 1 adds its five; Build 2 adds its four below them), `rental-crews/edit.blade.php`
+(Build 1: fields; Build 2: one `@include`), `rental-crews/index.blade.php` (Build 1: Contact column; Build 2: link-status column),
+`RentalSecureAccessTokenService.php` (Build 1 owns; Build 2 adds `issueForCrew()` only). Everything else is exclusive to one build.
+Build order recommendation: Build 1 merges its migrations first (token table, crew fields, photo/caption columns); Build 2 starts
+in parallel against §14.27.6.
 
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
 
