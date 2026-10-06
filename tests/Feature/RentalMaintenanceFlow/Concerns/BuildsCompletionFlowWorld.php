@@ -90,6 +90,8 @@ trait BuildsCompletionFlowWorld
         ], $this->admin);
         $card->forceFill(['rental_crew_id' => $this->crew->id, 'status' => RentalJobCard::STATUS_IN_PROGRESS])->save();
         $workOrder = $card->workOrder;
+        // The owner has agreed to the work (Build 2's gate: a crew cannot report a job done that nothing has authorised).
+        $workOrder->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED, 'approval_basis' => RentalWorkOrder::BASIS_OWNER_DECISION])->save();
         if ($workOrderOverrides) {
             $workOrder->forceFill($workOrderOverrides)->save();
         }

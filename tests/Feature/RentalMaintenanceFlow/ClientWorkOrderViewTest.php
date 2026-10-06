@@ -116,7 +116,7 @@ final class ClientWorkOrderViewTest extends TestCase
     public function test_every_state_reads_in_plain_words_never_a_raw_status(): void
     {
         $table = [];
-        $this->workOrder->forceFill(['status' => 'reported'])->save();
+        $this->workOrder->forceFill(['status' => 'reported', 'owner_approval_status' => 'not_required'])->save();   // (the shared world starts owner-approved)
         $this->card->forceFill(['status' => 'draft'])->save();
         $table['draft card, nothing arranged'] = [$this->stageFor(), 'Being arranged'];
 
