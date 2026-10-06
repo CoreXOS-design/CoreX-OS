@@ -290,6 +290,10 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\EmailPortalLeadToAgent::class,
         );
+        // AT-447 — a signed platform contract / finished setup wizard ticks off the
+        // matching Agency Timeline item. SYNC on purpose (see AgencyFeatureToggled).
+        Event::listen(\App\Events\Platform\AgencyContractSigned::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
+        Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 

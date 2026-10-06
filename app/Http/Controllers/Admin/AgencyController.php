@@ -285,7 +285,7 @@ class AgencyController extends Controller
             session(['active_agency_id' => $agency->id]);
 
             return redirect()->route('settings.prospecting.index')
-                ->with('success', $msg . ' Now set up Market Intelligence (towns, suburbs, price bands) so it isn\'t blank for their first agent.');
+                ->with('success', $msg . ' Now set up Market Intelligence (towns, suburbs, price bands) so it isn\'t blank for their first agent. To plan their onboarding, start their timeline under System Developer → Agency Timeline.');
         }
 
         return redirect()->route('agencies.index')->with('success', $msg);
