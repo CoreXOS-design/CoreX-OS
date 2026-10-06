@@ -519,4 +519,4 @@ The Agency and its users may not use CoreX to:
 
 **3.5** Custom design, extra pages and features beyond the standard website are quoted separately and only done once the Agency accepts the quote in writing.
 
-**3.6** We host the website for as long as this agreement runs. When it ends, we stop hosting it, and the domain name remains the Agency’s.
+**3.6** We maintain the website for as long as this agreement runs. When it ends, we stop maintaining it, and the domain name remains the Agency’s.

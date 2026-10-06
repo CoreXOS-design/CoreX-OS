@@ -841,6 +841,7 @@ Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreemen
     Route::get('/wet-copy',        [$c, 'wetCopy'])->middleware('throttle:20,1')->name('wet-copy');
     Route::post('/upload',         [$c, 'upload'])->middleware('throttle:20,1')->name('upload');
     Route::get('/download',        [$c, 'download'])->middleware('throttle:30,1')->name('download');
+    Route::get('/wet-file/{file}', [$c, 'wetFile'])->whereNumber('file')->middleware('throttle:30,1')->name('wet-file');
 });
 
 // ===== P24 MARKET INTELLIGENCE =====

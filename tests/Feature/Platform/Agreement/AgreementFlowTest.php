@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform\Agreement;
 
 use App\Mail\PlatformEsign\AgreementInviteMail;
 use App\Mail\PlatformEsign\AgreementReceivedMail;
+use App\Mail\PlatformEsign\AgreementSignedMail;
 use App\Mail\PlatformEsign\SignedMail;
 use App\Models\Agency;
 use App\Models\Platform\AgencyTimeline;
@@ -400,8 +401,9 @@ class AgreementFlowTest extends TestCase
         $this->assertGreaterThanOrEqual($total + 1, preg_match_all('#/Type\s*/Page(?![a-zA-Z])#', $pdf), 'contract pages plus the signing record');
         $this->assertSame('done', $step->fresh()->status, 'signing ticks the agency timeline');
         $this->assertSame('contract_signed', $step->fresh()->completed_source);
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
-        Mail::assertSent(SignedMail::class, fn ($m) => $m->hasTo($owner->email));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo('pat@caprivi.test'));
+        Mail::assertSent(AgreementSignedMail::class, fn ($m) => $m->hasTo($owner->email));
+        Mail::assertNotSent(SignedMail::class); // the attachment-carrying mail is never used for the agreement (spec §11.15)
 
         $events = $fresh->events->pluck('event')->all();
         foreach (['created', 'invited', 'saved', 'page_initialled', 'signed', 'countersigned', 'sealed', 'signed_copy_sent'] as $e) {
