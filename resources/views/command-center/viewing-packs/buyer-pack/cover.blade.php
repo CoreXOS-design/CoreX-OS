@@ -8,6 +8,10 @@
      buyer name clamped. DomPDF-safe (no flex/min-height/color-mix). --}}
 <head>@include('command-center.viewing-packs.buyer-pack._head')</head>
 <body>
+    @if(!empty($cover['isClassic']))
+        {{-- .ai/specs/viewing-pack.md §14 — agency-selected "Classic welcome" cover. --}}
+        @include('command-center.viewing-packs.buyer-pack._cover-classic', ['c' => $cover])
+    @else
     <div class="pg" style="height:1020px; overflow:hidden;">
         {{-- Brand line (uppercase navy — mirrors the presentation .cover-brand) --}}
         <div style="display:flex; align-items:center; gap:14px;">
@@ -54,5 +58,6 @@
         {{-- PPRA footer note (as on the presentation cover) --}}
         <div style="position:absolute; left:0; right:0; bottom:16px; text-align:center; font-size:9px; color:#9aa7b4;">Registered with the PPRA</div>
     </div>
+    @endif
 </body>
 </html>

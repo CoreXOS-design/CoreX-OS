@@ -4427,6 +4427,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'update'])
         ->middleware('permission:manage_performance_settings')
         ->name('admin.company-settings.update');
+    // Viewing Pack cover preview (leases-independent; .ai/specs/viewing-pack.md §14) — shows the
+    // saved cover (GET) or the Branding form's current values (POST/PUT — the form carries
+    // @method('PUT')) in a preview frame. Read-only.
+    Route::match(['get', 'post', 'put'], '/admin/company-settings/{agency}/cover-preview',
+        [\App\Http\Controllers\Admin\CompanySettingsController::class, 'coverPreview'])
+        ->middleware('permission:manage_performance_settings')
+        ->name('admin.company-settings.cover-preview');
     // Agency Public API — Website tab (own form/route). Spec: agency-public-api.md §7.4.
     Route::put('/admin/company-settings/{agency}/website',
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'updateWebsite'])
