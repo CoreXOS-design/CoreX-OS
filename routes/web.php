@@ -808,7 +808,7 @@ Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name
 // Serves ONLY the logo (not sensitive). The `v` query is a cache-buster; the current logo is always served.
 // Spec: .ai/specs/platform-company-profile.md §4.
 Route::get('/platform-company/logo', [\App\Http\Controllers\Admin\PlatformCompanyController::class, 'logo'])
-    ->middleware('throttle:120,1')->name('platform-company.logo');
+    ->middleware('throttle:600,1')->name('platform-company.logo'); // mail-image proxies share one IP on a bulk send
 
 // ===== AT-447 PUBLIC: agency timeline (read-only) + platform contract signing =====
 // Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
@@ -821,14 +821,16 @@ Route::post('/agency-timeline/{token}/steps/{item}', [\App\Http\Controllers\Publ
     ->whereNumber('item')->middleware('throttle:20,1')->name('agency-timeline.public.complete');
 Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
     ->middleware('throttle:60,1')->name('agency-timeline.public');
-Route::prefix('platform-esign/sign/{token}')->middleware('throttle:60,1')->name('platform-esign.sign.')->group(function () {
+// Named limiters (AppServiceProvider): per token + IP, so one signer's page images never starve the other signer or an office on the same IP.
+Route::prefix('platform-esign/sign/{token}')->name('platform-esign.sign.')->group(function () {
     $c = \App\Http\Controllers\PlatformEsign\SigningController::class;
-    Route::get('/',                      [$c, 'show'])->name('show');
-    Route::post('/',                     [$c, 'sign'])->name('submit');
-    Route::post('/decline',              [$c, 'decline'])->name('decline');
-    Route::get('/page/{page}',           [$c, 'page'])->whereNumber('page')->name('page');
-    Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->name('attachment');
-    Route::get('/download',              [$c, 'download'])->name('download');
+    $t = 'throttle:platform-esign-sign';
+    Route::get('/',                      [$c, 'show'])->middleware($t)->name('show');
+    Route::post('/',                     [$c, 'sign'])->middleware($t)->name('submit');
+    Route::post('/decline',              [$c, 'decline'])->middleware($t)->name('decline');
+    Route::get('/page/{page}',           [$c, 'page'])->whereNumber('page')->middleware('throttle:platform-esign-asset')->name('page');
+    Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->middleware($t)->name('attachment');
+    Route::get('/download',              [$c, 'download'])->middleware($t)->name('download');
 });
 // AT-447 follow-up (spec §11): the CoreX Subscription Agreement web document — recipient side, token-gated, no login.
 Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreement.')->group(function () {
@@ -4306,6 +4308,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
             Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
             Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
+            Route::post('/documents/{id}/take-on',            [$a, 'takeOn'])->whereNumber('id')->name('agreements.take-on');
 
             // Agreement wording editor + versions + expiry/reminder settings (spec §11.14) — owner / RR side.
             Route::prefix('wording')->name('wording.')->group(function () {

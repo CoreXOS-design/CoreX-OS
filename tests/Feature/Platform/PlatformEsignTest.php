@@ -28,10 +28,21 @@ class PlatformEsignTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** A private storage root per test, so other lanes' Platform E-Sign tests (which wipe the shared `platform-esign` folder) cannot delete files mid-test. */
+    private string $diskRoot = '';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->diskRoot = storage_path('framework/testing/pe-' . uniqid('', true));
+        config(['filesystems.disks.local.root' => $this->diskRoot]);
+        app('filesystem')->forgetDisk('local');
+    }
+
     protected function tearDown(): void
     {
         Role::clearCache();
-        Storage::disk('local')->deleteDirectory('platform-esign');
+        \Illuminate\Support\Facades\File::deleteDirectory($this->diskRoot);
         parent::tearDown();
     }
 

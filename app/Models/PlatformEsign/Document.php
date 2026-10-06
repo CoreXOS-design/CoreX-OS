@@ -25,7 +25,7 @@ class Document extends Model
     protected $fillable = [
         'template_id', 'template_version', 'agency_id', 'title', 'status', 'source', 'body_html_snapshot', 'pdf_path',
         'page_count', 'fields_json', 'sequential', 'expires_at', 'sent_at', 'completed_at', 'declined_at', 'voided_at',
-        'voided_by', 'void_reason', 'decline_reason', 'sealed_pdf_path', 'document_hash', 'created_by',
+        'voided_by', 'void_reason', 'decline_reason', 'sealed_pdf_path', 'document_hash', 'content_hash', 'created_by',
         'wording_version_id', 'contract_ref', 'form_data', 'rr_data', 'form_rev', 'recipient_note', 'company_snapshot',
     ];
 
