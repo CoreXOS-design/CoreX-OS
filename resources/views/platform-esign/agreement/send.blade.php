@@ -13,21 +13,21 @@
         <div class="grid sm:grid-cols-2 gap-4">
             <div>
                 <label class="ds-label block mb-1" for="name">Recipient full name <span style="color: var(--ds-crimson);">*</span></label>
-                <input id="name" name="name" value="{{ old('name') }}" required maxlength="255" class="ds-field w-full" autocomplete="off">
+                <input id="name" name="name" value="{{ old('name', $start['name']) }}" required maxlength="255" class="ds-field w-full" autocomplete="off">
                 @error('name')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
             </div>
             <div>
                 <label class="ds-label block mb-1" for="email">Email address <span style="color: var(--ds-crimson);">*</span></label>
-                <input id="email" name="email" type="email" value="{{ old('email') }}" required maxlength="255" class="ds-field w-full" autocomplete="off">
+                <input id="email" name="email" type="email" value="{{ old('email', $start['email']) }}" required maxlength="255" class="ds-field w-full" autocomplete="off">
                 @error('email')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
             </div>
             <div>
                 <label class="ds-label block mb-1" for="cell">Cell number <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
-                <input id="cell" name="cell" value="{{ old('cell') }}" maxlength="40" class="ds-field w-full" autocomplete="off">
+                <input id="cell" name="cell" value="{{ old('cell', $start['cell']) }}" maxlength="40" class="ds-field w-full" autocomplete="off">
             </div>
             <div>
                 <label class="ds-label block mb-1" for="agency_id">Existing agency <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
-                <select id="agency_id" name="agency_id" class="ds-field w-full">
+                <select id="agency_id" name="agency_id" class="ds-field w-full" data-prefill="{{ json_encode($prefill) }}">
                     <option value="">None — a new client</option>
                     @foreach($agencies as $a)<option value="{{ $a->id }}" @selected((int) old('agency_id', $agencyId) === $a->id)>{{ $a->name }}</option>@endforeach
                 </select>
@@ -61,4 +61,21 @@
         </div>
     </form>
 </div>
+<script>
+// Picking an agency fills the recipient's name / email / cell from the agency's principal (the owner can still correct them).
+// Only fields the owner has not already typed into themselves are replaced.
+(function () {
+    const sel = document.getElementById('agency_id');
+    if (!sel) return;
+    const map = JSON.parse(sel.dataset.prefill || '{}');
+    const fields = { name: document.getElementById('name'), email: document.getElementById('email'), cell: document.getElementById('cell') };
+    Object.values(fields).forEach(f => { f.dataset.filled = f.value; });
+    sel.addEventListener('change', () => {
+        const p = map[sel.value];
+        Object.entries(fields).forEach(([k, f]) => {
+            if (f.value === f.dataset.filled) { f.value = p ? (p[k] || '') : ''; f.dataset.filled = f.value; }
+        });
+    });
+})();
+</script>
 @endsection

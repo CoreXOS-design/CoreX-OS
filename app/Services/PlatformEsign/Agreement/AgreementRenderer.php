@@ -13,7 +13,7 @@ use League\CommonMark\Renderer\HtmlRenderer;
 /**
  * Turns a wording version's tokenised markdown into HTML blocks (spec §11.4/§11.6).
  *
- * Modes — form: recipient edits · rr: recipient entries read-only + RR inputs · pdf: sealed values · wet: values + blank
+ * Modes — edit: wording editor (fields shown as labelled markers) · form: recipient edits · rr: recipient entries read-only + RR inputs · pdf: sealed values · wet: values + blank
  * initial/signature lines (hand-signing copy) · preview: owner read-only (sensitive masked) · canon: layout estimation ·
  * text: every token blank (fidelity tests).
  * The block structure never depends on the mode or on values, so one stored layout (pages) fits every rendering.
@@ -81,6 +81,9 @@ class AgreementRenderer
         if ($this->mode === 'text' && $kind !== 'rate') {
             return ''; // fidelity mode: every field blank; rates are fixed wording of the pinned version
         }
+        if ($this->mode === 'edit' && $kind !== 'rate') {
+            return $this->chip($kind, $a, $b); // wording editor: a labelled marker, never a live field
+        }
 
         return match ($kind) {
             'f' => $this->field($a),
@@ -97,6 +100,17 @@ class AgreementRenderer
             'co' => $this->company($a),
             default => '',
         };
+    }
+
+    /** A grey, labelled marker standing for a field in the wording editor (spec §11.14). */
+    private function chip(string $kind, string $a, string $b): string
+    {
+        $token = implode(':', array_filter([$kind, $a, $b], fn ($p) => $p !== ''));
+        $label = in_array($kind, AgreementTokens::GUARDED, true) ? AgreementTokens::describe($token) : match ($kind) {
+            'ref' => '“contract reference”', 'auto' => '“' . ($a === 'day' ? 'day of signing' : 'month and year of signing') . '”', 'co' => '“RR Technologies ' . ($a === 'address' ? 'address' : 'name') . '”', default => '“' . $token . '”',
+        };
+
+        return '<span class="tok" title="{{' . e($token) . '}}">' . e(trim($label, '“”')) . '</span>';
     }
 
     private function isForm(): bool

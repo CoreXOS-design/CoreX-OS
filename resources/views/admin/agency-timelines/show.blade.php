@@ -293,7 +293,24 @@
                 <div class="text-sm font-semibold" style="color: var(--text-primary);">Agreement for {{ $agency->name }}</div>
                 <div class="text-xs" style="color: var(--text-muted);">Send the contract from Platform E-Sign, then link it here. When it is fully signed the "sign agreement" step ticks itself.</div>
             </div>
-            <div class="flex gap-2"><a href="{{ route('platform-esign.documents.create', ['agency' => $agency->id]) }}" class="corex-btn-primary text-xs">Send a contract to {{ $agency->name }}</a><a href="{{ route('platform-esign.hub') }}" class="corex-btn-outline text-xs">Open Platform E-Sign</a></div>
+            <div class="flex flex-wrap gap-2"><a href="{{ route('platform-esign.agreements.create', ['agency' => $agency->id]) }}" class="corex-btn-primary text-xs">Send Subscription Agreement</a><a href="{{ route('platform-esign.documents.create', ['agency' => $agency->id]) }}" class="corex-btn-outline text-xs">Send another contract</a><a href="{{ route('platform-esign.hub') }}" class="corex-btn-outline text-xs">Open Platform E-Sign</a></div>
+        </div>
+        {{-- Latest Subscription Agreement for this agency: where it stands, and a one-click re-issue when the link has expired (spec §11.14). --}}
+        <div class="px-4 py-3 text-sm flex flex-wrap items-center gap-x-4 gap-y-2" style="border-bottom: 1px solid var(--border);">
+            @if($agreementWebdoc)
+                @php $wd = $agreementWebdoc; $wdTone = ['awaiting_countersign' => 'orange', 'wetink_received' => 'orange', 'sent' => 'info', 'in_progress' => 'orange', 'completed' => 'success'][$wd->status] ?? 'default'; @endphp
+                <span><strong>Subscription Agreement</strong> <span style="color: var(--text-muted);">{{ $wd->contract_ref }}</span></span>
+                <span class="ds-badge ds-badge-{{ $wdTone }}">{{ $wd->statusLabel() }}</span>
+                <span class="text-xs" style="color: var(--text-muted);">sent {{ $wd->sent_at?->format('j M Y') ?? '—' }}@if(in_array($wd->status, ['sent', 'in_progress'], true) && $wd->expires_at) · link valid until {{ $wd->expires_at->format('j M Y') }}@endif @if($wd->completed_at) · signed {{ $wd->completed_at->format('j M Y') }}@endif</span>
+                <a href="{{ route('platform-esign.documents.show', $wd->id) }}" class="underline text-xs" style="color: var(--brand-icon);">Open</a>
+                @if($wd->status === 'awaiting_countersign' || $wd->status === 'wetink_received')<a href="{{ route('platform-esign.agreements.countersign', $wd->id) }}" class="corex-btn-primary corex-btn-xs">Review and countersign</a>@endif
+                @if($wd->status === 'expired')
+                    <form method="POST" action="{{ route('platform-esign.documents.resend', $wd->id) }}" class="inline">@csrf<button class="corex-btn-primary corex-btn-xs">Re-issue — new link, fresh expiry</button></form>
+                    <span class="text-xs" style="color: var(--ds-amber, #b45309);">The link expired; what the agency entered is kept.</span>
+                @endif
+            @else
+                <span style="color: var(--text-muted);">No Subscription Agreement has been sent to {{ $agency->name }} yet.</span>
+            @endif
         </div>
         <form method="POST" action="{{ route('admin.agency-timelines.agreement', $timeline) }}" class="px-4 py-4 flex flex-wrap items-end gap-3">
             @csrf

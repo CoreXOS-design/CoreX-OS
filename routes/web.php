@@ -204,6 +204,11 @@ Route::get('/extension/privacy', [\App\Http\Controllers\Public\LegalController::
 Route::get('/terms', [\App\Http\Controllers\Public\LegalController::class, 'terms'])
     ->middleware('throttle:60,1')
     ->name('public.terms');
+// CoreX Subscription Agreement — Parts B, C, D published (spec §11.14). Public, no auth; never Part A / the mandate / agency data.
+Route::get('/legal', [\App\Http\Controllers\Public\LegalController::class, 'agreementTerms'])
+    ->middleware('throttle:60,1')->name('public.agreement-terms');
+Route::get('/legal/v/{version}', [\App\Http\Controllers\Public\LegalController::class, 'agreementTermsVersion'])
+    ->where('version', '[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?')->middleware('throttle:60,1')->name('public.agreement-terms.version');
 
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
@@ -4776,6 +4781,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
             Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
             Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
+
+            // Agreement wording editor + versions + expiry/reminder settings (spec §11.14) — owner / RR side.
+            Route::prefix('wording')->name('wording.')->group(function () {
+                $w = \App\Http\Controllers\PlatformEsign\AgreementWordingController::class;
+                Route::get('/',                          [$w, 'index'])->name('index');
+                Route::post('/settings',                 [$w, 'settings'])->name('settings');
+                Route::post('/draft',                    [$w, 'createDraft'])->name('draft.create');
+                Route::get('/compare',                   [$w, 'compare'])->name('compare');
+                Route::get('/{version}',                 [$w, 'show'])->whereNumber('version')->name('show');
+                Route::get('/{version}/edit/{part}',     [$w, 'edit'])->whereNumber('version')->where('part', 'intro|part_a|part_b|part_c|part_d|mandate')->name('edit');
+                Route::put('/{version}/sections/{part}', [$w, 'saveSection'])->whereNumber('version')->where('part', 'intro|part_a|part_b|part_c|part_d|mandate')->name('section.save');
+                Route::put('/{version}/rates',           [$w, 'saveRates'])->whereNumber('version')->name('rates.save');
+                Route::post('/{version}/render',         [$w, 'render'])->whereNumber('version')->middleware('throttle:240,1')->name('render');
+                Route::get('/{version}/preview',          [$w, 'preview'])->whereNumber('version')->name('preview');
+                Route::get('/{version}/preview.pdf',      [$w, 'previewPdf'])->whereNumber('version')->name('preview.pdf');
+                Route::post('/{version}/publish',        [$w, 'publish'])->whereNumber('version')->name('publish');
+                Route::post('/{version}/discard',        [$w, 'discard'])->whereNumber('version')->name('discard');
+                Route::post('/{version}/restore',        [$w, 'restore'])->whereNumber('version')->name('restore');
+            });
         });
 
         Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
