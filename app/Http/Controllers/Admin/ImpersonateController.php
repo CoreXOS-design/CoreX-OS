@@ -48,6 +48,12 @@ class ImpersonateController extends Controller
 
         Auth::login($user);
 
+        // The impersonated user gets EXACTLY their own access. View-As keys set earlier by the
+        // admin (session-wide, not tied to the logged-in user) would otherwise survive Auth::login()
+        // and silently make effectiveRole()/effectiveBranchId() resolve to the admin's chosen lens
+        // instead of the target's own role — stop() already clears these on the way back.
+        session()->forget(['view_as_role', 'view_as_branch_id']);
+
         // Regenerate session id after login, then persist impersonator id in the NEW session
         session()->regenerate();
         session(['impersonator_id' => (int)$admin->id]);
