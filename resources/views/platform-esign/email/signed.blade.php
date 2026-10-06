@@ -11,5 +11,5 @@
 </p>
 <p style="margin:0; font-size:0.9375rem; line-height:1.6; color:#6b7280;">@if($doc->sealed_pdf_path)The sealed PDF copy is attached. Keep it for your records.@else The sealed PDF is being prepared and will be sent separately.@endif</p>
 </td></tr>
-<tr><td align="center" style="padding-top:24px; font-size:0.75rem; color:#9ca3af;">CoreX OS &middot; corexos.co.za</td></tr>
+@include('platform-esign.email._signature')
 </table></td></tr></table></body></html>
