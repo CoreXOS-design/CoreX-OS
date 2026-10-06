@@ -4,6 +4,7 @@
     .ai/specs/leases.md §2 — a lease takes a Property (owner already known),
     adds Tenant(s) (N-party, never assumed 1-2), and carries terms.
     The Property field is a type-to-search picker (§7.2), not a dropdown.
+    After a validation error every field comes back from old() (§7.3).
 --}}
 
 @section('content')
@@ -16,7 +17,7 @@
     ];
 @endphp
 <div class="p-6 max-w-2xl mx-auto space-y-4"
-     x-data="leaseCreateForm('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from([]) }}, {{ \Illuminate\Support\Js::from($propertyPickerConfig) }})">
+     x-data="leaseCreateForm('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from($oldTenants ?? []) }}, {{ \Illuminate\Support\Js::from($propertyPickerConfig) }})">
     <h1 class="text-lg font-semibold">New Lease</h1>
 
     <form method="POST" action="{{ route('corex.leases.store') }}" @submit="guardSubmit($event)" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
@@ -107,24 +108,24 @@
         <div class="grid grid-cols-2 gap-3">
             <div>
                 <label class="text-xs font-medium">Monthly rental (R)</label>
-                <input type="number" name="rental_amount" step="0.01" min="0" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <input type="number" name="rental_amount" value="{{ old('rental_amount') }}" step="0.01" min="0" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
             </div>
             <div>
                 <label class="text-xs font-medium">Deposit (R)</label>
-                <input type="number" name="deposit_amount" step="0.01" min="0" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <input type="number" name="deposit_amount" value="{{ old('deposit_amount') }}" step="0.01" min="0" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
             </div>
             <div>
                 <label class="text-xs font-medium">Start date</label>
-                <input type="date" name="start_date" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <input type="date" name="start_date" value="{{ old('start_date') }}" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
             </div>
             <div>
                 <label class="text-xs font-medium">End date</label>
-                <input type="date" name="end_date" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <input type="date" name="end_date" value="{{ old('end_date') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
             </div>
         </div>
 
         <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="is_month_to_month" value="1">
+            <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month'))>
             Month-to-month (no fixed end date)
         </label>
 
@@ -135,13 +136,13 @@
                 {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
                      list, same source as the property screen's Lease Type select. --}}
                 @foreach($leaseTypes ?? [] as $lt)
-                    <option value="{{ $lt->name }}">{{ $lt->name }}</option>
+                    <option value="{{ $lt->name }}" @selected(old('lease_type') === $lt->name)>{{ $lt->name }}</option>
                 @endforeach
             </select>
         </div>
 
         <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="activate_immediately" value="1">
+            <input type="checkbox" name="activate_immediately" value="1" @checked(old('activate_immediately'))>
             Activate immediately (skip draft)
         </label>
 
