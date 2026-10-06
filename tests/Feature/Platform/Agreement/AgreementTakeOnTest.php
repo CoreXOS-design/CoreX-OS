@@ -120,8 +120,12 @@ class AgreementTakeOnTest extends TestCase
         $owner = $this->owner();
         $html = $this->actingAs($owner)->get(route('platform-esign.agreements.create'))->assertOk()->getContent();
         $this->assertStringContainsString('name="take_on_month"', $html);
-        $this->assertMatchesRegularExpression('/<option value="2026-10" data-start="1 October 2026" data-billing="1 November 2026" selected>October 2026/', $html);
+        // no default: the picker starts blank with a placeholder, so the CoreX user must choose; the dates appear only after a choice
+        $this->assertMatchesRegularExpression('/<option value="" disabled hidden selected>Choose the take-on month…<\/option>/', $html);
+        $this->assertSame(1, substr_count($html, ' selected>'), 'only the placeholder is selected');
+        $this->assertMatchesRegularExpression('/<option value="2026-10" data-start="1 October 2026" data-billing="1 November 2026" >October 2026/', $html);
         $this->assertStringContainsString('id="take-on-dates"', $html);
+        $this->assertStringContainsString('<select id="take_on_month" name="take_on_month" required', $html);
         $this->assertStringNotContainsString('value="2026-09"', $html);
 
         Mail::fake();
@@ -134,6 +138,29 @@ class AgreementTakeOnTest extends TestCase
         $this->assertSame('2026-11', Document::firstOrFail()->rr_data['take_on_month']);
     }
 
+    public function test_editable_boxes_on_the_send_form_look_editable_and_carry_placeholders(): void
+    {
+        $html = $this->actingAs($this->owner())->get(route('platform-esign.agreements.create'))->assertOk()->getContent();
+        $this->assertStringContainsString('.send-agreement-form .ds-field { background: #ffffff; color: #0f172a;', $html, 'white editable boxes with normal text');
+        $this->assertStringContainsString('.send-agreement-form .ds-field::placeholder { color: #94a3b8;', $html);
+        $this->assertStringContainsString('.send-agreement-form select.ds-field:invalid { color: #94a3b8; }', $html, 'the empty "choose" state reads as a placeholder');
+        $this->assertStringContainsString('class="send-agreement-form', $html);
+        foreach (['name="name"', 'name="email"', 'name="cell"', 'name="note"', 'name="variation_text"', 'name="variation_amount"'] as $field) {
+            $this->assertMatchesRegularExpression('/' . preg_quote($field, '/') . '[^>]*placeholder="[^"]+"/', $html, $field . ' has a placeholder');
+        }
+        $this->assertDoesNotMatchRegularExpression('/<(input|select|textarea)[^>]*\b(disabled|readonly)\b/i', explode('<form', $html, 2)[1] ?? '', 'nothing on the form is disabled or read-only except the hidden placeholder option');
+    }
+
+    public function test_the_start_date_field_is_relabelled_take_on_month_in_the_wording_and_the_fields(): void
+    {
+        $this->assertSame('Take On Month', \App\Services\PlatformEsign\Agreement\AgreementFields::schema()['start_date']['label']);
+        $built = (new \App\Services\PlatformEsign\Agreement\AgreementContent)->buildV1();
+        $this->assertStringContainsString('| **Take On Month**| {{f:start_date}}|', $built['part_a']);
+        foreach ($built as $part => $md) {
+            $this->assertStringNotContainsString('Start date', $md, "$part: the old label is gone and no clause text used it");
+        }
+    }
+
     public function test_the_recipient_sees_both_dates_read_only_with_the_tip_and_cannot_change_them(): void
     {
         [$doc, $token] = $this->sent('2026-12');
@@ -144,7 +171,7 @@ class AgreementTakeOnTest extends TestCase
         $this->assertSame('Caprivi', $d->form_data['registered_name']);
 
         $html = $this->get(route('platform-esign.agreement.show', $token))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/value="1 December 2026" readonly tabindex="-1" data-derived="1"/', $html);
+        $this->assertMatchesRegularExpression('/value="December 2026" readonly tabindex="-1" data-derived="1"/', $html);
         $this->assertMatchesRegularExpression('/value="1 January 2027" readonly tabindex="-1" data-derived="1"/', $html);
         $this->assertSame(3, substr_count($html, 'Set by CoreX as agreed for your take-on month.'), 'start date, first payment date, collection day');
         $this->assertStringNotContainsString('name="start_date"', $html, 'no typeable start date');
@@ -193,15 +220,17 @@ class AgreementTakeOnTest extends TestCase
         foreach (['wet', 'pdf', 'rr', 'preview'] as $mode) {
             $a = html_entity_decode(strip_tags(implode("\n", $renderer->blocks($doc->wording, 'part_a', $mode, $ctx))));
             $m = html_entity_decode(strip_tags(implode("\n", $renderer->blocks($doc->wording, 'mandate', $mode, $ctx))));
-            $this->assertMatchesRegularExpression('/Start date\s+1 December 2026/', $a, $mode);
+            $this->assertMatchesRegularExpression('/Take On Month\s+December 2026/', $a, $mode);
             $this->assertMatchesRegularExpression('/\(date\)|1 January 2027/', $m, $mode);
             $this->assertStringContainsString('1 January 2027', $m, $mode);
             $this->assertStringNotContainsString('Set by CoreX', $a . $m, $mode);
+            $this->assertStringNotContainsString('1 December 2026', $a, "$mode: month and year only");
         }
         $layout = app(AgreementLayout::class)->ensure($doc->wording);
         $text = AgreementFidelity::pdfText($svc->wetCopy($doc, $svc->agencySigner($doc), null), (int) $layout['total']);
-        $this->assertStringContainsString('1 December 2026', $text);
-        $this->assertStringContainsString('1 January 2027', $text);
+        $this->assertStringContainsString('December 2026', $text);
+        $this->assertStringNotContainsString('1 December 2026', $text, 'the take-on month shows month and year only');
+        $this->assertStringContainsString('1 January 2027', $text, 'the first payment date stays a full date');
         $this->assertStringNotContainsString('Set by CoreX', $text);
     }
 
