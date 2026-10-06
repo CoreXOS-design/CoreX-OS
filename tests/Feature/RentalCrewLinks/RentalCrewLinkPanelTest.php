@@ -185,9 +185,35 @@ final class RentalCrewLinkPanelTest extends TestCase
         $this->assertSame('Link emailed to foreman@example.invalid', RentalCrewLinkEvent::withoutGlobalScopes()->where('event', 'emailed')->value('note'));
     }
 
-    public function test_the_crews_own_address_is_prefilled_in_the_panel(): void
+    public function test_the_crews_address_is_an_unticked_checkbox_never_a_prefilled_send(): void
     {
-        $this->actingAs($this->admin)->get($this->route('edit'))->assertSee('value="team1@example.invalid"', false);
+        $html = $this->actingAs($this->admin)->get($this->route('edit'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('/<input type="checkbox" name="email_to" value="team1@example.invalid"(?![^>]*checked)/', $html);
+        $this->assertDoesNotMatchRegularExpression('/<input type="email" name="email_to"/', $html, 'no pre-filled email box that a stray click could send to');
+
+        // Pressing Create / Regenerate with the box left unticked emails nobody.
+        $this->generate()->assertSessionHasNoErrors();
+        $this->generate()->assertSessionHasNoErrors();
+        $this->assertSame([], $this->fake->sent);
+        $this->assertSame(0, $this->eventCount('emailed'));
+
+        // Ticking it emails the crew's own address.
+        $this->generate(['email_to' => 'team1@example.invalid'])->assertSessionHasNoErrors();
+        $this->assertCount(1, $this->fake->sent);
+        $this->assertSame('team1@example.invalid', $this->fake->sent[0][0]);
+    }
+
+    public function test_a_crew_with_no_address_gets_no_checkbox_and_can_still_email_any_address_after_generating(): void
+    {
+        $this->crew->forceFill(['email' => null])->save();
+
+        $html = $this->actingAs($this->admin)->get($this->route('edit'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-crew-link-email-crew', $html);
+
+        $url = $this->urlFrom($this->generate());
+        $this->actingAs($this->admin)->post($this->route('link.email'), ['to' => 'someone@example.invalid', 'link_url' => $url])->assertSessionHasNoErrors();
+        $this->assertSame('someone@example.invalid', $this->fake->sent[0][0]);
     }
 
     public function test_generating_with_a_malformed_email_is_refused_and_creates_nothing(): void

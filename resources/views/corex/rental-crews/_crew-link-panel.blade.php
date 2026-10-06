@@ -79,13 +79,16 @@
         <form method="POST" action="{{ route('corex.rental-crews.link.issue', $crew) }}" class="flex flex-wrap items-end gap-2"
               @if($panel['state'] === 'live') onsubmit="return confirm('Regenerate the link? The current link stops working straight away, so the crew must be given the new one.');" @endif>
             @csrf
-            <div>
-                <label class="text-xs" style="color: var(--text-muted);">Email it to (optional)</label><br>
-                <input type="email" name="email_to" value="{{ old('email_to', $crew->email) }}" placeholder="crew@example.com" maxlength="191" class="prop-input text-xs" style="min-width:220px;">
-            </div>
+            @if($crew->email)
+                {{-- Never pre-filled into a text box: pressing Create / Regenerate must not quietly email anyone. --}}
+                <label class="flex items-center gap-2 text-xs" style="color: var(--text-muted);">
+                    <input type="checkbox" name="email_to" value="{{ $crew->email }}" class="rounded" data-crew-link-email-crew>
+                    Also email the new link to {{ $crew->email }}
+                </label>
+            @endif
             <button type="submit" class="corex-btn-primary text-xs" data-crew-link-generate>{{ $panel['state'] === 'live' ? 'Regenerate link' : 'Create link' }}</button>
         </form>
-        <p class="text-xs" style="color: var(--text-muted);">Leave the email empty to just show the link. Regenerating replaces the old link — it stops working on its very next use.</p>
+        <p class="text-xs" style="color: var(--text-muted);">The new link is shown once, right after it is created — copy it, send it on WhatsApp, or email it to any address. Regenerating replaces the old link — it stops working on its very next use.</p>
     @endif
 
     @if($panel['state'] === 'live')
