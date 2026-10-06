@@ -20,7 +20,7 @@
         @foreach($files as $f)
             <div class="text-sm flex flex-wrap gap-x-3" style="{{ $f->isActive() ? '' : 'color: var(--text-muted); text-decoration: line-through;' }}">
                 <a class="underline" style="color: var(--brand-icon);" href="{{ route('platform-esign.agreements.wetink', [$doc->id, $f->id]) }}" target="_blank">{{ $f->original_name }}</a>
-                <span>{{ number_format($f->size / 1024, 0) }} KB · {{ $f->created_at?->format('j M Y H:i') }}@unless($f->isActive()) · superseded @endunless</span>
+                <span>{{ number_format(max(1, $f->size / 1024), 0) }} KB · {{ $f->created_at?->format('j M Y H:i') }}@unless($f->isActive()) · superseded @endunless</span>
                 <span class="text-xs break-all" style="color: var(--text-muted);">SHA-256 {{ $f->sha256 }}</span>
             </div>
         @endforeach
