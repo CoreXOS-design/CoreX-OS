@@ -279,11 +279,26 @@ address; bank ← bank; branch number ← branch code; account number/type ← d
 name/capacity/date/place, RR signature. Beneficiary (RR Technologies (Pty) Ltd, address, shortname RR TECHNOL) is fixed text.
 
 ### 11.5 Pricing — from the pinned version's `rates_json`, never from a view
-Team R450/seat (max 10 seats); Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional branch R750. One "number of
-agents" input; tier quantities are derived (25 agents = base + 10×295 + 10×250 + 5×195). Only the lines for the ticked plan are
-live. Line amounts and the monthly total are calculated live in the page and **re-computed server-side** at every save and on
-submit (the server value wins). Total = lines − agreed variation (≥ 0, ≤ lines). More than 40 agents shows the "quoted rate under
-Agreed variations" notice. Rate cells in the source text are `{{rate:…}}` tokens that render `R450`, `R1 495`, … identically to the source.
+**Section 3 completes itself** (Johan, 2026-10-06): the recipient enters TWO numbers — **number of agents (seats)** and **number of branches** — and the
+form does the rest. The tiering is graduated (matches the published price list): Team R450/agent flat (up to 10 agents, no base fee, no branch fee);
+Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional branches R750 each (Agency plan only, the first branch is in the base fee).
+- **1–10 agents → CoreX Team** ticked automatically (Team line = agents × R450, Agency lines blank); **11+ → CoreX Agency** ticked automatically
+  (base 1 × R1 495, seats split 1–10 / 11–20 / 21+, additional branches = branches − 1). 13 agents / 1 branch = R1 495 + 10×R295 + 3×R250 = **R5 195**;
+  25 agents = base + 10×295 + 10×250 + 5×195. Over 40 agents the Agency lines still calculate and a note (recipient form AND RR screens) says a quoted
+  rate applies and is recorded under "Agreed variations" — signing is never blocked.
+- The plan tick boxes **show** the result and cannot be ticked by the recipient. "Number of branches" (section 1) and "Branches at start" (section 3) are one
+  value entered once (the latter is a read-only mirror). The recipient can never write `plan`, `extra_branches` or `branches_start` (stripped server-side).
+- **RR sender override (owner-only, optional, audited)** — the send form's "Fix the plan": `rr_data.plan_forced` = `team`|`agency`, logged as a `plan_forced`
+  event; the recipient then sees that plan fixed whatever the number of agents (a forced Team with more than 10 agents cannot be signed — validation).
+- **ONE calculation**: `AgreementPricing::derive()` (server). The page JS (`agreement/_js.blade.php` `calc()`) mirrors it line for line for live display;
+  every other surface — autosave/resume, RR countersign review, wet-ink PDF, sealed PDF, the wet/preview/pdf renderers — reads the server's figures
+  (`AgreementService::context()` overlays the derived plan/branches, so an older save with a wrong stored split is recalculated on the next load). On every save/submit
+  the server stores the derived `plan`/`extra_branches`/`branches_start` and keeps the mandate **Amount** equal to the monthly total until the recipient types a different amount.
+- Total = lines − agreed variation (≥ 0, ≤ lines). Validation: agents ≥ 1, branches ≥ 1, whole numbers. Rate cells in the source text are `{{rate:…}}` tokens that render
+  `R450`, `R1 495`, … identically to the source. **The legal wording does not change** — only behaviour.
+- To change the rule later (e.g. "band rate for all seats"): `AgreementPricing::compute()` (server, one place) + its JS mirror, and a NEW wording version (the contract's
+  "Monthly fee at start" paragraph and the fee table text describe the graduated rule).
+Tests: `AgreementFeeTableTest` (1, 10, 11, 13, 20, 21, 25, 40, 41 agents × 1, 2, 4 branches; 10↔11 switching; resume; forced plan; surfaces), real-browser proof `scripts/verify-agreement-fees.cjs`.
 
 ### 11.6 Pagination — the screen and the PDF are the same pages
 `AgreementLayout` renders the document in canonical mode, splits it into top-level blocks, estimates each block's height and packs
