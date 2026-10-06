@@ -508,3 +508,26 @@ Rule: the free take-on month is the whole calendar month in which take-on / go-l
 - **Already-sent agreements** (no `take_on_month` on the record) keep exactly what they have and stay typeable.
 Tests: `AgreementTakeOnTest` (Oct→1 Nov, Nov→1 Dec, Dec→1 Jan rollover, Feb, past/junk months, send form, audit, read-only + server strip, wet-ink PDF, legacy agreement).
 
+### 11.20 Single entry — typed once, mirrored everywhere else (cc2, 2026-10-06, Johan: "option A, ruled")
+Section 5 (debit order authority) keeps its wording and layout exactly, but its bank fields are **read-only** on the recipient web form and fill themselves from the Netcash mandate — **the mandate is the one place bank details are typed.**
+Every other value that used to be typed in both documents gets the same treatment (typed once, mirrored, screen-only tip with a link that jumps to and focuses where it is typed). `AgreementFields::MIRRORS` (target ⇐ source), applied server-side by `AgreementService::withMirrors()`:
+
+| Mirrored (read-only) | Typed once in | Tip link goes to |
+|---|---|---|
+| §5 Account holder | Mandate "Given by (name of Accountholder)" | `fld-m_holder` |
+| §5 Bank | Mandate "Bank Name" | `fld-m_bank` (tip sits after the branch code, same row) |
+| §5 Branch code | Mandate "Branch Number" | `fld-m_bank` |
+| §5 Account number | Mandate "Account Number" | `fld-m_account` |
+| §5 Account type | Mandate "Type of Account" ticks | first tick box |
+| Mandate address | Part A §1 Physical address | `fld-address` |
+| Mandate contact number | Part A §1 Billing contact cell | `fld-billing_cell` |
+| Mandate "Signed ___ on this" place | Part A §6 Place | `fld-sig_place` |
+| Mandate Date | Part A §6 Date | `fld-sig_date` |
+
+Plus (§11.5, §11.19): branches (typed once beside agents), plan, start date, first collection date, collection day, mandate Amount — set from other entries / by RR.
+- **Server-side:** the mirrored keys are stripped from every recipient request, recomputed from their source on every save/submit/render and stored explicitly; validation runs on the source only (`validateRecipient(..., $skip)`). Both PDFs, the RR screen and the preview print the mirrored values (section 5 shows the mandate's bank details).
+- **Screen only:** the tips ("Fills in automatically from the debit order mandate." etc., see `AgreementRenderer::MIRROR_TIPS`) exist only on the recipient web form — never in a PDF or the wording; declared additions of the §11.15 proof, which strips and counts them.
+- **Agreements sent before this change** (no `rr_data.single_entry`) keep both places typeable exactly as before.
+- **Deliberately NOT mirrored (reported):** the mandate "Assisted by / Capacity" line (a different person's capacity, not the signer's Part A capacity); the mandate signature (a separate signature act — the "Use the same signature" button stays); registered name vs account holder (different things: the legal entity vs the bank account holder).
+Tests: `AgreementSingleEntryTest`.
+

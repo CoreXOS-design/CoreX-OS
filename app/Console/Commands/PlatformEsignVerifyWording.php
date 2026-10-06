@@ -49,13 +49,24 @@ class PlatformEsignVerifyWording extends Command
     ];
 
     /** Screen-only helper text on the recipient form (never in a PDF, never wording): text => where it sits. */
-    private const SCREEN_TIPS = [
-        'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).' => 'beside the plan ticks, the section 1 branches row and the section 3 branches row',
-        'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date and collection day (set by RR through the take-on month)',
-        'Fills in automatically from your monthly fee in section 3.' => 'beside the mandate Amount',
-    ];
+    private function screenTips(): array
+    {
+        $tips = [
+            'Fills in automatically — enter your number of agents and branches in the Monthly fee at start section (section 3).' => 'beside the plan ticks, the section 1 branches row and the section 3 branches row',
+            'Set by CoreX as agreed for your take-on month.' => 'beside the section 4 start date and the mandate first payment date and collection day (set by RR through the take-on month)',
+            'Fills in automatically from your monthly fee in section 3.' => 'beside the mandate Amount',
+        ];
+        $where = ['da_holder' => 'section 5 (debit order authority) rows, mirrored from the mandate', 'm_address' => 'the mandate address, mirrored from section 1', 'm_contact' => 'the mandate contact number, mirrored from section 1',
+            'm_place' => 'the mandate place, mirrored from section 6', 'm_date' => 'the mandate date, mirrored from section 6'];
+        foreach (array_keys(\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS) as $key) {
+            if (\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS[$key] !== null) {
+                $tips[\App\Services\PlatformEsign\Agreement\AgreementRenderer::mirrorTipText($key)] = $where[$key] ?? $where['da_holder'];
+            }
+        }
 
-    private int $defects = 0;
+        return $tips;
+    }
+
     /** @var array<string,int> */
     private array $screenTips = [];
 
@@ -173,7 +184,7 @@ class PlatformEsignVerifyWording extends Command
                 // The screen-only tips are taken out first (they can sit inside a blank's fill window) and reported as declared additions.
                 $text = preg_replace('/\s+/u', ' ', (string) file_get_contents($file));
                 $this->screenTips = [];
-                foreach (array_keys(self::SCREEN_TIPS) as $tip) {
+                foreach (array_keys($this->screenTips()) as $tip) {
                     $this->screenTips[$tip] = substr_count($text, $tip);
                     $text = str_replace($tip, ' ', $text);
                 }
@@ -278,7 +289,7 @@ class PlatformEsignVerifyWording extends Command
         foreach ($kind === 'web' ? $this->screenTips : [] as $tip => $n) {
             if ($n) {
                 $tips += $n;
-                $this->line('  declared addition: ' . $n . ' × "' . $tip . '" — Recipient web form only (screen helper text): ' . self::SCREEN_TIPS[$tip]);
+                $this->line('  declared addition: ' . $n . ' × "' . $tip . '" — Recipient web form only (screen helper text): ' . $this->screenTips()[$tip]);
             }
         }
         $this->listDiffs($defects);

@@ -101,7 +101,7 @@
             outstanding();
         }).catch(function () { saving = false; Object.keys(batch).forEach(function (k) { if (!(k in pending)) pending[k] = batch[k]; }); setState('Not saved — offline? Retrying…'); saveTimer = setTimeout(flush, 4000); });
     }
-    function recalcAll() { calc(); applyMirrors(false); outstanding(); }
+    function recalcAll() { calc(); applyMirrors(false); paintMirrors(); outstanding(); }
 
     function onChange(e) {
         var t = e.target, key = t.getAttribute && t.getAttribute('data-field');
@@ -263,18 +263,29 @@
         });
     });
 
-    // "Fills in automatically" tips: the link takes the recipient to the agents entry above the fee table.
+    // "Fills in automatically" tips: the link takes the recipient to the field the value is typed in (agents box, mandate bank fields, …).
     document.addEventListener('click', function (e) {
-        var a = e.target.closest && e.target.closest('[data-goto-agents]'); if (!a) return;
-        var f = $('#fld-agents'); if (!f) return;
+        var a = e.target.closest && e.target.closest('[data-goto]'); if (!a) return;
+        var f = document.getElementById(a.getAttribute('data-goto')); if (!f) return;
         e.preventDefault(); f.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        setTimeout(function () { f.focus({ preventScroll: true }); f.select && f.select(); }, 350);
+        setTimeout(function () { f.focus({ preventScroll: true }); if (f.select && f.type !== 'radio') { try { f.select(); } catch (x) {} } }, 350);
     });
+
+    // Single entry: read-only copies follow the box they are typed in (agreement section 5 ← mandate bank fields, mandate address/contact/place/date ← Part A).
+    var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    function paintMirrors() {
+        $$('[data-mirror-of]').forEach(function (m) {
+            var v = val(m.getAttribute('data-mirror-of'));
+            if (m.getAttribute('data-format') === 'date') { var p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); v = p ? (parseInt(p[3], 10) + ' ' + MONTHS[parseInt(p[2], 10) - 1] + ' ' + p[1]) : ''; }
+            else if (m.getAttribute('data-map')) { var map = {}; try { map = JSON.parse(m.getAttribute('data-map')); } catch (x) {} v = map[v] || ''; }
+            if (m.value !== v) { m.value = v; }
+        });
+    }
 
     // ── boot ───────────────────────────────────────────────────────────────
     $$('.sigpad').forEach(initPad);
     if (mode === 'form') { applyMirrors(true); }
-    if (mode === 'form') { calc(); } // the other screens show the server's own figures — they have no entries to recalculate from
+    if (mode === 'form') { calc(); paintMirrors(); } // the other screens show the server's own figures — they have no entries to recalculate from
     paintInitials(); outstanding();
     if (mode === 'form' && Object.keys(pending).length) { queue(); }
     window.addEventListener('beforeunload', function () { if (mode === 'form' && Object.keys(pending).length) { navigator.sendBeacon && 0; } });

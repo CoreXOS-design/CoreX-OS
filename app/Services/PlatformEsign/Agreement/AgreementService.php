@@ -98,7 +98,7 @@ class AgreementService
         }
         // Optional owner-only override for a negotiated case: the recipient then sees that plan fixed whatever the number of agents.
         $forcedPlan = in_array($d['plan'] ?? '', ['team', 'agency'], true) ? $d['plan'] : '';
-        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount, 'plan_forced' => $forcedPlan, 'take_on_month' => $takeOn], fn ($v) => $v !== '');
+        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount, 'plan_forced' => $forcedPlan, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
         if ($takeOn !== '') {
             $values = $values + AgreementTakeOn::values($takeOn);
         }
@@ -226,7 +226,7 @@ class AgreementService
         $calc = $this->calc($values, $rr, $v->rates_json ?? []);
         // Section 3 completes itself: every rendering shows the plan and branches the entries select, whatever an older save stored.
         $values = $this->withDerived($values, $calc);
-        $values = $this->withTakeOn($values, $rr, $calc);
+        $values = $this->withMirrors($this->withTakeOn($values, $rr, $calc), $rr);
 
         return $over + [
             'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => (string) $doc->contract_ref,
@@ -264,10 +264,23 @@ class AgreementService
         return $values;
     }
 
+    /** Single entry (spec §11.20): the agreement's copy of a value mirrors the place it is typed — shown on every rendering, never typed twice. */
+    private function withMirrors(array $values, array $rr): array
+    {
+        if (empty($rr['single_entry'])) {
+            return $values;
+        }
+        foreach (AgreementFields::MIRRORS as $target => $source) {
+            $values[$target] = (string) ($values[$source] ?? '');
+        }
+
+        return $values;
+    }
+
     /** Keys the recipient's request may never write: the derived ones, plus the take-on dates when RR set a take-on month. @return string[] */
     private function lockedKeys(array $rr): array
     {
-        return array_merge(self::DERIVED_KEYS, !empty($rr['take_on_month']) ? array_keys(AgreementTakeOn::FIELDS) : []);
+        return array_merge(self::DERIVED_KEYS, !empty($rr['take_on_month']) ? array_keys(AgreementTakeOn::FIELDS) : [], !empty($rr['single_entry']) ? array_keys(AgreementFields::MIRRORS) : []);
     }
 
     /** Recipient keys the entries decide — never taken from the recipient's request. */
@@ -295,7 +308,7 @@ class AgreementService
         $old = $this->calc($before, $rr, $rates);
         $new = $this->calc($after, $rr, $rates);
         $after = $this->withDerived($after, $new);
-        $after = $this->withTakeOn($after, $rr, $new);
+        $after = $this->withMirrors($this->withTakeOn($after, $rr, $new), $rr);
         $cur = trim((string) ($after['m_amount'] ?? ''));
         $untouched = $cur === '' || ($old['plan'] !== '' && abs((float) str_replace(' ', '', $cur) - $old['total']) < 0.005);
         if ($untouched && $new['plan'] !== '') {
@@ -426,7 +439,7 @@ class AgreementService
             $rates = $locked->wording->rates_json ?? [];
             $incoming = array_diff_key(AgreementFields::clean($values, 'r'), array_flip($this->lockedKeys((array) $locked->rr_data)));
             $data = $this->settle((array) $locked->form_data, array_merge((array) $locked->form_data, $incoming), (array) $locked->rr_data, $rates);
-            $errors = AgreementFields::validateRecipient($data, $rates);
+            $errors = AgreementFields::validateRecipient($data, $rates, !empty($locked->rr_data['single_entry']) ? array_keys(AgreementFields::MIRRORS) : []);
 
             $idNumber = trim((string) ($input['id_number'] ?? '')) ?: (string) $sg->id_number;
             if ($idNumber === '') {
