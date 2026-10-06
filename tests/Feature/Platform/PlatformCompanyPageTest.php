@@ -215,7 +215,7 @@ class PlatformCompanyPageTest extends TestCase
         $this->assertSame(2, PlatformCompanyLogo::query()->count());
         $this->assertTrue(Storage::disk('local')->exists(PlatformCompanyLogo::find($first)->path), 'earlier logo file kept');
         $this->assertSame('image/png', PlatformCompany::current()->logoFile()['mime']);
-        $this->assertStringContainsString('v=' . $second, PlatformCompany::current()->letterheadHtml('web'));
+        $this->assertStringContainsString('l=' . $second, PlatformCompany::current()->letterheadHtml('web'));
         $this->assertStringContainsString('src="data:image/png;base64,', PlatformCompany::current()->letterheadHtml('pdf'));
 
         $this->post(route('admin.platform-company.logo.restore', $first))->assertSessionHas('success');

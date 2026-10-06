@@ -4900,12 +4900,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->name('corex.rentals.contacts.index');
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
+    // The toast poll sits OUTSIDE the agency.required/feature group: with no agency context (an owner who has not picked an
+    // agency) it answers an empty 200, not a 422 — the controller then applies the same feature gate itself.
+    Route::get('real-estate/portal-leads/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])
+        ->middleware('permission:access_portal_leads')->name('corex.portal-leads.poll');
     Route::prefix('real-estate/portal-leads')
         ->middleware(['permission:access_portal_leads', 'agency.required', 'feature:portal-leads'])
         ->name('corex.portal-leads.')
         ->group(function () {
             Route::get('/',     [\App\Http\Controllers\CoreX\PortalLeadController::class, 'index'])->name('index');
-            Route::get('/poll', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'poll'])->name('poll');
             Route::post('/{portalLead}/mark-notified', [\App\Http\Controllers\CoreX\PortalLeadController::class, 'markNotified'])->name('mark-notified');
         });
 

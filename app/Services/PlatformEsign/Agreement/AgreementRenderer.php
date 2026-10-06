@@ -322,7 +322,7 @@ class AgreementRenderer
     /** Fixed RR Technologies party details, through the company adapter (spec §11.6). */
     private function company(string $what): string
     {
-        $co = app(AgreementCompany::class);
+        $co = $this->ctx['company'] ?? app(AgreementCompany::class);
 
         return e($what === 'address' ? $co->beneficiaryAddress() : $co->legalName());
     }

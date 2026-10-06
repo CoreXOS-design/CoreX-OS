@@ -153,7 +153,7 @@ class AgreementSigningController extends Controller
             return redirect()->route('platform-esign.agreement.show', $token)->withErrors(['upload' => $e->getMessage()]);
         }
 
-        return redirect()->route('platform-esign.agreement.show', $token)->with('agr_notice', $n . ' file' . ($n === 1 ? '' : 's') . ' received. RR Technologies will countersign and email you the signed copy.');
+        return redirect()->route('platform-esign.agreement.show', $token)->with('agr_notice', $n . ' file' . ($n === 1 ? '' : 's') . ' received. ' . \App\Services\PlatformEsign\Agreement\AgreementCompany::for($signer->document)->legalName() . ' will countersign and email you the signed copy.');
     }
 
     /** The signed copy, offered to the recipient once completed. */

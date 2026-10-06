@@ -64,7 +64,7 @@ class PlatformCompanyInterfaceTest extends TestCase
             $this->assertStringNotContainsString('VAT no', $html, 'not VAT registered: no VAT line');
             $this->assertStringNotContainsString('Accounts:', $html, 'optional empty value must be omitted, not printed blank');
         }
-        $this->assertStringContainsString(route('platform-company.logo', ['v' => 0]), $web);
+        $this->assertStringContainsString(route('platform-company.logo', ['l' => 0]), $web);
         $this->assertStringContainsString('src="data:image/svg+xml;base64,', $pdf, 'pdf embeds the logo — no network fetch');
         $this->assertSame($web, $c->letterheadHtml(), "default context is 'web'");
     }

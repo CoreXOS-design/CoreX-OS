@@ -294,8 +294,11 @@ letterhead, footer and an "Initial this page" control; the PDF uses one page div
 `CoreX OS Subscription Agreement · Version <n> — <date> · Page x of y` (y from a two-pass render). If a filled PDF still ends up with
 a different physical page count, the seal logs `page_count_mismatch` in the audit trail (initials are also printed in the footer of
 every physical page, so no page is ever without them).
-Letterhead on every page: the CoreX OS mark (the repo's `application-logo` SVG) + wordmark, "RR Technologies (Pty) Ltd", 3123 San Lameer,
-Lower South Coast Road, Southbroom 4277 · +27 (039) 004 0125 · +27 (0)76 618 5578 · www.corexweb.co.za.
+Letterhead on every page: the company logo (the one uploaded on the Company page; the built-in CoreX OS wordmark until one is) at a fixed
+height with the company block beside it (legal name, address, phones + first website) — **all read from the platform company record and
+pinned onto the document at send time** (`documents.company_snapshot`, so a later change on the company page never alters a sent or signed
+agreement; new agreements use the then-current record). See `.ai/specs/platform-company-profile.md` §7a–7b. Nothing about RR Technologies is
+hard-coded outside the pinned legal wording.
 
 ### 11.7 Recipient flow (token link `platform-esign/agreement/{token}`, no login, mobile-friendly)
 open (audited) → read → fill (**autosave** debounced, resume from the same link, inline validation, an "outstanding" list that jumps

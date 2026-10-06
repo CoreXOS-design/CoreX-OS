@@ -27,7 +27,7 @@ class AgreementSample
             'm_assisted_by' => 'Not applicable', 'm_capacity' => 'Principal', 'm_place' => 'Margate',
         ];
         $rr = ['variation_text' => 'Discount agreed with the principal for the first three months of the term.', 'variation_amount' => '500',
-            'rr_name' => 'Johan Reichel', 'rr_capacity' => 'Director', 'rr_place' => 'Southbroom', 'rr_date' => '2026-10-07'];
+            'rr_name' => 'Firstname Surname', 'rr_capacity' => 'Director', 'rr_place' => 'Town Name', 'rr_date' => '2026-10-07'];
 
         return [
             'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => 'CX000123',

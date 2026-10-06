@@ -113,7 +113,7 @@ class AgreementFlowTest extends TestCase
         $this->assertSame(sprintf('CX%06d', $doc->id), $doc->contract_ref);
         $this->assertCount(2, $doc->signers);
         $this->assertSame('Agency', $doc->signers[0]->role_label);
-        $this->assertSame('RR Technologies', $doc->signers[1]->role_label);
+        $this->assertSame('RR Technologies (Pty) Ltd', $doc->signers[1]->role_label);
         $this->assertSame(1, $doc->signers[0]->sign_order);
         $this->assertSame(2, $doc->signers[1]->sign_order);
         $this->assertTrue($doc->expires_at->isSameDay(now()->addDays(30)), 'expiry defaults to 30 days');

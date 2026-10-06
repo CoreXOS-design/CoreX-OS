@@ -85,7 +85,7 @@ class AgreementFields
             'rr_capacity'      => $rr('Capacity'),
             'rr_place'         => $rr('Place'),
             'rr_date'          => $rr('Date', 'date'),
-            'sigR'             => $rr('RR Technologies signature', 'sig', true, 400000),
+            'sigR'             => $rr('Company signature', 'sig', true, 400000),
         ];
     }
 

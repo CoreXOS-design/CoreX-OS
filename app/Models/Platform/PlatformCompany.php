@@ -59,6 +59,13 @@ class PlatformCompany extends Model
 
     public const BUILT_IN_LOGO = 'images/corex-os-logo.svg';
 
+    /** The fields a sent document pins (never bank details — they are not part of any letterhead or contract). */
+    public const SNAPSHOT_FIELDS = [
+        'legal_name', 'trading_name', 'registration_number', 'vat_registered', 'vat_number', 'directors', 'physical_address',
+        'postal_address', 'email_general', 'email_support', 'email_accounts', 'phones', 'websites', 'strap_line',
+        'letterhead_footer', 'email_signature_html', 'logo_id',
+    ];
+
     public function logo()
     {
         return $this->belongsTo(PlatformCompanyLogo::class, 'logo_id')->withTrashed();
@@ -69,6 +76,21 @@ class PlatformCompany extends Model
     {
         return static::query()->first()
             ?? static::query()->forceCreate(static::SEED);
+    }
+
+    /** The company as it stands now, as a plain array a sent document stores (spec §7a). */
+    public function snapshot(): array
+    {
+        return $this->only(self::SNAPSHOT_FIELDS);
+    }
+
+    /** An unsaved company rebuilt from a stored snapshot — every helper (letterhead, logo, lists) works on it unchanged. */
+    public static function fromSnapshot(array $snap): static
+    {
+        $c = new static();
+        $c->forceFill(array_intersect_key($snap, array_flip(self::SNAPSHOT_FIELDS)));
+
+        return $c;
     }
 
     /** An unsaved copy of the current record with $attrs applied — for the live preview. Never persisted. */
@@ -86,7 +108,7 @@ class PlatformCompany extends Model
     /** @return array{bytes:string, mime:string} the current logo, falling back to the built-in asset. */
     public function logoFile(): array
     {
-        $logo = $this->logo_id ? PlatformCompanyLogo::query()->find($this->logo_id) : null;
+        $logo = $this->logo_id ? PlatformCompanyLogo::withTrashed()->find($this->logo_id) : null;
         if ($logo && Storage::disk('local')->exists($logo->path)) {
             return ['bytes' => Storage::disk('local')->get($logo->path), 'mime' => $logo->mime];
         }
@@ -94,10 +116,10 @@ class PlatformCompany extends Model
         return ['bytes' => (string) @file_get_contents(public_path(self::BUILT_IN_LOGO)), 'mime' => 'image/svg+xml'];
     }
 
-    /** Absolute, streamed, public. `v` only busts caches; the route always serves the current logo. */
+    /** Absolute, streamed, public. `l` names the exact logo version (0 = built-in), so a pinned document keeps its own logo. */
     public function logoUrl(): string
     {
-        return route('platform-company.logo', ['v' => $this->logo_id ?: 0]);
+        return route('platform-company.logo', ['l' => $this->logo_id ?: 0]);
     }
 
     /** Self-contained logo for PDFs — the renderer never has to fetch anything over the network. */

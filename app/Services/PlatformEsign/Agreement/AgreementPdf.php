@@ -51,8 +51,10 @@ class AgreementPdf
     {
         $pages = $this->pages($v, $layout, $mode, $ctx);
 
+        $co = $ctx['company'] ?? app(AgreementCompany::class);
+
         return Pdf::loadView('platform-esign.pdf.agreement', [
-            'title' => 'CoreX OS Subscription Agreement', 'logo' => self::logoDataUri(), 'letterhead' => app(AgreementCompany::class)->letterhead(), 'brand' => app(AgreementCompany::class)->brand(), 'versionLabel' => $v->label(),
+            'title' => 'CoreX OS Subscription Agreement', 'logo' => $co->logoDataUri(), 'logoBox' => $co->logoBoxPt(), 'letterhead' => $co->letterhead(), 'brand' => $co->brand(), 'versionLabel' => $v->label(),
             'total' => $total, 'pages' => $pages, 'mode' => $mode, 'initials' => $ctx['initials'] ?? [], 'cert' => $cert,
         ])->setPaper('a4')->output();
     }
@@ -69,11 +71,5 @@ class AgreementPdf
     public static function countPdfPages(string $pdf): int
     {
         return (int) preg_match_all('#/Type\s*/Page(?![a-zA-Z])#', $pdf);
-    }
-
-    /** The letterhead mark — from the company adapter (spec §11.6). */
-    public static function logoDataUri(): string
-    {
-        return app(AgreementCompany::class)->logoDataUri();
     }
 }
