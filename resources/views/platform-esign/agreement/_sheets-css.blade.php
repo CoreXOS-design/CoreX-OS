@@ -52,11 +52,11 @@
     .agr .opt:has(input:disabled) { cursor:not-allowed; }
     .agr p.mf .mf-v .fld { height: 34px; }
     .agr p.mf .mf-v textarea.fld { height: 40px; min-height: 40px; padding-top: 4px; line-height: 14px; }
-    .agr p.mf .mf-t { display:inline-block; width: 28%; vertical-align: middle; white-space: normal; }
+    .agr p.mf .mf-t { display:inline-block; width: 24%; vertical-align: middle; white-space: normal; }
     .agr p.mf .mf-t .auto-tip { margin-left:.4rem; font-size:.72rem; line-height:1.25; max-width:none; }
     .agr .tip-end { display:block; }
     .agr .tip-end .auto-tip { margin-left:0; }
-    .agr table.sigtable td p.sr-signature .sigline, .agr table.sigtable td p.sr-signature .sigpad { border:1px dashed #64748b; border-radius:6px; background:#fff; }
+    .agr table.sigtable td p.sr-signature .sigline, .agr table.sigtable td p.sr-signature .sigpad, .agr table.sigtable td p.sr-signature .sigimg { border:1px dashed #64748b; border-radius:6px; background:#fff; }
     .agr .sigtable .sigpad canvas { height: 96px; }
     .agr .sigtable .sigpad { padding: 2px 4px; }
     .agr .ctl-note { display:block; font-size:.78rem; color:#92400e; margin-top:.25rem; }

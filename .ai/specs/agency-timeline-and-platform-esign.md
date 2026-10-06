@@ -531,3 +531,13 @@ Plus (§11.5, §11.19): branches (typed once beside agents), plan, start date, f
 - **Deliberately NOT mirrored (reported):** the mandate "Assisted by / Capacity" line (a different person's capacity, not the signer's Part A capacity); the mandate signature (a separate signature act — the "Use the same signature" button stays); registered name vs account holder (different things: the legal entity vs the bank account holder).
 Tests: `AgreementSingleEntryTest`.
 
+### 11.21 Alignment — signature blocks and the mandate grid (cc2, 2026-10-06, Johan: "I hate it if things are placed as scattered")
+Layout only — no wording, order of clauses or mandate text changes. One set of rules (`agreement/_css.blade.php`, shared by the screen sheets and the PDF) over markup hooks added in `AgreementRenderer::alignmentHooks()`:
+- **Signature blocks (Part A §6):** the Agency / RR Technologies table gets `class="sigtable"` — two equal-width columns, and each row paragraph `class="sr sr-name|capacity|signature|date|place"` has ONE fixed height per row class, so the same row sits on the same baseline in both columns: same box heights, same label position, same line length, tops and bottoms aligned.
+  The signature box is the same size in both columns (the drawing pad, the RR pad on the countersign screen, the static signature image and the blank line all share one box). The signature pad is built from `<span>`s (display:block), not `<div>`s: a block inside a `<p>` makes the browser close the paragraph early, which is what scattered the rows before.
+  Applies on the recipient page, owner preview, RR countersign screen, wet-ink PDF and sealed PDF.
+- **Netcash mandate:** every "Label: field" line (Given by, Address, Bank Name, Branch Name and Town, Branch Number, Account Number, Type of Account, Date, Contact Number, Amount, To (Name of Beneficiary), Address, Abbreviated Shortname) is a `p.mf` row of one grid: labels in one column, fields on a common left edge with one width, equal row heights (screen),
+  in the mandate's own order. The screen-only tips sit in their own third column on the same row; inside a sentence (first payment date, collection day) they move to the end of the paragraph so the printed sentence reads straight through.
+- **Initials:** the per-page initials boxes (PDF footer and screen footer chip/button) have identical size and vertical alignment.
+- Layout revision 3 (`AgreementLayout::REV`) re-calibrates the pagination. Tests: `AgreementAlignmentTest`; before/after screenshots in the lane report.
+
