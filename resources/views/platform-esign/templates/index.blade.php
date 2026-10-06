@@ -17,7 +17,7 @@
         'actions' => '<a href="' . route('platform-esign.templates.create') . '" class="corex-btn-primary">+ Wording template</a><a href="' . route('platform-esign.templates.create', ['source' => 'pdf']) . '" class="corex-btn-outline">+ From a PDF</a>',
     ])
 
-    <form method="GET" class="rounded-md p-3 flex flex-col lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="GET" class="rounded-md p-3 flex flex-col flex-wrap lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
         <input type="text" name="q" value="{{ $q }}" placeholder="Search template name…" class="ds-field flex-1">
         <select name="kind" class="list-header-filter" onchange="this.form.submit()">
             <option value="">All types</option>

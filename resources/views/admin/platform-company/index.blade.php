@@ -182,7 +182,7 @@
                     <div>
                         <div class="ds-label mb-1">Directors</div>
                         <template x-for="(d, i) in directors" :key="i">
-                            <div class="flex gap-2 mb-2">
+                            <div class="flex flex-wrap gap-2 mb-2">
                                 <input :name="'directors['+i+'][name]'" x-model="d.name" maxlength="150" placeholder="Full name" class="ds-field flex-1" aria-label="Director name">
                                 <input :name="'directors['+i+'][title]'" x-model="d.title" maxlength="100" placeholder="Title (optional)" class="ds-field" style="width:10rem;" aria-label="Director title">
                                 <button type="button" class="corex-btn-outline text-xs" @click="directors.splice(i,1); queue()" aria-label="Remove director">Remove</button>
@@ -219,7 +219,7 @@
                     <div>
                         <div class="ds-label mb-1">Telephone numbers</div>
                         <template x-for="(p, i) in phones" :key="i">
-                            <div class="flex gap-2 mb-2">
+                            <div class="flex flex-wrap gap-2 mb-2">
                                 <input :name="'phones['+i+'][label]'" x-model="p.label" maxlength="40" placeholder="Label (e.g. Telephone)" class="ds-field" style="width:12rem;" aria-label="Phone label">
                                 <input :name="'phones['+i+'][number]'" x-model="p.number" maxlength="40" placeholder="Number" class="ds-field flex-1" aria-label="Phone number">
                                 <button type="button" class="corex-btn-outline text-xs" @click="phones.splice(i,1); queue()" aria-label="Remove phone">Remove</button>
@@ -231,7 +231,7 @@
                     <div>
                         <div class="ds-label mb-1">Websites</div>
                         <template x-for="(w, i) in websites" :key="i">
-                            <div class="flex gap-2 mb-2">
+                            <div class="flex flex-wrap gap-2 mb-2">
                                 <input :name="'websites['+i+']'" x-model="websites[i]" maxlength="255" placeholder="www.example.co.za" class="ds-field flex-1" aria-label="Website">
                                 <button type="button" class="corex-btn-outline text-xs" @click="websites.splice(i,1); queue()" aria-label="Remove website">Remove</button>
                             </div>
