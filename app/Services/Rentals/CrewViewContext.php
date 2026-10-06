@@ -27,7 +27,8 @@ final class CrewViewContext
         public readonly int $tokenId,
         /** `job_link` | `crew_page` */
         public readonly string $via,
-        public readonly bool $showPrices,
+        /** §17.4.7 — the crew also sees the COST figures the office entered (never selling, markup or margin). */
+        public readonly bool $showCosts,
         public readonly bool $showTenantContact,
         public readonly ?string $ip,
         public readonly ?string $userAgent,
@@ -58,7 +59,7 @@ final class CrewViewContext
             crewId: $card->rental_crew_id ? (int) $card->rental_crew_id : ($token->rental_crew_id ? (int) $token->rental_crew_id : null),
             tokenId: (int) $token->id,
             via: $via,
-            showPrices: RentalPortalSetting::crewLinkShowPricesFor($agencyId),
+            showCosts: RentalPortalSetting::crewLinkShowCostsFor($agencyId),
             showTenantContact: RentalPortalSetting::crewLinkShowTenantContactFor($agencyId),
             ip: $request?->ip(),
             userAgent: $request?->userAgent() !== null ? mb_substr((string) $request->userAgent(), 0, 255) : null,

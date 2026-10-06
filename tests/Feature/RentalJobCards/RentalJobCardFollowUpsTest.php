@@ -70,7 +70,7 @@ final class RentalJobCardFollowUpsTest extends TestCase
 
         RentalWorkOrderSetting::create([
             'agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true,
-            'show_prices_on_printed_job_card' => true, 'no_approval_spend_threshold' => 100000,
+            'show_costs_on_printed_job_card' => true, 'no_approval_spend_threshold' => 100000,
         ]);
         PerformanceSetting::set('vat_rate', '15', $this->agency->id);
         RentalVatType::seedDefaultsFor($this->agency->id);

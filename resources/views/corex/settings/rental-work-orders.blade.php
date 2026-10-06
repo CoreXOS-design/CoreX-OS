@@ -103,22 +103,22 @@
     </form>
 
     {{-- Conductor's ruling, AT-442 follow-up — the worker's printed copy and the owner's quote PDF are not the same audience. --}}
-    <form method="POST" action="{{ route('corex.settings.rental-work-orders.show-prices-on-printed-job-card') }}" class="space-y-3">
+    <form method="POST" action="{{ route('corex.settings.rental-work-orders.show-costs-on-printed-job-card') }}" class="space-y-3">
         @csrf
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Printed job card pricing</h3>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Printed job card costs</h3>
             </div>
             <div class="p-5">
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
-                    <input type="hidden" name="show_prices_on_printed_job_card" value="0">
-                    <input type="checkbox" name="show_prices_on_printed_job_card" value="1" @checked($showPricesOnPrintedJobCard)>
-                    Show prices on the printed job card
+                    <input type="hidden" name="show_costs_on_printed_job_card" value="0">
+                    <input type="checkbox" name="show_costs_on_printed_job_card" value="1" @checked($showCostsOnPrintedJobCard)>
+                    Show costs on the printed job card
                 </label>
                 <p class="text-xs mt-1" style="color: var(--text-muted);">
-                    Off by default — the worker's printed copy shows tasks, parts and quantities with no prices. The
-                    quote sent to the owner always shows prices (when job card pricing above is on); this only
-                    governs the worker-facing printout.
+                    Off by default — the worker's printed copy shows tasks, parts and quantities with no money. Switched on, it
+                    shows what each part and job cost (never the selling price). The quote sent to the owner always shows
+                    the selling price (when job card pricing above is on); this only governs the worker-facing printout.
                 </p>
             </div>
         </div>
@@ -126,5 +126,11 @@
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>
     </form>
+
+    {{-- §17.21.1 plug-in slots — one empty partial per build; each build adds its own settings section here with its
+         own narrow saver (§17.14: B1 pricing + estimate wording, B2 approvals, B3 completion check). --}}
+    @include('corex.settings.rental-work-orders._pricing')
+    @include('corex.settings.rental-work-orders._approvals')
+    @include('corex.settings.rental-work-orders._completion')
 </div>
 @endsection

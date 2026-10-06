@@ -27,7 +27,8 @@ class RentalPortalSetting extends Model
     // .ai/specs/rental-work-orders.md §14.27.3 — crew links (Build 1's five).
     public const DEFAULT_CREW_LINKS_ENABLED = true;
     public const DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS = 14;
-    public const DEFAULT_CREW_LINK_SHOW_PRICES = false;
+    /** §17.4.7 — restated in COST terms: the crew also sees the cost figures the office entered. Never selling. */
+    public const DEFAULT_CREW_LINK_SHOW_COSTS = false;
     public const DEFAULT_CREW_LINK_SHOW_TENANT_CONTACT = false;
     public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = true;
 
@@ -51,7 +52,7 @@ class RentalPortalSetting extends Model
         'notify_tenant_on_status_change',
         'crew_links_enabled',
         'crew_job_link_expiry_days',
-        'crew_link_show_prices',
+        'crew_link_show_costs',
         'crew_link_show_tenant_contact',
         'notify_landlord_on_crew_completion',
         'crew_photos_visible_to_clients',
@@ -69,7 +70,7 @@ class RentalPortalSetting extends Model
         'notify_tenant_on_status_change' => 'boolean',
         'crew_links_enabled' => 'boolean',
         'crew_job_link_expiry_days' => 'integer',
-        'crew_link_show_prices' => 'boolean',
+        'crew_link_show_costs' => 'boolean',
         'crew_link_show_tenant_contact' => 'boolean',
         'notify_landlord_on_crew_completion' => 'boolean',
         'crew_standing_link_expiry_days' => 'integer',
@@ -186,10 +187,13 @@ class RentalPortalSetting extends Model
         return $value !== null ? (int) $value : self::DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS;
     }
 
-    /** Prices on the crew's per-job view (and, later, the crew page). */
-    public static function crewLinkShowPricesFor(?int $agencyId): bool
+    /**
+     * §17.4.7 — whether the crew's per-job view and the crew page also show the COST figures the office
+     * entered. The crew can always type a cost on a line they add; this never shows selling, markup, margin or a job total.
+     */
+    public static function crewLinkShowCostsFor(?int $agencyId): bool
     {
-        return self::boolFor($agencyId, 'crew_link_show_prices', self::DEFAULT_CREW_LINK_SHOW_PRICES);
+        return self::boolFor($agencyId, 'crew_link_show_costs', self::DEFAULT_CREW_LINK_SHOW_COSTS);
     }
 
     /** The tenant's name + phone on the crew views. */

@@ -33,6 +33,8 @@ class RentalApproval extends Model
         'agency_id',
         'rental_fault_report_id',
         'rental_work_order_id',
+        // §17.7.3 — "exactly one of fault report / work order / variation".
+        'rental_work_order_variation_id',
         'decision',
         'approval_route',
         'evidence_type',

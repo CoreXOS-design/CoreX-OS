@@ -3890,7 +3890,7 @@ later assigned; worker sign-off records an optional crew member name.
 **Author:** cc6. **Scope:** one end-to-end maintenance flow (fault → work order → job card / contractor → owner approval → completion →
 tenant check), built to Johan's rulings of 6 Oct 2026 (10:15–10:25, after he tested job cards on QA1). **Reading guide:** §17.1 is what
 exists; §17.2–§17.11 are the seven rulings (R0–R6) as rules; §17.12 the one status table; §17.13–§17.19 the cross-cutting design; §17.21 the
-build split (a shared foundation lands first, then three parallel builds); §17.22 the only open business questions. Everything in this
+build split (a shared foundation lands first, then three parallel builds); §17.22 the decisions taken on the five open business questions. Everything in this
 section is a decision, not a draft. Where it differs from an earlier section the difference is listed in §17.0.
 
 ### 17.0 The rulings as relayed, and what this section changes in the earlier text
@@ -4263,7 +4263,7 @@ captured by the agent, photos uploaded by the agent.** No job card for external 
 
 1. **Create** (§17.3): External; status `reported`, `assignment_type = outside_supplier`.
 2. **Capture the quote** (existing `RentalWorkOrderQuoteController`, `manage_quotes`): supplier (existing directory, as built), amount (owner-facing — the contractor's own quote), date,
-   document and/or detail (as built). No markup is applied to a contractor's quote (§17.22 Q1).
+   document and/or detail (as built). The agency's **external-quote fee** (§17.9.1a, Decision 1) is applied at capture: the owner sees the selling amount, the office sees quote, fee and total.
 3. **Select it** → `selectQuote()` → gate (`evaluateQuote`): within the no-approval limit → auto-approved citing term (i); else `pending` and the owner is asked
    (mail with the **quote document attached**, amount, R6 term; portal Decisions card as built; agent capture as built). The owner's decision rides the same
    terms and the same `rental_approval_decisions` log.
@@ -4285,6 +4285,15 @@ captured by the agent, photos uploaded by the agent.** No job card for external 
 7. **Not built, by design:** the contractor secure link stays unminted (R4 is agent-captured); the wizard copy that says an agent "can regenerate a fresh link from the
    work order" (`agency-onboarding-copy.php:591-599`) is wrong today and is reported (§17.23), not fixed here. Contractor accept/decline and invoice upload (earlier spec
    §5.1/§5.2) stay out of scope.
+
+**17.9.1a External-quote fee (Decision 1, Build 2).** An agency may add its own fee on top of an outside contractor's quote — "build the options, the agency sets it up".
+Agency setting `rental_work_order_settings.external_quote_markup_type` (`percent` | `amount`, default `percent`) + `external_quote_markup_value` (decimal, **default 0 = off**).
+A work order may override it: `rental_work_orders.external_markup_type` / `external_markup_value` (null = inherit), editable by staff who hold `rental_job_cards.price` (the "can price" key).
+At quote capture/edit the quote row snapshots `fee_type`, `fee_value`, `fee_amount` and `selling_amount` (= `amount` + fee); `amount` always stays the contractor's own quote.
+`RentalWorkOrderQuote::ownerFacingAmount()` returns `selling_amount ?? amount` and is the ONLY figure the gate, the owner mails/PDFs and the owner/portal payloads use;
+office screens show **quote, fee and total** (fee visibility follows `rental_job_cards.view_costs`, since the fee is the agency's margin); the contractor's documents show only the contractor's `amount`.
+A `percent` fee is `round(amount × p/100, 2)`; an `amount` fee is added as typed; both on the same VAT basis as the captured quote (no VAT recomputation, as built for quotes).
+With the setting at 0 nothing changes. The foundation lands the columns, the setting accessors and the accessor; Build 2 applies it.
 
 ### 17.10 R5 — completion check and tenant dispute, internal and external (Build 3)
 
@@ -4329,7 +4338,7 @@ mirrors of the latest round's answer.
   are snapshotted into the round's `sign_off_snapshot` and then reset so they can be given again);
 - staff in-app notification `rental_work_order.disputed` to the property's agent (and the branch manager, as overdue notices do) — the first thing they see is the
   tenant's note and photos; the landlord is emailed per `notify_landlord_on_dispute` (default on);
-- **the office decides what happens next** — nothing is sent to the crew/contractor automatically (§17.22 Q3). The work order/card show a **Dispute** panel with the tenant's
+- **the office decides what happens next** — by default nothing is sent to the crew/contractor automatically (§17.22 Decision 3); an agency setting `dispute_notify_crew_immediately` (default off) switches an INTERNAL job to an immediate send of a fresh link plus the tenant's note and photos to the crew's address (an external contractor is always sent back by the office). The work order/card show a **Dispute** panel with the tenant's
   note and photos and two actions: **"Send back to crew"** (internal: issues a fresh per-job link, emails it through the agency mailbox path with the tenant's note and photos,
   logs `dispute_sent_back`) or **"Send back to contractor"** (external: mails the contractor contact the note and photos, logs it). The crew link of a `disputed` card is live and shows a
   **banner with the tenant's note and photos** and "Report fixed" (the existing "Mark work completed", re-labelled while disputed).
@@ -4347,7 +4356,7 @@ a new fault" (a late complaint is a new fault report, not a reopening).
 
 **17.10.9 Close rules.** Final sign-off/close — `RentalJobCard::complete()` / `RentalJobCardService::complete()` and `RentalWorkOrder::complete()` — are refused while the work order is
 `disputed` ("A tenant has reported this work as not complete — resolve the dispute first"). They are NOT blocked while a round is merely `awaiting_tenant` (the office may close
-and invoice during the window; a dispute inside the window reopens it, §17.22 Q2). `RentalJobCardService::complete()` stops swallowing the `LogicException` from the linked
+and invoice during the window; a dispute inside the window reopens it, §17.22 Decision 2). `RentalJobCardService::complete()` stops swallowing the `LogicException` from the linked
 work-order completion (`:691-697`) and surfaces it, because a silently half-closed job is incompatible with a reopen rule. Closing a Completed card kills its crew link (as built); a
 dispute re-issues one only through "Send back to crew".
 
@@ -4425,12 +4434,12 @@ All new tables carry `agency_id` with `BelongsToAgency`; none has a hard delete;
 | F1 | `rental_job_card_lines` | `unit_cost`, `cost_total`, `markup_type`, `markup_value`, `selling_basis` (default `manual`), `origin` (default `office`), `office_status` (default `accepted`), `crew_note`, `crew_added_by_label`, `crew_added_at`, `office_decided_by_user_id`, `office_decided_at`, `reject_reason`, `rental_job_card_price_request_id`, `rental_work_order_variation_id` |
 | F1 | `rental_job_cards` | `markup_all_percent`, `markup_parts_percent`, `markup_labour_percent` (decimal 6,2 null), `total_cost` (decimal 10,2 null) |
 | F1 | `rental_catalogue_items` | `default_cost` (decimal 10,2 null) |
-| F2 | `rental_work_order_settings` | add `default_parts_markup_percent`, `default_labour_markup_percent`, `variation_tolerance_percent`, `quote_estimate_term`, `completion_response_window_days`, `tenant_completion_check_enabled`, `notify_landlord_on_dispute`, `notify_landlord_on_auto_variation`; rename `show_prices_on_printed_job_card` → `show_costs_on_printed_job_card` (value copied) |
+| F2 | `rental_work_order_settings` | add `default_parts_markup_percent`, `default_labour_markup_percent`, `variation_tolerance_percent`, `quote_estimate_term`, `completion_response_window_days`, `tenant_completion_check_enabled`, `notify_landlord_on_dispute`, `notify_landlord_on_auto_variation`, `external_quote_markup_type`, `external_quote_markup_value`, `dispute_notify_crew_immediately`; rename `show_prices_on_printed_job_card` → `show_costs_on_printed_job_card` (value copied) |
 | F2 | `rental_portal_settings` | rename `crew_link_show_prices` → `crew_link_show_costs` (value copied) |
 | F3 | `rental_job_card_price_requests` | §17.5.4 |
 | F4 | `properties` | `rental_variation_tolerance_percent`, `rental_work_terms_updated_at`, `rental_work_terms_updated_by_user_id` |
 | F4 | `rental_property_work_term_changes` | §17.6.2 |
-| F5 | `rental_work_orders` | `approved_amount` (decimal 10,2 null), `approval_basis` (string 30 null), `emergency_approval_id` (unsigned bigint null); back-fill `approval_basis = legacy_grandfathered` for in-flight rows (§17.6.5) |
+| F5 | `rental_work_orders` | `approved_amount` (decimal 10,2 null), `approval_basis` (string 30 null), `emergency_approval_id` (unsigned bigint null), `external_markup_type` (string 10 null), `external_markup_value` (decimal 10,2 null); back-fill `approval_basis = legacy_grandfathered` for in-flight rows (§17.6.5) |
 | F5 | `rental_approval_decisions` | §17.6.4 |
 | F5 | `rental_emergency_approvals` | §17.8.2 |
 | F5 | `rental_work_order_variations` | §17.7.3 |
@@ -4438,7 +4447,7 @@ All new tables carry `agency_id` with `BelongsToAgency`; none has a hard delete;
 | F6 | `rental_work_completion_rounds` | §17.10.2 |
 | F6 | `rental_work_order_photos` | `rental_job_card_line_id` (null), `rental_completion_round_id` (null); new `photo_type` value `dispute` (column is a string) |
 | F7 | `rental_secure_access_tokens` | `rental_completion_round_id` (null); new `purpose` value `tenant_completion`; the "exactly one target" rule now includes the round |
-| F8 | `rental_work_order_quotes` | `term_text` (null; back-filled with nothing — old quotes show no term) |
+| F8 | `rental_work_order_quotes` | `term_text` (null; back-filled with nothing — old quotes show no term), `fee_type` (string 10 null), `fee_value` (decimal 10,2 null), `fee_amount` (decimal 10,2 default 0), `selling_amount` (decimal 10,2 null = same as `amount`) |
 | F9 | `notification_event_types` | five staff keys (§17.16) — idempotent, pillar `property`, group `Rentals`, like `2026_09_28_100400` |
 | F10 | `role_permissions` | grants for the five new keys (§17.15), copying from the stated source key and its scope, idempotent (template `2026_10_10_100500`) |
 
@@ -4469,6 +4478,9 @@ fall-through shows a stale default, §14.28 follow-up).
 | `tenant_completion_check_enabled` | " | toggle | on | — | off = nobody is asked to confirm; rounds record `no_tenant` | B3 |
 | `completion_response_window_days` | " | int | **5** | 1–30 | days the tenant has before silence counts as accepted | B3 |
 | `notify_landlord_on_dispute` | " | toggle | on | — | email the owner when a tenant reports work as not complete | B3 |
+| `external_quote_markup_type` | " | `percent` / `amount` | `percent` | — | form of the fee added to an outside contractor's quote (§17.9.1a); a work order may override | B2 |
+| `external_quote_markup_value` | " | decimal | **0** (off) | percent 0–1000; amount ≥ 0 | the fee itself; 0 = no fee | B2 |
+| `dispute_notify_crew_immediately` | " | toggle | **off** | — | on a dispute, email the crew a fresh link + the tenant's note and photos straight away instead of waiting for the office's "Send back" (internal jobs only) | B3 |
 | `crew_link_show_costs` (renamed) | portal settings | toggle | **off** | — | crew also sees office-entered costs (§17.4.7) | F (rename) |
 
 **Per-property overrides** (on the property Rental tab, §17.6.2): `rental_no_approval_spend_threshold` (existing), `rental_variation_tolerance_percent` (new). Blank = inherit.
@@ -4485,7 +4497,7 @@ data migration (F10) granting existing agencies' roles the same scope as the sou
 | Key | Label | Gates | Default grant (copied from) |
 |---|---|---|---|
 | `rental_job_cards.price` | Set Selling Prices & Markup on Job Cards | edit selling, markup, Pricing panel, accept/reject crew lines | holders of `rental_job_cards.send_quote` |
-| `rental_job_cards.view_costs` | View Costs & Margin on Job Cards | cost and margin columns/totals, the cost report columns | holders of `rental_job_cards.send_quote` (§17.22 Q4) |
+| `rental_job_cards.view_costs` | View Costs & Margin on Job Cards | cost and margin columns/totals, the cost report columns | holders of `rental_job_cards.send_quote` (§17.22 Decision 4) |
 | `rental_work_orders.record_emergency_approval` | Record Owner Emergency Approval | §17.8 record/void | holders of `rental_work_orders.record_approval` |
 | `rental_work_orders.manage_work_terms` | Manage Owner Work Terms (per property) | §17.6.2 | holders of `rental_work_orders.manage_settings` |
 | `rental_work_orders.manage_completion` | Capture Completion, Tenant Answers & Disputes | "Contractor reports done", "Record tenant's answer", "Send back to crew/contractor" | holders of `rental_work_orders.complete` |
@@ -4613,7 +4625,7 @@ update this section with a dated BUILD NOTE; add its events to the domain-events
 1. **Migrations F1–F10** (§17.13) + `schema:dump` + DEFINER strip.
 2. **Models** (fillable, casts, relations, constants): `RentalJobCardLine` (`scopeAccepted`, state constants), `RentalJobCard` (`STATUS_DISPUTED`, `CREW_VISIBLE_STATUSES` += `disputed`, markup columns),
    `RentalWorkOrder` (`STATUS_DISPUTED`, `APPROVAL_BASIS_*`, `hasOpenDispute()`, `latestDecision()`, `approvalBasisLabel()`), `Property` (fillable), `RentalSecureAccessToken` (purpose `tenant_completion`, round target),
-   and new `RentalApprovalDecision`, `RentalEmergencyApproval`, `RentalWorkOrderVariation`, `RentalWorkCompletionRound`, `RentalJobCardPriceRequest`, `RentalPropertyWorkTermChange`.
+   `RentalWorkOrderQuote` (`ownerFacingAmount()` = `selling_amount ?? amount`; fee columns), and new `RentalApprovalDecision`, `RentalEmergencyApproval`, `RentalWorkOrderVariation`, `RentalWorkCompletionRound`, `RentalJobCardPriceRequest`, `RentalPropertyWorkTermChange`.
 3. **Service shells with final signatures** (bodies inert, docblocks carry the contract; the value objects `SellingResolution`, `WorkTerms`, `GateDecision` are real):
    - `RentalPricingService`: `resolveSelling(RentalJobCardLine, RentalJobCard): SellingResolution`; `repriceLine(RentalJobCardLine): void`; `repriceCard(RentalJobCard): void`;
      `applyJobMarkup(RentalJobCard, string $scope /* all|parts|labour */, ?float $percent, ?User $by): void`; `marginFor(RentalJobCard): array{costExcl,sellingExcl,marginExcl,marginPct,linesWithoutCost}`.
@@ -4627,7 +4639,7 @@ update this section with a dated BUILD NOTE; add its events to the domain-events
    - Inert defaults until the owning build lands: `authoriseToProceed` → authorised; `assessAfterLineChange` → null; `openRound` → no-op.
 4. **Settings accessors** for every §17.14 key (`…For(?int $agencyId)` pattern, null = default constant) and the two **renames** across all callers (`CrewViewContext:61`, `RentalCrewScheduleService:78`, both settings
    controllers/views/routes, wizard keys and `currentValues` arms, `RentalDocumentPdfService`); **the crew-leak stopper** in the same commit: `CrewJobService::payload()`, `RentalCrewScheduleService::materials()` and the worker
-   print read cost columns, never `unit_price`/`line_total`.
+   print read cost columns, never `unit_price`/`line_total` (the worker print gets its own `_pdf-cost-lines-table` partial: Description, Type, Qty, Unit cost, Cost total — VAT-on-cost is Build 1's `costBreakdown`; the shared `_pdf-lines-table` stays selling-only and is used by the owner quote only).
 5. **Permissions**: the five keys in `config/corex-permissions.php` + the F10 grants migration.
 6. **Events and notification keys**: the nine event classes (no dispatch yet, except `RentalWorkOrderClosed` dispatched inside `RentalWorkOrder::complete()`), F9 registration.
 7. **Hook points** so builds never edit the same hunk: `CrewJobService::payload()` merges three block providers `CrewPricingBlock` (B1), `CrewApprovalBlock` (B2), `CrewDisputeBlock` (B3) — each `for(RentalJobCard,
@@ -4678,24 +4690,74 @@ Acceptance: §17.3 and §17.10 end to end, including the reopen rule and the clo
 | `config/corex-permissions.php`, migrations, `schema/mysql-schema.sql` | — | — | — | foundation only |
 Integration order: **F → (B1 ∥ B2 ∥ B3 in any order) → the last build to merge adds the end-to-end test.** Cross-build calls go through the foundation signatures only, so no build waits for another's code.
 
-### 17.22 Open questions for Johan — real business choices the rulings do not settle (max 6; plain language)
+### 17.22 Decisions on the five open questions (the conductor, on Johan's behalf, 6 Oct 2026) — all following "build the options, the agency sets it up"
 
-1. **Does the agency add its own fee or markup on top of an outside contractor's quote?** Today's rulings add a markup only to the in-house crew's parts and labour.
-   (A) **No** — the owner approves and pays the contractor's quoted amount as it stands (recommended for the first release; simplest and what owners expect from a quote someone else gave). (B) Optional % on top of a captured contractor quote, shown to the owner as one figure.
-2. **Can the office close and invoice a job while the tenant's five days to check it are still running?**
-   (A) **Yes** — closing is allowed; if the tenant reports a problem inside the window the job reopens as Disputed (recommended: the owner is not kept waiting, and the tenant's rights are unaffected). The fault's "Repaired" result still waits for the tenant check. (B) No — close only after the tenant answers or the window ends.
-3. **When a tenant says "not complete", should the crew be told straight away or only after the office has looked?**
-   (A) **The office looks first** and presses "Send back to crew" (recommended: some complaints need a phone call or are not the crew's fault, and a crew sent back unnecessarily is a real cost). (B) The crew is emailed a fresh link automatically with the tenant's note and photos.
-4. **Who may see the agency's costs and margin on a job card and in the reports?**
-   (A) **Only staff who may price and send quotes** (admins plus anyone you grant it to) (recommended — agents on the road see the job but not what the agency earns on it). (B) Everyone who can open the job card. (C) Admins only.
-5. **Starting settings for a new agency, and for yours.** Recommended: variation tolerance **0 %** (every increase goes to the owner until the agency and the owner agree a percentage), default markups **0 %** (prices equal cost until the agency sets its numbers), and the owner **is told by email whenever an extra is auto-approved** within their agreed tolerance. Alternative: ship a non-zero starting tolerance (e.g. 10 %). The numbers for HFC itself are for you to enter in Settings after the build.
+1. **Contractor fee on external quotes → an agency setting, default off.** Markup on an outside contractor's quote, as a % or a fixed amount, default 0. When set, the owner sees the selling amount and the office sees quote, fee and total; staff who can price may override it per work order. Specified in §17.9.1a; data model F2/F5/F8; Build 2.
+2. **Closing during the tenant window → allowed.** A dispute inside the window reopens the job; the fault's "Repaired" result waits for the tenant or the window. The window length is the agency setting `completion_response_window_days` (default 5). §17.10.9; Build 3.
+3. **Crew told on a dispute → the office looks first and presses "Send back"**, with an agency setting `dispute_notify_crew_immediately` (default off) to notify the crew straight away instead. §17.10.6; Build 3.
+4. **Cost and margin visibility → a Role Manager permission**, `rental_job_cards.view_costs` ("see cost and margin"), with `rental_job_cards.price` ("price and send quotes") alongside; both default-granted to the roles that hold `rental_job_cards.send_quote` today. Everyone else sees selling only; crew links show cost only, never selling. §17.15; Foundation (keys) + Build 1 (enforcement).
+5. **Starting numbers → neutral agency defaults.** Variation tolerance 0 %, parts and labour markups 0 %, a per-property override for the owner's work terms, and the owner is emailed on every auto-approved extra (agency setting `notify_landlord_on_auto_variation`, default on). §17.14; Foundation (columns, accessors) + Builds 1–2.
 
-### 17.23 Found while investigating — fixed inside a build, or reported only (per the scope-lock rule)
+### 17.23 Found while investigating — the six fixed inside a build, and the seven reported only (per the scope-lock rule)
 
-Fixed because the build edits that exact code: (1) `RentalJobCardService::complete()` swallows the linked work-order `LogicException` (`:691-697`), leaving a card closed and its work order open — surfaced instead (B3, §17.10.9);
-(2) no landlord mail when a card closes its work order — covered by the final statement (B2); (3) the landlord decision endpoints accept a decision on any open record, not only a pending one (B2, §17.6.6);
-(4) the second, dead threshold input at `properties/show.blade.php:4415` (B2, §17.6.2); (5) `rental_work_order.created` is not fired on the `createForProperty` path (B3, §17.3.4); (6) the tenant confirm endpoint has no screen in the portal shell (B3).
-**Reported only, not changed:** the contractor secure link is never minted by any UI and `ContractorSecureLinkController::markDone` tells the contractor "the agency has been notified" without notifying anyone (`:120`); the Setup Wizard copy at
-`agency-onboarding-copy.php:591-599` promises a regenerate-link control that does not exist; the supplier picker is not filtered by trade (`rental-work-orders/show.blade.php:358`); the docblocks claiming the tenant is told at fault-report creation
-(`RentalWorkOrderTenantMail.php:15-17`, `RentalWorkOrderService.php:54-55`) have no mail behind them; `applyApprovalResult()` is named in a comment (`RentalJobCard.php:442`) and does not exist; §14.1 names `tenant_confirmed_completion_at`, which was
-never a column (real names in §17.1); the remaining plain-`Mail::to` rentals mails (tenant creation/status, notices) bypass the agency mailbox; a dead per-job crew link renders 200 where a dead crew-page link renders 404 (already noted at §14.29).
+**The six small defects, each assigned to the build that edits that exact code:**
+| # | Defect | Where | Build |
+|---|---|---|---|
+| 1 | `RentalJobCardService::complete()` swallows the linked work-order `LogicException`, leaving a card closed and its work order open | `RentalJobCardService.php:691-697` | Build 3 (§17.10.9) |
+| 2 | No landlord mail when a card closes its work order | `RentalJobCardService::complete()` never calls `notifyCompleted` | Build 2 (final statement, §17.16) |
+| 3 | The landlord decision endpoints accept a decision on any open record, not only a pending one | `ClientLandlordRentalsController.php:345-422` | Build 2 (§17.6.6) |
+| 4 | A second, dead threshold input on the property screen that saves nothing | `properties/show.blade.php:4415` | Build 2 (§17.6.2) |
+| 5 | `rental_work_order.created` is not fired on the `createForProperty` path | `RentalJobCardService.php:148-176` | Build 3 (§17.3.4) |
+| 6 | The tenant confirm endpoint has no screen in the portal shell | `rentals/portal/shell.blade.php` | Build 3 (§17.10.4) |
+
+**Reported only, not changed (seven):**
+1. The contractor secure link is never minted by any UI, and `ContractorSecureLinkController::markDone` tells the contractor "the agency has been notified" without notifying anyone (`:120`).
+2. The Setup Wizard copy at `config/agency-onboarding-copy.php:591-599` promises a regenerate-link control that does not exist.
+3. The supplier picker is not filtered by trade (`rental-work-orders/show.blade.php:358`).
+4. The docblocks claiming the tenant is told at fault-report creation (`RentalWorkOrderTenantMail.php:15-17`, `RentalWorkOrderService.php:54-55`) have no mail behind them.
+5. `applyApprovalResult()` is named in a comment (`RentalJobCard.php:442`) and does not exist.
+6. The remaining plain-`Mail::to` rentals mails (tenant creation/status, notices) bypass the agency mailbox.
+7. A dead per-job crew link renders HTTP 200 where a dead crew-page link renders 404 (already noted at §14.29).
+(A documentation slip, not an item: §14.1 names `tenant_confirmed_completion_at`, which was never a column — real names are in §17.1.)
+
+### 17.24 FOUNDATION — BUILT 6 Oct 2026 (cc6, QA1): what the three build lanes must know
+
+The foundation (§17.21.1) landed exactly as specified, plus the decisions of §17.22. It changes **no behaviour** except the two cost-term renames and the crew-leak stopper.
+
+**Migrations** (all `2026_10_11_1000nn_…`, idempotent, DML-only data steps; the schema snapshot was NOT hand-edited — migrations apply on top):
+`100000_create_rental_job_card_price_requests_table` (F3) · `100100_create_rental_work_order_variations_table` (F5) · `100200_add_pricing_columns_to_rental_job_cards_lines_and_catalogue` (F1) ·
+`100300_add_maintenance_flow_settings_and_rename_show_prices` (F2) · `100400_add_work_terms_to_properties_and_create_term_changes` (F4) · `100500_add_approval_model_to_rental_work_orders` (F5 + F8 + the grandfathering back-fill) ·
+`100600_create_rental_work_completion_rounds_table` (F6 + F7) · `100700_register_maintenance_flow_notifications` (F9) · `100800_grant_maintenance_flow_permissions` (F10).
+
+**Settings columns** (all nullable, read-time defaults, accessors on `RentalWorkOrderSetting` / `RentalPortalSetting`; **no settings-page control and no wizard row yet — each build adds its own, with its own `has()`-guarded saver and an explicit `currentValues()` arm, between its `// BUILD n` markers**):
+`default_parts_markup_percent`, `default_labour_markup_percent`, `quote_estimate_term` (B1) · `variation_tolerance_percent`, `notify_landlord_on_auto_variation`, `external_quote_markup_type`, `external_quote_markup_value` (B2) ·
+`tenant_completion_check_enabled`, `completion_response_window_days`, `notify_landlord_on_dispute`, `dispute_notify_crew_immediately` (B3). **Renamed, with value carried and every caller, route, wizard row and test switched in the same commit:**
+`show_prices_on_printed_job_card` → `show_costs_on_printed_job_card` (`RentalWorkOrderSetting::showCostsOnPrintedJobCardFor`, route `corex.settings.rental-work-orders.show-costs-on-printed-job-card`) and
+`crew_link_show_prices` → `crew_link_show_costs` (`RentalPortalSetting::crewLinkShowCostsFor`, route `corex.settings.rental-portal.crew-link-show-costs`).
+
+**Permission keys** (config + grants copied from the source key and its scope): `rental_job_cards.price` and `.view_costs` ← `.send_quote`; `rental_work_orders.record_emergency_approval` ← `.record_approval`; `.manage_work_terms` ← `.manage_settings`; `.manage_completion` ← `.complete`. Nothing enforces any of them yet — each build wires its own.
+
+**Plug-in slots (each build edits ONLY its own file):**
+| Slot | Build 1 | Build 2 | Build 3 |
+|---|---|---|---|
+| Crew payload block (class → partial) | `CrewPricingBlock` → `rentals/crew-link/_block-pricing` | `CrewApprovalBlock` → `_block-approval` | `CrewDisputeBlock` → `_block-dispute` |
+| Job card show (right column) | `corex/rental-job-cards/_pricing-panel` | `_approval-panel` | `_completion-panel` |
+| Work order show | — | `corex/rental-work-orders/_approval-panel` | `_completion-panel` |
+| Work-order settings page | `corex/settings/rental-work-orders/_pricing` | `_approvals` | `_completion` |
+| Close hook (`RentalCloseGuards`) | — | `assertFinalCostWithinApproval()` | `assertNotDisputed()` |
+| Service shell | `RentalPricingService` | `RentalApprovalGateService` | `RentalCompletionService` |
+`// BUILD n BEGIN … // BUILD n END` markers exist in `routes/web.php` (after the work-order group), `routes/api.php` (tenant group: B3; landlord group: B2 and B3), `config/agency-onboarding-copy.php` (savers list and controls list) and `AgencySetupWizardController::currentValues()` (the `rental_work_orders` arm).
+
+**Inert until the owning build lands:** `authoriseToProceed()` authorises, `assessAfterLineChange()` returns null, `openRound()` returns null, `settleSilent()` returns 0, both close guards refuse nothing. The decision/write methods (`evaluateQuote`, `evaluateVariation`, `recordVariationDecision`, `recordEmergency`, `voidEmergency`, `respond`, `sendBack`, `applyJobMarkup`) **throw a `LogicException` naming their build** so a caller wired too early fails loudly. `termsFor()` is real. `RentalWorkOrder::complete()` already dispatches `RentalWorkOrderClosed` (no listener yet).
+
+**Things to know when you build:**
+1. **Crew payload keys changed** (the stopper): `show_prices`/`total`/`unit_price`/`line_total` are gone; the crew payload now has `show_costs`, `cost_total`, per-line `unit_cost`/`cost_total` (omitted when no cost is recorded — never a 0.00) and `blocks` (`pricing`, `approval`, `dispute`). `CrewViewContext::$showPrices` is now `$showCosts`. `CrewPayloadNeverCarriesSellingTest` guards every crew surface, the crew page "what to load" list and the worker print, in every setting combination — **extend it for your block, never relax it**.
+2. **The worker print** has its own `_pdf-cost-lines-table` partial (cost columns only, no VAT until Build 1's cost breakdown); the shared `_pdf-lines-table` is now used by the owner quote alone. `RentalDocumentPdfService::jobCardPrintPdf()` passes `costsOn` (no `pricesOn` / `vat`).
+3. **Only `accepted` lines count** — every reader listed in §17.4.6 still reads all lines today (nothing creates a non-accepted line yet). Build 1 must add `->accepted()` to each (`RentalJobCardLine::scopeAccepted`) in the same commit that first creates a crew line.
+4. **`RentalWorkOrder::PHOTO_DISPUTE`** and `RentalWorkOrderPhoto::VIA_TENANT` exist. Today `CrewJobService::payload()` shows every photo that is not `reported` — Build 3 must exclude `dispute` photos there and in `RentalJobCardClientViewService`, and show them only inside the dispute panel.
+5. `RentalSecureAccessToken::PURPOSE_TENANT_COMPLETION` has an explicit `isLive() => false` arm so a stray token can never fall through to the contractor rule; Build 3 implements its real liveness.
+6. `RentalJobCard::CREW_VISIBLE_STATUSES` now includes `disputed`; `STATUS_DISPUTED` is an OPEN state (`isClosed()` false). `RentalJobCard::complete()` and `RentalWorkOrder::complete()` call `RentalCloseGuards` once each — fill the guard method, never edit those two methods.
+7. `selectQuote()` is unchanged. Build 2 wires it to `RentalApprovalGateService::evaluateQuote()` and to `RentalWorkOrderQuote::ownerFacingAmount()` (`selling_amount ?? amount`, so the external-quote fee reaches the owner and the gate through ONE accessor).
+8. The in-flight grandfathering back-fill (`approval_basis = legacy_grandfathered`) ran in migration `100500`; Build 2's guard must treat that basis as authorised.
+9. Nine domain events landed as classes (catalogue rows added in `corex-domain-events-spec.md`); only `RentalWorkOrderClosed` is dispatched. Each build dispatches its own and registers its listeners inline in `AppServiceProvider` beside the existing rentals listener.
+10. Tests: `tests/Feature/RentalMaintenanceFlow/MaintenanceFlowFoundationTest.php` and `CrewPayloadNeverCarriesSellingTest.php`; the existing crew/print/wizard tests were updated for the renames and now assert cost-not-selling.

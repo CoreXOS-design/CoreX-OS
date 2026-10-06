@@ -45,7 +45,7 @@ final class RentalJobCardListQueryTest extends TestCase
         $this->agency = Agency::create(['name' => 'RJC List Query Agency', 'slug' => 'rjclq-' . uniqid()]);
         $this->branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);
         $this->admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
-        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true, 'show_prices_on_printed_job_card' => true, 'no_approval_spend_threshold' => 100000]);
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true, 'show_costs_on_printed_job_card' => true, 'no_approval_spend_threshold' => 100000]);
         $this->service = app(RentalJobCardService::class);
     }
 

@@ -190,7 +190,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         if ($bin === '') {
             $this->markTestSkipped('pdftotext (poppler-utils) is not installed here.');
         }
-        \App\Models\RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['show_prices_on_printed_job_card' => true]);
+        \App\Models\RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['show_costs_on_printed_job_card' => true]);
         $this->addLineWithoutVatType('Free text printed', 40);
         $card = $this->card->fresh();
 

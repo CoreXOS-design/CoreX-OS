@@ -203,17 +203,20 @@ final class RentalJobCardLifecycleTest extends TestCase
 
     /**
      * Conductor's ruling, AT-442 follow-up — the worker's printed copy and
-     * the owner's quote PDF are not the same audience. Prices are
-     * captured either way; only the PRINTED job card additionally checks
-     * show_prices_on_printed_job_card (default off).
+     * the owner's quote PDF are not the same audience. §17.4.7 (6 Oct 2026):
+     * restated in COST terms — the worker's printed copy shows the crew's cost
+     * (never selling) and only with show_costs_on_printed_job_card (default
+     * off); the owner quote PDF always shows SELLING.
      */
-    public function test_printed_job_card_hides_prices_by_default_but_the_owner_quote_always_shows_them(): void
+    public function test_printed_job_card_hides_costs_by_default_never_shows_selling_but_the_owner_quote_always_shows_selling(): void
     {
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true]);
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
-        app(RentalJobCardService::class)->addLine($jobCard, [
+        $line = app(RentalJobCardService::class)->addLine($jobCard, [
             'rental_catalogue_item_id' => $this->catalogueItem(['default_price' => 450])->id, 'quantity' => 1,
         ], $this->admin);
+        // Sells at R450; costs R200 (the foundation has no UI to enter cost — Build 1 adds it).
+        $line->forceFill(['unit_cost' => 200, 'cost_total' => 200])->save();
         $jobCard->refresh();
 
         $pdfService = app(\App\Services\Rentals\RentalDocumentPdfService::class);
@@ -223,21 +226,25 @@ final class RentalJobCardLifecycleTest extends TestCase
         $noVat = ['registered' => false, 'pricesOn' => false, 'captureMode' => null, 'subtotalExcl' => null, 'totalVat' => null, 'totalIncl' => null, 'groups' => []];
 
         $printHtml = view('corex.rental-job-cards.print', [
-            'jobCard' => $jobCard, 'pricesOn' => false, 'vat' => $noVat, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
+            'jobCard' => $jobCard, 'costsOn' => false, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
         ])->render();
         $this->assertStringNotContainsString('450.00', $printHtml);
+        $this->assertStringNotContainsString('200.00', $printHtml);
 
-        // Turn the print setting on — now it shows.
+        // Turn the print setting on — now the COST shows, and still never the selling price.
         $printHtmlOn = view('corex.rental-job-cards.print', [
-            'jobCard' => $jobCard, 'pricesOn' => true, 'vat' => $noVat, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
+            'jobCard' => $jobCard, 'costsOn' => true, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
         ])->render();
-        $this->assertStringContainsString('450.00', $printHtmlOn);
+        $this->assertStringContainsString('200.00', $printHtmlOn);
+        $this->assertStringContainsString('Total cost', $printHtmlOn);
+        $this->assertStringNotContainsString('450.00', $printHtmlOn);
 
-        // The owner quote PDF is never gated by show_prices_on_printed_job_card.
+        // The owner quote PDF is never gated by show_costs_on_printed_job_card, and shows SELLING only (never the cost).
         $quoteHtml = view('corex.rental-job-cards.quote-pdf', [
             'jobCard' => $jobCard, 'pricesOn' => true, 'vat' => $noVat, 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
         ])->render();
         $this->assertStringContainsString('450.00', $quoteHtml);
+        $this->assertStringNotContainsString('200.00', $quoteHtml);
     }
 
     public function test_a_free_text_line_works_with_no_catalogue_item(): void
