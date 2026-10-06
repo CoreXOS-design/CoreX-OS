@@ -114,6 +114,20 @@ fi
 WORKTREE="$(pwd)"
 [[ -f "$WORKTREE/artisan" ]] || die "run this from a Laravel worktree root (no ./artisan found in $WORKTREE)"
 
+# --- Refuse a truncated snapshot BEFORE anything else (lock, DROP, CREATE, load) ---
+#
+# a5194c9a1 committed a half-written mysql-schema.sql (345 of 616 tables); lanes
+# that loaded it got a half-built schema. Checked up front, for every path
+# (first bootstrap, --fresh, fingerprint rebuild), so a bad file never creates,
+# drops or half-loads a schema. A MISSING file keeps its existing fallback below.
+SNAPSHOT="$WORKTREE/database/schema/mysql-schema.sql"
+if [[ -f "$SNAPSHOT" ]]; then
+    # shellcheck source=scripts/check-schema-snapshot.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-schema-snapshot.sh"
+    check_schema_snapshot "$SNAPSHOT" 2>/dev/null \
+        || die "database/schema/mysql-schema.sql is truncated/incomplete ($SNAPSHOT) — refusing to build a test schema from it. Fix: merge origin/QA1 (it carries the repaired snapshot), then re-run."
+fi
+
 # --- Resolve TEST_DB_DATABASE with the SAME precedence as tests/bootstrap.php ---
 DB="${TEST_DB_DATABASE:-}"
 if [[ -z "$DB" && -f "$WORKTREE/.env" ]]; then
