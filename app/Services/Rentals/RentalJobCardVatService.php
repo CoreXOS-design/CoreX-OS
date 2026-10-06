@@ -67,6 +67,21 @@ class RentalJobCardVatService
         return $this->splitAmount($amount, $rate, $captureMode ?? $agency->vat_capture_mode) + ['rate' => $rate, 'label' => $label];
     }
 
+    /**
+     * §14.25 — a line's EFFECTIVE VAT type as the agent reads it in the
+     * add-line select: Standard / None / Custom (or the agency's own type
+     * name). A free-text line, or one picked from a catalogue item with no
+     * default VAT type, carries no vat type at all — and is charged 0%, i.e.
+     * None. Used wherever a line has no entry in breakdown()['lineFigures']
+     * (no price yet), so the on-screen column never falls back to a dash.
+     */
+    public function effectiveTypeLabel(RentalJobCardLine $line): string
+    {
+        $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::find($line->rental_vat_type_id)) : null;
+
+        return $type ? $type->shortLabel() : 'None';
+    }
+
     /** A VAT type's live rate — custom_per_line reads the caller's own typed rate, everything else reads the type itself. Null type (free-text line with no VAT type) is 0%. */
     private function rateFor(?RentalVatType $type, $customRate): float
     {
@@ -216,7 +231,11 @@ class RentalJobCardVatService
                 ['excl' => $excl, 'vat' => $vat, 'incl' => $incl, 'rate' => $rate, 'label' => $label] = $calc;
             }
 
-            $lineFigures[$line->id] = ['excl' => $excl, 'vat' => $vat, 'incl' => $incl, 'rate' => $rate, 'label' => $label];
+            $lineFigures[$line->id] = [
+                'excl' => $excl, 'vat' => $vat, 'incl' => $incl, 'rate' => $rate, 'label' => $label,
+                // §14.25 — the on-screen VAT column's wording (Standard / None / Custom, as in the add-line select).
+                'type_label' => $label !== null && $label !== '' ? RentalVatType::shortenName((string) $label) : 'None',
+            ];
 
             $line->setAttribute('vat_display_excl', $excl);
             $line->setAttribute('vat_display_vat', $vat);

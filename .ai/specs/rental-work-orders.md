@@ -3055,12 +3055,24 @@ Type `90px` · [prices on: Unit `64px` · Qty `50px` · Unit price `84px` · [VA
   panels still scroll independently, and no behaviour changes (same forms, same confirm on archive, same routes).
 - Not touched: the create (draft) screen's pre-save lines list; the "Remove" control there is a different component.
 
+**On-screen VAT column showed "—" on some lines (cc4 finding, added to this section the same day).** Cause:
+`RentalJobCardVatService::breakdown()` writes the `vat_display_*` attributes onto `$jobCard->lines`, but the saved-lines
+partial renders `$task->lines` and the separately loaded General lines — different model instances — so those
+attributes were always empty and the column fell back to the line's OWN VAT type, which a free-text line, or a line picked
+from a catalogue item with no default VAT type, simply does not have. (The printouts were fixed for the same reason in
+§14.21 and are untouched.) **Fix:** the column shows the line's EFFECTIVE VAT type — Standard / None / Custom, the add-line
+select's own wording (`RentalVatType::shortenName()`, shared with `shortLabel()` so the two cannot drift) — resolved through
+the VAT service and keyed by line id: `breakdown()['lineFigures'][$line->id]['type_label']` (+ the rate beside it, e.g.
+"Standard (15%)", "Custom (7.5%)"); a line with no VAT type is charged 0% = **None**; a line with no price yet (no
+lineFigures entry) falls back to `RentalJobCardVatService::effectiveTypeLabel($line)`; a frozen (quoted) line words the type
+name it was issued with the same way. Never a dash.
+
 **Tests:** `tests/Feature/RentalJobCards/RentalJobCardGridAlignmentTest.php` — header, saved row and add row render from
 the same grid style string, saved cells and header labels carry the 9px inset, and the ✎ / × / + carry the compact icon
-style with `!important` (no `corex-btn` class on the +). Real-browser proof on QA1 card 1: column x per row + action
+style with `!important` (no `corex-btn` class on the +); VAT column: a free-text line with no VAT type (in a task and in General), a line with no price, Standard/Custom wording + rate, a frozen quote's lines, the shared wording, and the printouts unchanged. Real-browser proof on QA1 card 1: column x per row + action
 control sizes + screenshot (`/tmp/qa1-cc3-jobcard-align.png`).
 
-**Files:** `app/Support/RentalJobCardLineGrid.php`, `resources/views/corex/rental-job-cards/{_line-columns-header,_lines-table,_add-line-row}.blade.php`.
+**Files:** `app/Support/RentalJobCardLineGrid.php`, `app/Services/Rentals/RentalJobCardVatService.php` (`type_label`, `effectiveTypeLabel`), `app/Models/RentalVatType.php` (`shortenName`), `resources/views/corex/rental-job-cards/{_line-columns-header,_lines-table,_add-line-row}.blade.php`.
 
 (Numbering note: two §14.23 sections exist — the print follow-ups and cc4's Job Cards LIST; both landed the same
 morning. Left as is; whoever next touches this file may renumber the list one to 14.25.)
