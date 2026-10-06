@@ -1,0 +1,674 @@
+# Agency Timeline + Platform E-Sign — Spec
+
+> Status: **Built on QA2 (AT-447), awaiting Johan's audit/test before Staging.** Rewritten 2026-10-05 to match
+> what was actually built (the first draft described a separate contracts module and, later, a dedicated
+> platform agency — both were rejected by Johan and removed).
+> Jira: AT-447 · Branch: `AT-447-agency-timeline-platform-contracts`
+> Area: **System Developer** (owner-only). Nothing here is visible to any agency except the read-only,
+> link-gated public timeline page.
+> Pillars touched: **Agent** (the agency's principal signs; the agency ticks its own onboarding steps).
+> Sister specs: `agency-onboarding-setup.md` (the setup wizard — a different thing), `agency-billing.md`,
+> `ESIGN-CANON.md`, `corex-domain-events-spec.md` §5.
+
+## 1. Business requirement (Johan, 2026-10-05, summarised)
+
+1. A **Platform E-Sign** area in the dev side of CoreX, outside every agency, where CoreX keeps and sends its
+   own contract (Subscription Agreement, debit-order form) — **the same e-sign agencies use, including the
+   template creator, not a lookalike**.
+2. An **Agency Timeline** per agency: the onboarding plan from take-on to go-live, with a **public link**
+   that can be shared throughout the agency. Defaults are **editable in Dev Settings**. Starting a timeline
+   offers dates counted from a start date (which can never be in the past) and every step date is
+   customisable. Custom steps per agency. Overdue steps show as overdue and **push the go-live date out**.
+3. The agency can **tick its own steps as completed** on the public page so the plan progresses.
+4. The public page should be wide, look good, carry the agency name in its link, and have an interactive
+   timeline at the top.
+
+## 2. What this is NOT
+* (Reversed 2026-10-05 — see §3A: Platform E-Sign IS now a separate copy of the e-sign, cut down to contracts.)
+* Not the Agency Setup Wizard (`agency-onboarding-setup.md`); finishing the wizard merely ticks a step.
+* No agency can see Platform E-Sign content, ever (§3.3).
+
+## 3. Part A — SUPERSEDED by §3A (kept for history: the agency-less mode of the real e-sign, removed 2026-10-05)
+
+### 3.1 Behaviour
+* **Sidebar → System Developer → "Platform E-Sign"** (`admin.platform-esign.enter`, owner-only, no permission
+  key by design) switches the owner into *Platform E-Sign mode* and lands on a hub
+  (`docuperfect.platform.hub`, `/docuperfect/platform`): Send a contract · Contract templates · Create a
+  template from a document (import) · Sent contracts · Recipient presets. An amber banner with the same
+  shortcuts and **Exit** is shown on every e-sign page while in the mode.
+* In the mode everything is the normal DocuPerfect: template creator/import/builder, send wizard, signing
+  screens, sealed PDF, audit. Public signer links (`sign/{token}`) are token-based and untouched.
+* A demo contract can be seeded/archived: `php artisan platform-esign:demo [--remove]` (QA use; soft delete).
+
+### 3.2 How the mode works (`App\Support\PlatformEsignMode`)
+Active only when **all** hold: owner-role user · session flag set from Dev · request path `docuperfect` or
+`docuperfect/*`. Effects, limited to models in `App\Models\Docuperfect\*`:
+* `AgencyScope` constrains reads to `agency_id IS NULL`; `BelongsToAgency::creating` stamps `agency_id = NULL`.
+* `Template` (which has no BelongsToAgency and where NULL means "shared with every agency") carries
+  **`is_platform`**: `PlatformTemplateScope` hides platform templates from every authenticated non-mode
+  query and shows only them in the mode; a `saving` hook forces `agency_id NULL`, `is_global false`.
+  `TemplateController::cdsGenerate` no longer reassigns a platform template to an agency nor demands one.
+* An owner *outside* the mode (cross-agency view) does not see agency-less `Document`/`SignatureTemplate`.
+* Branding falls back to "CoreX OS"; the audit certificate names CoreX for agency-less documents.
+
+### 3.3 Isolation guarantee (tested — `PlatformEsignIsolationTest`)
+Six actor types (agency admin, agent, another agency's admin, admin with the flag forced on, owner switched
+into an agency, owner outside the mode) cannot see the platform contract in 12 e-sign list pages, by direct
+id, by starting a flow, or by model query. Only an owner inside the mode can.
+
+### 3.4 Known limits (deliberate, reported to Johan)
+* The e-sign's party roles are property roles (Seller/Buyer/Landlord/Tenant/Agent); a CoreX contract uses
+  Seller = agency principal, Agent = CoreX. Custom platform role names would require changing the shared e-sign.
+* Every signer needs an ID/passport number (the e-sign's own legal rule).
+* The wizard's contact/property search still searches all agencies for an owner.
+
+## 3A. Part A v2 — Platform E-Sign as its OWN e-sign (APPROVED by Johan and BUILT 2026-10-05; supersedes §3)
+
+> Johan, 2026-10-05: "make a copy of esign so that it becomes 2 different ones — Platform E-Sign won't use
+> properties and stuff, it is used to send out the CoreX contract." Decisions taken the same day: **contracts-only
+> copy** (not a full clone) and **replace** the §3 agency-less mode, archiving the contract already created in it.
+> This reverses the §2 line "not a copy of the e-sign code" — the shared-engine/mode approach is retired.
+
+### 3A.1 What it is
+A separate module (own routes `platform-esign/*`, own tables `platform_esign_*`, own models/services/views under
+`App\\*\\PlatformEsign`), copied from DocuPerfect e-sign and cut down to what a CoreX contract needs. It owns
+its data outright — no `agency_id`, no scopes, no session "mode". Nothing in it reads or writes properties,
+listings, deals or the contact book; DocuPerfect is not touched by it and cannot see it.
+
+### 3A.1a Page layout (restyled 2026-10-06, Johan chose the "Module sidebar" option)
+Every Platform E-Sign page shares `platform-esign/_header.blade.php`: the banner (title, sub line, page actions)
+followed by a left sidebar that stays in view while the page scrolls. The sidebar replaces the old tab strip and
+lists the module in three groups: **Contracts** (Overview, Documents, Templates), **Send** (Subscription
+Agreement, Another contract), **Setup** (Agreement wording, Agency Timeline). The current page is marked from the
+`$tab` each page passes. The header opens the sidebar and the content column; each page closes them with
+`@include('platform-esign._end')` as the last line inside its wrapper. Overview shows four count tiles, then
+"Waiting on a signature" (status pill and signing progress per contract; contracts waiting on RR are marked) and
+"Recently signed". Below 1024px the sidebar becomes a scrolling row above the content. No route, permission, field
+or data query changed.
+
+### 3A.2 Carried over from e-sign (copied, then simplified)
+Template builder (upload a PDF/Word -> place signature, initial, date and text fields; or web template),
+named signers with order, send by email, signer page (typed/drawn signature, consent, ID/passport), reminders,
+decline, sealed PDF with SHA-256, audit certificate + event log, resend/void, signed copy download & email,
+status tracking. Same look and feel as e-sign.
+
+### 3A.3 Deliberately removed
+Property / listing / deal / contact pickers; Seller-Buyer-Landlord-Tenant-Agent roles (signer roles are free
+text: e.g. "Agency Principal", "CoreX"); packs, amendments, wet-ink, conditions, rental/sales flows, branch/agency
+branding, agent-facing dashboards. Merge fields come from the agency record (name, reg no, VAT, address,
+signatory, go-live/billing dates) as in the retired contracts module.
+
+### 3A.4 Timeline link
+`agency_timelines.agreement_template_id` re-points to a `platform_esign_documents` row; `syncAgreement()` ticks
+"sign agreement" when it is completed. Start-contract is offered from the agency timeline detail page.
+
+### 3A.5 Migration of the old mode
+Archive (soft delete) the agency-less `docuperfect_*` contract(s); remove `PlatformEsignMode`, `is_platform`
+scope and the DocuPerfect banner/hub; sidebar entry opens the new module. Rollback = restore the archived rows.
+
+### 3A.6 Build phases (each lands, is verified and reported before the next)
+1. Data + models + merge fields + audit/events + sealed-PDF service.
+2. Template builder (upload, field placement, web templates) + hub + lists with search/sort/filter.
+3. Send flow (agency picker, signer, merge preview) + signer public page + reminders/decline.
+4. Timeline link, archive of the old mode, removal of mode code, isolation + signing tests, demo command.
+
+
+## 4. Part B — Agency Timeline
+
+### 4.1 Navigation
+Sidebar → System Developer → Agency → **Agency Timeline** (`admin.agency-timelines.*`).
+Dev Settings → **Agency onboarding → Agency timeline defaults** (`admin.timeline-defaults.*`).
+After creating an agency, the success message links to *Start agency timeline*.
+
+### 4.2 Data (migrations `2026_10_05_100000`, `120000`, `130000`, `140000`)
+* `agency_timeline_default_items` — editable template: `kind` (block|milestone), title, body, `offset_days`,
+  `is_public`, `agency_can_complete`, `is_go_live` (exactly one), `auto_complete_trigger`
+  (`contract_signed` | `setup_wizard_completed`), sort, soft delete.
+* `agency_timelines` — one per agency (enforced in code): `token` (48 chars), `start_date`, status
+  (running|live|paused), `public_link_enabled`, `agreement_document_id` (the linked Platform E-Sign document — renamed from
+  `agreement_template_id` by migration `2026_10_06_*160000`), soft delete. One timeline per agency is enforced in code under a
+  row lock (§4.7); there is deliberately no unique index (older data may hold duplicates).
+* `agency_timeline_items` — a **snapshot** of the defaults at start (defaults edited later never change a
+  running timeline) + custom items; `due_date`, `status` (pending|done|skipped), `completed_source`
+  (`manual`|`agency`|`contract_signed`|`setup_wizard_completed`), `agency_can_complete`, soft delete.
+* `agency_timeline_events` — full history of every change (who / what / before / after / source).
+* `agencies` is **not** changed. (The agency-less mode of the real e-sign, which added `docuperfect_templates.is_platform` and made
+  `docuperfect_documents.agency_id` nullable, is superseded by §3A and retired by migration `160000`.)
+
+### 4.3 Owner screens (all owner-only; every action also `abort_unless(isOwnerRole())`)
+* **List** — KPIs; search (agency name); filters: status (incl. Archived), started-from / started-to (an unreadable date is
+  ignored with a message, never a 500), "Hide demo and inactive agencies"; demo and inactive agencies are labelled in the
+  list; sort: agency, overdue, start, go-live (default agency A→Z); pagination 25; empty states; Start / Open / Copy link.
+* **Start** — start date defaults to today and can never be in the past (server-validated as a `Y-m-d` date, form clamps
+  old or garbled dates); every default step shows a date counted from the start date and each is individually editable
+  (not earlier than the start date); Reset per step.
+* **Detail** — header with status/go-live/slip; public link (copy, open, switch off, new link); start date
+  (move open steps or not; a date more than a day in the past needs the "in the past on purpose" tick) and reset
+  dates (open steps only — done and skipped steps keep their dates); **Steps** table (Mark done / Skip / Reopen / Edit /
+  reorder / Archive; custom steps; "Agency ticks" flag; auto-tick badges). Steps are listed by date, so a step's
+  arrows only move it among steps on the SAME date and are disabled otherwise; **Information sections** (blocks) the same
+  (ordered by position); archived items with Restore — an archived step cannot be edited, ticked, moved or archived
+  again, and an active step cannot be "restored" (a message, no history line); **History** tab; **Agreement** panel
+  (link a Platform E-Sign document — only this agency's own Subscription Agreement can be linked);
+  **Archive** the whole timeline (soft delete; public link goes offline) — restorable from the list's Archived
+  filter unless the agency already has an active timeline.
+* **Defaults (Dev Settings)** — add / edit / reorder / archive / restore steps and sections; days-after-start;
+  trigger; go-live; public; agency-can-complete. Running timelines are never changed. The only go-live default cannot be
+  archived (make another step the go-live step first).
+
+### 4.4 Overdue → go-live
+`state()` = done | skipped | overdue (due before today and pending) | upcoming. Expected go-live = planned +
+the worst overdue slip among steps due on/before the go-live step (`goLive()`); shown on every screen.
+
+### 4.5 Auto-ticks
+A page read never writes (no domain event, no database row — an anonymous public view must not fill the audit log, and a manual
+Reopen must not be undone by the next page view).
+`contract_signed`: `syncAgreement()` runs only at the real transitions — when the linked Platform E-Sign document completes
+(`EsignService`) and when a document is linked — and fires `AgencyContractSigned` only if the document is `completed` AND a
+`contract_signed` step is still pending (so a repeated call is silent). `setup_wizard_completed`:
+`AgencySetupWizardController` fires `AgencySetupWizardCompleted` once; because it fires once, a timeline that is **started or
+restored after the wizard finished** catches up by itself (`reconcileSetupWizard()` ticks the pending step, source
+`setup_wizard_completed`). `CompleteTimelineItemsOnTrigger` ticks only pending items, once, with a history entry, and catches
+`Throwable` (logged) so a timeline fault can never break the wizard's `/finish` after `completed_at` is saved; the wizard hook
+itself is wrapped the same way.
+`setStatus()` is atomic: the item row is locked and its current status re-read, so two concurrent ticks (double-click, second
+tab) change it once, write one history line and fire `AgencyTimelineMilestoneCompleted` once.
+
+### 4.6 Public page (no login)
+* URL `/agency-timeline/{agency-name}/{token}` (name cosmetic, never checked); bare `/agency-timeline/{token}` still works.
+  Unknown / disabled / archived token → the same neutral 404 page (no agency name). `noindex`, `no-store`, throttled.
+* Shows only items marked public, pre-rendered (no models, no emails/names). Hero (progress ring, days to
+  go-live, next-up), an **interactive timeline** (steps share the width — no sideways scroll; vertical on
+  phones; Today pin; click / prev-next), the plan, information sections; Open Graph tags for link previews.
+* **Agency ticks:** `POST /agency-timeline/{token}/steps/{item}` (throttle 20/min, CSRF). Allowed only if the
+  timeline is *running*, the step is a public milestone with `agency_can_complete`, and it is pending. Undo is
+  allowed only for a tick the agency itself made. Every change is logged "by the agency" and fires
+  `AgencyTimelineMilestoneCompleted`. CoreX decides per step which are the agency's. Idempotent: asking for the state a step is
+  already in (double-click, second tab) returns the same success page — no 403, no second history line, no second event.
+* **Go-live date / slip on the public page** are computed from the PUBLIC steps only (`goLive($timeline, $today, publicOnly: true)`):
+  a hidden internal step never moves the date the agency sees, and a go-live step that is hidden gives no date.
+* **Expired page:** the tick form is token-gated and carries no ambient authority, so the route is CSRF-exempt like the other
+  public token-gated POSTs (`outreach/opt-out/*`, `unsubscribe/*`) — a session that lapsed while the tab was open never bounces
+  the agency to the CoreX login. **Wiring:** the one-line entry `agency-timeline/*/steps/*` in `bootstrap/app.php` `validateCsrfTokens(except: …)` (Deployment notes) — applied by the conductor with this change set.
+
+### 4.7 One timeline per agency
+`AgencyTimelineService::start()` locks the agency row (`SELECT … FOR UPDATE`) and re-checks `exists()` inside the transaction, so a
+double-click on Start waits and then lands on the first request's timeline (a message, not a second timeline).
+
+### 4.8 Agreement link
+The picker and the server accept only a Platform E-Sign document that is **for this agency** (`agency_id` = the timeline's agency)
+and whose template kind is `subscription_agreement`. Another agency's document, or any other contract, is refused (422).
+
+## 5. Permissions
+Owner-only (System Owner), **no permission key by design** (a key is grantable via Role Manager and these
+screens expose every agency's commercial/onboarding state). The public routes are token-gated.
+
+## 6. Domain events (Non-negotiable #9) — catalogued in `corex-domain-events-spec.md` §5
+`AgencyTimelineStarted`, `AgencyTimelineMilestoneCompleted`, `AgencyContractSigned`, `AgencySetupWizardCompleted`.
+
+## 7. Multi-tenancy / scoping
+Timeline tables are platform-owned (no `agency_id` scoping; reached only through owner-only routes or an
+unguessable token). Platform E-Sign data is agency-less and isolated as in §3.2–3.3.
+
+## 8. Deployment notes (for the live push — not yet authorised)
+* Migrations are additive except `ALTER TABLE docuperfect_documents MODIFY agency_id … NULL` (brief table
+  lock on a large table — run off-peak) and the `UPDATE … JOIN` in `140000`.
+* Dump the DB to the data volume first; tag; `git merge --ff-only`; only AT-447 commits go to `main`
+  (cherry-pick — `QA2` carries other lanes' work).
+* `bootstrap/app.php` → `validateCsrfTokens(except: […])` must contain `'agency-timeline/*/steps/*'` (§4.6 expired page).
+* `php artisan platform-esign:demo` is QA-only; do not run on live.
+
+## 9. Acceptance criteria
+1. Owner starts a timeline: past start date rejected; each step date editable; defaults snapshot.
+2. Editing defaults never changes a running timeline; a second timeline for an agency is refused.
+3. Overdue steps show and push the go-live date; marking them done pulls it back.
+4. Public link works by token only; wrong name still works; wrong/disabled/archived token → neutral 404.
+5. Public page hides non-public items and leaks no names/emails; the agency can tick only opened steps while
+   running, can undo only its own tick, every change is in History.
+6. Linking a Platform E-Sign document and fully signing it ticks the "sign agreement" step; finishing the
+   setup wizard ticks its step; a wizard finished BEFORE the timeline started ticks it at start; reading a page never fires an
+   event or undoes a Reopen; a failing timeline hook never breaks the wizard's finish.
+9. Double-click on Start creates one timeline; double-click on an agency tick is one success, one event, one history line.
+10. Garbled dates give validation messages, never a 500; archived steps are frozen; the public date counts public steps only.
+7. Non-owners get 403 on every owner route; platform contracts are invisible to every agency (§3.3).
+8. Timelines, steps, sections and defaults can be archived and restored; nothing is hard-deleted.
+
+## 10. Files
+Controllers: `Admin/AgencyTimelineController`, `Admin/AgencyTimelineDefaultsController`,
+`Admin/PlatformEsignController`, `Public/AgencyTimelinePublicController`. Service: `Platform/AgencyTimelineService`,
+`Platform/PlainDocRenderer`. Models: `Platform/AgencyTimeline*`. Mode: `Support/PlatformEsignMode`,
+`Scopes/PlatformTemplateScope` (+ small guarded changes to `AgencyScope`, `BelongsToAgency`, `Docuperfect/Template`,
+`TemplateController::cdsGenerate`, `SignaturePdfService`). Views: `admin/agency-timelines/*`,
+`admin/dev-settings/timeline-defaults` + `_timeline-default-form`, `docuperfect/platform-hub`,
+`partials/platform-esign-banner`, `public/agency-timeline/*`. Command: `platform-esign:demo`.
+Tests: `tests/Feature/Platform/{AgencyTimelineTest,AgencyTimelineAuditFixesTest,PlatformEsignModeTest,PlatformEsignIsolationTest}`.
+
+
+## 10. Platform E-Sign v2 — as built (2026-10-05)
+* Routes `corex/platform-esign/*` (owner-only; sidebar System Developer → Platform E-Sign) and public `platform-esign/sign/{token}`.
+* Tables `platform_esign_{templates,template_fields,documents,signers,field_values,events,attachments}`; code in
+  `App\Models\PlatformEsign`, `App\Services\PlatformEsign` (EsignService, SealService, MergeFields), `App\Http\Controllers\PlatformEsign`.
+* Templates: **wording** (typed, with agency merge fields, auto signature blocks) or **PDF** (upload, rasterised with
+  pdftoppm, drag-to-place signature / initials / date / text fields per signer). PDF only — Word upload is not supported.
+* Signers sign in order (or all at once), each by their own emailed link; ID/passport required; typed or drawn signature;
+  decline; resend (new links), void, expiry; sealed PDF (SHA-256) + signing record; signed copy emailed to every signer
+  and the sender; full audit trail. List screens have search, sort, filters, pagination, archive/restore (no hard delete).
+* Timeline: sending a *Subscription agreement* for an agency whose timeline has no agreement links it automatically;
+  when it is fully signed the `contract_signed` step ticks (`AgencyContractSigned`, payload now `documentId`).
+* Retired: `PlatformEsignMode`, `PlatformTemplateScope`, the DocuPerfect hub/banner and the agency-scope hooks; the shared
+  e-sign files are byte-identical to before AT-447. Migration `160000` archives (soft delete) the old agency-less
+  DocuPerfect rows and renames `agency_timelines.agreement_template_id` → `agreement_document_id`. The inert columns
+  `docuperfect_documents.agency_id NULLable` and `docuperfect_templates.is_platform` remain.
+* Deployment: two additive migrations (`150000` create tables, `160000` retire). `pdftoppm` (poppler-utils) must exist on the
+  host (it does on Staging). QA only: `php artisan platform-esign:demo [--remove]` (never on live).
+* Not in the setup wizard (non-negotiable #10a): no agency setting was added — this is platform-owner tooling.
+
+### 10a. Generic engine — audit hardening (2026-10-06, "fix everything"; generic wording / PDF contracts only, not §11 web documents)
+* **Signer roles are stable.** A template role's key (`r1`, `r2`, …) is its identity: the edit form carries it (hidden input), a save
+  keeps it whatever the row's new position or label, only new rows get a new key, and a key is never reused (not even one whose
+  role was removed). Placed fields point at the key, so reordering/renaming can no longer hand a signature spot to another party.
+  A role that still has fields placed on the PDF cannot be removed (clear message — delete the fields first). `send()` refuses a signer
+  for a role the template does not have, a template with fields for a role it no longer has, and a PDF role with no signature field.
+* **No destructive saves.** The field editor save is a diff (existing id → updated in place, new → created, missing → soft-deleted;
+  never `forceDelete`). A replacement PDF is stored and rasterised in its OWN versioned folder (`templates/{id}/v…`) before anything
+  is touched; only after the database commit are the previous files MOVED to `templates/{id}/superseded/…` (never deleted). A bad
+  upload leaves the template, its files and its fields exactly as they were. A document's pages are served from the folder of
+  `pdf_path`, not a fixed path.
+* **Evidence.** `platform_esign_documents.content_hash` (migration `2026_10_06_150200`) = SHA-256 of the merged wording + source-PDF
+  bytes + placed fields, frozen at send and written (in full) to the `created` event. Sealing re-checks it; a mismatch refuses the seal
+  (`content_hash_mismatch` + `seal_failed`). `document_hash` is verified against the sealed file on every download (owner and signer):
+  a mismatch logs `seal_hash_mismatch` and the file is not served. **Re-seal of an already-sealed document is refused** (`reseal_refused`
+  event; no overwrite, no email, no timeline call). The platform owner may force it (`reseal_forced`, full previous hash logged, previous
+  PDF kept as `signed-{id}-superseded-….pdf`, nobody re-emailed). Re-sealing a document whose seal FAILED is the normal recovery path and
+  does email the signers their copy.
+* **Drawn signature.** Must be a real PNG data-URI ≤ 400 KB and ≤ 2000 × 1000 px, validated before it is stored or sealed; anything else is
+  refused with a plain message (typed name still signs). Sealing/emailing/timeline sync after the last signature are individually guarded:
+  the signer never sees an error after their signature is committed; a failed seal leaves the document `completed` with a `seal_failed`
+  event and the owner's Re-seal button.
+* **Public routes.** Rate limits are per token + IP (`platform-esign-sign`, 60/min, plus 300/min per IP) with a separate higher limiter for
+  page images (`platform-esign-asset`, 300/min per token, 1200 per IP) — registered in `AppServiceProvider`. `blockedReason()` checks
+  `expires_at` itself (a sign POST past the window is refused and the document marked expired); page/attachment routes 404 for expired and
+  declined documents and the signing page then shows the status message only. A web document's token is 404'd BEFORE anything can change
+  its status. `viewed` is logged at most once per signer per hour.
+* **Concurrency / side effects.** `resend` / `void` lock signers then document (same order as `sign()`), re-read the status inside the lock,
+  and `resend` validates 1–90 days. Voiding or declining unlinks the document from the agency timeline (so a replacement auto-links).
+  The send form carries a one-off `submission_token` (10 min); a repeat POST redirects to the already-created document (no token: an
+  identical send within 30 s is treated the same). Any `{{ … }}` in a template that is not a known lower-case merge field is refused at
+  save and at send. Array/junk query-string values on the owner lists are ignored, not a 500.
+* **Migrations.** `2026_10_10_130000`/`140000` were renamed to `2026_10_06_150000`/`150100` (idempotent: they only add a missing column /
+  backfill when they add it; the snapshot backfill no longer uses an application model).
+* **Deliberately NOT done:** signer tokens stay stored in clear text — the owner's reminders and the "Resend" screen need the live link, so
+  hashing them would break reminders (the 48-char token is ~285 bits; links are rotated on resend/void). No domain events are emitted by the
+  generic engine beyond the timeline's `AgencyContractSigned` (a spec decision, not a fix).
+
+
+## 11. Web documents — CoreX Subscription Agreement (AT-447 follow-up, 2026-10-06, Johan)
+
+> Status: spec written before code. Delivery is in four separable phases (§11.12): **(b)** core build — what Johan sends today;
+> **(c)** wet-ink download/upload; **(d)** wording editor, `/legal` page, agency-screen button, reminders/expiry settings.
+> (c) and (d) touch disjoint files and can be given to another lane. Source wording: `resources/legal/subscription-agreement/
+> agreement-v1.0.md` + `netcash-mandate-v1.0.md` — the ONLY source of legal text; never reworded here.
+
+### 11.1 What it is and why
+Johan's ruling: the Subscription Agreement is a **web document**, not a PDF with dragged boxes and not pre-completed by RR. The
+**recipient** (the agency) opens a link, fills in the form fields, initials every page, signs; **RR Technologies** reviews and
+countersigns; a sealed PDF (letterhead, values, initials, both signatures, audit page) goes to both parties; the "signed platform
+contract ticks the agency timeline" hook fires. Alternative on the same link: download, sign by hand, upload (§11.8). One-click send
+(§11.9). Everything lives INSIDE the Platform E-Sign module (own tables, tokens, signers, sealing, audit, mail path, owner gate,
+timeline hook). DocuPerfect is not touched. Pillars: **Agent** (the agency principal signs). Owner-only on the RR side; the
+recipient side is token-gated and public by design (same as `platform-esign/sign/{token}`).
+
+### 11.2 Data model (migration `2026_10_06_100000_create_platform_esign_web_documents`)
+* `platform_esign_templates.source` gains the value **`webdoc`** (third source beside `web`/`pdf`). Kind `subscription_agreement`; roles
+  `r1` Agency (signs first), `r2` RR Technologies (countersigns). Webdoc templates are excluded from the generic Send screen.
+* **`platform_esign_wording_versions`** — `template_id`, `version` (string, e.g. `1.0`), `version_date`, `content_json`
+  (intro, part_a, part_b, part_c, part_d, mandate — markdown with field tokens, §11.4), `rates_json` (§11.5), `layout_json`
+  (calibrated pagination, §11.6), `is_published`, `published_at`, `created_by`. Unique `(template_id, version)`. **Never deleted,
+  never updated once a document pins it** (editing = a new version).
+* `platform_esign_documents` gains: `wording_version_id` (the pinned version — a sent document always renders that version),
+  `contract_ref` (unique, `CX` + 6-digit document id — shown in Part A and mandate sections A and E), `form_data` and `rr_data`
+  (**encrypted** `encrypted:array` casts — recipient entries / RR entries; no key is ever stored in clear), `form_rev` (optimistic
+  counter for two-tab saves), `recipient_note`.
+* `platform_esign_signers` gains `initials`, `signature2_image` (the mandate signature "as used for operating on the account").
+* **`platform_esign_initials`** — one row per signer per page (`page_no`, `initials`, `ip`, `created_at`), unique `(signer_id, page_no)`.
+* Statuses added to `Document::STATUSES`: `awaiting_countersign` ("Signed by agency — awaiting RR"), `wetink_received` (phase c).
+  Display labels for webdoc: Sent · Opened (sent + recipient viewed) · In progress · Signed by agency — awaiting RR countersign ·
+  Completed · Signed copy received (wet ink). No hard deletes anywhere; cancel = existing void; archive = soft delete.
+* Phase (c) adds `platform_esign_wetink_files`. Phase (d) adds nothing but `DevSetting` keys.
+
+### 11.3 Sources → stored version (seeding)
+`AgreementContent::ensureSeeded()` (idempotent; also `php artisan platform-esign:seed-agreement`) creates the template and version
+**1.0, 28 September 2026** from the two source files by **exact-substring replacements** of blanks with tokens (each replacement
+must match exactly once or the seeder throws — the source cannot silently drift). Replacements only ever swap a blank (`______`,
+`☐`, `……`, an empty table cell) for a token or insert a token next to existing words; no legal word is added, removed, or reordered.
+Two intentional exceptions, both inside the mandate: its beneficiary name/address blanks are filled with the fixed RR Technologies
+details (name from the source; address from clause B25). A fidelity test renders the stored version with every token blank and
+compares it word for word against the source files.
+
+### 11.4 Field tokens and schema
+Tokens (written inside the markdown, rendered per mode): `{{f:key}}` recipient input · `{{o:key:value}}` radio/tick option ·
+`{{q:key}}` quantity · `{{rate:key}}` rate (from `rates_json`) · `{{amt:key}}` calculated amount · `{{rr:key}}` RR-side field ·
+`{{sig:agency|mandate|rr}}` signature · `{{ini:agency|rr}}` initials · `{{ref}}` contract reference · `{{auto:day|monthyear}}`.
+`AgreementFields` holds the schema (key, label, side, type, required, max length, sensitive). **Part A**: registered name, trading
+name, registration no, VAT no (optional), PPRA FFC no, physical address, email for notices and invoices, principal full name, billing
+contact name/email/cell, number of branches · entity type (juristic | natural, required) · plan (team | agency, required) · branches at
+start · **number of agents** (one entry, §11.5) · additional branches · start date · initial term (1 month | other: N months) · debit
+order (account holder, bank, branch code, account number, account type) · signature block (name, capacity, signature, date, place).
+**Mandate**: accountholder, address, bank name, branch name and town, branch number, account number, type of account (Current /
+Savings / Transmission), date, contact number, amount, first payment date, day of month, assisted by / capacity, place, signature.
+**Pre-fill** (nothing typed twice, all still editable): mandate accountholder ← debit-order account holder; address ← physical
+address; bank ← bank; branch number ← branch code; account number/type ← debit-order; contact ← billing cell; amount ← monthly total.
+**RR-side** (never editable by the recipient): contract reference (auto), agreed variation text + amount, RR initials, RR
+name/capacity/date/place, RR signature. Beneficiary (RR Technologies (Pty) Ltd, address, shortname RR TECHNOL) is fixed text.
+
+### 11.5 Pricing — from the pinned version's `rates_json`, never from a view
+**Section 3 completes itself** (Johan, 2026-10-06): the recipient enters TWO numbers — **number of agents (seats)** and **number of branches** — and the
+form does the rest. The tiering is graduated (matches the published price list): Team R450/agent flat (up to 10 agents, no base fee, no branch fee);
+Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional branches R750 each (Agency plan only, the first branch is in the base fee).
+- **1–10 agents → CoreX Team** ticked automatically (Team line = agents × R450, Agency lines blank); **11+ → CoreX Agency** ticked automatically
+  (base 1 × R1 495, seats split 1–10 / 11–20 / 21+, additional branches = branches − 1). 13 agents / 1 branch = R1 495 + 10×R295 + 3×R250 = **R5 195**;
+  25 agents = base + 10×295 + 10×250 + 5×195. Over 40 agents the Agency lines still calculate and a note (recipient form AND RR screens) says a quoted
+  rate applies and is recorded under "Agreed variations" — signing is never blocked.
+- The plan tick boxes **show** the result and cannot be ticked by the recipient. "Number of branches" (section 1) and "Branches at start" (section 3) are one
+  value entered once (the latter is a read-only mirror). The recipient can never write `plan`, `extra_branches` or `branches_start` (stripped server-side).
+- **RR sender override (owner-only, optional, audited)** — the send form's "Fix the plan": `rr_data.plan_forced` = `team`|`agency`, logged as a `plan_forced`
+  event; the recipient then sees that plan fixed whatever the number of agents (a forced Team with more than 10 agents cannot be signed — validation).
+- **ONE calculation**: `AgreementPricing::derive()` (server). The page JS (`agreement/_js.blade.php` `calc()`) mirrors it line for line for live display;
+  every other surface — autosave/resume, RR countersign review, wet-ink PDF, sealed PDF, the wet/preview/pdf renderers — reads the server's figures
+  (`AgreementService::context()` overlays the derived plan/branches, so an older save with a wrong stored split is recalculated on the next load). On every save/submit
+  the server stores the derived `plan`/`extra_branches`/`branches_start` and keeps the mandate **Amount** equal to the monthly total until the recipient types a different amount.
+- Total = lines − agreed variation (≥ 0, ≤ lines). Validation: agents ≥ 1, branches ≥ 1, whole numbers. Rate cells in the source text are `{{rate:…}}` tokens that render
+  `R450`, `R1 495`, … identically to the source. **The legal wording does not change** — only behaviour.
+- **Read-only places are explained (screen only).** The three places the recipient cannot type in — the plan ticks, section 1 "Number of branches", section 3 "Branches at start" — look read-only
+  (grey, dashed) and carry a small muted tip with an info icon: "Fills in automatically — enter your number of agents and branches in the *Monthly fee at start* section (section 3)." The link scrolls
+  to and focuses the agents box. Recipient web form only (`AgreementRenderer::tip()`): never in the wet-ink or sealed PDF, the RR/preview screens or the wording; a declared addition in the §11.15 proof.
+- To change the rule later (e.g. "band rate for all seats"): `AgreementPricing::compute()` (server, one place) + its JS mirror, and a NEW wording version (the contract's
+  "Monthly fee at start" paragraph and the fee table text describe the graduated rule).
+Tests: `AgreementFeeTableTest` (1, 10, 11, 13, 20, 21, 25, 40, 41 agents × 1, 2, 4 branches; 10↔11 switching; resume; forced plan; surfaces), real-browser proof `scripts/verify-agreement-fees.cjs`.
+
+### 11.6 Pagination — the screen and the PDF are the same pages
+`AgreementLayout` renders the document in canonical mode, splits it into top-level blocks, estimates each block's height and packs
+blocks into pages (forced break before every Part and before the mandate; headings keep with next; tables are never split), then
+**calibrates** against a real DomPDF render of a worst-case filled sample (reduces the page budget until the physical page count
+equals the planned page count) and stores the result in `layout_json`. The screen shows exactly those pages as sheets, each with
+letterhead, footer and an "Initial this page" control; the PDF uses one page division per planned page. Footer on every PDF page:
+`CoreX OS Subscription Agreement · Version <n> — <date> · Page x of y` (y from a two-pass render). If a filled PDF still ends up with
+a different physical page count, the seal logs `page_count_mismatch` in the audit trail (initials are also printed in the footer of
+every physical page, so no page is ever without them).
+Letterhead on every page: the company logo (the one uploaded on the Company page; the built-in CoreX OS wordmark until one is) at a fixed
+height with the company block beside it (legal name, address, phones + first website) — **all read from the platform company record and
+pinned onto the document at send time** (`documents.company_snapshot`, so a later change on the company page never alters a sent or signed
+agreement; new agreements use the then-current record). See `.ai/specs/platform-company-profile.md` §7a–7b. Nothing about RR Technologies is
+hard-coded outside the pinned legal wording.
+
+### 11.7 Recipient flow (token link `platform-esign/agreement/{token}`, no login, mobile-friendly)
+open (audited) → read → fill (**autosave** debounced, resume from the same link, inline validation, an "outstanding" list that jumps
+to each gap; two-tab guard via `form_rev` → "updated in another window" notice) → **initial every page** (initials captured once from
+the recipient's name, editable; then one explicit tap per page, persisted per tap) → sign (typed name + capacity + drawn/typed
+signature for Part A and, separately, for the mandate; the module's existing identity rule — ID/passport — is kept) → submit
+(transaction, row lock; a second submit/tab gets "already submitted"). Expired / voided / completed links show a clear message; the
+owner can re-issue (resend = new token, fresh expiry, form data kept). Status: sent → in progress (first save) → awaiting RR.
+**RR countersign** (owner screen `…/documents/{id}/countersign`): sees every recipient entry read-only, cannot change them; completes
+name/capacity/place/date, initials every page, signs → seal. Order is recipient first, RR second. **Deviation from the brief, reported:**
+the agreed-variation text and amount are RR-side fields set **at send** (visible to the recipient before they sign), read-only at
+countersign — otherwise the monthly total and the mandate debit amount would change after the agency has signed. To change them after
+sending, void and re-send.
+
+### 11.8 Wet-ink option (phase c)
+"Download to sign by hand": PDF with the values typed so far and blank initial/signature lines (audited). "Upload signed copy":
+pdf/jpg/png, ≤ 10240 KB each, several files allowed, private disk, SHA-256, earlier uploads become *Superseded* (kept). Status
+`wetink_received`. RR then **countersigns electronically on a countersignature & attestation page** (a short sealed PDF carrying RR's
+name, capacity, signature, date and the SHA-256 of every file received) — the simplest sound option, because merging onto the
+recipient's scan needs a PDF-import library the platform does not have. Completion + timeline hook fire as in the e-sign flow.
+
+### 11.9 One-click send
+"Send Subscription Agreement" on the hub (and on the agency timeline screen in phase d): recipient full name + email (+ optional
+cell), optional agency link (pre-fills the fields the agency record already holds — the recipient can correct them), optional note,
+optional agreed variation. Email through the module's `corex` mailer; the owner screen shows a copyable link, status, resend, void.
+List screen = the existing Documents list (search, sort, filters, pagination, empty state) with the new statuses. Link expiry
+(`platform_esign.agreement_expiry_days`, default 30) and reminder interval (`platform_esign.agreement_reminder_days`, default 3) are
+`DevSetting` values (editable in phase d). Not in the agency setup wizard (non-negotiable #10a): platform-owner tooling.
+
+### 11.10 Sensitive data
+All form data is stored encrypted (`encrypted:array`). Owner screens mask account numbers (••••1234) and reveal only on an explicit,
+audited action (`bank_revealed` event: who/when/IP). Values are never written to logs or audit details and never put in email
+bodies. Sealed PDFs and wet-ink files live on the private disk and are served only by owner-gated streams (and the signer's own
+completed-copy link). **Superseded 2026-10-06 (Johan): the sealed PDF is NOT emailed — see §11.17.** Completion emails carry a secure link only.
+
+### 11.11 Public terms page (phase d)
+`/legal` renders the current published Parts B, C, D (same typesetting); `/legal/v/{version}` older versions. Unauthenticated, throttled.
+
+### 11.12 Phases, routes, files, tests
+**(b)** migration; models; `AgreementContent`, `AgreementFields`, `AgreementPricing`, `AgreementRenderer`, `AgreementLayout`,
+`AgreementPdf`, `AgreementService`; controllers `PlatformEsign/AgreementController` (owner) and `AgreementSigningController` (public);
+views `platform-esign/agreement/*`; routes `platform-esign.agreements.*` (owner), `platform-esign.agreement.*` (public). **(c)**
+`WetInk*` + migration `110000`. **(d)** wording editor/versions, `Public/LegalController` additions, timeline button, settings page,
+`platform-esign:remind-agreements` (scheduled). Tests: `tests/Feature/Platform/Agreement/*` — wording fidelity, pricing tiers (25
+agents), pinned-version rendering, token scoping, signing order, RR cannot edit recipient entries, encryption/masking/reveal audit,
+wet-ink supersede, `/legal`.
+
+
+### 11.13 Phase (c) as built (wet-ink)
+`platform_esign_wetink_files` (migration `2026_10_06_110000`) holds each upload (batch, sha256, mime, size, `superseded_at`); nothing is deleted. Recipient routes
+`platform-esign.agreement.wet-copy` (PDF in `wet` mode: entries typed so far, blank initials/signatures) and `.upload` (pdf/jpg/png by content type, ≤ 10 240 KB
+each, ≤ 12 per upload, ≤ 60 per agreement; a new upload supersedes the active files). Status `wetink_received`; the agency signer is marked signed. RR countersigns on
+`…/countersign` (a wet-ink variant of the screen: files with SHA-256, name/capacity/place/date/signature — no page initials) → `AgreementService::countersignWetInk()` →
+a countersignature-and-attestation PDF listing every active file's SHA-256 + the signing record is sealed and emailed; the timeline hook fires as usual. Owner files are streamed
+only through `platform-esign.agreements.wetink` (owner-gated). Electronic countersign refuses a hand-signed document and vice-versa.
+
+### 11.14 Phase (d) — wording editor, public terms, agency-screen send, expiry + reminders (cc2, 2026-10-06; extends §11.2/§11.9/§11.11)
+Business: Johan, 6 Oct — "the terms of the document may change over time and having access to edit it is great"; sending "should be an
+easy one click send button and adding the recipient details"; the agreement says Parts B, C, D "are published at
+www.corexos.co.za/legal" (was a 404). Owner-only on every RR-side screen, no permission key (same as the rest of the module). No hard
+deletes. Nothing here changes what a signing agency sees except that **new** agreements pin the **current published** version.
+
+**Data (migration `2026_10_06_140000_agreement_wording_editor`)** — `platform_esign_wording_versions` gains `change_note`,
+`parent_version_id` (the version a draft was copied from), `rev` (edit counter — two-tab guard), `published_by`, `deleted_at`
+(a discarded draft is soft-deleted, never published ones). New `platform_esign_wording_audit` (template, version, action, user, detail,
+created_at): draft_created · section_saved · rates_saved · previewed-not-logged · published · discarded · restored · settings_changed.
+A draft's `version` column holds `draft-<id>` until publish (so discarded drafts never block a real number); `is_published=false`.
+**Published rows are immutable** — enforced in the model (`updating` guard: only `layout_json` may change, because pagination is
+lazily recalculated when the layout engine's REV moves; `deleting` of a published row throws). "Current" = the published version with the
+latest `published_at` (a restoring v1.2 therefore becomes current). `AgreementContent::ensureSeeded()` now returns the current version
+(v1.0 is only the seed), so **send always pins the current published version**; a sent document keeps its `wording_version_id` forever.
+
+**Editor (nav tab "Agreement wording", `platform-esign.wording.*`)** — versions list (number, date, status, change note, who/when, sent
+count) · "New version" copies the current version (or any published version — "start a new version from this one", which is how an
+earlier wording is restored) into ONE draft (a second draft is refused; the owner continues or discards it). A draft is edited **section
+by section** (Cover, Part A, B, C, D, Debit-order mandate) at **clause level**: each clause (a top-level Markdown block — paragraph,
+heading, numbered clause, list, table) is shown as it will print; click to edit it in a small editor with a toolbar limited to what the
+document uses (heading, bold, italic, link, numbered clause, table), a live preview of that clause, add-clause-below, move up/down, remove.
+Rates are edited in a form (Team seat, Agency base, seat tiers + their breakpoints, extra branch, the quote-above-agents notice).
+**Field markers** (`{{f:reg_no}}`, `{{rate:agency_base}}` …) are shown as grey chips and are guarded: on every save and again at publish,
+each marker must be known, and every form field / option / quantity / amount / signature / initials / agents-control marker must occur
+exactly as many times as in the version the draft was copied from — wording can be rewritten around a field but a field cannot be
+removed, duplicated or invented from this screen (that needs a developer). Free markers (`{{rate:…}}`, `{{ref}}`, `{{auto:…}}`,
+`{{co:…}}`) may be added where a known key exists. Clause splitting uses the Markdown parser's own line positions and is verified
+lossless against v1.0 (join(split(x)) renders identically).
+**Wording safety (audit E1/E3/E4/E8/E9, 2026-10-06).** The wording is owner-authored but reaches the PUBLIC `/legal` page, the recipient signing page, the owner screens, the live
+preview and both PDFs, so it is never trusted. The Markdown parser still accepts raw HTML (the shipped v1.0 uses tables, `<colgroup>`, `<sup>`), but **every rendered block is run through
+the allow-list sanitiser `SafeHtml::cleanWording` inside `AgreementRenderer::markdownBlocks` — the single choke point — before any field marker becomes form markup**. Allowed: text
+structure (p, br, strong/em/u/s, sup/sub, code/pre, blockquote, h1–h6, ul/ol/li, tables with colgroup/col, span/div), links to `http(s)`, `mailto`, `tel` or an in-page `#anchor`
+(`rel="noopener noreferrer"` added), the structure classes `odd`/`even`/`header`, and a `style` rebuilt from `width`, `text-align`, `vertical-align`, `font-weight/style`, `text-decoration`
+only. Removed: script/iframe/object/embed/form/input/svg/math/base/link/meta/style/xmp…, every `on*` handler, any `javascript:`/`vbscript:`/`data:` (entity-encoded, tab/newline-split or
+otherwise obfuscated forms are decoded first), relative or protocol-relative links, **all images** (no tracking pixels), unknown classes, processing instructions and comments, and any
+other CSS (position, float, z-index, background, `url(`…; CSS escapes such as `\75rl(` are decoded before checking). **At save and at publish** `AgreementTokens::validate` runs the same
+sanitiser and refuses wording that would need anything removed, naming it in plain words ("this wording uses markup that is not allowed (<img>, div event handler onmouseover)") — plus a
+pattern check for the obfuscated forms an HTML parser quietly repairs (`<img/src=x/onerror=…>`). The public page also sends a `Content-Security-Policy`
+(`default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'sha256-<print button>'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`), `nosniff` and
+`Referrer-Policy: no-referrer`; the page's one inline script (the print button) is allowed by hash only. **Rates vs words (`AgreementConsistency`)**: the Rates tab drives the fee-table
+cells and calculator through `{{rate:…}}` markers, but the tier breakpoints, quote-threshold and worked example are plain prose; publishing is refused (listed under "Fix before
+publishing") when the words say "seats A to B", "N and more", "up to N seats", "more than N agents" or a worked example "N agents … a × Rx + b × Ry + c × Rz" that disagrees with the
+Rates tab, or still print the OLD price of a rate that was changed. **Rate input**: every price and every count must be more than zero; a comma is refused (never guessed: 1,49 is
+not R1.49 or R149 — write 1495 or 295.50, a space for thousands is fine). **Clause split** keeps Markdown link-reference definitions (`[ref]: https://…`) as clauses of their own, so
+opening and saving a section can never silently drop them.
+**Preview** — "Preview as the recipient will see it": the paginated sheets in the real form look (inputs disabled) from the stored
+layout, plus a sample PDF (the same renderer, a worst-case filled sample). Calibration runs on preview/publish and is stored on the draft.
+**Publish** — version number (`n.n`, suggested next minor; one spelling only — `1.00`, `01.0`, `1.0.0` are refused in favour of `1.0`; unique; **must be higher than the latest published**),
+version date (default today, **not more than 30 days ahead**), required change note (≥ 5 chars), and the **draft revision the owner reviewed** (hidden `rev` in the publish form — publishing
+is refused with "reload and review again" if the draft was saved in another window since). Re-validates everything, calibrates layout, flips `is_published`, writes audit.
+Preview, sample PDF and publish each run a real PDF calibration, so they are rate-limited per owner (preview + sample PDF 20/min, publish 6/min, own counters); a preview of a
+PUBLISHED version never rewrites its stored layout. **Discard** (soft) with a confirm; **Restore** a discarded
+draft while no other draft exists. **What changed** — pick any two versions: side by side, per section, aligned by clause; removed clauses
+red on the left, added green on the right, edited clauses show a word-level diff; rate and date/note changes listed above it.
+
+**Public terms (`GET /legal`, `GET /legal/v/{version}`, no login, throttled)** — current published Parts B, C, D only (never Part A,
+the cover, the mandate or any agency data), in the agreement's typesetting with the platform letterhead (company adapter), heading with
+version + date (the change note is an owner note and is **not** shown publicly), an index of every published version (current marked). `/legal/v/{current}` answers a
+**302** (never 301 — "current" changes when a newer version is published, and a cached permanent redirect would hide the earlier version) with `Cache-Control: no-store`. HTTP caching:
+ETag from version + company record revision + deployed page/sanitiser revision, `Cache-Control: no-cache, private` (revalidated every visit — the response carries session cookies, so a
+shared cache must never store it; the 304 path carries the same security headers). The first visit on a fresh environment seeds v1.0 under a lock; every later visit is a pure read
+(no write on an anonymous GET). If the wording tables are not migrated the page answers 503, never a stack trace. Print stylesheet (letterhead once, no controls,
+clauses not split across pages where the browser allows), indexable on `/legal`; superseded versions are `noindex,follow`.
+
+**Send from the agency screen** — the agency's timeline screen gets a primary "Send Subscription Agreement" button opening the §11.9
+send form with the agency pre-selected; recipient name / email / cell are pre-filled from the agency's principal (falls back to the
+agency's own email/phone) and stay editable; picking a different agency in the form re-fills them. The screen also shows the agency's
+latest Subscription Agreement (status, sent date, link expiry, "Open") and a one-click re-issue when it has expired.
+
+**Expiry + reminders (platform settings, `DevSetting`, editable on the Agreement wording page, owner-only; defaults in brackets)** —
+`agreement_expiry_days` (30), `agreement_reminder_days` (3: first reminder after this many days with no progress), `agreement_reminder_repeat_days` (3),
+`agreement_reminder_max` (3, 0 = off), `agreement_countersign_reminder_days` (1: RR reminded when an agency-signed agreement is still
+un-countersigned; repeats at the same interval, same max). "Progress" = the recipient saved, initialled a page or signed (opening the link is not
+progress). `platform-esign:remind-agreements` (hourly, `withoutOverlapping`; `--dry-run` lists without sending): (1) marks unsigned
+agreements past their link expiry `expired` (event logged; agreements already signed by the agency never expire); (2) emails the recipient
+a reminder (same link) when `max(sent, last progress, last reminder) + interval ≤ now` and fewer than max reminders went; (3) emails the
+RR signer likewise for `awaiting_countersign`/`wetink_received`. Every decision re-reads the document's current state, so reminders stop the
+instant it is signed, voided, expired, completed or archived. A resend/re-issue resets the reminder counters. Expired links show the recipient a
+clear message (nothing they entered is lost); the owner sees a one-click "Re-issue" (= resend: new link, fresh expiry, data kept) on the document and on the agency screen.
+No values are ever put in a reminder email. Not in the agency wizard (non-negotiable #10a): platform-owner tooling.
+
+**Files (d)** — migration `…140000`; `Models/PlatformEsign/WordingAudit`, `WordingVersion` (guards, scopes); `Services/PlatformEsign/Agreement/`
+`AgreementVersions` (draft/save/publish/discard/restore/audit), `AgreementTokens` (marker parse + guard), `AgreementBlocks` (split/join),
+`AgreementDiff`, `AgreementReminders`; `AgreementContent::current()`; `Console/Commands/PlatformEsignRemindAgreements`; `Http/Controllers/PlatformEsign/AgreementWordingController`;
+`Http/Controllers/Public/LegalController` (+`agreementTerms`, `agreementTermsVersion`); views `platform-esign/wording/*`, `public/legal/agreement-terms`;
+`Mail/PlatformEsign/AgreementCountersignReminderMail`; `routes/web.php`, `routes/console.php`; timeline show view + send view (prefill); header tab.
+Touched outside the (d)-only files, minimal: `AgreementRenderer` (+`edit` mode: field markers as labelled chips; /legal uses the existing `text` mode), `AgreementService` (current version on send; expiry applies only
+before the agency signs — an agency-signed agreement waiting for RR must never flip to "expired"; resend resets reminders), `AgreementController::create` (prefill),
+`platform-esign/_header` (tab), `documents/show` + `_owner-panel` (re-issue prompt). Tests: `tests/Feature/Platform/Agreement/{WordingVersions,LegalTerms,AgencyScreenSend,Reminders}Test.php`.
+
+### 11.15 Sender address + word-for-word proof (cc2, 2026-10-06)
+
+**Platform email sender (1B).** Every Platform E-Sign / Subscription Agreement email (agreement invite + reminder, agency-signed notice, countersign reminder, platform
+invite, signed copy) is sent **From the RR Technologies company record** — Platform Company Profile → *Sending address* + *Sender name* (migration `2026_10_10_140000`;
+defaults `admin@corexos.co.za` / "CoreX OS — RR Technologies"; audited like every company edit; **not** pinned to a sent document — it is operational, so reminders use today's
+mailbox) — with **Reply-To = the owner who sent the agreement**. Never the box-wide `MAIL_FROM_*` (QA1's is an agency address). All five mail classes use the
+`SendsFromPlatformCompany` trait (a test fails if a new `PlatformEsign/*Mail` class does not). The invite carries the company email signature. Real delivery from a corexos.co.za
+address needs the `corex` mailer's SMTP login (`MAIL_COREX_HOST/PORT/USERNAME/PASSWORD`) for a mailbox allowed to send as the sending address; on QA1 and Staging the mailer points at the local
+Mailpit (127.0.0.1:1025, no credentials), so nothing leaves the box.
+
+**Word-for-word proof (Job 2).** `php artisan platform-esign:verify-wording` + `scripts/verify-agreement-wording.sh` (real Chromium via `scripts/verify-agreement-web-text.cjs`):
+for a throwaway agreement pinned to the SEEDED v1.0 it compares the recipient page (real browser), the wet-ink download PDF and — after both parties sign — the sealed PDF against the two
+source files as ONE continuous word sequence (`AgreementFidelity`: independent source normaliser, no CommonMark; blanks may be filled by a field/value — every fill is listed and must be
+explained by the document's own values; tick boxes may be controls or ☐/☒). Allowed differences only: markup/table reading order, whitespace and line wraps (incl. a PDF line
+wrapping after a hyphen, extractor spacing beside quotes), "1st" spacing, blank runs → fields/values, letterhead/footer/initial marks (cropped / not part of the sheet body), the company block.
+Anything else is a defect. It also checks stored v1.0 == the content built from the source files, the footer label "Version 1.0 — 28 September 2026", and (test) that a fresh database seeds ONLY 1.0.
+**Guards (audit E10):** `--prepare`, `--seal` and `--cleanup` create, sign and retire real agreements, so they **refuse to run when `app()->environment('production')`**; and `--seal` / `--cleanup`
+only act on a throwaway made by `--prepare` (recipient `wording-proof@example.test`) — pointing `--doc` at any other agreement is refused with a message and nothing is touched.
+**Declared additions** (reported, not silently allowed): the contract-reference line under the Part A heading (§11.3); the "Number of agents" / "Number of branches" labels of the two entries on the web form;
+a tick box before each of the three account types on the mandate (print/PDF). Also the three screen-only "Fills in automatically" tips (§11.5) — web form only; the proof strips them from the page text, counts them, and fails if one appears in a PDF. Tests: `AgreementFidelityTest` (negative cases prove a changed/missing/extra/reordered word is caught), `AgreementMailSenderTest`.
+
+### 11.17 Completion stays inside CoreX — no attachment, no bank details by email (cc4, 2026-10-06, Johan)
+Johan: "the agency is completing the document on a CoreX link so that should be secure. From there it stays inside CoreX." The signed
+agreement holds the agency's bank details, so it is never emailed.
+
+* **Completion mails** (`AgreementSignedMail`, replaces `SignedMail` for web documents only; the generic e-sign `SignedMail` is unchanged)
+  go to the agency signer and to RR (the RR signer + the sending user) and say the agreement is fully signed. **No attachment, no entered
+  value.** Agency link = its own token link (`platform-esign.agreement.show`); RR link = the owner-gated document screen
+  (`platform-esign.documents.show`). The wet-ink path is the same: no scan and no attestation PDF is ever attached. Mails checked for
+  attachments or bank details with no change needed: invite + reminder (`AgreementInviteMail`), received (`AgreementReceivedMail`),
+  countersign reminder (`AgreementCountersignReminderMail`) — links and names only.
+* **The agency link after completion** (`platform-esign/agreement/{token}`) opens a read-only **Completed** page: status, the signed
+  agreement on screen (bank numbers masked; the PDF carries them), "Download the signed PDF" (`.../download`) and the agency's own
+  uploaded hand-signed files (`.../wet-file/{file}`). The same token the agency signed on; RR's token never opens anything public.
+* **Access window** — platform setting `platform_esign.agreement_access_months` (default 12, 1–120; Agreement wording page, "Signed
+  agreement link valid for (months)"). Written to `documents.expires_at` at completion (`now + months`); after it passes the link shows
+  "This link has expired…" and opens/downloads nothing. The owner can **re-issue** at any time (owner panel on the document, or
+  `POST …/documents/{id}/resend` on a completed web document → `AgreementService::reissueAccess`): new token (the old link stops working),
+  fresh window, the agency emailed the new link (no attachment), `access_reissued` audited. The pre-signing expiry/reminder settings
+  (§11.14) apply only before signing; the reminder sweep never touches a completed agreement.
+* **Audit** — `completed_viewed` (page opened on the agency link), `signed_copy_downloaded` (agency link or owner), `wetink_downloaded`
+  (agency link or owner), `access_reissued`; each with signer/actor and IP. Downloads are streamed through the controller
+  (`Storage::download`, `Cache-Control: no-store`), never a public file URL.
+* **Not done / reported:** the generic (non-agreement) Platform E-Sign `SignedMail` still attaches the sealed PDF — out of scope here.
+  QA1 test agreements that completed before this change have no access window written (`expires_at` is their old signing expiry).
+
+### 11.18 Wording correction — clause D3.6 (cc4, 2026-10-06, Johan)
+Johan: "3.2 is correct. 3.6 should refer to same — we do not host but we maintain the site." Version 1.0 itself is corrected (no agreement
+had been issued): D3.6 now reads "We maintain the website for as long as this agreement runs. When it ends, we stop maintaining it, and
+the domain name remains the Agency’s." Corrected in `resources/legal/subscription-agreement/agreement-v1.0.md` (the seed source, so every
+fresh database seeds only "1.0 — 28 September 2026" with the corrected clause) and the conductor's reference copy. Environments that already
+hold 1.0 (QA1) get the corrected text as a new published version through §11.14, because published versions are immutable.
+
+### 11.19 Take-on month — the start and first-billing dates are set by RR (cc2, 2026-10-06, Johan)
+Rule: the free take-on month is the whole calendar month in which take-on / go-live happens. **Agreement start date = the 1st of the take-on month; billing start / first debit = the 1st of the following month**
+(take-on October → starts 1 October, billing 1 November; November → 1 December; December → 1 January of the next year). Derived in ONE place, `AgreementTakeOn` (`derive()` / `values()` / `options()` / `valid()`).
+- **Send form (owner):** required "Take-on month" list (this month + the next 17, default this month, past months cannot be chosen — also enforced server-side), with both derived dates shown before sending.
+  Stored as `rr_data.take_on_month` (YYYY-MM) and audited as a `take_on_set` event. `AgreementService::send()` also pre-sets `form_data.start_date` / `m_first_payment`.
+- **Document:** the two fields that carry these dates — Part A §4 "Start date" and the mandate "first payment instruction … on ___ (date)" — are filled from the take-on month on every rendering
+  (recipient form, RR/preview screens, wet-ink and sealed PDF; `AgreementService::context()` overlays them) and are read-only for the recipient: shown as plain read-only boxes with the screen-only tip
+  "Set by CoreX as agreed for your take-on month." (never in a PDF; a declared addition of the §11.15 proof). The server strips any recipient attempt to write them. No wording change.
+- **Mandate first collection** (Johan, 12:48): with a take-on month the mandate's three collection fields are RR's too and read-only for the recipient — first payment date = the derived billing start, "___ of each month" = 1 (the collection day),
+  and "Amount" = the monthly fee calculated from the agents/branches pricing (first payment and recurring amount are the same: the take-on month is free, so no once-off or pro-rata amount exists; the mandate has no separate field for one).
+  The Amount follows pricing changes server-side (`withTakeOn`) and live in the page; tip "Fills in automatically from your monthly fee in section 3." Printed on both PDFs.
+- **Not mapped (reported, not guessed):** the two signing dates (Part A §6 "Date", mandate "Date") and
+  "on this ___ day of ___" are signing dates, not start/billing dates, and are untouched.
+- **Already-sent agreements** (no `take_on_month` on the record) keep exactly what they have and stay typeable.
+Tests: `AgreementTakeOnTest` (Oct→1 Nov, Nov→1 Dec, Dec→1 Jan rollover, Feb, past/junk months, send form, audit, read-only + server strip, wet-ink PDF, legacy agreement).
+
+### 11.20 Single entry — typed once, mirrored everywhere else (cc2, 2026-10-06, Johan: "option A, ruled")
+Section 5 (debit order authority) keeps its wording and layout exactly, but its bank fields are **read-only** on the recipient web form and fill themselves from the Netcash mandate — **the mandate is the one place bank details are typed.**
+Every other value that used to be typed in both documents gets the same treatment (typed once, mirrored, screen-only tip with a link that jumps to and focuses where it is typed) — except the mandate address and contact number, which FOLLOW Part A and stay editable (below). `AgreementFields::MIRRORS` (target ⇐ source), applied server-side by `AgreementService::withMirrors()`:
+
+| Mirrored (read-only) | Typed once in | Tip link goes to |
+|---|---|---|
+| §5 Account holder | Mandate "Given by (name of Accountholder)" | `fld-m_holder` |
+| §5 Bank | Mandate "Bank Name" | `fld-m_bank` (tip sits after the branch code, same row) |
+| §5 Branch code | Mandate "Branch Number" | `fld-m_bank` |
+| §5 Account number | Mandate "Account Number" | `fld-m_account` |
+| §5 Account type | Mandate "Type of Account" ticks | first tick box |
+| Mandate "Signed ___ on this" place | Part A §6 Place | `fld-sig_place` |
+| Mandate Date | Part A §6 Date | `fld-sig_date` |
+
+**Follow, not mirror — mandate address and contact number (Johan, 13:20):** they start from Part A (physical address §1, billing contact cell §1) and follow it while the recipient has not edited the mandate field; once edited the recipient's own value sticks and no longer follows Part A;
+clearing the field makes it follow Part A again (a value typed equal to Part A is not an override). Editable, accepted by the server (`AgreementFields::FOLLOW`, `AgreementService::withFollow()` / `normaliseOverrides()`): only an override is stored, the effective value is what the renderers
+(review, both PDFs) print, and the signed record stores the effective value. Screen-only tip: "Filled in from your details above — change it here if the debit order needs a different address." (… "number." for the contact number).
+Place and date stay mirrored (read-only) as built.
+
+Plus (§11.5, §11.19): branches (typed once beside agents), plan, start date, first collection date, collection day, mandate Amount — set from other entries / by RR.
+- **Server-side:** the mirrored keys are stripped from every recipient request, recomputed from their source on every save/submit/render and stored explicitly; validation runs on the source only (`validateRecipient(..., $skip)`). Both PDFs, the RR screen and the preview print the mirrored values (section 5 shows the mandate's bank details).
+- **Screen only:** the tips ("Fills in automatically from the debit order mandate." etc., see `AgreementRenderer::MIRROR_TIPS`) exist only on the recipient web form — never in a PDF or the wording; declared additions of the §11.15 proof, which strips and counts them.
+- **Agreements sent before this change** (no `rr_data.single_entry`) keep both places typeable exactly as before.
+- **Deliberately NOT mirrored (reported):** the mandate "Assisted by / Capacity" line (a different person's capacity, not the signer's Part A capacity); the mandate signature (a separate signature act — the "Use the same signature" button stays); registered name vs account holder (different things: the legal entity vs the bank account holder).
+Tests: `AgreementSingleEntryTest`.
+
+### 11.21 Alignment — signature blocks and the mandate grid (cc2, 2026-10-06, Johan: "I hate it if things are placed as scattered")
+Layout only — no wording, order of clauses or mandate text changes. One set of rules (`agreement/_css.blade.php`, shared by the screen sheets and the PDF) over markup hooks added in `AgreementRenderer::alignmentHooks()`:
+- **Signature blocks (Part A §6):** each row is one fixed label column (`.sr-l`, 24%) followed by one field column (72%) — every input, line and signature box starts on the same left edge and ends on the same right edge, identical in both blocks. The Agency / RR Technologies table gets `class="sigtable"` — two equal-width columns, and each row paragraph `class="sr sr-name|capacity|signature|date|place"` has ONE fixed height per row class, so the same row sits on the same baseline in both columns: same box heights, same label position, same line length, tops and bottoms aligned.
+  The signature box is the same size in both columns (the drawing pad, the RR pad on the countersign screen, the static signature image and the blank line all share one box). The signature pad is built from `<span>`s (display:block), not `<div>`s: a block inside a `<p>` makes the browser close the paragraph early, which is what scattered the rows before.
+  Applies on the recipient page, owner preview, RR countersign screen, wet-ink PDF and sealed PDF.
+- **Netcash mandate:** every "Label: field" line (Given by, Address, Bank Name, Branch Name and Town, Branch Number, Account Number, Type of Account, Date, Contact Number, Amount, To (Name of Beneficiary), Address, Abbreviated Shortname) is a `p.mf` row of one grid: labels in one column, fields on a common left edge with one width, equal row heights (screen),
+  in the mandate's own order. The screen-only tips sit in their own third column on the same row; inside a sentence (first payment date, collection day) they move to the end of the paragraph so the printed sentence reads straight through.
+- **Initials:** the per-page initials boxes (PDF footer and screen footer chip/button) have identical size and vertical alignment.
+- Layout revision 3 (`AgreementLayout::REV`) re-calibrates the pagination. Tests: `AgreementAlignmentTest`; before/after screenshots in the lane report.
+
+### 11.22 "Take On Month" label, month-and-year display, blank picker (cc2, 2026-10-06, Johan 13:26)
+- **Relabel (instructed by Johan):** the Part A §4 row label **"Start date" → "Take On Month"** (`| **Start date**||` → `| **Take On Month**||`, the only occurrence of "Start date" in the wording — it is not used in any clause text). The field still carries the take-on month RR set (§11.19) and is shown as **month and year only** ("October 2026") on the recipient page, owner preview, RR countersign screen and both PDFs (`AgreementRenderer::monthYear()`); the mandate's first payment date stays a full date ("1 November 2026").
+- **Versioning:** the seed source (`resources/legal/subscription-agreement/agreement-v1.0.md`, so every fresh database seeds the corrected 1.0 — nothing has been issued from a fresh Staging yet) and the conductor's reference copy `/tmp/corex-agreement/agreement.md` carry the new label; environments that already hold published versions (QA1) receive it as a NEW published version through the wording versions service (§11.14), because published versions are immutable. Agreements already sent keep the version (and label) they were sent with and, with no take-on month, keep their typed full start date.
+- **Send form:** the Take-on month list starts blank ("Choose the take-on month…", required, no default); the derived dates appear only after a choice. Every editable box on the form is white with normal text and a visible edge, placeholders (and the empty "choose" state) are clearly lighter — the theme's input colour equalled the card colour on this page, which made editable boxes look disabled. Scoped to `.send-agreement-form`.
+Tests: `AgreementTakeOnTest`.
+
+### 11.23 Signing-flow hardening — audit D fixes (2026-10-06, Johan: "fix everything")
+Behaviour that changed in the agreement signing flow (tests: `AgreementAuditFixesTest`; existing agreement tests updated only where noted):
+- **Link retired at completion (§11.10/§11.15).** When RR countersigns (electronic or hand-signed) the agency signer's token is replaced inside the same transaction; the completion email is built from the NEW token and the 12-month access window (`platform_esign.agreement_access_months`) belongs to it. The original invite link no longer opens the signed agreement or its PDF/files: it shows a neutral "This agreement is complete — use the link in your completion email" page (200, no data), found through `signers.previous_token_hash` (SHA-256 of the retired token — a hash, it can never open anything). Re-issuing the link clears that marker. Event `access_link_replaced`. Tokens themselves stay readable (reminders and re-sends must put the link in an email) — hashing them is deferred.
+- **Signature image.** `AgreementFields::cleanSignature` keeps only a genuine PNG (`IMAGETYPE_PNG`, not just the data-URI prefix) of at most 2000 x 1000 px and 400 KB; anything else is dropped (the typed name still signs).
+- **ID / passport number encrypted at rest.** `signers.id_number` is `encrypted` (column widened to TEXT; migration `2026_10_06_170000_encrypt_platform_esign_signer_id_number` encrypts existing rows, skipping any value that already decrypts; `down()` restores plaintext). It is also `$hidden`. The sealed record and owner screen still print it (the cast decrypts).
+- **Take-on month is re-checked after send (§11.19).** `AgreementTakeOn::lapsed()` = the first debit date (1st of the month after the take-on month) is today or earlier, Africa/Johannesburg date. Once lapsed: the agency's page, autosave, initials, upload and submit are refused with "The start month on this agreement has passed. Please contact RR Technologies so a corrected agreement can be sent to you."; RR cannot countersign (electronic or hand-signed) and sees a red warning on the document panel, the review/countersign screen and the hand-signed countersign screen. While the agency has NOT signed, the owner re-sets the month from the warning (`POST platform-esign/documents/{id}/take-on`, `agreements.take-on`, `AgreementService::setTakeOn`: same rule as send — this month or later; keeps link and entries, bumps `form_rev`, event `take_on_set`). Once the agency HAS signed, the dates are never changed under its signature: the owner cancels (void) and sends a corrected agreement.
+- **Hand-signed upload** re-checks the status inside the lock (never moves a completed/voided agreement back to `wetink_received`); the 60-file cap counts only current (non-superseded) files; stored display names are sanitised (`AgreementService::safeFileName`: no path, backslash, control characters or `%`) and applied again at download for rows stored earlier.
+- **Initials** (`setInitials`) are refused unless the agreement is open for the agency.
+- **Signed PDF / attestation** print only `AgreementService::SEALED_EVENTS` (created, invited, viewed (first only), page_initialled, signed, countersigned, wetink_uploaded) — never bank_revealed, email_failed, wetink_downloaded, plan_forced, take_on_set, etc.
+- **Autosave front-end.** 419/404 stop the retry loop and say "reload / this link was replaced"; a 409 conflict keeps the in-flight and newly typed entries and re-saves them on the new revision; a refused submit bumps `form_rev` and returns it; unsaved entries trigger the browser's leave-page warning; default `sig_date`/`m_date` come from the server date (`AGR.today`), not the browser clock.
+- **Money fields** (mandate Amount) only ever hold an amount (`AgreementFields::cleanMoney`); free text is dropped.
+- **Reveal** audits the field KEY (`da_account` vs `m_account`, never the value) and refuses archived documents.
+- **Reminders.** The hourly `platform-esign:remind-agreements` schedule is `->onOneServer()->withoutOverlapping()`, and the command takes a cache lock itself so a manual run cannot overlap.
+- Deferred: hashing tokens at rest; wording prose literals vs editable thresholds (wording owner); money format `R1 495` in the contract text (Johan to confirm it is deliberate).

@@ -170,6 +170,11 @@ Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'su
 Route::get('/terms', [\App\Http\Controllers\Public\LegalController::class, 'terms'])
     ->middleware('throttle:60,1')
     ->name('public.terms');
+// CoreX Subscription Agreement — Parts B, C, D published (spec §11.14). Public, no auth; never Part A / the mandate / agency data.
+Route::get('/legal', [\App\Http\Controllers\Public\LegalController::class, 'agreementTerms'])
+    ->middleware('throttle:60,1')->name('public.agreement-terms');
+Route::get('/legal/v/{version}', [\App\Http\Controllers\Public\LegalController::class, 'agreementTermsVersion'])
+    ->where('version', '[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?')->middleware('throttle:60,1')->name('public.agreement-terms.version');
 
 Route::post('/m/{shortcode}/callback', [\App\Http\Controllers\SellerOutreach\PublicLandingController::class, 'callback'])
     ->where('shortcode', '[A-Za-z0-9]{6}')
@@ -796,6 +801,49 @@ Route::prefix('onboarding/{token}')->middleware(['onboarding.portal'])->name('on
 Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name('agency-setup.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'show'])->name('show');
     Route::post('/login', [\App\Http\Controllers\Public\AgencySetupGateController::class, 'login'])->name('login');
+});
+
+// ===== Platform company logo (public asset stream) =====
+// The CoreX / RR Technologies logo, streamed so emails, signer pages and PDFs can load it without a login.
+// Serves ONLY the logo (not sensitive). The `v` query is a cache-buster; the current logo is always served.
+// Spec: .ai/specs/platform-company-profile.md §4.
+Route::get('/platform-company/logo', [\App\Http\Controllers\Admin\PlatformCompanyController::class, 'logo'])
+    ->middleware('throttle:600,1')->name('platform-company.logo'); // mail-image proxies share one IP on a bulk send
+
+// ===== AT-447 PUBLIC: agency timeline (read-only) + platform contract signing =====
+// Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
+// The shareable link carries the agency name for readability (/agency-timeline/caprivi-realty/<token>); the
+// TOKEN alone authorises, the name is cosmetic and never checked. The bare /agency-timeline/<token> form
+// (links already shared) keeps working.
+Route::get('/agency-timeline/{slug}/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'showNamed'])
+    ->where('slug', '[A-Za-z0-9-]{1,80}')->middleware('throttle:60,1')->name('agency-timeline.public.named');
+Route::post('/agency-timeline/{token}/steps/{item}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'complete'])
+    ->whereNumber('item')->middleware('throttle:20,1')->name('agency-timeline.public.complete');
+Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
+    ->middleware('throttle:60,1')->name('agency-timeline.public');
+// Named limiters (AppServiceProvider): per token + IP, so one signer's page images never starve the other signer or an office on the same IP.
+Route::prefix('platform-esign/sign/{token}')->name('platform-esign.sign.')->group(function () {
+    $c = \App\Http\Controllers\PlatformEsign\SigningController::class;
+    $t = 'throttle:platform-esign-sign';
+    Route::get('/',                      [$c, 'show'])->middleware($t)->name('show');
+    Route::post('/',                     [$c, 'sign'])->middleware($t)->name('submit');
+    Route::post('/decline',              [$c, 'decline'])->middleware($t)->name('decline');
+    Route::get('/page/{page}',           [$c, 'page'])->whereNumber('page')->middleware('throttle:platform-esign-asset')->name('page');
+    Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->middleware($t)->name('attachment');
+    Route::get('/download',              [$c, 'download'])->middleware($t)->name('download');
+});
+// AT-447 follow-up (spec §11): the CoreX Subscription Agreement web document — recipient side, token-gated, no login.
+Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreement.')->group(function () {
+    $c = \App\Http\Controllers\PlatformEsign\AgreementSigningController::class;
+    Route::get('/',                [$c, 'show'])->middleware('throttle:60,1')->name('show');
+    Route::post('/save',           [$c, 'save'])->middleware('throttle:240,1')->name('save');
+    Route::post('/initials',       [$c, 'initials'])->middleware('throttle:60,1')->name('initials');
+    Route::post('/initial/{page}', [$c, 'initialPage'])->whereNumber('page')->middleware('throttle:120,1')->name('initial-page');
+    Route::post('/submit',         [$c, 'submit'])->middleware('throttle:30,1')->name('submit');
+    Route::get('/wet-copy',        [$c, 'wetCopy'])->middleware('throttle:20,1')->name('wet-copy');
+    Route::post('/upload',         [$c, 'upload'])->middleware('throttle:20,1')->name('upload');
+    Route::get('/download',        [$c, 'download'])->middleware('throttle:30,1')->name('download');
+    Route::get('/wet-file/{file}', [$c, 'wetFile'])->whereNumber('file')->middleware('throttle:30,1')->name('wet-file');
 });
 
 // ===== P24 MARKET INTELLIGENCE =====
@@ -4182,6 +4230,120 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
         Route::delete('/{agency}',   [\App\Http\Controllers\Admin\AgencyController::class, 'destroy'])->name('destroy');
+    });
+
+    // ── AT-447 — Agency Timeline + Agency Contracts + timeline defaults ──
+    //
+    // owner_only, and DELIBERATELY no permission key in corex-permissions.php:
+    // a permission key is grantable via Role Manager and these pages expose every
+    // agency's contract status and onboarding plan (same reasoning as Agency
+    // Billing / Dev Settings / Demo Access). Every action ALSO aborts unless the
+    // actor isOwnerRole(). Spec: .ai/specs/agency-timeline-and-platform-esign.md §5, §8.
+    Route::middleware('owner_only')->group(function () {
+        // Dev Settings → Agency timeline defaults (editable plan new timelines start from)
+        Route::prefix('admin/dev-settings/timeline-defaults')->name('admin.timeline-defaults.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyTimelineDefaultsController::class;
+            Route::get('/',                 [$c, 'index'])->name('index');
+            Route::post('/',                [$c, 'store'])->name('store');
+            Route::put('/{item}',           [$c, 'update'])->whereNumber('item')->name('update');
+            Route::post('/{item}/move',     [$c, 'move'])->whereNumber('item')->name('move');
+            Route::delete('/{item}',        [$c, 'destroy'])->whereNumber('item')->name('destroy');
+            Route::post('/{item}/restore',  [$c, 'restore'])->whereNumber('item')->name('restore');
+        });
+
+        // Agency Timeline
+        Route::prefix('admin/agency-timelines')->name('admin.agency-timelines.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyTimelineController::class;
+            Route::get('/',                                   [$c, 'index'])->name('index');
+            Route::get('/start/{agency}',                     [$c, 'startForm'])->whereNumber('agency')->name('start-form');
+            Route::post('/start/{agency}',                    [$c, 'start'])->whereNumber('agency')->name('start');
+            Route::get('/{timeline}',                         [$c, 'show'])->whereNumber('timeline')->name('show');
+            Route::post('/{timeline}/items',                  [$c, 'storeItem'])->whereNumber('timeline')->name('items.store');
+            Route::put('/{timeline}/items/{item}',            [$c, 'updateItem'])->whereNumber(['timeline', 'item'])->name('items.update');
+            Route::post('/{timeline}/items/{item}/status',    [$c, 'status'])->whereNumber(['timeline', 'item'])->name('items.status');
+            Route::post('/{timeline}/items/{item}/move',      [$c, 'move'])->whereNumber(['timeline', 'item'])->name('items.move');
+            Route::delete('/{timeline}/items/{item}',         [$c, 'archiveItem'])->whereNumber(['timeline', 'item'])->name('items.archive');
+            Route::post('/{timeline}/items/{item}/restore',   [$c, 'restoreItem'])->whereNumber(['timeline', 'item'])->name('items.restore');
+            Route::put('/{timeline}/start-date',              [$c, 'startDate'])->whereNumber('timeline')->name('start-date');
+            Route::post('/{timeline}/reset-dates',            [$c, 'resetDates'])->whereNumber('timeline')->name('reset-dates');
+            Route::post('/{timeline}/link',                   [$c, 'link'])->whereNumber('timeline')->name('link');
+            Route::post('/{timeline}/lifecycle',              [$c, 'lifecycle'])->whereNumber('timeline')->name('lifecycle');
+            Route::delete('/{timeline}',                      [$c, 'archive'])->whereNumber('timeline')->name('archive');
+            Route::post('/{timeline}/restore',                [$c, 'restore'])->whereNumber('timeline')->name('restore');
+        });
+
+        // Platform E-Sign v2 — CoreX's own e-sign (spec §3A). Separate module, own tables. Owner only.
+        Route::prefix('platform-esign')->name('platform-esign.')->group(function () {
+            $c = \App\Http\Controllers\PlatformEsign\OwnerController::class;
+            Route::get('/',                                   [$c, 'hub'])->name('hub');
+            Route::get('/templates',                          [$c, 'templates'])->name('templates.index');
+            Route::get('/templates/create',                   [$c, 'templateCreate'])->name('templates.create');
+            Route::post('/templates',                         [$c, 'templateStore'])->name('templates.store');
+            Route::get('/templates/{template}/edit',          [$c, 'templateEdit'])->whereNumber('template')->name('templates.edit');
+            Route::put('/templates/{template}',               [$c, 'templateUpdate'])->whereNumber('template')->name('templates.update');
+            Route::get('/templates/{template}/preview',       [$c, 'templatePreview'])->whereNumber('template')->name('templates.preview');
+            Route::get('/templates/{template}/fields',        [$c, 'fields'])->whereNumber('template')->name('templates.fields');
+            Route::put('/templates/{template}/fields',        [$c, 'fieldsSave'])->whereNumber('template')->name('templates.fields.save');
+            Route::get('/templates/{template}/page/{page}',   [$c, 'templatePage'])->whereNumber(['template', 'page'])->name('templates.page');
+            Route::delete('/templates/{template}',            [$c, 'templateDestroy'])->whereNumber('template')->name('templates.destroy');
+            Route::post('/templates/{id}/restore',            [$c, 'templateRestore'])->whereNumber('id')->name('templates.restore');
+            Route::get('/documents',                          [$c, 'documents'])->name('documents.index');
+            Route::get('/send',                               [$c, 'create'])->name('documents.create');
+            Route::post('/send',                              [$c, 'store'])->name('documents.store');
+            Route::get('/documents/{id}',                     [$c, 'show'])->whereNumber('id')->name('documents.show');
+            Route::post('/documents/{document}/resend',       [$c, 'resend'])->whereNumber('document')->name('documents.resend');
+            Route::post('/documents/{document}/void',         [$c, 'void'])->whereNumber('document')->name('documents.void');
+            Route::post('/documents/{document}/reseal',       [$c, 'reseal'])->whereNumber('document')->name('documents.reseal');
+            Route::get('/documents/{document}/download',      [$c, 'download'])->whereNumber('document')->name('documents.download');
+            Route::get('/documents/{document}/attachments/{attachment}', [$c, 'attachment'])->whereNumber(['document', 'attachment'])->name('documents.attachment');
+            Route::delete('/documents/{document}',            [$c, 'archive'])->whereNumber('document')->name('documents.archive');
+            Route::post('/documents/{id}/restore',            [$c, 'restore'])->whereNumber('id')->name('documents.restore');
+
+            // Subscription Agreement web document (spec §11) — owner / RR side.
+            $a = \App\Http\Controllers\PlatformEsign\AgreementController::class;
+            Route::get('/agreements/create',                  [$a, 'create'])->name('agreements.create');
+            Route::post('/agreements',                        [$a, 'store'])->name('agreements.store');
+            Route::get('/documents/{id}/review',              [$a, 'preview'])->whereNumber('id')->name('agreements.review');
+            Route::get('/documents/{id}/countersign',         [$a, 'countersignForm'])->whereNumber('id')->name('agreements.countersign');
+            Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
+            Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
+            Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
+            Route::post('/documents/{id}/take-on',            [$a, 'takeOn'])->whereNumber('id')->name('agreements.take-on');
+
+            // Agreement wording editor + versions + expiry/reminder settings (spec §11.14) — owner / RR side.
+            Route::prefix('wording')->name('wording.')->group(function () {
+                $w = \App\Http\Controllers\PlatformEsign\AgreementWordingController::class;
+                Route::get('/',                          [$w, 'index'])->name('index');
+                Route::post('/settings',                 [$w, 'settings'])->name('settings');
+                Route::post('/draft',                    [$w, 'createDraft'])->name('draft.create');
+                Route::get('/compare',                   [$w, 'compare'])->name('compare');
+                Route::get('/{version}',                 [$w, 'show'])->whereNumber('version')->name('show');
+                Route::get('/{version}/edit/{part}',     [$w, 'edit'])->whereNumber('version')->where('part', 'intro|part_a|part_b|part_c|part_d|mandate')->name('edit');
+                Route::put('/{version}/sections/{part}', [$w, 'saveSection'])->whereNumber('version')->where('part', 'intro|part_a|part_b|part_c|part_d|mandate')->name('section.save');
+                Route::put('/{version}/rates',           [$w, 'saveRates'])->whereNumber('version')->name('rates.save');
+                Route::post('/{version}/render',         [$w, 'render'])->whereNumber('version')->middleware('throttle:240,1')->name('render');
+                Route::get('/{version}/preview',          [$w, 'preview'])->whereNumber('version')->name('preview');
+                Route::get('/{version}/preview.pdf',      [$w, 'previewPdf'])->whereNumber('version')->name('preview.pdf');
+                Route::post('/{version}/publish',        [$w, 'publish'])->whereNumber('version')->name('publish');
+                Route::post('/{version}/discard',        [$w, 'discard'])->whereNumber('version')->name('discard');
+                Route::post('/{version}/restore',        [$w, 'restore'])->whereNumber('version')->name('restore');
+            });
+        });
+
+        Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
+    });
+
+    // Platform Company Profile (RR Technologies / CoreX OS) — owner-only, no permission key by design
+    // (same reasoning as Platform E-Sign above). The public logo stream is registered near the top of the file.
+    // Spec: .ai/specs/platform-company-profile.md §5.
+    Route::middleware('owner_only')->prefix('admin/platform-company')->name('admin.platform-company.')->group(function () {
+        $c = \App\Http\Controllers\Admin\PlatformCompanyController::class;
+        Route::get('/',                    [$c, 'index'])->name('index');
+        Route::put('/',                    [$c, 'update'])->name('update');
+        Route::get('/logo/{logo}',         [$c, 'logoVersion'])->whereNumber('logo')->name('logo.version');
+        Route::post('/logo',               [$c, 'logoStore'])->name('logo.store');
+        Route::post('/logo/{logo}/restore', [$c, 'logoRestore'])->where('logo', 'built-in|[0-9]+')->name('logo.restore');
+        Route::post('/preview',            [$c, 'preview'])->name('preview');
     });
 
     // Agency Setup Progress board — platform-owner cross-agency tracking of the

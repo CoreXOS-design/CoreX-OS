@@ -285,6 +285,10 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Leads\NewPortalLeadReceived::class,
             \App\Listeners\Leads\EmailPortalLeadToAgent::class,
         );
+        // AT-447 — a signed platform contract / finished setup wizard ticks off the
+        // matching Agency Timeline item. SYNC on purpose (see AgencyFeatureToggled).
+        Event::listen(\App\Events\Platform\AgencyContractSigned::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
+        Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 
@@ -990,6 +994,22 @@ class AppServiceProvider extends ServiceProvider
             $by = ($key instanceof \App\Models\AgencyApiKey) ? ('key:' . $key->getKey()) : ('ip:' . $request->ip());
 
             return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by($by);
+        });
+
+        // Platform E-Sign public signing links (audit C-L1). The stock `throttle:60,1` keys by IP alone, so every such route shared ONE
+        // bucket per IP (an office sharing a connection, or one signer scrolling a 60-page PDF, starved everyone). Keyed per token + IP,
+        // with a generous per-IP ceiling behind it; the page-image route has its own, higher, limiter.
+        \Illuminate\Support\Facades\RateLimiter::for('platform-esign-sign', function (\Illuminate\Http\Request $request) {
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(60)->by('pe-sign:' . $request->route('token') . '|' . $request->ip()),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(300)->by('pe-sign-ip:' . $request->ip()),
+            ];
+        });
+        \Illuminate\Support\Facades\RateLimiter::for('platform-esign-asset', function (\Illuminate\Http\Request $request) {
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(300)->by('pe-asset:' . $request->route('token') . '|' . $request->ip()),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(1200)->by('pe-asset-ip:' . $request->ip()),
+            ];
         });
 
         // "Ask my agent to set up a new list for me" on the expired-share-link

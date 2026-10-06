@@ -78,9 +78,10 @@ final class BuyerPipelineKanbanCountsMatchFilterTest extends TestCase
         $this->actingAs($admin);
 
         $request = \Illuminate\Http\Request::create('/corex/command-center/buyers/pipeline', 'GET', [
-            'view' => 'kanban', 'scope' => 'agency', 'search' => 'Sale',
+            'view' => 'kanban', 'scope' => 'agency', 'q' => 'Sale',
         ]);
         $request->setUserResolver(fn () => $admin);
+        $request->setRouteResolver(fn () => app('router')->getRoutes()->match($request));
 
         $data = app(\App\Http\Controllers\CommandCenter\BuyerPipelineController::class)->index($request)->getData();
 
@@ -153,6 +154,7 @@ final class BuyerPipelineKanbanCountsMatchFilterTest extends TestCase
         }
         $request = \Illuminate\Http\Request::create('/corex/command-center/buyers/pipeline', 'GET', $params);
         $request->setUserResolver(fn () => $viewer);
+        $request->setRouteResolver(fn () => app('router')->getRoutes()->match($request));
 
         $view = app(\App\Http\Controllers\CommandCenter\BuyerPipelineController::class)->index($request);
         $data = $view->getData();

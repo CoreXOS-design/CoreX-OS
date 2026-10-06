@@ -438,6 +438,14 @@ class AgencySetupWizardController extends Controller
         if (!$setup->completed_at) {
             $setup->completed_at = now();
             $setup->save();
+            // AT-447 — lets the Agency Timeline tick its "setup wizard completed" item.
+            // completed_at is already saved, so a timeline fault must never turn /finish into a 500
+            // (the timeline's start/restore reconcile catches a missed tick up later).
+            try {
+                event(new \App\Events\Platform\AgencySetupWizardCompleted((int) $setup->agency_id, auth()->id()));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Agency timeline hook failed after wizard completion', ['agency_id' => $setup->agency_id, 'error' => $e->getMessage()]);
+            }
         }
         return redirect()->route('dashboard')
             ->with('success', 'Your agency setup is complete. Welcome to CoreX!');

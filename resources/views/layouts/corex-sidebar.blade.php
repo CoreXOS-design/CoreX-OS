@@ -2583,8 +2583,30 @@
                      and an agency admin handed it would see every other agency's commercial terms.
                      Already inside if($isOwner). Spec: agency-billing.md §9. --}}
                 <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
+
+                {{-- Agency Timeline (AT-447) — the recorded onboarding plan per agency + its shareable public link.
+                     Owner-only, no permission key BY DESIGN (spec agency-timeline-and-platform-esign.md §5). --}}
+                <a href="{{ route('admin.agency-timelines.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-timelines.*') ? 'active' : '' }}">Agency Timeline</a>
             </div>
         </div>
+
+        {{-- Platform E-Sign (AT-447) — CoreX's own e-sign for CoreX's own contracts. A separate module, outside every
+             agency. System Developer area (already inside if($isOwner)), owner-only, no permission key BY DESIGN. --}}
+        <a href="{{ route('platform-esign.hub') }}" class="corex-nav-item {{ request()->routeIs('platform-esign.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+            </svg>
+            <span>Platform E-Sign</span>
+        </a>
+
+        {{-- Company — RR Technologies (platform company profile): logo, details, letterhead, email signature that
+             CoreX's own contracts and emails use. Owner-only, no permission key BY DESIGN (spec platform-company-profile.md §5). --}}
+        <a href="{{ route('admin.platform-company.index') }}" class="corex-nav-item {{ request()->routeIs('admin.platform-company.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+            </svg>
+            <span>Company &mdash; RR Technologies</span>
+        </a>
 
         {{-- PP Agents now lives under the Importer slide-panel group. --}}
 
