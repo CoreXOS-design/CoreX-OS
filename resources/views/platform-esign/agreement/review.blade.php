@@ -19,6 +19,8 @@
     @include('platform-esign.agreement._css')
     @include('platform-esign.agreement._sheets-css')
 
+    @include('platform-esign.agreement._take-on-warning', ['doc' => $doc, 'lapse' => $takeOnLapse ?? null])
+
     @if($countersign)
         <div class="topbar" style="position:static;border-radius:6px;">
             <div class="stat">Review everything the agency entered (read-only), then complete {{ \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc)->legalName() }}’s details, initial every page and sign.</div>

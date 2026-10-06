@@ -71,7 +71,7 @@
     $rates = array_merge(\App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES, (array) $ctx['rates']);
     $labels = collect(\App\Services\PlatformEsign\Agreement\AgreementFields::schema())->map(fn ($f) => $f['label'])->all();
     $cfg = [
-        'mode' => 'form', 'rev' => $rev, 'total' => $total, 'done' => $done, 'initials' => $signer->initials, 'signerName' => $signer->name,
+        'mode' => 'form', 'today' => now()->toDateString(), 'rev' => $rev, 'total' => $total, 'done' => $done, 'initials' => $signer->initials, 'signerName' => $signer->name,
         'rates' => $rates, 'variation' => (string) ($ctx['rr']['variation_amount'] ?? '0'), 'forcedPlan' => (string) ($ctx['rr']['plan_forced'] ?? ''), 'follow' => !empty($ctx['rr']['single_entry']) ? \App\Services\PlatformEsign\Agreement\AgreementFields::FOLLOW : (object) [], 'labels' => $labels,
         'recipientKeys' => \App\Services\PlatformEsign\Agreement\AgreementFields::recipientKeys(),
         'urls' => [

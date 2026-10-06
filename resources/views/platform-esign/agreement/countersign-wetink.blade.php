@@ -15,6 +15,8 @@
     @include('platform-esign.agreement._css')
     @include('platform-esign.agreement._sheets-css')
 
+    @include('platform-esign.agreement._take-on-warning', ['doc' => $doc, 'lapse' => $takeOnLapse ?? null])
+
     <div class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="ds-section-header">Signed copy received from the agency</div>
         @foreach($files as $f)
