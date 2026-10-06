@@ -18,18 +18,22 @@ class Document extends Model
     public const STATUSES = [
         'draft' => 'Draft', 'sent' => 'Sent', 'in_progress' => 'Partly signed', 'completed' => 'Signed',
         'declined' => 'Declined', 'voided' => 'Voided', 'expired' => 'Expired',
+        'awaiting_countersign' => 'Awaiting RR countersign', 'wetink_received' => 'Signed copy received (wet ink)',
     ];
-    public const OPEN = ['sent', 'in_progress'];
+    public const OPEN = ['sent', 'in_progress', 'awaiting_countersign', 'wetink_received'];
 
     protected $fillable = [
         'template_id', 'template_version', 'agency_id', 'title', 'status', 'source', 'body_html_snapshot', 'pdf_path',
         'page_count', 'fields_json', 'sequential', 'expires_at', 'sent_at', 'completed_at', 'declined_at', 'voided_at',
         'voided_by', 'void_reason', 'decline_reason', 'sealed_pdf_path', 'document_hash', 'created_by',
+        'wording_version_id', 'contract_ref', 'form_data', 'rr_data', 'form_rev', 'recipient_note',
     ];
 
     protected $casts = [
         'fields_json' => 'array', 'sequential' => 'boolean', 'expires_at' => 'datetime', 'sent_at' => 'datetime',
         'completed_at' => 'datetime', 'declined_at' => 'datetime', 'voided_at' => 'datetime',
+        // Spec §11.10 — recipient + RR entries (bank details!) are encrypted at rest.
+        'form_data' => 'encrypted:array', 'rr_data' => 'encrypted:array',
     ];
 
     public function template() { return $this->belongsTo(Template::class, 'template_id')->withTrashed(); }
@@ -39,6 +43,35 @@ class Document extends Model
     public function events(): HasMany { return $this->hasMany(Event::class, 'document_id')->orderBy('id'); }
     public function attachments(): HasMany { return $this->hasMany(Attachment::class, 'document_id'); }
     public function values(): HasMany { return $this->hasMany(FieldValue::class, 'document_id'); }
+
+    public function wording() { return $this->belongsTo(WordingVersion::class, 'wording_version_id'); }
+    public function initialsRows(): HasMany { return $this->hasMany(Initial::class, 'document_id'); }
+
+    public function isWebdoc(): bool
+    {
+        return $this->source === 'webdoc';
+    }
+
+    /** Display label — webdoc statuses read differently ("Opened", "In progress") from the generic e-sign ones. */
+    public function statusLabel(): string
+    {
+        if ($this->isWebdoc()) {
+            if ($this->status === 'sent' && $this->relationLoaded('signers') && $this->signers->first()?->first_viewed_at) {
+                return 'Opened';
+            }
+            if ($this->status === 'in_progress') {
+                return 'In progress';
+            }
+            if ($this->status === 'awaiting_countersign') {
+                return 'Signed by agency — awaiting RR countersign';
+            }
+            if ($this->status === 'completed') {
+                return 'Completed';
+            }
+        }
+
+        return self::STATUSES[$this->status] ?? $this->status;
+    }
 
     public function isOpen(): bool
     {

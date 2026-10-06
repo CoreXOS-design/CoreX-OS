@@ -859,6 +859,16 @@ Route::prefix('platform-esign/sign/{token}')->middleware('throttle:60,1')->name(
     Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->name('attachment');
     Route::get('/download',              [$c, 'download'])->name('download');
 });
+// AT-447 follow-up (spec §11): the CoreX Subscription Agreement web document — recipient side, token-gated, no login.
+Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreement.')->group(function () {
+    $c = \App\Http\Controllers\PlatformEsign\AgreementSigningController::class;
+    Route::get('/',                [$c, 'show'])->middleware('throttle:60,1')->name('show');
+    Route::post('/save',           [$c, 'save'])->middleware('throttle:240,1')->name('save');
+    Route::post('/initials',       [$c, 'initials'])->middleware('throttle:60,1')->name('initials');
+    Route::post('/initial/{page}', [$c, 'initialPage'])->whereNumber('page')->middleware('throttle:120,1')->name('initial-page');
+    Route::post('/submit',         [$c, 'submit'])->middleware('throttle:30,1')->name('submit');
+    Route::get('/download',        [$c, 'download'])->middleware('throttle:30,1')->name('download');
+});
 
 // ===== P24 MARKET INTELLIGENCE =====
 // Phase D1 — /admin/p24 root GET redirects to the new Market Pulse tab.
@@ -4754,9 +4764,31 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/documents/{document}/attachments/{attachment}', [$c, 'attachment'])->whereNumber(['document', 'attachment'])->name('documents.attachment');
             Route::delete('/documents/{document}',            [$c, 'archive'])->whereNumber('document')->name('documents.archive');
             Route::post('/documents/{id}/restore',            [$c, 'restore'])->whereNumber('id')->name('documents.restore');
+
+            // Subscription Agreement web document (spec §11) — owner / RR side.
+            $a = \App\Http\Controllers\PlatformEsign\AgreementController::class;
+            Route::get('/agreements/create',                  [$a, 'create'])->name('agreements.create');
+            Route::post('/agreements',                        [$a, 'store'])->name('agreements.store');
+            Route::get('/documents/{id}/review',              [$a, 'preview'])->whereNumber('id')->name('agreements.review');
+            Route::get('/documents/{id}/countersign',         [$a, 'countersignForm'])->whereNumber('id')->name('agreements.countersign');
+            Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
+            Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
         });
 
         Route::post('admin/agency-timelines/{timeline}/agreement', [\App\Http\Controllers\Admin\AgencyTimelineController::class, 'agreement'])->whereNumber('timeline')->name('admin.agency-timelines.agreement');
+    });
+
+    // Platform Company Profile (RR Technologies / CoreX OS) — owner-only, no permission key by design
+    // (same reasoning as Platform E-Sign above). The public logo stream is registered near the top of the file.
+    // Spec: .ai/specs/platform-company-profile.md §5.
+    Route::middleware('owner_only')->prefix('admin/platform-company')->name('admin.platform-company.')->group(function () {
+        $c = \App\Http\Controllers\Admin\PlatformCompanyController::class;
+        Route::get('/',                    [$c, 'index'])->name('index');
+        Route::put('/',                    [$c, 'update'])->name('update');
+        Route::get('/logo/{logo}',         [$c, 'logoVersion'])->whereNumber('logo')->name('logo.version');
+        Route::post('/logo',               [$c, 'logoStore'])->name('logo.store');
+        Route::post('/logo/{logo}/restore', [$c, 'logoRestore'])->where('logo', 'built-in|[0-9]+')->name('logo.restore');
+        Route::post('/preview',            [$c, 'preview'])->name('preview');
     });
 
     // Agency Setup Progress board — platform-owner cross-agency tracking of the
