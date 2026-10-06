@@ -9,6 +9,7 @@ use App\Models\LeaseTenant;
 use App\Models\RentalFaultReport;
 use App\Models\RentalInspection;
 use App\Models\RentalInventory;
+use App\Models\RentalJobCard;
 use App\Models\RentalWorkOrder;
 
 /**
@@ -221,5 +222,52 @@ class RentalPortalScopeService
             ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
             ->orderByDesc('id')
             ->get();
+    }
+
+    // ── Job cards — rental-work-orders.md §14.29 ────────────────────────
+    // A tenant sees cards on THEIR OWN lease(s); a landlord sees cards on THEIR
+    // OWN property(ies). Global scopes are stripped (a ClientUser request has no
+    // staff user), which also strips SoftDeletes — so archived cards are
+    // excluded explicitly, and agency_id is pinned manually. A draft card (the
+    // office's unfinished prep) is never shown to either party.
+
+    private function clientJobCardQuery(Contact $contact)
+    {
+        return RentalJobCard::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereNotIn('status', RentalJobCardClientViewService::CLIENT_HIDDEN_STATUSES);
+    }
+
+    public function tenantJobCards(Contact $contact)
+    {
+        return $this->clientJobCardQuery($contact)
+            ->whereIn('lease_id', $this->tenantLeaseIds($contact))
+            ->with('property')
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    public function tenantJobCard(Contact $contact, int $jobCardId): ?RentalJobCard
+    {
+        return $this->clientJobCardQuery($contact)
+            ->whereIn('lease_id', $this->tenantLeaseIds($contact))
+            ->find($jobCardId);
+    }
+
+    public function landlordJobCards(Contact $contact)
+    {
+        return $this->clientJobCardQuery($contact)
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->with('property')
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    public function landlordJobCard(Contact $contact, int $jobCardId): ?RentalJobCard
+    {
+        return $this->clientJobCardQuery($contact)
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->find($jobCardId);
     }
 }

@@ -359,6 +359,8 @@
                 </div>
             @endif
 
+            @include('corex.leases._job-cards-panel', ['jobCards' => $jobCards])
+
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Tenancy log</h2>
 

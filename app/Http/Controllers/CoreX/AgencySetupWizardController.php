@@ -626,12 +626,10 @@ class AgencySetupWizardController extends Controller
                     'overdue_reminder_days' => \App\Models\RentalWorkOrderSetting::overdueReminderDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
-                // §6.2 — the 'rental_portal' source had NO arm at all, so its controls fell
-                // through to the agency-column default and always rendered the hardcoded
-                // control default, never the agency's saved value (the guard test in
-                // AgencySetupWizardCurrentValuesTest caught it). Explicit per-key match,
-                // naming EVERY control declared under this source. Crew links:
-                // .ai/specs/rental-work-orders.md §14.27.3 — Build 2 appends its own keys.
+                // rental-portal-access.md §10 / rental-work-orders.md §14.27.3 — this source had NO arm,
+                // so every rental_portal control fell through to the agency-column default and showed its
+                // hardcoded default instead of the agency's saved value (§6.2). Explicit per-key, one entry
+                // per control the config declares under 'rental_portal'.
                 'rental_portal' => match ($key) {
                     'tenant_portal_enabled' => \App\Models\RentalPortalSetting::tenantPortalEnabledFor($agency->id),
                     'landlord_portal_enabled' => \App\Models\RentalPortalSetting::landlordPortalEnabledFor($agency->id),
@@ -644,6 +642,7 @@ class AgencySetupWizardController extends Controller
                     'crew_link_show_prices' => \App\Models\RentalPortalSetting::crewLinkShowPricesFor($agency->id),
                     'crew_link_show_tenant_contact' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($agency->id),
                     'notify_landlord_on_crew_completion' => \App\Models\RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agency->id),
+                    'crew_photos_visible_to_clients' => \App\Models\RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 'rental_inspections' => match ($key) {

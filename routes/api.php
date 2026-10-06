@@ -224,6 +224,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
             Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
             Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->name('work-orders.confirm');
+            // rental-work-orders.md §14.29 — job cards on the tenant's own lease(s).
+            Route::get('/job-cards', [ClientTenantRentalsController::class, 'jobCards'])->name('job-cards.index');
+            Route::get('/job-cards/{jobCard}', [ClientTenantRentalsController::class, 'jobCardShow'])->name('job-cards.show');
         });
 
         // Landlord rentals.
@@ -236,6 +239,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
+            // rental-work-orders.md §14.29 — job cards on the landlord's own properties.
+            Route::get('/job-cards', [ClientLandlordRentalsController::class, 'jobCards'])->name('job-cards.index');
+            Route::get('/job-cards/{jobCard}', [ClientLandlordRentalsController::class, 'jobCardShow'])->name('job-cards.show');
             Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');
             Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
             Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');

@@ -379,6 +379,15 @@ class LeaseController extends Controller
 
         $lease->load(['property', 'tenants.contact', 'escalations.createdByUser', 'previousLease', 'renewedLease']);
 
+        // rental-work-orders.md §14.29 — the tenancy's job cards with status + photos.
+        // Only for a user who may see job cards at all, and only the cards their own
+        // own/branch/agency job-card scope lets them see (the lease scope above says
+        // nothing about job cards).
+        $user = $request->user();
+        $jobCards = $user->hasPermission('rental_job_cards.view')
+            ? $lease->jobCards()->visibleTo($user)->with(['crew', 'photos', 'workOrder.photos'])->orderByDesc('id')->get()
+            : collect();
+
         $hubService = app(LeaseHubService::class);
         $timelineService = app(LeaseTimelineService::class);
 
@@ -414,6 +423,7 @@ class LeaseController extends Controller
             'timelineTotal' => $page['total'],
             'timelineTypes' => LeaseTimelineService::TYPES,
             'timelineFilters' => $filters,
+            'jobCards' => $jobCards,
         ]);
     }
 

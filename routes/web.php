@@ -3104,6 +3104,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/crew-link-show-prices', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowPrices'])->name('corex.settings.rental-portal.crew-link-show-prices');
         Route::post('/crew-link-show-tenant-contact', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkShowTenantContact'])->name('corex.settings.rental-portal.crew-link-show-tenant-contact');
         Route::post('/notify-landlord-on-crew-completion', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnCrewCompletion'])->name('corex.settings.rental-portal.notify-landlord-on-crew-completion');
+        Route::post('/crew-photos-visible-to-clients', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPhotosVisibleToClients'])->name('corex.settings.rental-portal.crew-photos-visible-to-clients');
     });
     // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
     // the property Rental Details tab. Price type (Part 3) and lease type

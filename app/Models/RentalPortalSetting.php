@@ -31,6 +31,16 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CREW_LINK_SHOW_TENANT_CONTACT = false;
     public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = true;
 
+    // .ai/specs/rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility).
+    public const CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED = 'in_progress_and_completed';
+    public const CREW_PHOTOS_COMPLETED_ONLY = 'completed_only';
+    public const CREW_PHOTO_VISIBILITY_OPTIONS = [self::CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED, self::CREW_PHOTOS_COMPLETED_ONLY];
+    public const DEFAULT_CREW_PHOTOS_VISIBLE_TO_CLIENTS = self::CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED;
+    /** null = the crew page link stands until it is revoked. */
+    public const DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS = null;
+    public const DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS = 7;
+    public const DEFAULT_CREW_PAGE_UPCOMING_DAYS = 14;
+
     protected $fillable = [
         'agency_id',
         'tenant_portal_enabled',
@@ -44,6 +54,10 @@ class RentalPortalSetting extends Model
         'crew_link_show_prices',
         'crew_link_show_tenant_contact',
         'notify_landlord_on_crew_completion',
+        'crew_photos_visible_to_clients',
+        'crew_standing_link_expiry_days',
+        'crew_page_recent_completed_days',
+        'crew_page_upcoming_days',
     ];
 
     protected $casts = [
@@ -58,6 +72,9 @@ class RentalPortalSetting extends Model
         'crew_link_show_prices' => 'boolean',
         'crew_link_show_tenant_contact' => 'boolean',
         'notify_landlord_on_crew_completion' => 'boolean',
+        'crew_standing_link_expiry_days' => 'integer',
+        'crew_page_recent_completed_days' => 'integer',
+        'crew_page_upcoming_days' => 'integer',
     ];
 
     private static function boolFor(?int $agencyId, string $column, bool $default): bool
@@ -103,6 +120,51 @@ class RentalPortalSetting extends Model
     public static function notifyTenantOnStatusChangeFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'notify_tenant_on_status_change', self::DEFAULT_NOTIFY_TENANT_ON_STATUS_CHANGE);
+    }
+
+    // ── §14.27.3 Build 2 accessors ──────────────────────────────────────
+
+    /** 'in_progress_and_completed' (default) | 'completed_only' — an unknown stored value falls back to the default. */
+    public static function crewPhotosVisibleToClientsFor(?int $agencyId): string
+    {
+        if (!$agencyId) {
+            return self::DEFAULT_CREW_PHOTOS_VISIBLE_TO_CLIENTS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_photos_visible_to_clients');
+
+        return in_array($value, self::CREW_PHOTO_VISIBILITY_OPTIONS, true) ? $value : self::DEFAULT_CREW_PHOTOS_VISIBLE_TO_CLIENTS;
+    }
+
+    /** Null = the crew page link stands until revoked. */
+    public static function crewStandingLinkExpiryDaysFor(?int $agencyId): ?int
+    {
+        if (!$agencyId) {
+            return self::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_standing_link_expiry_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS;
+    }
+
+    /** 0 hides the "recently completed" list. */
+    public static function crewPageRecentCompletedDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId) {
+            return self::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_page_recent_completed_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS;
+    }
+
+    public static function crewPageUpcomingDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId) {
+            return self::DEFAULT_CREW_PAGE_UPCOMING_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_page_upcoming_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_CREW_PAGE_UPCOMING_DAYS;
     }
 
     // ── .ai/specs/rental-work-orders.md §14.27.3 — crew links ──

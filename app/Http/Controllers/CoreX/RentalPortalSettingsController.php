@@ -40,6 +40,8 @@ class RentalPortalSettingsController extends Controller
             'crewLinkShowTenantContact' => RentalPortalSetting::crewLinkShowTenantContactFor($agencyId),
             'notifyLandlordOnCrewCompletion' => RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agencyId),
             'defaultCrewJobLinkExpiryDays' => RentalPortalSetting::DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS,
+            // rental-work-orders.md §14.27.3 — Build 2 (crew page & client visibility).
+            'crewPhotosVisibleToClients' => RentalPortalSetting::crewPhotosVisibleToClientsFor($agencyId),
         ]);
     }
 
@@ -127,6 +129,31 @@ class RentalPortalSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew link expiry saved.');
+    }
+
+    /**
+     * rental-work-orders.md §14.27.3 — which crew photos a tenant / landlord sees.
+     * Narrow, independent saver (agency-onboarding-setup.md §6.1): absent from
+     * the post means "leave it alone", never a reset to the default.
+     */
+    public function updateCrewPhotosVisibleToClients(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (!$request->has('crew_photos_visible_to_clients')) {
+            return redirect()->route('corex.settings.rental-portal.edit');
+        }
+
+        $validated = $request->validate([
+            'crew_photos_visible_to_clients' => ['required', 'string', 'in:' . implode(',', RentalPortalSetting::CREW_PHOTO_VISIBILITY_OPTIONS)],
+        ]);
+
+        RentalPortalSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['crew_photos_visible_to_clients' => $validated['crew_photos_visible_to_clients']],
+        );
+
+        return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew photo visibility saved.');
     }
 
     private function updateToggle(Request $request, string $field, string $label): RedirectResponse
