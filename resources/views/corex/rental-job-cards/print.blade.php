@@ -86,7 +86,7 @@
     @forelse($jobCard->tasks as $task)
         <div class="box">
             <p class="task-row"><span class="checkbox"></span><strong>{{ $loop->iteration }} - {{ $task->description }}</strong></p>
-            @include('corex.rental-job-cards._pdf-lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat])
+            @include('corex.rental-job-cards._pdf-cost-lines-table', ['lines' => $task->lines, 'costsOn' => $costsOn])
         </div>
     @empty
         <div class="box"><p class="muted">No tasks listed.</p></div>
@@ -95,25 +95,16 @@
     @php $generalLines = $jobCard->lines->whereNull('rental_job_card_task_id'); @endphp
     <h2>General</h2>
     <div class="box">
-        @include('corex.rental-job-cards._pdf-lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat])
+        @include('corex.rental-job-cards._pdf-cost-lines-table', ['lines' => $generalLines, 'costsOn' => $costsOn])
     </div>
 
-    @if($pricesOn)
+    {{-- §17.4.7 — the worker copy shows the COST total only (VAT on cost is Build 1); never the selling total. --}}
+    @if($costsOn)
     <div class="box totals-box">
         <table>
-            @if($vat['registered'])
-                <tr><td colspan="2">Subtotal (excl VAT)</td><td>R{{ number_format((float) $vat['subtotalExcl'], 2) }}</td></tr>
-                @foreach($vat['groups'] as $group)
-                    <tr><td colspan="2">{{ $group['label'] }}</td><td>R{{ number_format((float) $group['amount'], 2) }}</td></tr>
-                @endforeach
-                {{-- §14.21 — the VAT total in one figure whenever the per-rate lines above are not already exactly that (several rates, or none). --}}
-                @if(count($vat['groups']) !== 1)
-                    <tr><td colspan="2">Total VAT</td><td>R{{ number_format((float) $vat['totalVat'], 2) }}</td></tr>
-                @endif
-            @endif
             <tr class="total-row">
-                <td colspan="2">{{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}</td>
-                <td>R{{ number_format($vat['registered'] ? (float) $vat['totalIncl'] : (float) ($jobCard->total_amount ?? 0), 2) }}</td>
+                <td colspan="2">Total cost</td>
+                <td>R{{ number_format((float) $jobCard->lines->sum('cost_total'), 2) }}</td>
             </tr>
         </table>
     </div>

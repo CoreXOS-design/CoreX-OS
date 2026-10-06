@@ -23,6 +23,32 @@ class RentalJobCardLine extends Model
     use BelongsToAgency;
     use SoftDeletes;
 
+    /**
+     * .ai/specs/rental-work-orders.md §17.2/§17.5 — where a line stands with the office.
+     * ONLY `accepted` lines count anywhere (totals, quote PDFs, VAT breakdown, content
+     * signature, "what to load", reports). Every reader goes through scopeAccepted().
+     */
+    public const OFFICE_CREW_DRAFT = 'crew_draft';
+    public const OFFICE_AWAITING = 'awaiting_office';
+    public const OFFICE_ACCEPTED = 'accepted';
+    public const OFFICE_REJECTED = 'rejected';
+    public const OFFICE_DECLINED_BY_OWNER = 'declined_by_owner';
+
+    /** Who created the line. */
+    public const ORIGIN_OFFICE = 'office';
+    public const ORIGIN_CREW_PRICING = 'crew_pricing';
+    public const ORIGIN_CREW_EXTRA = 'crew_extra';
+
+    /** §17.4.3 — how the line's selling price was arrived at. */
+    public const BASIS_MANUAL = 'manual';
+    public const BASIS_LINE_MARKUP = 'line_markup';
+    public const BASIS_JOB_MARKUP = 'job_markup';
+    public const BASIS_CATALOGUE_PRICE = 'catalogue_price';
+    public const BASIS_AGENCY_DEFAULT = 'agency_default';
+
+    public const MARKUP_PERCENT = 'percent';
+    public const MARKUP_AMOUNT = 'amount';
+
     protected $fillable = [
         'agency_id',
         'rental_job_card_id',
@@ -44,12 +70,34 @@ class RentalJobCardLine extends Model
         'vat_incl_snapshot',
         'sort_order',
         'created_by_user_id',
+        // §17.4.2 — COST (new) and how SELLING (unit_price / line_total) was resolved.
+        'unit_cost',
+        'cost_total',
+        'markup_type',
+        'markup_value',
+        'selling_basis',
+        // §17.5.2 — crew-added lines and the office's decision on them.
+        'origin',
+        'office_status',
+        'crew_note',
+        'crew_added_by_label',
+        'crew_added_at',
+        'office_decided_by_user_id',
+        'office_decided_at',
+        'reject_reason',
+        'rental_job_card_price_request_id',
+        'rental_work_order_variation_id',
     ];
 
     protected $casts = [
         'quantity' => 'decimal:2',
         'unit_price' => 'decimal:2',
         'line_total' => 'decimal:2',
+        'unit_cost' => 'decimal:2',
+        'cost_total' => 'decimal:2',
+        'markup_value' => 'decimal:2',
+        'crew_added_at' => 'datetime',
+        'office_decided_at' => 'datetime',
         'custom_vat_rate' => 'decimal:2',
         'vat_rate_snapshot' => 'decimal:2',
         'vat_excl_snapshot' => 'decimal:2',
@@ -82,5 +130,26 @@ class RentalJobCardLine extends Model
     public function isVatSnapshotted(): bool
     {
         return $this->vat_rate_snapshot !== null || $this->vat_amount_snapshot !== null;
+    }
+
+    /** §17.2 — the ONLY lines that count in any total, document, signature or report. */
+    public function scopeAccepted($query)
+    {
+        return $query->where($query->getModel()->getTable() . '.office_status', self::OFFICE_ACCEPTED);
+    }
+
+    public function isAccepted(): bool
+    {
+        return $this->office_status === self::OFFICE_ACCEPTED;
+    }
+
+    public function priceRequest(): BelongsTo
+    {
+        return $this->belongsTo(RentalJobCardPriceRequest::class, 'rental_job_card_price_request_id');
+    }
+
+    public function variation(): BelongsTo
+    {
+        return $this->belongsTo(RentalWorkOrderVariation::class, 'rental_work_order_variation_id');
     }
 }

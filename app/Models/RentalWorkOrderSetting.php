@@ -21,12 +21,35 @@ class RentalWorkOrderSetting extends Model
     public const DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS = true;
     /**
      * AT-442 follow-up, conductor's ruling — the worker's PRINTED copy and
-     * the owner's quote PDF are not the same audience. Default OFF: the
-     * printed job card shows tasks/parts/quantities, no prices, unless an
-     * agency switches this on. Never gates the owner quote PDF (always
-     * shows prices when capture_prices_on_job_cards is on).
+     * the owner's quote PDF are not the same audience. §17.4.7 (6 Oct 2026):
+     * restated in COST terms — "Crew works on actual costs, not selling." The
+     * printed job card shows the crew's cost figures (never selling) and only
+     * when an agency switches this on; default OFF. Never gates the owner
+     * quote PDF, which shows SELLING only.
      */
-    public const DEFAULT_SHOW_PRICES_ON_PRINTED_JOB_CARD = false;
+    public const DEFAULT_SHOW_COSTS_ON_PRINTED_JOB_CARD = false;
+
+    // ---- .ai/specs/rental-work-orders.md §17.14 — maintenance-flow settings. Every default is neutral for any agency. ----
+    /** §17.4.3 rule 6 — selling = cost + this % for part lines with no other rule. 0 = priced at cost until the agency sets its numbers. */
+    public const DEFAULT_PARTS_MARKUP_PERCENT = 0.0;
+    public const DEFAULT_LABOUR_MARKUP_PERCENT = 0.0;
+    /** §17.6.1 term (ii) — agency default; a property may override. 0 = every increase goes to the owner. */
+    public const DEFAULT_VARIATION_TOLERANCE_PERCENT = 0.0;
+    /** §17.11 / R6 — the estimate wording printed on every owner quote, variation notice and work-order notice. Neutral; agency-editable. */
+    public const DEFAULT_QUOTE_ESTIMATE_TERM = 'This quote is an estimate. The full extent of the work can only be confirmed once the affected area has been opened up, and the final invoice may differ. Any extra work will be put to you for approval before it is done, except where your agreed work terms already allow it.';
+    /** §17.10 — days a tenant has to answer before silence counts as accepted (Decision 2). */
+    public const DEFAULT_COMPLETION_RESPONSE_WINDOW_DAYS = 5;
+    public const DEFAULT_TENANT_COMPLETION_CHECK_ENABLED = true;
+    public const DEFAULT_NOTIFY_LANDLORD_ON_DISPUTE = true;
+    /** §17.7.2 — information email when a variation is auto-approved (Decision 5). */
+    public const DEFAULT_NOTIFY_LANDLORD_ON_AUTO_VARIATION = true;
+    /** §17.9.1a — the agency's fee on an outside contractor's quote (Decision 1). Value 0 = off. */
+    public const EXTERNAL_MARKUP_PERCENT = 'percent';
+    public const EXTERNAL_MARKUP_AMOUNT = 'amount';
+    public const DEFAULT_EXTERNAL_QUOTE_MARKUP_TYPE = self::EXTERNAL_MARKUP_PERCENT;
+    public const DEFAULT_EXTERNAL_QUOTE_MARKUP_VALUE = 0.0;
+    /** §17.10.6 — on a dispute, tell the crew straight away instead of waiting for the office's "Send back" (Decision 3). */
+    public const DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY = false;
 
     protected $fillable = [
         'agency_id',
@@ -34,7 +57,18 @@ class RentalWorkOrderSetting extends Model
         'overdue_reminder_days',
         'no_approval_spend_threshold',
         'capture_prices_on_job_cards',
-        'show_prices_on_printed_job_card',
+        'show_costs_on_printed_job_card',
+        'default_parts_markup_percent',
+        'default_labour_markup_percent',
+        'variation_tolerance_percent',
+        'quote_estimate_term',
+        'completion_response_window_days',
+        'tenant_completion_check_enabled',
+        'notify_landlord_on_dispute',
+        'notify_landlord_on_auto_variation',
+        'external_quote_markup_type',
+        'external_quote_markup_value',
+        'dispute_notify_crew_immediately',
     ];
 
     protected $casts = [
@@ -42,7 +76,16 @@ class RentalWorkOrderSetting extends Model
         'overdue_reminder_days' => 'integer',
         'no_approval_spend_threshold' => 'decimal:2',
         'capture_prices_on_job_cards' => 'boolean',
-        'show_prices_on_printed_job_card' => 'boolean',
+        'show_costs_on_printed_job_card' => 'boolean',
+        'default_parts_markup_percent' => 'decimal:2',
+        'default_labour_markup_percent' => 'decimal:2',
+        'variation_tolerance_percent' => 'decimal:2',
+        'completion_response_window_days' => 'integer',
+        'tenant_completion_check_enabled' => 'boolean',
+        'notify_landlord_on_dispute' => 'boolean',
+        'notify_landlord_on_auto_variation' => 'boolean',
+        'external_quote_markup_value' => 'decimal:2',
+        'dispute_notify_crew_immediately' => 'boolean',
     ];
 
     /**
@@ -116,14 +159,125 @@ class RentalWorkOrderSetting extends Model
         return $value !== null ? (bool) $value : self::DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS;
     }
 
-    /** AT-442 follow-up — gates ONLY the worker-facing printed job card, never the owner quote PDF. */
-    public static function showPricesOnPrintedJobCardFor(?int $agencyId): bool
+    /**
+     * AT-442 follow-up / §17.4.7 — gates ONLY the worker-facing printed job card (which then shows COST,
+     * never selling), never the owner quote PDF.
+     */
+    public static function showCostsOnPrintedJobCardFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'show_costs_on_printed_job_card', self::DEFAULT_SHOW_COSTS_ON_PRINTED_JOB_CARD);
+    }
+
+    // ---- §17.14 accessors — read-time defaults, never written on read. -------------------------------------------
+
+    public static function defaultPartsMarkupPercentFor(?int $agencyId): float
+    {
+        return self::floatFor($agencyId, 'default_parts_markup_percent', self::DEFAULT_PARTS_MARKUP_PERCENT);
+    }
+
+    public static function defaultLabourMarkupPercentFor(?int $agencyId): float
+    {
+        return self::floatFor($agencyId, 'default_labour_markup_percent', self::DEFAULT_LABOUR_MARKUP_PERCENT);
+    }
+
+    /** §17.6.1 term (ii), agency default. For the per-property value use variationToleranceFor(). */
+    public static function variationTolerancePercentFor(?int $agencyId): float
+    {
+        return self::floatFor($agencyId, 'variation_tolerance_percent', self::DEFAULT_VARIATION_TOLERANCE_PERCENT);
+    }
+
+    /** §17.6.1 — the property's own tolerance when set, else the agency default. */
+    public static function variationToleranceFor(Property $property): float
+    {
+        if ($property->rental_variation_tolerance_percent !== null) {
+            return (float) $property->rental_variation_tolerance_percent;
+        }
+
+        return self::variationTolerancePercentFor($property->agency_id);
+    }
+
+    /** Did the agency actually set its own spend limit (vs the built-in constant)? Used to cite the term's source. */
+    public static function hasAgencySpendThreshold(?int $agencyId): bool
+    {
+        return self::rawFor($agencyId, 'no_approval_spend_threshold') !== null;
+    }
+
+    public static function hasAgencyVariationTolerance(?int $agencyId): bool
+    {
+        return self::rawFor($agencyId, 'variation_tolerance_percent') !== null;
+    }
+
+    /** §17.11 — a null or blank stored term resolves to the built-in wording. */
+    public static function quoteEstimateTermFor(?int $agencyId): string
+    {
+        $value = self::rawFor($agencyId, 'quote_estimate_term');
+
+        return is_string($value) && trim($value) !== '' ? $value : self::DEFAULT_QUOTE_ESTIMATE_TERM;
+    }
+
+    public static function completionResponseWindowDaysFor(?int $agencyId): int
+    {
+        $value = self::rawFor($agencyId, 'completion_response_window_days');
+
+        return $value !== null ? max(1, (int) $value) : self::DEFAULT_COMPLETION_RESPONSE_WINDOW_DAYS;
+    }
+
+    public static function tenantCompletionCheckEnabledFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'tenant_completion_check_enabled', self::DEFAULT_TENANT_COMPLETION_CHECK_ENABLED);
+    }
+
+    public static function notifyLandlordOnDisputeFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'notify_landlord_on_dispute', self::DEFAULT_NOTIFY_LANDLORD_ON_DISPUTE);
+    }
+
+    public static function notifyLandlordOnAutoVariationFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'notify_landlord_on_auto_variation', self::DEFAULT_NOTIFY_LANDLORD_ON_AUTO_VARIATION);
+    }
+
+    /** §17.9.1a — `percent` | `amount`. */
+    public static function externalQuoteMarkupTypeFor(?int $agencyId): string
+    {
+        $value = self::rawFor($agencyId, 'external_quote_markup_type');
+
+        return in_array($value, [self::EXTERNAL_MARKUP_PERCENT, self::EXTERNAL_MARKUP_AMOUNT], true)
+            ? $value
+            : self::DEFAULT_EXTERNAL_QUOTE_MARKUP_TYPE;
+    }
+
+    /** §17.9.1a — 0 = no fee on outside contractors' quotes. */
+    public static function externalQuoteMarkupValueFor(?int $agencyId): float
+    {
+        return self::floatFor($agencyId, 'external_quote_markup_value', self::DEFAULT_EXTERNAL_QUOTE_MARKUP_VALUE);
+    }
+
+    public static function disputeNotifyCrewImmediatelyFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'dispute_notify_crew_immediately', self::DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY);
+    }
+
+    private static function rawFor(?int $agencyId, string $column): mixed
     {
         if (! $agencyId) {
-            return self::DEFAULT_SHOW_PRICES_ON_PRINTED_JOB_CARD;
+            return null;
         }
-        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('show_prices_on_printed_job_card');
 
-        return $value !== null ? (bool) $value : self::DEFAULT_SHOW_PRICES_ON_PRINTED_JOB_CARD;
+        return static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column);
+    }
+
+    private static function boolFor(?int $agencyId, string $column, bool $default): bool
+    {
+        $value = self::rawFor($agencyId, $column);
+
+        return $value !== null ? (bool) $value : $default;
+    }
+
+    private static function floatFor(?int $agencyId, string $column, float $default): float
+    {
+        $value = self::rawFor($agencyId, $column);
+
+        return $value !== null ? (float) $value : $default;
     }
 }

@@ -227,6 +227,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             // rental-work-orders.md §14.29 — job cards on the tenant's own lease(s).
             Route::get('/job-cards', [ClientTenantRentalsController::class, 'jobCards'])->name('job-cards.index');
             Route::get('/job-cards/{jobCard}', [ClientTenantRentalsController::class, 'jobCardShow'])->name('job-cards.show');
+            // §17.21.1 — Build 3 only (tenant: work-orders index, completion-response).
+            // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)
+            // BUILD 3 END
         });
 
         // Landlord rentals.
@@ -246,6 +249,11 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
             Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');
             Route::get('/decisions', [ClientLandlordRentalsController::class, 'decisions'])->name('decisions.index');
+            // §17.21.1 — Build 2 (variation decision, decisions list) and Build 3 (work-orders/{id}) add routes only between their own markers.
+            // BUILD 2 BEGIN — landlord variation decision (.ai/specs/rental-work-orders.md §17.21.5)
+            // BUILD 2 END
+            // BUILD 3 BEGIN — landlord work-order show (.ai/specs/rental-work-orders.md §17.21.5)
+            // BUILD 3 END
         });
     });
 });

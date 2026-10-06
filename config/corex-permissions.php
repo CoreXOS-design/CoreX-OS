@@ -226,6 +226,14 @@ return [
         // value the approval-limit gate rides on, separate from .create
         // (logging/editing the work order itself).
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
+        // §17.15 (maintenance flow, 6 Oct 2026) — three heavier decisions, each its own key.
+        // The owner's emergency agreement is captured by the office, never overridden (§17.8).
+        ['key' => 'rental_work_orders.record_emergency_approval', 'label' => 'Record Owner Emergency Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 8],
+        // The owner's agreed work terms per property (no-approval limit, variation tolerance) are standing
+        // spending authority — a tighter grant than logging a work order (§17.6.2).
+        ['key' => 'rental_work_orders.manage_work_terms', 'label' => 'Manage Owner Work Terms (per property)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 9],
+        // "Contractor reports done", "Record tenant's answer", "Send back to crew/contractor" (§17.10).
+        ['key' => 'rental_work_orders.manage_completion', 'label' => 'Capture Completion, Tenant Answers & Disputes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 10],
 
         // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
         ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
@@ -259,6 +267,12 @@ return [
         // link panel on Rental Crews reuses it (§14.29). A link is a live
         // credential, so it is its own key rather than riding on .create.
         ['key' => 'rental_job_cards.share',      'label' => 'Share Job Cards with Crew', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 6],
+        // §17.15 (maintenance flow, 6 Oct 2026, Decision 4) — cost and margin are the agency's own business:
+        // "price and send quotes" (set selling, markup, accept crew lines) and "see cost and margin" are
+        // separate keys, both default-granted to whoever can send quotes today. Everyone else sees selling only;
+        // crew links show cost only, never selling.
+        ['key' => 'rental_job_cards.price',      'label' => 'Set Selling Prices & Markup on Job Cards', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 7],
+        ['key' => 'rental_job_cards.view_costs', 'label' => 'View Costs & Margin on Job Cards',        'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 8],
 
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.

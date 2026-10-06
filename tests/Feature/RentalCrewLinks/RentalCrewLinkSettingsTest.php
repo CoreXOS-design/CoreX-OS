@@ -23,7 +23,7 @@ final class RentalCrewLinkSettingsTest extends TestCase
     use RefreshDatabase;
 
     private const KEYS = [
-        'crew_links_enabled', 'crew_job_link_expiry_days', 'crew_link_show_prices',
+        'crew_links_enabled', 'crew_job_link_expiry_days', 'crew_link_show_costs',
         'crew_link_show_tenant_contact', 'notify_landlord_on_crew_completion',
     ];
 
@@ -38,7 +38,7 @@ final class RentalCrewLinkSettingsTest extends TestCase
         $id = $this->agency->id;
         $this->assertTrue(RentalPortalSetting::crewLinksEnabledFor($id));
         $this->assertSame(14, RentalPortalSetting::crewJobLinkExpiryDaysFor($id));
-        $this->assertFalse(RentalPortalSetting::crewLinkShowPricesFor($id));
+        $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($id));
         $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id));
         $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
     }
@@ -46,11 +46,11 @@ final class RentalCrewLinkSettingsTest extends TestCase
     public function test_the_settings_are_per_agency(): void
     {
         $other = \App\Models\Agency::create(['name' => 'Second Agency', 'slug' => 'second-' . uniqid()]);
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_job_link_expiry_days' => 30, 'crew_link_show_prices' => true]);
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_job_link_expiry_days' => 30, 'crew_link_show_costs' => true]);
 
         $this->assertSame(30, RentalPortalSetting::crewJobLinkExpiryDaysFor($this->agency->id));
         $this->assertSame(14, RentalPortalSetting::crewJobLinkExpiryDaysFor($other->id));
-        $this->assertFalse(RentalPortalSetting::crewLinkShowPricesFor($other->id));
+        $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($other->id));
     }
 
     public function test_the_expiry_is_used_when_a_link_is_minted(): void
@@ -66,17 +66,17 @@ final class RentalCrewLinkSettingsTest extends TestCase
     public function test_the_settings_screen_shows_the_crew_links_section_and_saves_each_setting(): void
     {
         $this->actingAs($this->admin)->get(route('corex.settings.rental-portal.edit'))
-            ->assertOk()->assertSee('Crew links')->assertSee('Job link expiry (days)')->assertSee('Show prices on the crew')->assertSee('tenant');
+            ->assertOk()->assertSee('Crew links')->assertSee('Job link expiry (days)')->assertSee('Show costs on the crew')->assertSee('tenant');
 
         $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-job-link-expiry-days'), ['crew_job_link_expiry_days' => 21])->assertRedirect();
-        $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-link-show-prices'), ['crew_link_show_prices' => '1'])->assertRedirect();
+        $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-link-show-costs'), ['crew_link_show_costs' => '1'])->assertRedirect();
         $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-link-show-tenant-contact'), ['crew_link_show_tenant_contact' => '1'])->assertRedirect();
         $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.notify-landlord-on-crew-completion'), ['notify_landlord_on_crew_completion' => '0'])->assertRedirect();
         $this->actingAs($this->admin)->post(route('corex.settings.rental-portal.crew-links-enabled'), ['crew_links_enabled' => '0'])->assertRedirect();
 
         $id = $this->agency->id;
         $this->assertSame(21, RentalPortalSetting::crewJobLinkExpiryDaysFor($id));
-        $this->assertTrue(RentalPortalSetting::crewLinkShowPricesFor($id));
+        $this->assertTrue(RentalPortalSetting::crewLinkShowCostsFor($id));
         $this->assertTrue(RentalPortalSetting::crewLinkShowTenantContactFor($id));
         $this->assertFalse(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
         $this->assertFalse(RentalPortalSetting::crewLinksEnabledFor($id));
@@ -120,7 +120,7 @@ final class RentalCrewLinkSettingsTest extends TestCase
             $this->assertGreaterThan(40, strlen($control['explain']), "{$key} needs a full-sentence explain");
             $this->assertGreaterThan(40, strlen($control['affects']), "{$key} needs a concrete affects");
         }
-        foreach (['updateCrewLinksEnabled', 'updateCrewJobLinkExpiryDays', 'updateCrewLinkShowPrices', 'updateCrewLinkShowTenantContact', 'updateNotifyLandlordOnCrewCompletion'] as $method) {
+        foreach (['updateCrewLinksEnabled', 'updateCrewJobLinkExpiryDays', 'updateCrewLinkShowCosts', 'updateCrewLinkShowTenantContact', 'updateNotifyLandlordOnCrewCompletion'] as $method) {
             $this->assertContains($method, $savers);
             $this->assertTrue(method_exists(RentalPortalSettingsController::class, $method));
         }

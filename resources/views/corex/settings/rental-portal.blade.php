@@ -98,12 +98,12 @@
                 <p class="text-xs" style="color: var(--text-muted);">Default {{ $defaultCrewJobLinkExpiryDays }}. A link always stops when the job card is completed, cancelled or archived.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
-            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-show-prices') }}">
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-show-costs') }}">
                 @csrf
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
-                    <input type="hidden" name="crew_link_show_prices" value="0">
-                    <input type="checkbox" name="crew_link_show_prices" value="1" onchange="this.form.submit()" @checked($crewLinkShowPrices)>
-                    Show prices on the crew's job view
+                    <input type="hidden" name="crew_link_show_costs" value="0">
+                    <input type="checkbox" name="crew_link_show_costs" value="1" onchange="this.form.submit()" @checked($crewLinkShowCosts)>
+                    Show costs on the crew's job view
                 </label>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-show-tenant-contact') }}">

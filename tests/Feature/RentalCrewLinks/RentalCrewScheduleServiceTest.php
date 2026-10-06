@@ -138,7 +138,7 @@ class RentalCrewScheduleServiceTest extends TestCase
         $page = $this->service->schedule($agency->id, $crew->id);
 
         $this->assertEqualsCanonicalizing(['Open approved', 'Open scheduled', 'Open in_progress'], $this->titles($page['today']));
-        $this->assertSame(RentalJobCard::CREW_VISIBLE_STATUSES, ['approved', 'scheduled', 'in_progress'], 'ONE constant decides it');
+        $this->assertSame(RentalJobCard::CREW_VISIBLE_STATUSES, ['approved', 'scheduled', 'in_progress', 'disputed'], 'ONE constant decides it (disputed joined in §17.12: a reopened job must reach the crew)');
     }
 
     public function test_an_archived_card_or_a_card_on_an_archived_property_drops_off(): void
@@ -281,19 +281,25 @@ class RentalCrewScheduleServiceTest extends TestCase
         $this->assertSame(['Real part'], array_column($this->service->schedule($agency->id, $crew->id)['materials'], 'description'));
     }
 
-    public function test_prices_appear_only_with_the_setting(): void
+    /** §17.4.7 — the crew page's "what to load" shows COST (never the selling price), and only with the setting. */
+    public function test_costs_appear_only_with_the_setting_and_never_the_selling_price(): void
     {
         [$agency, , $property, $crew] = $this->world();
-        $this->makeLine($this->card($agency, $property, $crew, 'Job', '2026-10-14 09:00:00'), 'part', 'Valve', 2, 'each', ['unit_price' => 250]);
+        // Sells at 2 x R250 = R500; costs 2 x R100 = R200. A second part has a selling price but NO cost recorded.
+        $card = $this->card($agency, $property, $crew, 'Job', '2026-10-14 09:00:00');
+        $this->makeLine($card, 'part', 'Valve', 2, 'each', ['unit_price' => 250, 'unit_cost' => 100, 'cost_total' => 200]);
+        $this->makeLine($card, 'part', 'Gasket', 1, 'each', ['unit_price' => 90]);
 
         $off = $this->service->schedule($agency->id, $crew->id);
-        $this->assertFalse($off['show_prices']);
-        $this->assertNull($off['materials'][0]['total_value']);
+        $this->assertFalse($off['show_costs']);
+        $this->assertSame([null, null], array_column($off['materials'], 'total_value'));
 
-        RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_link_show_prices' => true]);
+        RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_link_show_costs' => true]);
         $on = $this->service->schedule($agency->id, $crew->id);
-        $this->assertTrue($on['show_prices']);
-        $this->assertSame('500.00', $on['materials'][0]['total_value']);
+        $this->assertTrue($on['show_costs']);
+        $byName = array_column($on['materials'], 'total_value', 'description');
+        $this->assertSame('200.00', $byName['Valve']);      // the cost, not 500.00
+        $this->assertNull($byName['Gasket']);                // no cost recorded: nothing shown, never 0.00
     }
 
     public function test_a_crew_with_nothing_booked_gets_empty_lists_not_an_error(): void

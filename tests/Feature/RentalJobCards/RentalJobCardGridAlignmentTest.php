@@ -190,7 +190,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         if ($bin === '') {
             $this->markTestSkipped('pdftotext (poppler-utils) is not installed here.');
         }
-        \App\Models\RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['show_prices_on_printed_job_card' => true]);
+        \App\Models\RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['show_costs_on_printed_job_card' => true]);
         $this->addLineWithoutVatType('Free text printed', 40);
         $card = $this->card->fresh();
 
@@ -200,6 +200,12 @@ final class RentalJobCardGridAlignmentTest extends TestCase
             $text = (string) shell_exec($bin . ' -layout ' . escapeshellarg($path) . ' - 2>/dev/null');
             @unlink($path);
             $this->assertStringNotContainsString('VAT type', $text, "{$method}: the printouts carry no VAT type column");
+            if ($method === 'jobCardPrintPdf') {
+                // §17.4.7 — the worker's printed copy is COST-only: no selling, no VAT breakdown at all.
+                $this->assertStringNotContainsString('Excl VAT', $text, 'the worker print carries no VAT breakdown');
+                $this->assertStringNotContainsString('R40.00', $text, 'the worker print never shows the selling price');
+                continue;
+            }
             $this->assertStringContainsString('Excl VAT', $text, "{$method}: Excl VAT column still there");
             $this->assertMatchesRegularExpression('/Free text printed.*R40\.00\s+R40\.00\s+R0\.00/', $text, "{$method}: the type-less line prints its VAT amount (R0.00)");
         }

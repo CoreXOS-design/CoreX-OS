@@ -220,7 +220,7 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         // notification settings had no arm (config declared them, the match never named them).
         \App\Models\RentalWorkOrderSetting::updateOrCreate(['agency_id' => $agency->id], [
             'capture_prices_on_job_cards' => false,     // control default: 1
-            'show_prices_on_printed_job_card' => true,  // control default: 0
+            'show_costs_on_printed_job_card' => true,  // control default: 0
         ]);
         \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $agency->id], [
             'notify_tenant_enabled' => false,   // control default: on
@@ -241,7 +241,7 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         $this->assertFalse($values['auto_send_report_enabled']);
         $this->assertFalse($values['inventory_auto_send_report_enabled']);
         $this->assertFalse($values['capture_prices_on_job_cards']);
-        $this->assertTrue($values['show_prices_on_printed_job_card']);
+        $this->assertTrue($values['show_costs_on_printed_job_card']);
         $this->assertFalse($values['notify_tenant_enabled']);
         $this->assertSame(5, $values['minimum_notice_days']);
         $this->assertSame(4, $values['reminder_days_before']);

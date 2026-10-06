@@ -601,6 +601,14 @@
             @include('corex.rental-job-cards._crew-link-panel')
             @include('corex.rental-job-cards._signed-copy-panel')
 
+            {{-- §17.21.1 plug-in slots — one empty partial per build, so the three builds never edit the same hunk of this view.
+                 Build 1 → _pricing-panel (Pricing panel, "Ask crew to price", crew lines awaiting the office).
+                 Build 2 → _approval-panel (why approved, variation, emergency approval).
+                 Build 3 → _completion-panel (tenant check, dispute, "Send back to crew"). A build may move its include. --}}
+            @include('corex.rental-job-cards._pricing-panel')
+            @include('corex.rental-job-cards._approval-panel')
+            @include('corex.rental-job-cards._completion-panel')
+
             {{-- 4. Next steps — only when they apply, in order --}}
             {{-- 4. Quote to the owner. §14.21/§14.23 — offered on EVERY open card (Draft, Quoted, Approved, Scheduled, In progress): first send and every re-send (the next revision replaces the old one). It used to need a sent quote or a Draft/Quoted status, so scheduling a Draft card before its quote was sent hid the box for good. Completed/Cancelled cards are locked, so no box (the service refuses too). --}}
             @if($isOpen)

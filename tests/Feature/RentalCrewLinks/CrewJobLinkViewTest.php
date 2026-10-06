@@ -50,12 +50,33 @@ final class CrewJobLinkViewTest extends TestCase
             ->assertDontSee('R 900')->assertDontSee('450.00')->assertDontSee('1,800.00');
     }
 
-    public function test_prices_show_only_with_the_agency_setting(): void
+    /**
+     * §17.4.7 — "Crew works on actual costs, not selling." The setting shows the COST figures the office entered
+     * (2 x R200 part, 3 x R120 labour) and NEVER the selling price (2 x R450 = R900, 3 x R300 = R900, total R1,800).
+     */
+    public function test_costs_show_only_with_the_agency_setting_and_never_the_selling_price(): void
     {
         $card = $this->makeJobCard();
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_prices' => true]);
+        \App\Models\RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'part')->update(['unit_cost' => 200, 'cost_total' => 400]);
+        \App\Models\RentalJobCardLine::where('rental_job_card_id', $card->id)->where('type', 'labour')->update(['unit_cost' => 120, 'cost_total' => 360]);
 
-        $this->open($card)->assertOk()->assertSee('R 900.00')->assertSee('R 1,800.00');
+        $this->open($card)->assertOk()->assertDontSee('R 400.00')->assertDontSee('R 760.00');
+
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_costs' => true]);
+
+        $this->open($card)->assertOk()
+            ->assertSee('R 400.00')->assertSee('R 360.00')->assertSee('R 760.00')
+            ->assertDontSee('900.00')->assertDontSee('450.00')->assertDontSee('1,800.00');
+    }
+
+    public function test_a_line_with_no_cost_recorded_shows_no_money_even_with_the_setting_on(): void
+    {
+        $card = $this->makeJobCard();   // lines carry a SELLING price only
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_costs' => true]);
+
+        $this->open($card)->assertOk()
+            ->assertDontSee('R 0.00')->assertDontSee('Cost total')
+            ->assertDontSee('900.00')->assertDontSee('1,800.00');
     }
 
     public function test_tenant_name_and_phone_only_with_the_agency_setting(): void
@@ -78,7 +99,7 @@ final class CrewJobLinkViewTest extends TestCase
         ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
         $card = $this->makeJobCard();
         $card->logUpdate('quote_sent', $this->admin, 'Secret quote note R 77,777');
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_prices' => true, 'crew_link_show_tenant_contact' => true]);
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_costs' => true, 'crew_link_show_tenant_contact' => true]);
 
         $this->open($card)->assertOk()
             ->assertDontSee('Lenny')->assertDontSee('Landlordson')->assertDontSee('0849998888')->assertDontSee('lenny@example.invalid')

@@ -32,6 +32,23 @@ class RentalWorkOrder extends Model
     public const STATUS_IN_PROGRESS = 'in_progress';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
+    /**
+     * .ai/specs/rental-work-orders.md §17.12 — a tenant reported finished work as
+     * not complete (§17.10). An OPEN state: the final close is refused while a work
+     * order is disputed (RentalCloseGuards::assertNotDisputed).
+     */
+    public const STATUS_DISPUTED = 'disputed';
+
+    /**
+     * §17.2 / §17.6.4 — which term the CURRENT approval relied on. Always paired
+     * with a rental_approval_decisions row that cites the term and its value.
+     */
+    public const BASIS_NO_APPROVAL_LIMIT = 'no_approval_limit';
+    public const BASIS_OWNER_DECISION = 'owner_decision';
+    public const BASIS_VARIATION_TOLERANCE = 'variation_tolerance';
+    public const BASIS_EMERGENCY = 'emergency_owner_agreed';
+    /** Work already under way when §17 was deployed — never blocked by the new guard (§17.6.5). */
+    public const BASIS_LEGACY_GRANDFATHERED = 'legacy_grandfathered';
 
     /** AT-442 — "who does the work" is the FIRST choice on every work order. */
     public const ASSIGNMENT_OUTSIDE_SUPPLIER = 'outside_supplier';
@@ -54,6 +71,12 @@ class RentalWorkOrder extends Model
     public const PHOTO_REPORTED = 'reported';
     public const PHOTO_IN_PROGRESS = 'in_progress';
     public const PHOTO_COMPLETED = 'completed';
+    /**
+     * §17.10.4 — a tenant's "not complete" photo. NOT a crew-visible gallery photo and never a client
+     * "work done" photo: Build 3 must exclude it from the readers that show `photo_type != reported`
+     * (CrewJobService::payload(), RentalJobCardClientViewService) and show it only inside the dispute panel.
+     */
+    public const PHOTO_DISPUTE = 'dispute';
 
     /**
      * AT-442 — matches the DB column default so a just-created instance
@@ -100,6 +123,13 @@ class RentalWorkOrder extends Model
         'tenant_confirmed_fixed',
         'tenant_confirmed_by_contact_id',
         'tenant_confirmation_note',
+        // §17.6 — the amount the owner (or the no-approval limit) covered, and the term relied on.
+        'approved_amount',
+        'approval_basis',
+        'emergency_approval_id',
+        // §17.9.1a — per-work-order override of the agency's external-quote fee (null = inherit).
+        'external_markup_type',
+        'external_markup_value',
     ];
 
     protected $casts = [
@@ -107,7 +137,11 @@ class RentalWorkOrder extends Model
         'ordered_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        // NAMING TRAP (§17.13): this is the OWNER-FACING (selling) final amount for an internal job and
+        // the contractor's final invoice for an external one — never the agency's own cost.
         'cost_amount' => 'decimal:2',
+        'approved_amount' => 'decimal:2',
+        'external_markup_value' => 'decimal:2',
         'tenant_confirmed_at' => 'datetime',
         'tenant_confirmed_fixed' => 'boolean',
     ];
@@ -199,6 +233,61 @@ class RentalWorkOrder extends Model
     public function jobCard(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(RentalJobCard::class, 'rental_work_order_id');
+    }
+
+    /** §17.6.4 — every decision the system (or the owner) made, citing the term relied on. Newest first. */
+    public function approvalDecisions(): HasMany
+    {
+        return $this->hasMany(RentalApprovalDecision::class)->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** §17.8 — emergency approvals, newest first (voided ones included; see activeEmergencyApproval()). */
+    public function emergencyApprovals(): HasMany
+    {
+        return $this->hasMany(RentalEmergencyApproval::class)->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** §17.7 — variations, newest first. */
+    public function variations(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderVariation::class)->orderByDesc('raised_at')->orderByDesc('id');
+    }
+
+    /** §17.10 — one row per "work reported done", oldest first (round 1, 2, 3…). */
+    public function completionRounds(): HasMany
+    {
+        return $this->hasMany(RentalWorkCompletionRound::class)->orderBy('round_no');
+    }
+
+    /** §17.8 — the one un-voided emergency approval, if any. */
+    public function activeEmergencyApproval(): ?RentalEmergencyApproval
+    {
+        return $this->emergencyApprovals()->whereNull('voided_at')->first();
+    }
+
+    /** §17.12 — an OPEN dispute is a work order whose status is `disputed`. */
+    public function hasOpenDispute(): bool
+    {
+        return $this->status === self::STATUS_DISPUTED;
+    }
+
+    /** §17.6.4 — the latest decision row, for the "Why was this approved?" line. */
+    public function latestApprovalDecision(): ?RentalApprovalDecision
+    {
+        return $this->approvalDecisions()->first();
+    }
+
+    /** §17.6.4 — plain-words label of the current approval basis (null when none recorded yet). */
+    public function approvalBasisLabel(): ?string
+    {
+        return match ($this->approval_basis) {
+            self::BASIS_NO_APPROVAL_LIMIT => "Within the owner's no-approval limit",
+            self::BASIS_OWNER_DECISION => 'Approved by the owner',
+            self::BASIS_VARIATION_TOLERANCE => "Within the owner's agreed tolerance",
+            self::BASIS_EMERGENCY => 'Approved as emergency work',
+            self::BASIS_LEGACY_GRANDFATHERED => 'Already under way before approvals were recorded',
+            default => null,
+        };
     }
 
     /**
@@ -660,6 +749,9 @@ class RentalWorkOrder extends Model
             throw new \LogicException('This work order is already closed.');
         }
 
+        // §17.21.1 — the ONE close hook for the dispute rule (Build 3 fills it; inert in the foundation).
+        app(\App\Services\Rentals\RentalCloseGuards::class)->assertNotDisputed($this);
+
         if (RentalWorkOrderSetting::completionRequiresPhotoFor($this->agency_id)
             && $this->photos()->where('photo_type', self::PHOTO_COMPLETED)->doesntExist()) {
             throw new \LogicException('At least one "completed" photo is required before this can be marked complete.');
@@ -672,6 +764,8 @@ class RentalWorkOrder extends Model
 
         $cost = $attributes['cost_amount'] ?? $this->cost_amount;
         $this->assertApprovalAllows('completing this work order', $cost !== null ? (float) $cost : null);
+        // §17.21.1 — the ONE close hook for "final cost vs the approved amount" (Build 2 fills it; inert in the foundation).
+        app(\App\Services\Rentals\RentalCloseGuards::class)->assertFinalCostWithinApproval($this, $cost !== null ? (float) $cost : null, $by);
 
         $fromStatus = $this->status;
         $this->forceFill([
@@ -688,6 +782,10 @@ class RentalWorkOrder extends Model
             'created_by_user_id' => $by?->id,
             'note' => $viaNote,
         ]);
+
+        // §17.16 — whichever route closed it (office Complete form, job-card close, contractor link), the
+        // final-statement listener (Build 2) hears about it here. No listener is registered by the foundation.
+        \App\Events\Rentals\RentalWorkOrderClosed::dispatch($this, $by?->id);
     }
 
     /**

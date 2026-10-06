@@ -84,6 +84,10 @@
         @endif
     </div>
 
+    {{-- §17.21.1 plug-in slots — each is empty until its build lands (see CrewApprovalBlock / CrewDisputeBlock). --}}
+    @include('rentals.crew-link._block-dispute', ['block' => $job['blocks']['dispute'] ?? []])
+    @include('rentals.crew-link._block-approval', ['block' => $job['blocks']['approval'] ?? []])
+
     @if(count($job['tasks']))
         <div class="cj-card">
             <h2>Tasks</h2>
@@ -105,7 +109,7 @@
             @foreach($job['materials'] as $m)
                 <div class="cj-row">
                     <div>{{ $m['description'] ?? '' }}@if(!empty($m['code']))<div class="cj-muted">{{ $m['code'] }}</div>@endif</div>
-                    <div class="q">{{ $m['quantity'] ?? '' }} {{ $m['unit'] ?? '' }}@if($job['show_prices'] && isset($m['line_total']))<div class="cj-muted">R {{ $m['line_total'] }}</div>@endif</div>
+                    <div class="q">{{ $m['quantity'] ?? '' }} {{ $m['unit'] ?? '' }}@if($job['show_costs'] && isset($m['cost_total']))<div class="cj-muted">R {{ $m['cost_total'] }}</div>@endif</div>
                 </div>
             @endforeach
         </div>
@@ -117,14 +121,17 @@
             @foreach($job['labour'] as $l)
                 <div class="cj-row">
                     <div>{{ $l['description'] ?? '' }}</div>
-                    <div class="q">{{ $l['quantity'] ?? '' }} {{ $l['unit'] ?? '' }}@if($job['show_prices'] && isset($l['line_total']))<div class="cj-muted">R {{ $l['line_total'] }}</div>@endif</div>
+                    <div class="q">{{ $l['quantity'] ?? '' }} {{ $l['unit'] ?? '' }}@if($job['show_costs'] && isset($l['cost_total']))<div class="cj-muted">R {{ $l['cost_total'] }}</div>@endif</div>
                 </div>
             @endforeach
-            @if($job['show_prices'] && $job['total'] !== null)
-                <div class="cj-row"><div><strong>Total</strong></div><div class="q">R {{ $job['total'] }}</div></div>
+            @if($job['show_costs'] && $job['cost_total'] !== null)
+                <div class="cj-row"><div><strong>Cost total</strong></div><div class="q">R {{ $job['cost_total'] }}</div></div>
             @endif
         </div>
     @endif
+
+    {{-- §17.21.1 plug-in slot — Build 1's "Parts & labour" panel (see CrewPricingBlock). --}}
+    @include('rentals.crew-link._block-pricing', ['block' => $job['blocks']['pricing'] ?? []])
 
     <div class="cj-card">
         <h2>Photos</h2>

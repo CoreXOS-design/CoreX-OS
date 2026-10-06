@@ -63,7 +63,7 @@ class RentalCrewScheduleService
      *
      * @return array{
      *   today: array<int, array>, upcoming: array<int, array>, unscheduled: array<int, array>,
-     *   recent: array<int, array>, materials: array<int, array>, show_prices: bool,
+     *   recent: array<int, array>, materials: array<int, array>, show_costs: bool,
      *   upcoming_days: int, recent_days: int, now: Carbon, agency: array
      * }
      */
@@ -75,7 +75,7 @@ class RentalCrewScheduleService
 
         $upcomingDays = RentalPortalSetting::crewPageUpcomingDaysFor($agencyId);
         $recentDays = RentalPortalSetting::crewPageRecentCompletedDaysFor($agencyId);
-        $showPrices = RentalPortalSetting::crewLinkShowPricesFor($agencyId);
+        $showCosts = RentalPortalSetting::crewLinkShowCostsFor($agencyId);
 
         $todayStart = $now->copy()->startOfDay();
         $todayEnd = $now->copy()->endOfDay();
@@ -111,8 +111,8 @@ class RentalCrewScheduleService
             'upcoming' => array_slice($upcoming, 0, self::MAX_ROWS),
             'unscheduled' => array_slice($unscheduled, 0, self::MAX_ROWS),
             'recent' => $recentDays > 0 ? $this->recentlyCompleted($agencyId, $crewId, $now, $recentDays, $tz) : [],
-            'materials' => $this->materials($listedForMaterials, $tz, $showPrices),
-            'show_prices' => $showPrices,
+            'materials' => $this->materials($listedForMaterials, $tz, $showCosts),
+            'show_costs' => $showCosts,
             'upcoming_days' => $upcomingDays,
             'recent_days' => $recentDays,
             'now' => $now,
@@ -124,13 +124,13 @@ class RentalCrewScheduleService
      * "What to load": the part lines of the given cards summed by catalogue
      * item + unit (a free-text part with no catalogue item groups by its
      * normalised description + unit). Labour is not stock, so it is excluded.
-     * Quantities and units only — prices appear only with `crew_link_show_prices`.
+     * Quantities and units only — COST (never selling, §17.4.7) appears only with `crew_link_show_costs`.
      * There is no stock-on-hand data in rentals, so this never says "short of".
      *
      * @param Collection<int, RentalJobCard> $cards
      * @return array<int, array<string, mixed>>
      */
-    public function materials(Collection $cards, string $tz, bool $showPrices): array
+    public function materials(Collection $cards, string $tz, bool $showCosts): array
     {
         if ($cards->isEmpty()) {
             return [];
@@ -165,11 +165,16 @@ class RentalCrewScheduleService
                 'unit' => trim((string) $line->unit),
                 'quantity' => 0.0,
                 'total_value' => 0.0,
+                'has_cost' => false,
                 'first_date' => $date,
                 'jobs' => [],
             ];
             $groups[$key]['quantity'] += (float) $line->quantity;
-            $groups[$key]['total_value'] += (float) $line->line_total;
+            // COST column only (§17.4.7); a line with no cost recorded adds nothing and never shows a 0.00.
+            if ($line->cost_total !== null) {
+                $groups[$key]['total_value'] += (float) $line->cost_total;
+                $groups[$key]['has_cost'] = true;
+            }
             if ($date && (! $groups[$key]['first_date'] || $date->lt($groups[$key]['first_date']))) {
                 $groups[$key]['first_date'] = $date;
             }
@@ -178,7 +183,7 @@ class RentalCrewScheduleService
         }
 
         $fmt = fn (float $q) => rtrim(rtrim(number_format($q, 2, '.', ''), '0'), '.');
-        $rows = array_map(function (array $g) use ($fmt, $showPrices) {
+        $rows = array_map(function (array $g) use ($fmt, $showCosts) {
             return [
                 'code' => $g['code'],
                 'description' => $g['description'],
@@ -188,7 +193,7 @@ class RentalCrewScheduleService
                 'first_date' => $g['first_date']?->format('D j M'),
                 'job_count' => count($g['jobs']),
                 'jobs' => array_values(array_map(fn ($j) => ['id' => $j['id'], 'title' => $j['title'], 'date' => $j['date'], 'quantity' => $fmt($j['quantity'])], $g['jobs'])),
-                'total_value' => $showPrices ? number_format($g['total_value'], 2) : null,
+                'total_value' => $showCosts && $g['has_cost'] ? number_format($g['total_value'], 2) : null,
             ];
         }, array_values($groups));
 

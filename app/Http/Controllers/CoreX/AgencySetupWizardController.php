@@ -626,7 +626,15 @@ class AgencySetupWizardController extends Controller
                     'overdue_reminder_days' => \App\Models\RentalWorkOrderSetting::overdueReminderDaysFor($agency->id),
                     // AT-442 (2026-10-04) — both pricing toggles were declared in the config but never named here.
                     'capture_prices_on_job_cards' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id),
-                    'show_prices_on_printed_job_card' => \App\Models\RentalWorkOrderSetting::showPricesOnPrintedJobCardFor($agency->id),
+                    'show_costs_on_printed_job_card' => \App\Models\RentalWorkOrderSetting::showCostsOnPrintedJobCardFor($agency->id),
+                    // §17.21.1 — every maintenance-flow control needs its OWN explicit arm here (a key left to the `default`
+                    // fall-through shows a stale default, §6.2). Each build adds its keys between its markers.
+                    // BUILD 1 BEGIN — pricing keys
+                    // BUILD 1 END
+                    // BUILD 2 BEGIN — approvals keys
+                    // BUILD 2 END
+                    // BUILD 3 BEGIN — completion-check keys
+                    // BUILD 3 END
                     default => $control['default'] ?? null,
                 },
                 // rental-portal-access.md §10 / rental-work-orders.md §14.27.3 — this source had NO arm,
@@ -642,7 +650,7 @@ class AgencySetupWizardController extends Controller
                     'notify_tenant_on_status_change' => \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($agency->id),
                     'crew_links_enabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($agency->id),
                     'crew_job_link_expiry_days' => \App\Models\RentalPortalSetting::crewJobLinkExpiryDaysFor($agency->id),
-                    'crew_link_show_prices' => \App\Models\RentalPortalSetting::crewLinkShowPricesFor($agency->id),
+                    'crew_link_show_costs' => \App\Models\RentalPortalSetting::crewLinkShowCostsFor($agency->id),
                     'crew_link_show_tenant_contact' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($agency->id),
                     'notify_landlord_on_crew_completion' => \App\Models\RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agency->id),
                     'crew_photos_visible_to_clients' => \App\Models\RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id),
