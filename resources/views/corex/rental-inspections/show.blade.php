@@ -113,9 +113,12 @@
     @permission('rental_inspections.create')
         <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold">Public link</h2>
-            @if($inspection->publicLinkIsValid())
+            @if($inspection->publicLinkIsAvailable())
                 <p class="text-xs break-all" style="color: var(--text-secondary);">{{ route('rental-inspections.public.show', $inspection->public_token) }}</p>
                 <p class="text-xs" style="color: var(--text-muted);">Live until {{ $inspection->public_token_expires_at->format('Y-m-d') }}.</p>
+            @elseif($inspection->publicLinkIsValid())
+                {{-- Token still unexpired, but the inspection is cancelled: the link is switched off (RentalInspection::findByPublicToken()). --}}
+                <p class="text-xs" style="color: var(--text-muted);">The link is switched off while this inspection is cancelled.</p>
             @else
                 <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share. The downloaded report only carries the QR code / link once a live link exists.</p>
             @endif

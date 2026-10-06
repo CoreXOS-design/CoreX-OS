@@ -643,6 +643,19 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         return self::withoutGlobalScopes()
             ->where('public_token', $token)
             ->where('public_token_expires_at', '>', now())
+            // 2026-10-06 (cc1, security) — withoutGlobalScopes() above also
+            // strips SoftDeletes, so an ARCHIVED inventory used to keep
+            // serving its report (and accepting buyer signatures) for the
+            // rest of the link's life, and so did a CANCELLED one. Both are
+            // refused here, in the one lookup both public routes use, and
+            // the token is deliberately NOT cleared: restoring an archived
+            // inventory brings the same link (and the QR already printed on
+            // its PDF) back. Mirrors RentalInspection::findByPublicToken();
+            // see rental-inventory.md §25.
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', self::STATUS_CANCELLED);
+            })
             ->first();
     }
 
