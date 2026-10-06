@@ -248,4 +248,42 @@ final class CrewPayloadNeverCarriesSellingTest extends TestCase
 
         $this->assertStringStartsWith('%PDF', $pdf);
     }
+    /**
+     * Build 1 (§17.5) added the crew's own "Parts & labour" lines: draft, sent, accepted, rejected and declined-by-owner. Whatever
+     * state a crew line is in — and even if its selling columns somehow hold a figure — the pricing block and the page built from
+     * it never carry selling, markup, margin or an owner amount. Extends the guard; relaxes nothing.
+     */
+    #[DataProvider('settingCombinations')]
+    public function test_the_crew_parts_and_labour_block_never_carries_selling_in_any_line_state(bool $showCosts, bool $showTenant): void
+    {
+        $this->applySettings($showCosts, $showTenant);
+        $card = $this->sellingCard();
+        foreach (['crew_draft', 'awaiting_office', 'accepted', 'rejected', 'declined_by_owner'] as $i => $state) {
+            RentalJobCardLine::forceCreate([
+                'agency_id' => $this->agency->id, 'rental_job_card_id' => $card->id, 'type' => 'part', 'description' => 'Crew line ' . $state,
+                'quantity' => 1, 'unit' => 'each', 'sort_order' => 50 + $i, 'unit_cost' => 12.34, 'cost_total' => 12.34,
+                // deliberately carrying the distinctive SELLING figures: a leak would be unmistakable
+                'unit_price' => 4321.99, 'line_total' => 4321.99, 'markup_type' => 'percent', 'markup_value' => 3789.00, 'selling_basis' => 'line_markup',
+                'origin' => 'crew_extra', 'office_status' => $state, 'reject_reason' => $state === 'rejected' ? 'Not needed' : null,
+                'crew_added_by_label' => 'via crew link — Team 1', 'crew_added_at' => now(),
+            ]);
+        }
+        $payload = app(CrewJobService::class)->payload($card->fresh(), $this->ctx($card, $showCosts, $showTenant));
+        // a NEW link revokes the one ctx() issued, so the page's link is minted last
+        $issued = app(RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->admin);
+        $block = $payload['blocks']['pricing'];
+        $json = json_encode($block, JSON_THROW_ON_ERROR);
+
+        $this->assertCount(5, $block['lines'], 'the crew sees all of their own lines, in every state');
+        $this->assertNoSelling($json, 'CrewPricingBlock');
+        foreach (self::FORBIDDEN_KEYS as $key) {
+            $this->assertStringNotContainsString('"' . $key, $json, "forbidden key {$key} present in the crew pricing block");
+        }
+        $this->assertNoSelling(json_encode($payload), 'the whole crew payload with crew lines in it');
+
+        $html = $this->get('/secure/job-cards/' . $issued['raw_token'])->assertOk()->getContent();
+        $this->assertNoSelling($html, 'the per-job page with the Parts & labour panel');
+        $this->assertStringContainsString('Parts &amp; labour', $html);
+        $this->assertStringContainsString('12.34', $html, "the crew's own cost entry");
+    }
 }

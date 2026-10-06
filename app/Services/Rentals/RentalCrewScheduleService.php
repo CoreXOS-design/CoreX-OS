@@ -46,10 +46,27 @@ class RentalCrewScheduleService
             ->where('rental_job_cards.agency_id', $agencyId)
             ->where('rental_job_cards.rental_crew_id', $crewId)
             ->whereNull('rental_job_cards.deleted_at')
-            ->whereIn('rental_job_cards.status', RentalJobCard::CREW_VISIBLE_STATUSES)
+            // §17.5.4 — booked work (§17.12 crew-visible statuses) PLUS any Draft/Quoted card the office has asked this crew
+            // to price: that card is reachable (and listed under "To price") while its price request is open, and not otherwise.
+            ->where(function (Builder $q) use ($agencyId) {
+                $q->whereIn('rental_job_cards.status', RentalJobCard::CREW_VISIBLE_STATUSES)
+                    ->orWhere(function (Builder $q2) use ($agencyId) {
+                        $q2->whereIn('rental_job_cards.status', [RentalJobCard::STATUS_DRAFT, RentalJobCard::STATUS_QUOTED])
+                            ->whereIn('rental_job_cards.id', $this->openPriceRequestCardIds($agencyId));
+                    });
+            })
             ->whereIn('rental_job_cards.property_id', function ($q) use ($agencyId) {
                 $q->select('id')->from('properties')->where('agency_id', $agencyId)->whereNull('deleted_at');
             });
+    }
+
+    /** §17.5.4 — ids of this agency's cards that have a price request still open for the crew to answer. */
+    private function openPriceRequestCardIds(int $agencyId): \Closure
+    {
+        return function ($q) use ($agencyId) {
+            $q->select('rental_job_card_id')->from('rental_job_card_price_requests')
+                ->where('agency_id', $agencyId)->where('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN);
+        };
     }
 
     /** One card, only if it is one of THIS crew's open cards — otherwise null (the caller shows "unavailable"). */
@@ -62,7 +79,7 @@ class RentalCrewScheduleService
      * Everything the crew page renders.
      *
      * @return array{
-     *   today: array<int, array>, upcoming: array<int, array>, unscheduled: array<int, array>,
+     *   to_price: array<int, array>, today: array<int, array>, upcoming: array<int, array>, unscheduled: array<int, array>,
      *   recent: array<int, array>, materials: array<int, array>, show_costs: bool,
      *   upcoming_days: int, recent_days: int, now: Carbon, agency: array
      * }
@@ -87,9 +104,19 @@ class RentalCrewScheduleService
             ->get();
         $properties = $this->propertiesFor($cards->pluck('property_id')->all(), $agencyId);
 
-        $today = $upcoming = $unscheduled = [];
+        $toPriceIds = \App\Models\RentalJobCardPriceRequest::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->where('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN)
+            ->whereIn('rental_job_card_id', $cards->pluck('id')->all())->pluck('rental_job_card_id')->all();
+
+        $today = $upcoming = $unscheduled = $toPrice = [];
         foreach ($cards as $card) {
             $row = $this->row($card, $properties[$card->property_id] ?? null, $tz, $now);
+            $row['to_price'] = in_array($card->id, $toPriceIds, true);
+            if (! in_array($card->status, RentalJobCard::CREW_VISIBLE_STATUSES, true)) {
+                // §17.5.4 — a Draft/Quoted card reachable only because the office asked for a price.
+                $toPrice[] = $row;
+                continue;
+            }
             if (! $card->scheduled_at) {
                 $unscheduled[] = $row;
             } elseif ($card->scheduled_at->lte($todayEnd)) {
@@ -104,9 +131,10 @@ class RentalCrewScheduleService
         }
         usort($unscheduled, fn ($a, $b) => [$a['due_sort'] ?? PHP_INT_MAX, $a['id']] <=> [$b['due_sort'] ?? PHP_INT_MAX, $b['id']]);
 
-        $listedForMaterials = $cards->filter(fn (RentalJobCard $c) => $c->scheduled_at && $c->scheduled_at->lte($upcomingEnd))->values();
+        $listedForMaterials = $cards->filter(fn (RentalJobCard $c) => in_array($c->status, RentalJobCard::CREW_VISIBLE_STATUSES, true) && $c->scheduled_at && $c->scheduled_at->lte($upcomingEnd))->values();
 
         return [
+            'to_price' => array_slice($toPrice, 0, self::MAX_ROWS),
             'today' => array_slice($today, 0, self::MAX_ROWS),
             'upcoming' => array_slice($upcoming, 0, self::MAX_ROWS),
             'unscheduled' => array_slice($unscheduled, 0, self::MAX_ROWS),
@@ -137,8 +165,10 @@ class RentalCrewScheduleService
         }
 
         $cardsById = $cards->keyBy('id');
+        // §17.4.6 — only ACCEPTED lines are work to load; a crew's draft or a line awaiting the office is not.
         $lines = RentalJobCardLine::withoutGlobalScopes()
             ->whereNull('deleted_at')
+            ->where('office_status', RentalJobCardLine::OFFICE_ACCEPTED)
             ->whereIn('rental_job_card_id', $cardsById->keys()->all())
             ->where('type', \App\Models\RentalCatalogueItemType::KIND_PART)
             ->orderBy('id')

@@ -630,6 +630,9 @@ class AgencySetupWizardController extends Controller
                     // §17.21.1 — every maintenance-flow control needs its OWN explicit arm here (a key left to the `default`
                     // fall-through shows a stale default, §6.2). Each build adds its keys between its markers.
                     // BUILD 1 BEGIN — pricing keys
+                    'default_parts_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultPartsMarkupPercentFor($agency->id),
+                    'default_labour_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultLabourMarkupPercentFor($agency->id),
+                    'quote_estimate_term' => \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($agency->id),
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
                     // BUILD 2 END

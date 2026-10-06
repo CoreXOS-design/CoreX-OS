@@ -163,7 +163,23 @@ final class RentalJobCardLineEditTest extends TestCase
         $this->assertSame($a->id, $line->rental_catalogue_item_id);
         $this->assertSame('PLUMB-01', $line->code);
         $this->assertNull($line->unit, 'unit "—" must clear, not silently keep "Each".');
-        $this->assertNull($line->unit_price);
+        // §17.4.3 (maintenance flow, Build 1): a blanked selling price means "automatic" — the typed price really goes, and the
+        // pricing rules decide again. This item carries a default price of 85, so rule 5 (catalogue price) fills it back in.
+        $this->assertEquals(85.00, (float) $line->unit_price);
+        $this->assertSame('catalogue_price', $line->selling_basis, 'no longer "typed by hand"');
+        $this->assertEquals(170.00, (float) $line->line_total);
+    }
+
+    public function test_a_blanked_price_on_a_line_with_nothing_to_price_it_from_really_clears(): void
+    {
+        $card = $this->jobCard();
+        $line = $this->service->addLine($card, ['description' => 'Free text job', 'type' => 'labour', 'quantity' => 2, 'unit_price' => 120], $this->admin);
+        $this->assertEquals(240.00, (float) $line->line_total);
+
+        $this->updateLine($card, $line, ['description' => 'Free text job', 'quantity' => 2, 'unit_price' => ''])->assertRedirect();
+
+        $line->refresh();
+        $this->assertNull($line->unit_price, 'no cost, no catalogue price, no default markup basis: nothing to price it from');
         $this->assertNull($line->line_total);
         $this->assertEquals(0.0, (float) $card->fresh()->total_amount);
     }

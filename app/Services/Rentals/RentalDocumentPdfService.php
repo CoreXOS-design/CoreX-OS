@@ -100,13 +100,14 @@ class RentalDocumentPdfService
     }
 
     /** AT-442 req #5 — the quote PDF generated from a job card and sent to the owner. */
-    public function jobCardQuotePdf(RentalJobCard $jobCard, ?int $revision = null)
+    public function jobCardQuotePdf(RentalJobCard $jobCard, ?int $revision = null, ?string $estimateTerm = null)
     {
         // 2026-10-05 overnight re-verification — crew.members and
         // rentalFaultReport were missing from this eager load, so the quote
         // PDF could never show the crew or the fault-report/work-order
         // source reference the printable job card already shows.
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
+        // §17.4.6 — the quote is built from ACCEPTED lines only (the task relation is re-pointed at acceptedLines).
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.acceptedLines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         $pdf = Pdf::loadView('corex.rental-job-cards.quote-pdf', [
@@ -121,6 +122,8 @@ class RentalDocumentPdfService
             'vatNumber' => $workOrder?->agency?->vat_no,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+            // §17.11 — the estimate wording printed on every owner quote; the caller passes the snapshotted text.
+            'estimateTerm' => $estimateTerm ?? \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($jobCard->agency_id),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -134,7 +137,8 @@ class RentalDocumentPdfService
         // 2026-10-05 overnight re-verification — rentalFaultReport was
         // missing, so the printable job card could never show which fault
         // report (if any) it came from, only the work order.
-        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
+        // §17.4.6 — the worker's copy lists ACCEPTED lines only (what is actually being done).
+        $jobCard->loadMissing(['property', 'lease.tenants.contact', 'tasks.acceptedLines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder.agency', 'workOrder.branch']);
         $workOrder = $jobCard->workOrder;
 
         // AT-442 follow-up, conductor's ruling, restated in COST terms (§17.4.7 — "Crew works on actual costs, not
@@ -162,6 +166,8 @@ class RentalDocumentPdfService
             'crewLinkQr' => $crewLinkQr,
             'crewLinkExpires' => $crewLinkExpires,
             'costsOn' => $costsOn,
+            // §17.4.5 — VAT on COST (excl / VAT / incl) for the worker copy's totals; never selling, never margin.
+            'costVat' => $costsOn ? app(RentalJobCardVatService::class)->costBreakdown($jobCard) : null,
             'vatNumber' => $workOrder?->agency?->vat_no,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
             'agencyName' => $workOrder?->agency?->name ?: 'CoreX',

@@ -46,6 +46,8 @@
         'id' => $ci->id, 'code' => $ci->code, 'description' => $ci->description, 'label' => $ci->label(),
         'kind' => $ci->kind(), 'unit' => $ci->catalogueUnit?->name,
         'priceForLine' => $jcAgency ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultPriceForLine($ci, $jcAgency) : ($ci->default_price !== null ? (float) $ci->default_price : null),
+        // §17.4.4 — the catalogue's default COST prefills the Cost box, but only for someone who can see and set costs.
+        'costForLine' => (($canViewCosts ?? false) && ($canPrice ?? false) && $jcAgency) ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultCostForLine($ci, $jcAgency) : null,
         'vatTypeId' => $ci->default_rental_vat_type_id,
         'customVatRate' => $ci->default_custom_vat_rate !== null ? (float) $ci->default_custom_vat_rate : null,
     ])->values();
@@ -76,6 +78,12 @@
                     @if($quoteChanged)
                         <span class="ds-badge" style="background: color-mix(in srgb, #f59e0b 18%, transparent); color: #b45309;">Changed since sent</span>
                     @endif
+                @endif
+                {{-- §17.5.5 — where the crew's pricing stands, at a glance. --}}
+                @if($openPriceRequest ?? null)
+                    <span class="ds-badge" style="background: color-mix(in srgb, #f59e0b 18%, transparent); color: #b45309;" data-chip-pricing>Pricing requested</span>
+                @elseif(($awaitingLines ?? collect())->isNotEmpty())
+                    <span class="ds-badge" style="background: color-mix(in srgb, #f59e0b 18%, transparent); color: #b45309;" data-chip-pricing>Priced by crew — awaiting you</span>
                 @endif
                 <span class="text-xs" style="color: var(--text-muted);">{{ $jobCard->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $jobCard->property?->trashed() ? ' (archived)' : '' }}</span>
             @endif
@@ -398,8 +406,8 @@
                             @endif
                             @endpermission
 
-                            @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
-                            @include('corex.rental-job-cards._lines-table', ['lines' => $task->lines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes])
+                            @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered'], 'showCost' => $canViewCosts ?? false])
+                            @include('corex.rental-job-cards._lines-table', ['lines' => $task->acceptedLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes, 'showCost' => $canViewCosts ?? false, 'canPrice' => $canPrice ?? false, 'costVat' => $costVat ?? null])
 
                             @if($pricesOn)
                                 <div class="text-xs text-right" style="color: var(--text-muted);">Task subtotal: R{{ number_format($task->subtotal(), 2) }}</div>
@@ -407,7 +415,7 @@
 
                             @permission('rental_job_cards.create')
                             @if($isOpen)
-                            @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                            @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $task->id, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered'], 'showCost' => $canViewCosts ?? false, 'canPrice' => $canPrice ?? false])
                             @endif
                             @endpermission
                         </div>
@@ -444,11 +452,11 @@
                     {{-- General — lines with no task (e.g. a call-out fee). --}}
                     <div class="rounded-md p-3 space-y-2" style="border: 1px dashed var(--border);">
                         <span class="text-sm font-medium">General</span>
-                        @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered']])
-                        @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes])
+                        @include('corex.rental-job-cards._line-columns-header', ['pricesOn' => $pricesOn, 'vatRegistered' => $vat['registered'], 'showCost' => $canViewCosts ?? false])
+                        @include('corex.rental-job-cards._lines-table', ['lines' => $generalLines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes, 'showCost' => $canViewCosts ?? false, 'canPrice' => $canPrice ?? false, 'costVat' => $costVat ?? null])
                         @permission('rental_job_cards.create')
                         @if($isOpen)
-                        @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered']])
+                        @include('corex.rental-job-cards._add-line-row', ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => null, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered'], 'showCost' => $canViewCosts ?? false, 'canPrice' => $canPrice ?? false])
                         @endif
                         @endpermission
                         @if($archivedLines->isNotEmpty())
@@ -484,6 +492,17 @@
                             <span>{{ $vat['registered'] ? 'Total (incl VAT)' : 'Total' }}</span>
                             <span>R{{ number_format($compareTotal, 2) }}</span>
                         </div>
+                        {{-- §17.4.5 — cost and margin (excl VAT) exist in the page only for `rental_job_cards.view_costs`. --}}
+                        @if(($canViewCosts ?? false) && $margin)
+                            <div class="pt-2 mt-2 space-y-0.5 text-xs" style="border-top: 1px dashed var(--border);" data-cost-margin-totals>
+                                <div class="flex justify-between"><span>Cost total{{ $costVat && $costVat['registered'] ? ' (excl VAT)' : '' }}</span><span>{{ $margin['marginableLines'] > 0 || $margin['costExcl'] > 0 ? 'R' . number_format($margin['costExcl'], 2) : '—' }}</span></div>
+                                <div class="flex justify-between font-semibold"><span>Margin (excl VAT)</span>
+                                    <span>{{ $margin['marginableLines'] > 0 ? 'R' . number_format($margin['marginExcl'], 2) . ($margin['marginPct'] !== null ? ' (' . $margin['marginPct'] . ' %)' : '') : '— no cost recorded' }}</span></div>
+                                @if($margin['linesWithoutCost'] > 0)
+                                    <div style="color: var(--ds-crimson);" data-lines-without-cost>{{ $margin['linesWithoutCost'] }} {{ $margin['linesWithoutCost'] === 1 ? 'line has' : 'lines have' }} no cost recorded — the margin above covers the other lines only.</div>
+                                @endif
+                            </div>
+                        @endif
                         <div class="text-xs text-right" style="color: {{ $compareTotal <= $noApprovalThreshold ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
                             @if($compareTotal <= $noApprovalThreshold)
                                 Within the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit (incl VAT)
@@ -896,7 +915,10 @@ function catalogueLinePicker(items, opts) {
             const d = this.field('[name="description"], [x-ref$="Desc"]'); if (d) d.value = item.description;
             const t = this.field('[name="type"], [x-ref$="Type"]'); if (t) t.value = item.kind || 'labour';
             const u = this.field('[name="unit"], [x-ref$="Unit"]'); if (u && item.unit) u.value = item.unit;
-            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p && item.priceForLine !== null && item.priceForLine !== undefined) p.value = item.priceForLine;
+            // §17.4.3 — the selling price is NOT copied from the catalogue any more: left blank it resolves by the pricing rules
+            // (the catalogue's default price is rule 5), so a picked item still prices itself but is not frozen as "typed by hand".
+            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p) { p.value = ''; p.placeholder = (item.priceForLine !== null && item.priceForLine !== undefined) ? ('catalogue ' + item.priceForLine) : 'auto'; }
+            const k = this.field('[name="unit_cost"], [x-ref$="UnitCost"]'); if (k && item.costForLine !== null && item.costForLine !== undefined) k.value = item.costForLine;
             const v = this.field('[name="rental_vat_type_id"], [x-ref$="VatType"]');
             if (v && item.vatTypeId) { v.value = item.vatTypeId; v.dispatchEvent(new Event('change')); }
             const c = this.field('[name="custom_vat_rate"]'); if (c && item.customVatRate !== null && item.customVatRate !== undefined) c.value = item.customVatRate;

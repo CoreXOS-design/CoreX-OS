@@ -34,7 +34,7 @@ class RentalCatalogueImportDryRunResolver
     /**
      * @param  array<string, int>  $codesSeenThisFile  code (uppercased) => first row_number it appeared on — mutated across calls so a second occurrence in the same file is caught.
      */
-    public function resolve(int $rowNumber, array $payload, Agency $agency, string $onDuplicate, array &$codesSeenThisFile): array
+    public function resolve(int $rowNumber, array $payload, Agency $agency, string $onDuplicate, array &$codesSeenThisFile, bool $withCost = false): array
     {
         $errors = [];
 
@@ -123,6 +123,19 @@ class RentalCatalogueImportDryRunResolver
                 : $priceIncl;
         }
 
+        // §17.4.4 — optional Cost (always excl VAT, like the price). Read only for someone who may set costs
+        // (`rental_job_cards.view_costs`); for anyone else the column is ignored and nothing about it is stored.
+        $defaultCost = null;
+        $costRaw = $payload['cost_excl'] ?? null;
+        if ($withCost) {
+            $defaultCost = $this->parser->parseNumber($costRaw);
+            if ($costRaw !== null && trim((string) $costRaw) !== '' && $defaultCost === null) {
+                $errors[] = "Cost (excl VAT) '{$costRaw}' is not a number.";
+            } elseif ($defaultCost !== null && $defaultCost < 0) {
+                $errors[] = 'Cost (excl VAT) cannot be negative.';
+            }
+        }
+
         // Duplicate-by-code — against the existing catalogue, then against
         // this same file (a second row reusing a code already consumed
         // earlier in the upload is always an error, regardless of mode).
@@ -156,6 +169,7 @@ class RentalCatalogueImportDryRunResolver
             'vat_type_name' => $vatTypeName,
             'price_excl_input' => $priceExclRaw,
             'price_incl_input' => $priceInclRaw,
+            'cost_excl_input' => $withCost ? $costRaw : null,
             'action' => $action,
             'existing_item_id' => $existingItemId,
             'errors' => $errors,
@@ -165,6 +179,7 @@ class RentalCatalogueImportDryRunResolver
                 'default_rental_vat_type_id' => $vatTypeId,
                 'default_custom_vat_rate' => $customRate,
                 'default_price' => $defaultPrice,
+                'default_cost' => $defaultCost,
             ],
         ];
     }

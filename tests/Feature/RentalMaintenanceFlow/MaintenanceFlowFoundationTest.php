@@ -310,7 +310,12 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $service->sendBack($wo, $this->admin);
     }
 
-    public function test_the_pricing_service_reads_neutrally_and_refuses_writes_until_build_one(): void
+    /**
+     * Was "reads neutrally and refuses writes until Build 1" — Build 1 (§17.4) has landed, so the shell is now live. What the
+     * foundation promised still holds and is what this pins: a pre-existing, hand-priced line is left EXACTLY as it was by the
+     * resolver, a reprice and a card markup, and no cost is ever invented for it (the full rule set is RentalPricingServiceTest).
+     */
+    public function test_the_pricing_service_leaves_a_legacy_hand_priced_line_exactly_as_it_was(): void
     {
         $pricing = app(RentalPricingService::class);
         $card = $this->makeJobCard();
@@ -320,13 +325,14 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $this->assertSame(450.0, $resolved->unitPrice);
         $this->assertSame(900.0, $resolved->lineTotal);
         $this->assertSame(RentalJobCardLine::BASIS_MANUAL, $resolved->basis);
-        $this->assertSame(0, $pricing->marginFor($card)['linesWithoutCost']);
+        $this->assertSame(2, $pricing->marginFor($card->load('lines'))['linesWithoutCost'], 'both legacy lines have no cost recorded');
 
-        $pricing->repriceCard($card);   // inert
+        $pricing->repriceCard($card);
         $this->assertSame('900.00', $line->fresh()->line_total);
 
-        $this->expectException(\LogicException::class);
-        $pricing->applyJobMarkup($card, 'parts', 20.0, $this->admin);
+        $pricing->applyJobMarkup($card, 'parts', 20.0, $this->admin);   // no longer refuses — and still never touches a typed price
+        $this->assertSame('900.00', $line->fresh()->line_total);
+        $this->assertNull($line->fresh()->cost_total, 'no cost is ever back-filled or invented');
     }
 
     public function test_the_dispute_guard_is_live_since_build_three_and_the_cost_guard_stays_inert(): void
