@@ -13,7 +13,8 @@
         'hub'       => ['Overview',  route('platform-esign.hub')],
         'documents' => ['Documents', route('platform-esign.documents.index')],
         'templates' => ['Templates', route('platform-esign.templates.index')],
-        'send'      => ['Send a contract', route('platform-esign.documents.create')],
+        'agreement' => ['Send Subscription Agreement', route('platform-esign.agreements.create')],
+        'send'      => ['Send another contract', route('platform-esign.documents.create')],
     ];
 @endphp
 <div class="flex flex-wrap gap-1" style="border-bottom: 1px solid var(--border);">

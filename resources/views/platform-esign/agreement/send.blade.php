@@ -1,0 +1,64 @@
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — Send the Subscription Agreement (AT-447 follow-up, spec §11.9). --}}
+@extends('layouts.corex')
+
+@section('corex-content')
+<div class="w-full space-y-5">
+    @include('platform-esign._header', ['title' => 'Send Subscription Agreement', 'tab' => 'agreement',
+        'sub' => 'The CoreX OS Subscription Agreement (' . $version->label() . ') with the debit order mandate — the recipient fills it in, initials every page and signs; you countersign.'])
+
+    <form method="POST" action="{{ route('platform-esign.agreements.store') }}" class="rounded-md p-5 space-y-4 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
+        @csrf
+        @error('send')<div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-crimson-bg, #fef2f2); color: var(--ds-crimson);">{{ $message }}</div>@enderror
+
+        <div class="grid sm:grid-cols-2 gap-4">
+            <div>
+                <label class="ds-label block mb-1" for="name">Recipient full name <span style="color: var(--ds-crimson);">*</span></label>
+                <input id="name" name="name" value="{{ old('name') }}" required maxlength="255" class="ds-field w-full" autocomplete="off">
+                @error('name')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+            </div>
+            <div>
+                <label class="ds-label block mb-1" for="email">Email address <span style="color: var(--ds-crimson);">*</span></label>
+                <input id="email" name="email" type="email" value="{{ old('email') }}" required maxlength="255" class="ds-field w-full" autocomplete="off">
+                @error('email')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+            </div>
+            <div>
+                <label class="ds-label block mb-1" for="cell">Cell number <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                <input id="cell" name="cell" value="{{ old('cell') }}" maxlength="40" class="ds-field w-full" autocomplete="off">
+            </div>
+            <div>
+                <label class="ds-label block mb-1" for="agency_id">Existing agency <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                <select id="agency_id" name="agency_id" class="ds-field w-full">
+                    <option value="">None — a new client</option>
+                    @foreach($agencies as $a)<option value="{{ $a->id }}" @selected((int) old('agency_id', $agencyId) === $a->id)>{{ $a->name }}</option>@endforeach
+                </select>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Pre-fills what the agency record already holds (the recipient can correct it) and ties the signed agreement to its Agency Timeline.</p>
+            </div>
+        </div>
+
+        <div>
+            <label class="ds-label block mb-1" for="note">Short note in the email <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+            <textarea id="note" name="note" rows="2" maxlength="490" class="ds-field w-full">{{ old('note') }}</textarea>
+        </div>
+
+        <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('variation_text') || old('variation_amount')) open @endif>
+            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Agreed variation or discount <span class="font-normal" style="color: var(--text-muted);">(optional — set now, the recipient sees it before signing)</span></summary>
+            <div class="grid sm:grid-cols-3 gap-3 mt-3">
+                <div class="sm:col-span-2">
+                    <label class="ds-label block mb-1" for="variation_text">Describe it</label>
+                    <input id="variation_text" name="variation_text" value="{{ old('variation_text') }}" maxlength="500" class="ds-field w-full">
+                </div>
+                <div>
+                    <label class="ds-label block mb-1" for="variation_amount">Monthly discount (R)</label>
+                    <input id="variation_amount" name="variation_amount" inputmode="decimal" value="{{ old('variation_amount') }}" maxlength="14" class="ds-field w-full">
+                </div>
+            </div>
+            <p class="text-xs mt-2" style="color: var(--text-muted);">Set before sending, so the monthly total and the debit order amount are what the agency actually signs. To change it later, void this one and send again.</p>
+        </details>
+
+        <div class="flex flex-wrap items-center gap-3 pt-1">
+            <button class="corex-btn-primary" type="submit">Send Subscription Agreement</button>
+            <span class="text-xs" style="color: var(--text-muted);">The link is valid for {{ $expiryDays }} days. You can resend it or copy the link afterwards.</span>
+        </div>
+    </form>
+</div>
+@endsection
