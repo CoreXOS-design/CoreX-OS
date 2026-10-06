@@ -296,6 +296,8 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         // §14.28 (rental-work-orders.md) — the landlord is told when the crew marks a job card's work completed (link OR signed copy).
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
+        // §17.10.1 (BUILD 3) — the same crew completion also opens a completion round: the tenant is asked to check the finished work.
+        Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 

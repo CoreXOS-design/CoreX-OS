@@ -273,7 +273,7 @@ class ClientTenantRentalsController extends Controller
             return response()->json(['message' => 'Work order not found.'], 404);
         }
 
-        return response()->json(['work_order' => [
+        return response()->json(['work_order' => array_merge([
             'id' => $order->id,
             'title' => $order->title,
             'status' => $order->status,
@@ -283,7 +283,8 @@ class ClientTenantRentalsController extends Controller
             // Never the quote amount — not the tenant's spend to see.
             // §14.29 — photos of the work (own + linked job card), same visibility rule.
             'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($order)),
-        ]]);
+        // BUILD 3 — §17.3.5: the plain stage, who is doing it, the completion rounds and the open "is this finished?" question.
+        ], app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->payload($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT))]);
     }
 
     public function workOrderConfirm(Request $request, int $workOrder): JsonResponse
@@ -303,10 +304,27 @@ class ClientTenantRentalsController extends Controller
             'note' => 'nullable|string|max:2000',
         ]);
 
-        try {
-            $order->confirmByTenant($contact, (bool) $data['fixed'], $data['note'] ?? null);
-        } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+        // BUILD 3 — §17.10.4: a compatibility alias. With a completion round waiting for this tenant it answers THAT round
+        // (the same rules as the response link and `…/completion-response`); with none open it behaves as before — a
+        // completed work order's plain fixed / not-fixed sign-off.
+        $round = $this->scope->tenantCompletionRound($contact, $order->id);
+        if ($round && $round->isAwaitingTenant()) {
+            try {
+                app(\App\Services\Rentals\RentalCompletionService::class)->respond($round, (bool) $data['fixed'], $data['note'] ?? null, [], [
+                    'contact' => $contact,
+                    'via' => \App\Models\RentalWorkCompletionRound::RESPONDED_PORTAL,
+                    'ip' => $request->ip(),
+                ]);
+            } catch (\InvalidArgumentException|\LogicException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+            $order = $order->fresh();
+        } else {
+            try {
+                $order->confirmByTenant($contact, (bool) $data['fixed'], $data['note'] ?? null);
+            } catch (\LogicException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
         }
 
         return response()->json(['work_order' => [
@@ -348,6 +366,25 @@ class ClientTenantRentalsController extends Controller
         return response()->json(['job_card' => $this->jobCardView->payload($card)]);
     }
 
+    /** @return array{id: int, stage_label: string}|null the fault's work order, in plain words (§17.3.5) */
+    private function workOrderStageFor(RentalFaultReport $fault): ?array
+    {
+        if (! $fault->rental_work_order_id) {
+            return null;
+        }
+        $order = \App\Models\RentalWorkOrder::withoutGlobalScopes()
+            ->where('agency_id', $fault->agency_id)->whereNull('deleted_at')->find($fault->rental_work_order_id);
+        if (! $order) {
+            return null;
+        }
+
+        return [
+            'id' => $order->id,
+            'stage_label' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
+                ->stageLabel($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT),
+        ];
+    }
+
     private function leaseSummary($lease): array
     {
         return [
@@ -366,6 +403,8 @@ class ClientTenantRentalsController extends Controller
             'status' => $fault->status,
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'rental_work_order_id' => $fault->rental_work_order_id,
+            // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.
+            'work_order_stage' => $this->workOrderStageFor($fault),
         ];
     }
 }

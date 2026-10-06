@@ -435,6 +435,10 @@ return [
             // BUILD 2 BEGIN — approvals savers (tolerance, auto-variation mail, external-quote fee)
             // BUILD 2 END
             // BUILD 3 BEGIN — completion-check savers (enabled, window, dispute mail, notify crew)
+            // ONE narrow saver for the four tenant-completion-check settings: each field is written only when it is present
+            // in the request (has()-guarded; the toggles post a hidden "0" companion), so a wizard step that renders a subset
+            // can never wipe the others (onboarding spec §6.1). It refuses 403 itself without rental_work_orders.manage_settings.
+            ['controller' => \App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'method' => 'update'],
             // BUILD 3 END
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
@@ -677,7 +681,23 @@ return [
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals controls
             // BUILD 2 END
-            // BUILD 3 BEGIN — completion-check controls
+            // BUILD 3 BEGIN — completion-check controls (.ai/specs/rental-work-orders.md §17.10, §17.14)
+            ['key' => 'tenant_completion_check_enabled', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Ask the tenant to check finished work',
+             'explain' => 'When your crew (or a contractor) reports a repair job done, CoreX emails the tenant a link to say whether the work is done, or still wrong — with photos if it is wrong. The tenant can answer from the email or from the tenant portal.',
+             'affects' => 'Whether tenants are asked at all. On: a tenant who says the work is not complete puts the job into a "Disputed" state that your office must resolve before it can be closed. Off: nobody is asked and no job ever waits on a tenant. On by default.'],
+            ['key' => 'completion_response_window_days', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 30, 'step' => 1,
+             'label' => 'Days the tenant has to answer',
+             'explain' => 'How many days a tenant has to confirm finished work, or say it is not complete, before CoreX treats their silence as "accepted". The window is fixed when the work is reported done — changing it later never moves a check that is already open.',
+             'affects' => 'How long a finished job sits waiting for a tenant. 5 days suits most agencies — lower it to close jobs sooner, raise it for tenants who are slow to reply. After the window the tenant\'s link says the period has ended, and any later complaint is a new fault report.'],
+            ['key' => 'notify_landlord_on_dispute', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the owner when a tenant says work is not complete',
+             'explain' => 'When a tenant tells you finished work is still wrong, CoreX can email the property owner the tenant\'s words and photos, and tell them your office is arranging a fix.',
+             'affects' => 'Whether the owner hears about a dispute straight away, or only when your agent tells them. On by default — owners usually prefer to hear it from you first.'],
+            ['key' => 'dispute_notify_crew_immediately', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Send a disputed job straight back to the crew',
+             'explain' => 'When a tenant says work is not complete, the office normally looks at the complaint first and presses "Send back to crew". Switch this on and CoreX emails your crew a fresh job link, with the tenant\'s note and photos, the moment the tenant disputes the work.',
+             'affects' => 'Whether a disputed job reaches the crew automatically or waits for an office decision. Off by default so no one is sent back on a complaint the office has not read. A contractor is always sent back by the office, never automatically.'],
             // BUILD 3 END
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,

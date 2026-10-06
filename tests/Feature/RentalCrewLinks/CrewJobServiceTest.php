@@ -334,11 +334,16 @@ final class CrewJobServiceTest extends TestCase
         $card = $this->makeJobCard();
         $this->service->markCompleted($card, 'Sipho Dlamini', true, $this->ctx($card));
 
+        // Build 3 (§17.10.9, defect #1): the card and its work order now close TOGETHER — a work order the owner has not yet
+        // approved for this cost refuses, and the refusal surfaces instead of leaving a closed card on an open work order.
+        $card->workOrder->forceFill(['owner_approval_status' => \App\Models\RentalWorkOrder::APPROVAL_APPROVED])->save();
+
         $card = $card->fresh();
         $card->agentSignOff($this->admin);
         app(\App\Services\Rentals\RentalJobCardService::class)->complete($card->fresh(), $this->admin);
 
         $this->assertSame(RentalJobCard::STATUS_COMPLETED, $card->fresh()->status);
+        $this->assertSame(\App\Models\RentalWorkOrder::STATUS_COMPLETED, $card->fresh()->workOrder->status);
     }
 
     public function test_office_worker_sign_off_is_recorded_as_via_office(): void

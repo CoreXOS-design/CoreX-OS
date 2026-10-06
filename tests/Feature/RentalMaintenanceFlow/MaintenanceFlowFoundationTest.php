@@ -294,14 +294,17 @@ final class MaintenanceFlowFoundationTest extends TestCase
         }
     }
 
-    public function test_the_completion_service_is_inert_until_build_three(): void
+    public function test_the_completion_service_is_live_since_build_three(): void
     {
+        // Build 3 (§17.10) filled this shell: openRound() opens a real round, settleSilent() settles, sendBack() refuses
+        // anything that is not disputed. The behaviour itself is proven in CompletionRoundTest / DisputeLifecycleTest /
+        // SettleSilentRoundsCommandTest — here only that the foundation's "inert" contract is retired.
         $service = app(RentalCompletionService::class);
         $wo = $this->workOrder();
 
-        $this->assertNull($service->openRound($wo, ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']));
-        $this->assertSame(0, $service->settleSilent());
-        $this->assertSame(0, \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()->count());
+        $round = $service->openRound($wo, ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
+        $this->assertSame(1, $round->round_no);
+        $this->assertSame(0, $service->settleSilent(), 'no tenant check was asked, so nothing is due to settle');
 
         $this->expectException(\LogicException::class);
         $service->sendBack($wo, $this->admin);
@@ -326,12 +329,21 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $pricing->applyJobMarkup($card, 'parts', 20.0, $this->admin);
     }
 
-    public function test_the_close_guards_refuse_nothing_in_the_foundation(): void
+    public function test_the_dispute_guard_is_live_since_build_three_and_the_cost_guard_stays_inert(): void
     {
         $guards = app(RentalCloseGuards::class);
         $wo = $this->workOrder(['status' => RentalWorkOrder::STATUS_DISPUTED]);
 
-        $guards->assertNotDisputed($wo);
+        // Build 3 (§17.10.9) — a disputed work order cannot be closed.
+        try {
+            $guards->assertNotDisputed($wo);
+            $this->fail('a disputed work order must not be closable');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('resolve the dispute first', $e->getMessage());
+        }
+        $guards->assertNotDisputed($this->workOrder());   // a normal one passes
+
+        // Build 2 (§17.9.4) has not landed on this branch: the cost guard still refuses nothing.
         $guards->assertFinalCostWithinApproval($wo, 99999.0, $this->admin);
         $this->assertTrue($wo->hasOpenDispute());
         $this->assertFalse($this->workOrder()->hasOpenDispute());
@@ -389,7 +401,7 @@ final class MaintenanceFlowFoundationTest extends TestCase
         }
     }
 
-    public function test_the_tenant_completion_token_purpose_is_never_live_until_build_three(): void
+    public function test_a_tenant_completion_token_with_no_round_is_never_live(): void
     {
         $token = RentalSecureAccessToken::create([
             'agency_id' => $this->agency->id, 'rental_work_order_id' => $this->workOrder()->id,

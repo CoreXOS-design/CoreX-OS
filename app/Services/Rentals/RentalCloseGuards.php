@@ -17,11 +17,16 @@ class RentalCloseGuards
 {
     /**
      * §17.10.9 — refuse to close while a tenant has an OPEN dispute on this work order
-     * (work order status = disputed). Build 3 fills this in.
+     * (work order status = disputed).
      */
     public function assertNotDisputed(RentalWorkOrder $workOrder): void
     {
-        // Inert in the foundation.
+        // BUILD 3 — §17.10.9. Not blocked while a round is merely awaiting the tenant (the office may close and
+        // invoice during the window; a dispute inside the window reopens it, §17.22 Decision 2) — only while
+        // the work order itself is in the disputed stage.
+        if ($workOrder->hasOpenDispute()) {
+            throw new \LogicException('A tenant has reported this work as not complete — resolve the dispute first.');
+        }
     }
 
     /**

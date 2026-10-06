@@ -90,6 +90,38 @@ class RentalJobCardService
                 $property = Property::findOrFail($attributes['property_id']);
             }
 
+            // BUILD 3 BEGIN — §17.3.1: no job card ever exists without its work order. A card created with no work
+            // order named is given one HERE, up front (linked to the fault report when there is one — through
+            // the SAME fromFaultReport() gate every "Create work order" uses), never lazily at "send quote".
+            $createdWorkOrder = null;
+            if (!$workOrder) {
+                if ($faultReport) {
+                    $workOrder = app(RentalWorkOrderService::class)->fromFaultReport($faultReport, $by, [
+                        'title' => $attributes['title'],
+                        'description' => $attributes['access_notes'] ?? $attributes['title'],
+                    ]);
+                    $workOrder->forceFill(['assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL])->save();
+                } else {
+                    $workOrder = RentalWorkOrder::create([
+                        'agency_id' => $property->agency_id,
+                        'branch_id' => $property->branch_id,
+                        'property_id' => $property->id,
+                        'lease_id' => $leaseId,
+                        'assignment_type' => RentalWorkOrder::ASSIGNMENT_INTERNAL,
+                        'title' => $attributes['title'],
+                        'description' => $attributes['title'],
+                        'status' => RentalWorkOrder::STATUS_REPORTED,
+                        'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
+                        'reported_by_user_id' => $by->id,
+                        'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
+                        'reported_at' => now(),
+                        'created_by_user_id' => $by->id,
+                    ]);
+                    $createdWorkOrder = $workOrder;
+                }
+            }
+            // BUILD 3 END
+
             $jobCard = RentalJobCard::create([
                 'agency_id' => $property->agency_id,
                 'branch_id' => $property->branch_id,
@@ -127,6 +159,12 @@ class RentalJobCardService
             }
 
             $jobCard->recalcTotal();
+
+            // BUILD 3 — one creation announcement, same on every path (§17.3.4). A fault-raised work order
+            // announced itself inside fromFaultReport().
+            if ($createdWorkOrder) {
+                app(RentalWorkOrderService::class)->announceCreated($createdWorkOrder);
+            }
 
             return $jobCard->fresh(['tasks.lines', 'lines']);
         });
@@ -174,6 +212,10 @@ class RentalJobCardService
             'reported_at' => now(),
             'created_by_user_id' => $by->id,
         ]);
+
+        // BUILD 3 — §17.3.4 / §17.23 defect #5: this path never fired `rental_work_order.created`. Every creation
+        // path now calls the same announceCreated().
+        app(RentalWorkOrderService::class)->announceCreated($workOrder);
 
         return $this->createJobCard($workOrder, $attributes, $by);
     }
@@ -676,24 +718,31 @@ class RentalJobCardService
         $this->vat->snapshot($jobCard);
         $jobCard->refresh();
 
-        $jobCard->complete($by);
+        // §17.10.9 / §17.23 defect #1 — the card and its work order close TOGETHER or not at all. The
+        // work-order refusal (an open tenant dispute, a missing completed photo, an approval that still
+        // blocks the cost) is no longer swallowed: a silently half-closed job (card closed, work order
+        // open) cannot coexist with the reopen-on-dispute rule. The transaction rolls the card's own close
+        // back, and the caller (controller / mobile) shows the message.
+        try {
+            DB::transaction(function () use ($jobCard, $by) {
+                $jobCard->complete($by);
 
-        $workOrder = $jobCard->workOrder;
-        if ($workOrder && $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED) {
-            try {
-                $workOrder->complete($by, [
-                    'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
-                    // VAT-inclusive — the actual amount the owner pays, same
-                    // figure the quote/threshold already used.
-                    'cost_amount' => $this->vat->inclusiveTotal($jobCard),
-                    'completion_notes' => 'Completed via job card #' . $jobCard->id,
-                ]);
-            } catch (\LogicException) {
-                // e.g. agency requires a completed photo — the job card is
-                // still marked complete (worker+agent both signed off); the
-                // linked work order stays open until that evidence is added
-                // via the existing photo upload on the work order itself.
-            }
+                $workOrder = $jobCard->workOrder;
+                if ($workOrder && $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED) {
+                    $workOrder->complete($by, [
+                        'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
+                        // VAT-inclusive — the actual amount the owner pays, same
+                        // figure the quote/threshold already used.
+                        'cost_amount' => $this->vat->inclusiveTotal($jobCard),
+                        'completion_notes' => 'Completed via job card #' . $jobCard->id,
+                    ]);
+                }
+            });
+        } catch (\Throwable $e) {
+            // The rolled-back close must not linger in the in-memory card the caller still holds.
+            $jobCard->refresh();
+
+            throw $e;
         }
     }
 }

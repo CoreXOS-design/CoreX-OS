@@ -173,9 +173,12 @@ final class RentalJobCardRebuildTest extends TestCase
         $this->assertTrue($jobCard->generalLines()->get()->contains($line));
     }
 
-    // ── No stray work order — the thing Johan actually reported ─────────
+    // ── Work order up front (Build 3, §17.3.1) — supersedes "no stray work order" ──
+    // The 2026-10-05 rule was "a job card never creates a work order"; Johan's 6 Oct 2026 ruling reverses it: there is ONE
+    // creation form and no job card ever exists without its work order. What survives from the rebuild is the OTHER half
+    // of the complaint — a card never creates a SECOND work order, and an existing one is linked, never duplicated.
 
-    public function test_createStandalone_with_no_source_creates_no_work_order(): void
+    public function test_createStandalone_with_no_source_creates_its_work_order_up_front(): void
     {
         $before = RentalWorkOrder::count();
 
@@ -183,10 +186,11 @@ final class RentalJobCardRebuildTest extends TestCase
             'property_id' => $this->property->id, 'title' => 'Garden service',
         ], $this->admin);
 
-        $this->assertNull($jobCard->rental_work_order_id);
+        $this->assertNotNull($jobCard->rental_work_order_id);
         $this->assertNull($jobCard->rental_fault_report_id);
-        $this->assertFalse($jobCard->hasSource());
-        $this->assertSame($before, RentalWorkOrder::count());
+        $this->assertTrue($jobCard->hasSource());
+        $this->assertSame($before + 1, RentalWorkOrder::count());
+        $this->assertSame(RentalWorkOrder::ASSIGNMENT_INTERNAL, $jobCard->workOrder->assignment_type);
     }
 
     public function test_createStandalone_with_an_existing_work_order_links_it_and_creates_no_second_one(): void
@@ -203,7 +207,7 @@ final class RentalJobCardRebuildTest extends TestCase
         $this->assertSame($before, RentalWorkOrder::count()); // linked, never duplicated
     }
 
-    public function test_createStandalone_from_a_fault_report_with_no_prior_work_order_links_the_fault_report_only(): void
+    public function test_createStandalone_from_a_fault_report_with_no_prior_work_order_raises_it_through_the_one_gate(): void
     {
         $faultReport = $this->faultReport();
         $before = RentalWorkOrder::count();
@@ -213,11 +217,13 @@ final class RentalJobCardRebuildTest extends TestCase
         ], $this->admin);
 
         $this->assertSame($faultReport->id, $jobCard->rental_fault_report_id);
-        $this->assertNull($jobCard->rental_work_order_id);
-        $this->assertSame($before, RentalWorkOrder::count());
+        $this->assertNotNull($jobCard->rental_work_order_id);
+        $this->assertSame($before + 1, RentalWorkOrder::count());
+        $this->assertSame($jobCard->rental_work_order_id, $faultReport->fresh()->rental_work_order_id);
+        $this->assertSame(RentalFaultReport::STATUS_WORK_ORDER_RAISED, $faultReport->fresh()->status);
     }
 
-    public function test_http_store_with_no_source_creates_the_job_card_and_zero_work_orders(): void
+    public function test_http_store_with_no_source_creates_the_job_card_and_exactly_one_work_order(): void
     {
         $workOrdersBefore = RentalWorkOrder::count();
         $jobCardsBefore = RentalJobCard::count();
@@ -228,10 +234,10 @@ final class RentalJobCardRebuildTest extends TestCase
         ])->assertRedirect();
 
         $this->assertSame($jobCardsBefore + 1, RentalJobCard::count());
-        $this->assertSame($workOrdersBefore, RentalWorkOrder::count());
+        $this->assertSame($workOrdersBefore + 1, RentalWorkOrder::count());
         $jobCard = RentalJobCard::firstWhere('title', 'ZZ TEST garden service');
         $this->assertNotNull($jobCard);
-        $this->assertNull($jobCard->rental_work_order_id);
+        $this->assertNotNull($jobCard->rental_work_order_id);
     }
 
     public function test_http_store_builds_tasks_and_their_own_lines_and_general_lines_in_one_transaction(): void
@@ -282,28 +288,44 @@ final class RentalJobCardRebuildTest extends TestCase
         $this->assertSame('Real task', $jobCard->tasks->first()->description);
     }
 
-    // ── sendToOwnerAsQuote() lazily creates the ONE deliberate exception ──
+    // ── sendToOwnerAsQuote() never creates ANOTHER work order (the card already has its own, §17.3.1) ──
 
-    public function test_sending_a_quote_from_a_no_source_job_card_creates_exactly_one_work_order_only_then(): void
+    public function test_sending_a_quote_never_creates_a_second_work_order(): void
     {
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true]);
         $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
         app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 100], $this->admin);
 
         $before = RentalWorkOrder::count();
-        $this->assertNull($jobCard->rental_work_order_id);
+        $this->assertNotNull($jobCard->rental_work_order_id, 'the work order exists from the first save');
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))->assertRedirect();
 
         $jobCard->refresh();
-        $this->assertSame($before + 1, RentalWorkOrder::count());
-        $this->assertNotNull($jobCard->rental_work_order_id);
+        $this->assertSame($before, RentalWorkOrder::count());
 
         // Sending a SECOND quote never creates yet another work order.
         app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Extra', 'quantity' => 1, 'unit_price' => 50], $this->admin);
         $jobCard->forceFill(['status' => RentalJobCard::STATUS_DRAFT])->save();
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))->assertRedirect();
+        $this->assertSame($before, RentalWorkOrder::count());
+    }
+
+    public function test_a_legacy_card_with_no_work_order_still_gets_one_lazily_at_send_quote(): void
+    {
+        // The safety net (§17.3.1): rows created BEFORE "no card without its work order" may have none.
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true]);
+        $legacy = RentalJobCard::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'title' => 'Legacy job', 'status' => RentalJobCard::STATUS_DRAFT, 'created_by_user_id' => $this->admin->id,
+        ]);
+        app(RentalJobCardService::class)->addLine($legacy, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 100], $this->admin);
+        $before = RentalWorkOrder::count();
+
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $legacy))->assertRedirect();
+
         $this->assertSame($before + 1, RentalWorkOrder::count());
+        $this->assertNotNull($legacy->fresh()->rental_work_order_id);
     }
 
     // ── Photos work with no linked work order ────────────────────────────
@@ -311,7 +333,11 @@ final class RentalJobCardRebuildTest extends TestCase
     public function test_photos_can_be_stored_on_a_job_card_with_no_linked_work_order(): void
     {
         \Illuminate\Support\Facades\Storage::fake('public');
-        $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
+        // A legacy row (created before every card got its work order up front) — photos must still work on it.
+        $jobCard = RentalJobCard::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'title' => 'Legacy job', 'status' => RentalJobCard::STATUS_DRAFT, 'created_by_user_id' => $this->admin->id,
+        ]);
         $this->assertNull($jobCard->rental_work_order_id);
 
         $file = \Illuminate\Http\UploadedFile::fake()->image('before.jpg');
@@ -322,34 +348,28 @@ final class RentalJobCardRebuildTest extends TestCase
         $this->assertCount(1, $jobCard->photos()->get());
     }
 
-    // ── Source pre-seeds a draft task on the create screen ───────────────
+    // ── "New Job Card" is now an alias for the one creation form (Build 3, §17.3.1) ──
 
-    public function test_create_screen_preseeds_a_draft_task_from_a_fault_report(): void
+    public function test_the_create_url_with_a_fault_report_hands_over_to_the_fault_reports_own_form(): void
     {
         $faultReport = $this->faultReport(['title' => 'Geyser dripping']);
 
-        $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.create', ['fault_report_id' => $faultReport->id]));
-
-        $response->assertOk();
-        $response->assertSee('Geyser dripping', false);
+        $this->actingAs($this->admin)->get(route('corex.rental-job-cards.create', ['fault_report_id' => $faultReport->id]))
+            ->assertRedirect(route('corex.rental-fault-reports.show', $faultReport));
     }
 
-    public function test_create_screen_preseeds_a_draft_task_from_an_existing_work_order(): void
+    public function test_the_create_url_with_an_existing_work_order_goes_to_that_work_order(): void
     {
         $workOrder = $this->existingWorkOrder(['title' => 'Replace gutter']);
 
-        $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.create', ['rental_work_order_id' => $workOrder->id]));
-
-        $response->assertOk();
-        $response->assertSee('Replace gutter', false);
+        $this->actingAs($this->admin)->get(route('corex.rental-job-cards.create', ['rental_work_order_id' => $workOrder->id]))
+            ->assertRedirect(route('corex.rental-work-orders.show', $workOrder));
     }
 
-    public function test_create_screen_with_no_source_shows_created_directly(): void
+    public function test_the_create_url_with_no_source_opens_the_work_order_form_with_internal_preselected(): void
     {
-        $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.create', ['property_id' => $this->property->id]));
-
-        $response->assertOk();
-        $response->assertSee('No source — created directly.', false);
+        $this->actingAs($this->admin)->get(route('corex.rental-job-cards.create', ['property_id' => $this->property->id]))
+            ->assertRedirect(route('corex.rental-work-orders.create', ['property_id' => $this->property->id, 'assignment_type' => 'internal']));
     }
 
     // ── Agency isolation on the two new source FKs ───────────────────────

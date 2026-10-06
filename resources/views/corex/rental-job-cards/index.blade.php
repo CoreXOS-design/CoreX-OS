@@ -16,7 +16,7 @@
     $sortMark = fn ($col) => $sort === $col ? ($direction === 'asc' ? ' ▲' : ' ▼') : '';
     $statusBadge = fn ($status) => match ($status) {
         'completed' => 'ds-badge-success',
-        'cancelled' => 'ds-badge-danger',
+        'cancelled', 'disputed' => 'ds-badge-danger',
         'draft' => 'ds-badge-muted',
         default => 'ds-badge-info',
     };
@@ -29,6 +29,7 @@
         ['key' => 'approved', 'label' => 'Approved', 'value' => $tileCounts['approved']],
         ['key' => 'scheduled', 'label' => 'Scheduled', 'value' => $tileCounts['scheduled']],
         ['key' => 'in_progress', 'label' => 'In progress', 'value' => $tileCounts['in_progress']],
+        ['key' => 'disputed', 'label' => 'Disputed', 'value' => $tileCounts['disputed'] ?? 0],
         ['key' => 'overdue', 'label' => 'Overdue', 'value' => $tileCounts['overdue']],
         ['key' => 'completed', 'label' => 'Completed', 'value' => $tileCounts['completed']],
         ['key' => 'cancelled', 'label' => 'Cancelled', 'value' => $tileCounts['cancelled']],

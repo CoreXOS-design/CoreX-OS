@@ -634,6 +634,10 @@ class AgencySetupWizardController extends Controller
                     // BUILD 2 BEGIN — approvals keys
                     // BUILD 2 END
                     // BUILD 3 BEGIN — completion-check keys
+                    'tenant_completion_check_enabled' => \App\Models\RentalWorkOrderSetting::tenantCompletionCheckEnabledFor($agency->id),
+                    'completion_response_window_days' => \App\Models\RentalWorkOrderSetting::completionResponseWindowDaysFor($agency->id),
+                    'notify_landlord_on_dispute' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnDisputeFor($agency->id),
+                    'dispute_notify_crew_immediately' => \App\Models\RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($agency->id),
                     // BUILD 3 END
                     default => $control['default'] ?? null,
                 },

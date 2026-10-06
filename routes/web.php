@@ -70,6 +70,14 @@ Route::prefix('secure/job-cards/{token}')->middleware('throttle:30,1')->group(fu
     Route::post('/complete', [\App\Http\Controllers\CrewJobLinkController::class, 'complete'])->name('rentals.crew-job.complete');
 });
 
+// BUILD 3 BEGIN — tenant completion response link (public, no auth) — .ai/specs/rental-work-orders.md §17.10.3/§17.10.4.
+// ONE live link per completion round; the token IS the round. Same throttle doctrine as the crew links above.
+Route::prefix('secure/completion/{token}')->middleware('throttle:30,1')->group(function () {
+    Route::get('/', [\App\Http\Controllers\CompletionResponseController::class, 'show'])->name('rentals.completion.show');
+    Route::post('/', [\App\Http\Controllers\CompletionResponseController::class, 'respond'])->name('rentals.completion.respond');
+});
+// BUILD 3 END
+
 // ── Tenant/Landlord Portal web shell (public page, session auth via Alpine+fetch) — AT-445 ──
 Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController::class, 'show'])
     ->where('any', '.*')
@@ -3974,6 +3982,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // BUILD 2 BEGIN — approvals & external flow: routes (.ai/specs/rental-work-orders.md §17.21.5)
     // BUILD 2 END
     // BUILD 3 BEGIN — flow, completion check & dispute: routes (.ai/specs/rental-work-orders.md §17.21.5)
+    // §17.9.6 / §17.10 — the office's completion-check actions, all behind `rental_work_orders.manage_completion`
+    // (route middleware here, scope guard + the same key in the controller). No sidebar entry of their own: they are
+    // buttons on the work order and the job card, where the work is.
+    Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.manage_completion')->group(function () {
+        Route::post('/{rentalWorkOrder}/contractor-done', [\App\Http\Controllers\CoreX\RentalWorkOrderCompletionController::class, 'contractorDone'])
+            ->name('corex.rental-work-orders.contractor-done');
+        Route::post('/{rentalWorkOrder}/completion-rounds/{round}/answer', [\App\Http\Controllers\CoreX\RentalWorkOrderCompletionController::class, 'recordTenantAnswer'])
+            ->whereNumber('round')->name('corex.rental-work-orders.completion-rounds.answer');
+        Route::post('/{rentalWorkOrder}/send-back', [\App\Http\Controllers\CoreX\RentalWorkOrderCompletionController::class, 'sendBack'])
+            ->name('corex.rental-work-orders.send-back');
+    });
+    // §17.14 — the four completion-check settings (Settings → Rental Work Orders; also a Setup Wizard saver).
+    Route::post('/settings/rental-work-orders/completion-check', [\App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'update'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.completion-check');
     // BUILD 3 END
 
     // AT-442 — the agency's own parts & labour catalogue. Settings-area

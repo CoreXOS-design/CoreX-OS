@@ -144,7 +144,8 @@ final class RentalJobCardLifecycleTest extends TestCase
         $this->assertNotNull($jobCard);
         $this->assertSame(RentalWorkOrder::ASSIGNMENT_INTERNAL, $jobCard->workOrder->assignment_type);
         $this->assertSame($faultReport->id, $jobCard->workOrder->reported_fault_report_id);
-        $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $jobCard->workOrder->owner_approval_status);
+        // §17.3.3 — no inherited approval: the work order starts not_required (decided later by the quote / owner / limit).
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $jobCard->workOrder->owner_approval_status);
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────

@@ -30,7 +30,7 @@ class RentalJobCardListQuery
     public const PER_PAGE = 25;
 
     /** Workflow order, so sorting by status groups cards the way the job actually moves. */
-    private const STATUS_ORDER = ['draft', 'quoted', 'approved', 'scheduled', 'in_progress', 'completed', 'cancelled'];
+    private const STATUS_ORDER = ['draft', 'quoted', 'approved', 'scheduled', 'in_progress', 'disputed', 'completed', 'cancelled'];
 
     /** @var array<int, bool> agency id => capture-prices setting, memoised per query object */
     private array $pricesOn = [];

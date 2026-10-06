@@ -98,6 +98,55 @@ class RentalWorkCompletionRound extends Model
         return $this->outcome === self::OUTCOME_AWAITING_TENANT;
     }
 
+    /** How the work was reported done, in words ("crew link", "signed copy", …). */
+    public function reportedViaLabel(): string
+    {
+        return match ($this->reported_via) {
+            self::VIA_CREW_LINK => 'crew link',
+            self::VIA_CREW_PAGE => 'crew page',
+            self::VIA_SIGNED_COPY => 'signed copy',
+            self::VIA_CONTRACTOR_CAPTURED => 'captured from the contractor',
+            default => 'recorded by the office',
+        };
+    }
+
+    /** How the tenant's answer arrived ("response link", "portal", "recorded by the office"), or null before an answer. */
+    public function respondedViaLabel(): ?string
+    {
+        return match ($this->responded_via) {
+            self::RESPONDED_LINK => 'response link',
+            self::RESPONDED_PORTAL => 'tenant portal',
+            self::RESPONDED_OFFICE_ON_BEHALF => 'recorded by the office',
+            default => null,
+        };
+    }
+
+    /**
+     * §17.10 — one plain sentence for the office: where this round stands. Used on the work order, the job card and
+     * the lease hub, so they can never word it differently.
+     */
+    public function statusText(?string $timezone = null): string
+    {
+        $tz = $timezone ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $on = fn ($at) => $at ? $at->copy()->setTimezone($tz)->format('j M Y') : '';
+
+        return match ($this->outcome) {
+            self::OUTCOME_CONFIRMED => 'Tenant confirmed the work is done (' . $on($this->responded_at) . ', ' . ($this->respondedViaLabel() ?? 'answered') . ')',
+            self::OUTCOME_DISPUTED => 'Tenant said the work is NOT complete (' . $on($this->responded_at) . ')',
+            self::OUTCOME_ACCEPTED_BY_SILENCE => 'Accepted — no response by ' . $on($this->window_ends_at),
+            self::OUTCOME_NO_TENANT => $this->tenant_notify_status === self::NOTIFY_DISABLED
+                ? 'No tenant check — switched off for this agency'
+                : 'No tenant check — nobody is living at the property',
+            default => 'Waiting for the tenant — answer due ' . ($this->window_ends_at ? $on($this->window_ends_at) : 'soon')
+                . match ($this->tenant_notify_status) {
+                    self::NOTIFY_SENT => ' (emailed ' . $on($this->tenant_notified_at) . ')',
+                    self::NOTIFY_NO_EMAIL => ' — the tenant has no email on file: record their answer by phone',
+                    self::NOTIFY_FAILED => ' — the email could not be sent: record their answer by phone',
+                    default => '',
+                },
+        };
+    }
+
     public function scopeAwaitingTenant($query)
     {
         return $query->where($query->getModel()->getTable() . '.outcome', self::OUTCOME_AWAITING_TENANT);

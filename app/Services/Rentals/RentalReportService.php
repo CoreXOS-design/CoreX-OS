@@ -80,8 +80,11 @@ class RentalReportService
             RentalWorkOrder::STATUS_REPORTED,
             RentalWorkOrder::STATUS_ORDERED,
             RentalWorkOrder::STATUS_IN_PROGRESS,
+            RentalWorkOrder::STATUS_DISPUTED,
         ]],
         'in_progress' => ['label' => 'In progress', 'statuses' => [RentalWorkOrder::STATUS_IN_PROGRESS]],
+        // §17.17 (BUILD 3) — a tenant said finished work is not complete; the office must resolve it.
+        'disputed' => ['label' => 'Disputed', 'statuses' => [RentalWorkOrder::STATUS_DISPUTED]],
         // "overdue" is not a status — it's computed (open + reported_at older than the
         // agency's own overdue_reminder_days setting, RentalWorkOrder::scopeOverdue()).
         'overdue' => ['label' => 'Overdue', 'statuses' => [], 'overdue' => true],
@@ -318,7 +321,8 @@ class RentalReportService
 
         $query = RentalWorkOrder::query()
             ->visibleTo($user, $scope)
-            ->with(['property', 'lease.tenants.contact', 'supplier', 'quotes']);
+            // BUILD 3 — §17.17: completion rounds, variations and (for margin) the job card, loaded once for the whole report.
+            ->with(['property', 'lease.tenants.contact', 'supplier', 'quotes', 'completionRounds', 'variations', 'jobCard']);
 
         if ($period['from']) {
             $query->where('reported_at', '>=', $period['from']);
@@ -397,14 +401,24 @@ class RentalReportService
             default => null,
         };
 
-        $rows = $orders->map(function (RentalWorkOrder $w) {
+        // BUILD 3 — §17.17: cost and margin are the agency's own and need `rental_job_cards.view_costs`; without it
+        // the margin columns are not just hidden, they are never built.
+        $canViewCosts = $user->hasPermission('rental_job_cards.view_costs');
+        $pricing = $canViewCosts ? app(RentalPricingService::class) : null;
+
+        $rows = $orders->map(function (RentalWorkOrder $w) use ($canViewCosts, $pricing) {
             $selectedQuote = $w->quotes->firstWhere('is_selected', true);
             $amount = $selectedQuote?->amount ?? $w->cost_amount;
             $daysOpen = $w->reported_at
                 ? ($w->completed_at ?? $w->cancelled_at ?? now())->diffInDays($w->reported_at)
                 : null;
 
-            return [
+            $liveVariations = $w->variations->where('status', '!=', \App\Models\RentalWorkOrderVariation::STATUS_WITHDRAWN);
+            $agreedExtra = $liveVariations->whereIn('status', [
+                \App\Models\RentalWorkOrderVariation::STATUS_APPROVED, \App\Models\RentalWorkOrderVariation::STATUS_AUTO_APPROVED,
+            ])->sum('extra_amount');
+
+            $row = [
                 '_model' => $w,
                 'date_raised' => optional($w->reported_at)->format('Y-m-d'),
                 'property' => $w->property?->buildDisplayAddress() ?? '—',
@@ -414,7 +428,23 @@ class RentalReportService
                 'status' => $this->humanize($w->status),
                 'paid_by' => $w->paid_by ? $this->humanize($w->paid_by) : '—',
                 'days_open' => $daysOpen,
+                // BUILD 3 — the approval basis (an emergency shows as such), variations, tenant-check rounds and disputes.
+                'approval_basis' => $w->approvalBasisLabel() ?? '—',
+                'variation_count' => $liveVariations->count(),
+                'variation_extra_amount' => $agreedExtra > 0 ? (float) $agreedExtra : null,
+                'rounds' => $w->completionRounds->count(),
+                'disputes' => $w->completionRounds->where('outcome', \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED)->count(),
             ];
+
+            if ($canViewCosts) {
+                // Margin only for an internal job whose card carries a recorded cost (excl-VAT basis); blank — never a forced zero.
+                $card = $w->jobCard;
+                $margin = $card && $card->total_cost !== null ? $pricing->marginFor($card) : null;
+                $row['margin_amount'] = $margin ? (float) $margin['marginExcl'] : null;
+                $row['margin_pct'] = $margin && $margin['marginPct'] !== null ? (float) $margin['marginPct'] : null;
+            }
+
+            return $row;
         });
 
         $sort = $params['sort'] ?? 'date_raised';
@@ -423,13 +453,23 @@ class RentalReportService
 
         [$rows, $groups] = $this->applyGrouping($rows, $params['group_by'] ?? null, $groupLabel);
 
+        $columns = [
+            'date_raised' => 'Date raised', 'property' => 'Property', 'supplier' => 'Supplier',
+            'trade' => 'Trade', 'quoted_amount' => 'Quoted amount', 'status' => 'Status',
+            'paid_by' => 'Paid by', 'days_open' => 'Days open',
+            'approval_basis' => 'Approval basis', 'variation_count' => 'Variations', 'variation_extra_amount' => 'Extra agreed (R)',
+            'rounds' => 'Tenant checks', 'disputes' => 'Disputes',
+        ];
+        $sumKeys = ['quoted_amount', 'days_open', 'variation_count', 'variation_extra_amount', 'rounds', 'disputes'];
+        if ($canViewCosts) {
+            $columns['margin_amount'] = 'Margin (R, excl VAT)';
+            $columns['margin_pct'] = 'Margin %';
+            $sumKeys[] = 'margin_amount';
+        }
+
         return [
-            'columns' => [
-                'date_raised' => 'Date raised', 'property' => 'Property', 'supplier' => 'Supplier',
-                'trade' => 'Trade', 'quoted_amount' => 'Quoted amount', 'status' => 'Status',
-                'paid_by' => 'Paid by', 'days_open' => 'Days open',
-            ],
-            'sumKeys' => ['quoted_amount', 'days_open'],
+            'columns' => $columns,
+            'sumKeys' => $sumKeys,
             'rows' => $rows,
             'groups' => $groups,
             'count' => $orders->count(),

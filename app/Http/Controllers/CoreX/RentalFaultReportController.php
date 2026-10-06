@@ -521,19 +521,14 @@ class RentalFaultReportController extends Controller
     }
 
     /**
-     * Stage 4 — §3a.1/§0c, the agency_appoints route. Only valid once this
-     * fault report has already been approved that way; RentalFaultReport
-     * itself has no method to reach a mandatory work order because none
-     * exists — this is one specific agency's choice to make on one
-     * specific approved report, not a required step.
-     */
-    /**
-     * AT-442 req #4 — one click, pre-filled with property/lease/fault/
-     * description. assignment_type decides which path: outside_supplier
-     * (unchanged) or internal (creates the linked job card in the same
-     * action, via RentalJobCardService::createFromFaultReport() — which
-     * itself calls THIS SAME RentalWorkOrderService::fromFaultReport(),
-     * never a second implementation of the agency_appoints route).
+     * §17.3 (R0) — ONE "Create work order" action. Who does the work: Internal crew (the default) creates the work
+     * order AND its draft job card in one go and lands on the job card; External contractor creates the work order only
+     * (no job card) and lands on the work order. Either way the gate is {@see RentalFaultReport::workOrderBlockReason()}:
+     * allowed from a fault that is reported, awaiting approval, or approved (agency appoints) — not once the owner has
+     * declined it or is handling it themselves. Permission stays `rental_fault_reports.raise_work_order`.
+     *
+     * AT-442 req #4 — one click, pre-filled with property/lease/fault/description; both paths go through
+     * RentalWorkOrderService::fromFaultReport(), never a second implementation of the rules.
      */
     public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
@@ -548,13 +543,15 @@ class RentalFaultReportController extends Controller
                 \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
             ])],
         ]);
+        // §17.3.1 — Internal crew is the default when the choice is not posted.
+        $validated['assignment_type'] = $validated['assignment_type'] ?? \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
 
         try {
-            if (($validated['assignment_type'] ?? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            if ($validated['assignment_type'] === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) {
                 $jobCard = app(\App\Services\Rentals\RentalJobCardService::class)
                     ->createFromFaultReport($rentalFaultReport, $validated, $request->user());
 
-                return redirect()->route('corex.rental-job-cards.show', $jobCard)->with('success', 'Work order raised — job card created.');
+                return redirect()->route('corex.rental-job-cards.show', $jobCard)->with('success', 'Work order created — job card ready for the crew.');
             }
 
             $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
@@ -562,7 +559,7 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order raised.');
+        return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order created.');
     }
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
