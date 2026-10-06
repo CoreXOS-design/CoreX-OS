@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — clause-level editor for one section of a draft (spec §11.13). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — clause-level editor for one section of a draft (spec §11.14). --}}
 @extends('layouts.corex')
 
 @section('corex-content')

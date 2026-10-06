@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — read / manage one version of the Subscription Agreement wording (spec §11.13). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — read / manage one version of the Subscription Agreement wording (spec §11.14). --}}
 @extends('layouts.corex')
 
 @section('corex-content')

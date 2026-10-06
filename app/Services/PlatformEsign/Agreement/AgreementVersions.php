@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * The wording editor's engine (spec §11.13): drafts copied from a published version, clause-level section saves,
+ * The wording editor's engine (spec §11.14): drafts copied from a published version, clause-level section saves,
  * rates, publish (immutable from then on), discard / restore of drafts, audit, and "what changed" between two versions.
  * Every rule that protects a sent agreement lives here, not in a controller: published versions are never touched,
  * field markers can't be removed, and every change is attributed.

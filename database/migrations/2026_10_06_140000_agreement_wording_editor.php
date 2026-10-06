@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * AT-447 follow-up, phase (d) — Subscription Agreement wording editor + versions.
- * Spec: .ai/specs/agency-timeline-and-platform-esign.md §11.13. Additive only.
+ * Spec: .ai/specs/agency-timeline-and-platform-esign.md §11.14. Additive only.
  */
 return new class extends Migration
 {

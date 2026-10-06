@@ -22,15 +22,34 @@ use App\Models\RentalWorkOrder;
  * method here explicitly strips it and filters by `agency_id` manually,
  * exactly like ClientAuthService's own sanctioned bypasses.
  *
+ * withoutGlobalScopes() also strips SoftDeletes, so EVERY query here pins
+ * `deleted_at IS NULL` explicitly: an archived record is neither listed nor
+ * openable by id from the portal — it 404s exactly like an out-of-scope one.
+ *
  * A Contact passed in here is always the one already resolved for the
  * caller's own current agency (ClientPortalController::resolveContact()
  * equivalent) — never a client-supplied id.
  */
 class RentalPortalScopeService
 {
+    /**
+     * The tenant's own live leases. An archived lease is not a lease the portal
+     * can see, so every tenant lookup below that keys off these ids (lease,
+     * faults, work orders, inspections, inventories, job cards) drops with it.
+     */
     public function tenantLeaseIds(Contact $contact): array
     {
-        return LeaseTenant::query()->where('contact_id', $contact->id)->pluck('lease_id')->all();
+        $ids = LeaseTenant::query()->where('contact_id', $contact->id)->pluck('lease_id')->all();
+        if (!$ids) {
+            return [];
+        }
+
+        return Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->all();
     }
 
     public function isTenant(Contact $contact): bool
@@ -60,6 +79,7 @@ class RentalPortalScopeService
 
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->find($leaseId);
     }
 
@@ -68,6 +88,7 @@ class RentalPortalScopeService
     {
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('id', $this->tenantLeaseIds($contact))
             ->orderByDesc('id')
             ->get();
@@ -78,6 +99,7 @@ class RentalPortalScopeService
     {
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('id', $this->tenantLeaseIds($contact))
             ->pluck('property_id')
             ->unique()
@@ -89,12 +111,37 @@ class RentalPortalScopeService
         return in_array($propertyId, $this->tenantPropertyIds($contact), true);
     }
 
+    /** One of the tenant's own live properties (via a live lease), or null — archived properties 404 too. */
+    public function tenantProperty(Contact $contact, int $propertyId): ?\App\Models\Property
+    {
+        if (!$this->tenantOwnsProperty($contact, $propertyId)) {
+            return null;
+        }
+
+        return \App\Models\Property::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->find($propertyId);
+    }
+
+    /** The tenant's own live lease on this property, for attaching a new fault report. */
+    public function tenantLeaseIdForProperty(Contact $contact, int $propertyId): ?int
+    {
+        return Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->where('property_id', $propertyId)
+            ->whereIn('id', $this->tenantLeaseIds($contact))
+            ->value('id');
+    }
+
     public function tenantFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
     {
         $leaseIds = $this->tenantLeaseIds($contact);
 
         return RentalFaultReport::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('lease_id', $leaseIds)
             ->find($faultReportId);
     }
@@ -103,6 +150,7 @@ class RentalPortalScopeService
     {
         return RentalFaultReport::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('lease_id', $this->tenantLeaseIds($contact))
             ->orderByDesc('reported_at')
             ->get();
@@ -112,6 +160,7 @@ class RentalPortalScopeService
     {
         return RentalWorkOrder::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('lease_id', $this->tenantLeaseIds($contact))
             ->find($workOrderId);
     }
@@ -120,6 +169,7 @@ class RentalPortalScopeService
     {
         return RentalInspection::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('lease_id', $this->tenantLeaseIds($contact))
             ->orderByDesc('id')
             ->get();
@@ -129,6 +179,7 @@ class RentalPortalScopeService
     {
         return RentalInventory::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('lease_id', $this->tenantLeaseIds($contact))
             ->get();
     }
@@ -143,6 +194,7 @@ class RentalPortalScopeService
     {
         return Document::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('documents.deleted_at')
             ->where('tenant_portal_visible', true)
             ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
             ->orderByDesc('id')
@@ -157,6 +209,7 @@ class RentalPortalScopeService
 
         return \App\Models\Property::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->find($propertyId);
     }
 
@@ -164,6 +217,7 @@ class RentalPortalScopeService
     {
         return \App\Models\Property::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
             ->get();
@@ -174,8 +228,63 @@ class RentalPortalScopeService
     {
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
+            ->get();
+    }
+
+    /** Every live lease (current + past) on ONE of the landlord's own properties. */
+    public function landlordPropertyLeases(Contact $contact, int $propertyId)
+    {
+        return Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->where('property_id', $propertyId)
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    /** The live active lease on one of the landlord's own properties, for attaching a new fault report. */
+    public function landlordActiveLeaseId(Contact $contact, int $propertyId): ?int
+    {
+        return Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->where('property_id', $propertyId)
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->value('id');
+    }
+
+    public function landlordFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
+    {
+        return RentalFaultReport::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->find($faultReportId);
+    }
+
+    /** Live fault reports and work orders waiting on THIS landlord's decision (the "needs my decision" list). */
+    public function landlordPendingFaultReports(Contact $contact)
+    {
+        return RentalFaultReport::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->where('owner_approval_status', RentalFaultReport::APPROVAL_PENDING)
+            ->get();
+    }
+
+    public function landlordPendingWorkOrders(Contact $contact)
+    {
+        return RentalWorkOrder::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('property_id', $this->landlordPropertyIds($contact))
+            ->where('owner_approval_status', RentalWorkOrder::APPROVAL_PENDING)
             ->get();
     }
 
@@ -183,6 +292,7 @@ class RentalPortalScopeService
     {
         return RentalFaultReport::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('reported_at')
             ->get();
@@ -192,6 +302,7 @@ class RentalPortalScopeService
     {
         return RentalWorkOrder::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->find($workOrderId);
     }
@@ -200,6 +311,7 @@ class RentalPortalScopeService
     {
         return RentalWorkOrder::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
             ->get();
@@ -209,6 +321,7 @@ class RentalPortalScopeService
     {
         return RentalInspection::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
             ->get();
@@ -218,6 +331,7 @@ class RentalPortalScopeService
     {
         return Document::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
+            ->whereNull('documents.deleted_at')
             ->where('landlord_portal_visible', true)
             ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
             ->orderByDesc('id')

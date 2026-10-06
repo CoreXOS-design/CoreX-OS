@@ -9,7 +9,7 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-/** To the RR signer: an agency-signed agreement is still waiting for the countersignature. Names and a link only (spec §11.13). */
+/** To the RR signer: an agency-signed agreement is still waiting for the countersignature. Names and a link only (spec §11.14). */
 class AgreementCountersignReminderMail extends Mailable
 {
     use Queueable, SerializesModels;

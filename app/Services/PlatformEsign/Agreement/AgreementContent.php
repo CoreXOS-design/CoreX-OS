@@ -25,7 +25,7 @@ class AgreementContent
 
     /**
      * Idempotent: makes sure the template + the seed version 1.0 exist, and returns the CURRENT published version
-     * (v1.0 until the owner publishes a newer one in the wording editor, spec §11.13). Safe on every request.
+     * (v1.0 until the owner publishes a newer one in the wording editor, spec §11.14). Safe on every request.
      */
     public function ensureSeeded(?int $userId = null): WordingVersion
     {

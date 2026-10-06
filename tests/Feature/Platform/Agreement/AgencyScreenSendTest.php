@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * Send the Subscription Agreement from the agency's own screen — spec §11.13: button, pre-filled recipient,
+ * Send the Subscription Agreement from the agency's own screen — spec §11.14: button, pre-filled recipient,
  * status on the agency screen, one-click re-issue after expiry.
  */
 class AgencyScreenSendTest extends TestCase

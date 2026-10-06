@@ -554,6 +554,6 @@ Schedule::command('minion:capture --cycle --by=schedule')
     ->withoutOverlapping()
     ->onOneServer();
 
-// Platform E-Sign — Subscription Agreement: expire lapsed links, remind the agency and RR (spec §11.13). Hourly; the thresholds
+// Platform E-Sign — Subscription Agreement: expire lapsed links, remind the agency and RR (spec §11.14). Hourly; the thresholds
 // are platform settings (Platform E-Sign → Agreement wording), not constants.
 Schedule::command('platform-esign:remind-agreements')->hourly()->withoutOverlapping();

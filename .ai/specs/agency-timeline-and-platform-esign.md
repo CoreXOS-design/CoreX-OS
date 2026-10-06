@@ -344,7 +344,16 @@ views `platform-esign/agreement/*`; routes `platform-esign.agreements.*` (owner)
 agents), pinned-version rendering, token scoping, signing order, RR cannot edit recipient entries, encryption/masking/reveal audit,
 wet-ink supersede, `/legal`.
 
-### 11.13 Phase (d) — wording editor, public terms, agency-screen send, expiry + reminders (cc2, 2026-10-06; extends §11.2/§11.9/§11.11)
+
+### 11.13 Phase (c) as built (wet-ink)
+`platform_esign_wetink_files` (migration `2026_10_06_110000`) holds each upload (batch, sha256, mime, size, `superseded_at`); nothing is deleted. Recipient routes
+`platform-esign.agreement.wet-copy` (PDF in `wet` mode: entries typed so far, blank initials/signatures) and `.upload` (pdf/jpg/png by content type, ≤ 10 240 KB
+each, ≤ 12 per upload, ≤ 60 per agreement; a new upload supersedes the active files). Status `wetink_received`; the agency signer is marked signed. RR countersigns on
+`…/countersign` (a wet-ink variant of the screen: files with SHA-256, name/capacity/place/date/signature — no page initials) → `AgreementService::countersignWetInk()` →
+a countersignature-and-attestation PDF listing every active file's SHA-256 + the signing record is sealed and emailed; the timeline hook fires as usual. Owner files are streamed
+only through `platform-esign.agreements.wetink` (owner-gated). Electronic countersign refuses a hand-signed document and vice-versa.
+
+### 11.14 Phase (d) — wording editor, public terms, agency-screen send, expiry + reminders (cc2, 2026-10-06; extends §11.2/§11.9/§11.11)
 Business: Johan, 6 Oct — "the terms of the document may change over time and having access to edit it is great"; sending "should be an
 easy one click send button and adding the recipient details"; the agreement says Parts B, C, D "are published at
 www.corexos.co.za/legal" (was a 404). Owner-only on every RR-side screen, no permission key (same as the rest of the module). No hard

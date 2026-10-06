@@ -3,7 +3,7 @@
 namespace App\Services\PlatformEsign\Agreement;
 
 /**
- * Field markers inside the agreement wording (spec §11.4, §11.13). The editor may rewrite the words around a marker,
+ * Field markers inside the agreement wording (spec §11.4, §11.14). The editor may rewrite the words around a marker,
  * but a marker that drives the form (an input, tick, quantity, amount, signature, initials) can never be removed,
  * duplicated or invented from the wording screen — that would break the form or the fee table.
  */

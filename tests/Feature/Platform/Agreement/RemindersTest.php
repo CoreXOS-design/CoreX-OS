@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * Link expiry + reminders — spec §11.13. Defaults: link 30 days; reminder after 3 days of no progress, then every 3 days,
+ * Link expiry + reminders — spec §11.14. Defaults: link 30 days; reminder after 3 days of no progress, then every 3 days,
  * at most 3; RR reminded after 1 day awaiting countersign. Reminders stop the moment the state moves on.
  */
 class RemindersTest extends TestCase

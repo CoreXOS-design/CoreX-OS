@@ -3,7 +3,7 @@
 namespace App\Services\PlatformEsign\Agreement;
 
 /**
- * "What changed" between two versions of the wording (spec §11.13): clause-aligned, with a word-level diff inside an
+ * "What changed" between two versions of the wording (spec §11.14): clause-aligned, with a word-level diff inside an
  * edited clause. Works on the clauses' Markdown source so formatting changes (a bold, a link) show up too.
  */
 class AgreementDiff

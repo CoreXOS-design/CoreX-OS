@@ -46,6 +46,8 @@ class AgreementSigningController extends Controller
             return response()->view('platform-esign.agreement.message', [
                 'doc' => $doc, 'signer' => $signer, 'message' => $blocked, 'token' => $token,
                 'canDownload' => $doc->status === 'completed' && $doc->sealed_pdf_path,
+                'canReplaceUpload' => $doc->status === 'wetink_received',
+                'files' => $doc->status === 'wetink_received' ? $doc->wetinkFiles()->whereNull('superseded_at')->get() : collect(),
             ])->withHeaders($headers);
         }
 
@@ -123,6 +125,35 @@ class AgreementSigningController extends Controller
         }
 
         return response()->json(['ok' => true, 'redirect' => route('platform-esign.agreement.show', $token)]);
+    }
+
+    /** Printable copy to sign by hand (spec §11.8). */
+    public function wetCopy(Request $request, string $token)
+    {
+        $signer = $this->signerOr404($token);
+        $doc = $signer->document->load('wording');
+        try {
+            $pdf = $this->svc->wetCopy($doc, $signer, $request->ip());
+        } catch (\DomainException $e) {
+            return redirect()->route('platform-esign.agreement.show', $token)->with('agr_notice', $e->getMessage());
+        }
+
+        return response($pdf, 200, ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'attachment; filename="CoreX-OS-Subscription-Agreement-' . $doc->contract_ref . '-to-sign.pdf"', 'Cache-Control' => 'no-store']);
+    }
+
+    /** The hand-signed copy comes back (pdf/jpg/png, ≤ 10 MB each). */
+    public function upload(Request $request, string $token)
+    {
+        $signer = $this->signerOr404($token);
+        $request->validate(['files' => 'required|array|max:' . AgreementService::WET_MAX_FILES, 'files.*' => 'file|max:' . AgreementService::WET_MAX_KB],
+            ['files.required' => 'Choose the signed pages to upload (PDF, JPG or PNG).', 'files.*.max' => 'Each file must be 10 MB or smaller.', 'files.*.file' => 'One of the files could not be uploaded. Try again.']);
+        try {
+            $n = $this->svc->uploadWetInk($signer->document, $signer, $request->file('files', []), $request->ip());
+        } catch (\DomainException $e) {
+            return redirect()->route('platform-esign.agreement.show', $token)->withErrors(['upload' => $e->getMessage()]);
+        }
+
+        return redirect()->route('platform-esign.agreement.show', $token)->with('agr_notice', $n . ' file' . ($n === 1 ? '' : 's') . ' received. RR Technologies will countersign and email you the signed copy.');
     }
 
     /** The signed copy, offered to the recipient once completed. */

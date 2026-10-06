@@ -11,7 +11,7 @@
         <span class="text-xs" style="color: var(--text-muted);">{{ $doc->wording?->label() }}</span>
     </div>
     <div class="px-5 py-4 space-y-3 text-sm">
-        <div>Status: <strong>{{ $doc->statusLabel() }}</strong> · agency has initialled {{ $agencyDone }} of {{ $total }} pages @if($doc->form_rev > 0)· {{ $doc->form_rev }} {{ \Illuminate\Support\Str::plural('save', $doc->form_rev) }} @endif</div>
+        <div>Status: <strong>{{ $doc->statusLabel() }}</strong>@unless($doc->wetinkFiles()->exists()) · agency has initialled {{ $agencyDone }} of {{ $total }} pages @if($doc->form_rev > 0)· {{ $doc->form_rev }} {{ \Illuminate\Support\Str::plural('save', $doc->form_rev) }} @endif @endunless</div>
         @if($link)
             <div x-data="{ copied: false }">
                 <label class="ds-label block mb-1">Signing link (send it yourself if you prefer — it is the agency’s only way in)</label>
@@ -21,6 +21,18 @@
                 </div>
             </div>
         @endif
+        @if($doc->wetinkFiles()->exists())
+            <div>
+                <div class="ds-label mb-1">Hand-signed copy from the agency</div>
+                @foreach($doc->wetinkFiles as $wf)
+                    <div class="text-xs flex flex-wrap gap-x-3" style="{{ $wf->isActive() ? '' : 'color: var(--text-muted); text-decoration: line-through;' }}">
+                        <a class="underline" style="color: var(--brand-icon);" href="{{ route('platform-esign.agreements.wetink', [$doc->id, $wf->id]) }}">{{ $wf->original_name }}</a>
+                        <span>{{ number_format(max(1, $wf->size / 1024), 0) }} KB · {{ $wf->created_at?->format('j M H:i') }} · batch {{ $wf->batch }}@unless($wf->isActive()) · superseded {{ $wf->superseded_at?->format('j M H:i') }}@endunless</span>
+                        <span class="break-all" style="color: var(--text-muted);">SHA-256 {{ substr($wf->sha256, 0, 16) }}…</span>
+                    </div>
+                @endforeach
+            </div>
+        @endif
         @if($doc->status === 'expired' && !$doc->trashed())
             <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-3" style="background: #fffbeb; border: 1px solid #fde68a; color: #92400e;">
                 <span>The agency’s link expired{{ $doc->expires_at ? ' on ' . $doc->expires_at->format('j F Y') : '' }}. Everything they entered is kept.</span>
@@ -28,7 +40,7 @@
             </div>
         @endif
         <div class="flex flex-wrap gap-2">
-            <a href="{{ route('platform-esign.agreements.review', $doc->id) }}" class="corex-btn-outline">Review what has been entered</a>
+            @unless($doc->status === 'wetink_received')<a href="{{ route('platform-esign.agreements.review', $doc->id) }}" class="corex-btn-outline">Review what has been entered</a>@endunless
             @if(in_array($doc->status, ['awaiting_countersign', 'wetink_received'], true) && !$doc->trashed())
                 <a href="{{ route('platform-esign.agreements.countersign', $doc->id) }}" class="corex-btn-primary">Review and countersign</a>
             @endif

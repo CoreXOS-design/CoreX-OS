@@ -130,12 +130,11 @@ class ClientTenantRentalsController extends Controller
             return $contact;
         }
 
-        if (!$this->scope->tenantOwnsProperty($contact, $property)) {
+        /** @var Property|null $propertyModel */
+        $propertyModel = $this->scope->tenantProperty($contact, $property);
+        if (!$propertyModel) {
             return response()->json(['message' => 'Property not found.'], 404);
         }
-
-        /** @var Property $propertyModel */
-        $propertyModel = Property::withoutGlobalScopes()->where('agency_id', $contact->agency_id)->findOrFail($property);
 
         $types = RentalFaultType::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
@@ -206,7 +205,9 @@ class ClientTenantRentalsController extends Controller
             return $contact;
         }
 
-        if (!$this->scope->tenantOwnsProperty($contact, $property)) {
+        /** @var Property|null $propertyModel */
+        $propertyModel = $this->scope->tenantProperty($contact, $property);
+        if (!$propertyModel) {
             return response()->json(['message' => 'Property not found.'], 404);
         }
 
@@ -227,15 +228,7 @@ class ClientTenantRentalsController extends Controller
             return response()->json(['message' => 'Unknown fault type.'], 422);
         }
 
-        /** @var Property $propertyModel */
-        $propertyModel = Property::withoutGlobalScopes()->where('agency_id', $contact->agency_id)->findOrFail($property);
-
-        $leaseIds = $this->scope->tenantLeaseIds($contact);
-        $leaseId = \App\Models\Lease::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->where('property_id', $property)
-            ->whereIn('id', $leaseIds)
-            ->value('id');
+        $leaseId = $this->scope->tenantLeaseIdForProperty($contact, $property);
 
         $attributes = [
             'lease_id' => $leaseId,

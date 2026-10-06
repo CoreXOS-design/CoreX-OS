@@ -5,7 +5,7 @@ namespace App\Models\PlatformEsign;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
-/** Who changed the Subscription Agreement wording, and when (spec §11.13). Append-only. */
+/** Who changed the Subscription Agreement wording, and when (spec §11.14). Append-only. */
 class WordingAudit extends Model
 {
     protected $table = 'platform_esign_wording_audit';

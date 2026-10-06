@@ -5,7 +5,7 @@ namespace App\Console\Commands;
 use App\Services\PlatformEsign\Agreement\AgreementReminders;
 use Illuminate\Console\Command;
 
-/** Expires lapsed Subscription Agreement links and sends the agency / countersign reminders (spec §11.13). Scheduled hourly. */
+/** Expires lapsed Subscription Agreement links and sends the agency / countersign reminders (spec §11.14). Scheduled hourly. */
 class PlatformEsignRemindAgreements extends Command
 {
     protected $signature = 'platform-esign:remind-agreements {--dry-run : List what would be expired or reminded without changing or sending anything}';

@@ -448,4 +448,55 @@ final class CrewJobServiceTest extends TestCase
         $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id));
         $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
     }
+
+    // ── archived work never reaches the crew (same rule as the crew page + office card) ──
+
+    public function test_an_archived_task_and_an_archived_line_are_left_out_of_the_crew_view_and_materials(): void
+    {
+        $card = $this->makeJobCard();
+        $ctx = $this->ctx($card);
+        $this->assertCount(2, $this->service->payload($card, $ctx)['tasks']);
+        $this->assertCount(1, $this->service->payload($card, $ctx)['materials']);
+        $this->assertCount(1, $this->service->payload($card, $ctx)['labour']);
+
+        // An archived TASK (with its live lines still on it) and an archived general LINE.
+        $partTask = \App\Models\RentalJobCardTask::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->where('description', 'Drain the geyser')->firstOrFail();
+        $partTask->delete();
+        $general = \App\Models\RentalJobCardLine::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'rental_job_card_id' => $card->id, 'type' => 'part',
+            'description' => 'Washers', 'unit' => 'each', 'quantity' => 4, 'unit_price' => 5, 'line_total' => 20,
+        ]);
+        $this->assertCount(1, $this->service->payload($card, $ctx)['materials'], 'the live general line shows while the archived task\'s line does not');
+        $general->delete();
+
+        $payload = $this->service->payload($card, $ctx);
+        $this->assertSame(['Refill and test'], array_column($payload['tasks'], 'description'));
+        $this->assertSame([], $payload['materials'], 'the archived task\'s part line and the archived general line are not loaded');
+        $this->assertCount(1, $payload['labour']);
+    }
+
+    public function test_an_archived_line_on_a_live_task_is_left_out(): void
+    {
+        $card = $this->makeJobCard();
+        $ctx = $this->ctx($card);
+        \App\Models\RentalJobCardLine::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->where('type', 'labour')->firstOrFail()->delete();
+
+        $payload = $this->service->payload($card, $ctx);
+
+        $this->assertCount(2, $payload['tasks'], 'the live tasks stay');
+        $this->assertSame([], $payload['labour']);
+        $this->assertCount(1, $payload['materials']);
+    }
+
+    public function test_the_per_job_page_does_not_show_archived_work(): void
+    {
+        $card = $this->makeJobCard();
+        \App\Models\RentalJobCardTask::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->where('description', 'Drain the geyser')->firstOrFail()->delete();
+        $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->admin)['raw_token'];
+
+        $this->get('/secure/job-cards/' . $raw)->assertOk()
+            ->assertSee('Refill and test')
+            ->assertDontSee('Drain the geyser')
+            ->assertDontSee('Geyser element');
+    }
 }

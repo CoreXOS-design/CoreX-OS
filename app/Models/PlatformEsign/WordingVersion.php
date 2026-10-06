@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * One version of a web document's wording + rates (spec §11.2, §11.13). A DRAFT (`is_published` = false) is editable;
+ * One version of a web document's wording + rates (spec §11.2, §11.14). A DRAFT (`is_published` = false) is editable;
  * a PUBLISHED version is immutable and never deleted — a sent document pins one and always renders it, so editing
  * wording = a new version, never an update. The only column a published row may still change is `layout_json`
  * (pagination is recalculated lazily when the layout engine's REV moves).

@@ -204,7 +204,7 @@ Route::get('/extension/privacy', [\App\Http\Controllers\Public\LegalController::
 Route::get('/terms', [\App\Http\Controllers\Public\LegalController::class, 'terms'])
     ->middleware('throttle:60,1')
     ->name('public.terms');
-// CoreX Subscription Agreement — Parts B, C, D published (spec §11.13). Public, no auth; never Part A / the mandate / agency data.
+// CoreX Subscription Agreement — Parts B, C, D published (spec §11.14). Public, no auth; never Part A / the mandate / agency data.
 Route::get('/legal', [\App\Http\Controllers\Public\LegalController::class, 'agreementTerms'])
     ->middleware('throttle:60,1')->name('public.agreement-terms');
 Route::get('/legal/v/{version}', [\App\Http\Controllers\Public\LegalController::class, 'agreementTermsVersion'])
@@ -872,6 +872,8 @@ Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreemen
     Route::post('/initials',       [$c, 'initials'])->middleware('throttle:60,1')->name('initials');
     Route::post('/initial/{page}', [$c, 'initialPage'])->whereNumber('page')->middleware('throttle:120,1')->name('initial-page');
     Route::post('/submit',         [$c, 'submit'])->middleware('throttle:30,1')->name('submit');
+    Route::get('/wet-copy',        [$c, 'wetCopy'])->middleware('throttle:20,1')->name('wet-copy');
+    Route::post('/upload',         [$c, 'upload'])->middleware('throttle:20,1')->name('upload');
     Route::get('/download',        [$c, 'download'])->middleware('throttle:30,1')->name('download');
 });
 
@@ -4778,8 +4780,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/documents/{id}/countersign',         [$a, 'countersignForm'])->whereNumber('id')->name('agreements.countersign');
             Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
             Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
+            Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
 
-            // Agreement wording editor + versions + expiry/reminder settings (spec §11.13) — owner / RR side.
+            // Agreement wording editor + versions + expiry/reminder settings (spec §11.14) — owner / RR side.
             Route::prefix('wording')->name('wording.')->group(function () {
                 $w = \App\Http\Controllers\PlatformEsign\AgreementWordingController::class;
                 Route::get('/',                          [$w, 'index'])->name('index');

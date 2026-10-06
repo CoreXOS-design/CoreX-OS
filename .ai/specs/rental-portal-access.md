@@ -125,6 +125,18 @@ method here explicitly `withoutGlobalScopes()` and filters by `agency_id` manual
   intersects the requested id against the caller's own resolved id set and returns 404/403, never
   trusting a client-supplied id. Verified by `tests/Feature/RentalPortalAccess/PartyIsolationTest.php`
   and `ContractorSecureLinkTest.php`.
+- **Archived records are invisible to the tenant / landlord portal (6 Oct 2026).** `withoutGlobalScopes()` also strips
+  SoftDeletes, so **every** query in `RentalPortalScopeService` pins `deleted_at IS NULL` explicitly — an archived
+  lease, fault report, work order, inspection, inventory, document, property or job card is neither listed nor openable
+  by id (404, exactly like an out-of-scope record), on the web shell and the API alike. `tenantLeaseIds()` returns only
+  the tenant's **live** leases, so archiving a lease takes everything that hangs off it (its faults, orders, inspections,
+  inventories, job cards) out of the tenant's reach in one place. The two portal controllers no longer run their own
+  scope-stripped queries: property / lease / pending-decision / fault-decision lookups go through the service
+  (`tenantProperty()`, `tenantLeaseIdForProperty()`, `landlordPropertyLeases()`, `landlordActiveLeaseId()`,
+  `landlordFaultReport()`, `landlordPendingFaultReports()`, `landlordPendingWorkOrders()`). Landlord property access
+  was already safe (the `contact→properties()` relation honours SoftDeletes). Notices are not exposed on the portal.
+  Proved per resource type by `tests/Feature/RentalPortalAccess/ArchivedRecordsHiddenFromPortalTest.php`
+  (job cards: `TenantLandlordJobCardApiTest`).
 
 ## 7. Web authentication — Sanctum stateful SPA (cookie), corrected from the original draft
 The original draft assumed a web Blade layout already existed for `ClientUser` sessions and said
