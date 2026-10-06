@@ -35,6 +35,20 @@ class RentalJobCard extends Model
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
 
+    /**
+     * §14.27.5 — the statuses that count as booked work for a crew: Approved,
+     * Scheduled, In progress. Draft and Quoted (still waiting on the owner)
+     * are not shown to a crew. ONE constant, so an agency-wide change later
+     * is a one-line edit.
+     */
+    public const CREW_VISIBLE_STATUSES = [self::STATUS_APPROVED, self::STATUS_SCHEDULED, self::STATUS_IN_PROGRESS];
+
+    /** §14.27.5 — how a worker sign-off ("crew completed") was recorded. */
+    public const SIGN_OFF_VIA_CREW_LINK = 'crew_link';
+    public const SIGN_OFF_VIA_CREW_PAGE = 'crew_page';
+    public const SIGN_OFF_VIA_SIGNED_COPY = 'signed_copy';
+    public const SIGN_OFF_VIA_OFFICE = 'office';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -61,6 +75,9 @@ class RentalJobCard extends Model
         'worker_signed_off_at',
         'worker_signed_off_by_user_id',
         'worker_sign_off_name',
+        'worker_sign_off_via',
+        'worker_sign_off_ip',
+        'worker_sign_off_device',
         'agent_signed_off_at',
         'agent_signed_off_by_user_id',
         'tenant_confirmed_at',
@@ -313,6 +330,15 @@ class RentalJobCard extends Model
                     'quote_sent' => 'Quote sent to owner',
                     'quote_resent' => 'Quote re-sent to owner',
                     'sign_off' => 'Signed off',
+                    'link_issued' => 'Crew link created',
+                    'link_emailed' => 'Crew link emailed',
+                    'link_revoked' => 'Crew link revoked',
+                    'link_opened' => 'Crew link opened',
+                    'crew_photos_added' => 'Crew photos added',
+                    'crew_completed' => 'Crew marked work completed',
+                    'signed_copy_uploaded' => 'Signed copy uploaded',
+                    'signed_copy_superseded' => 'Signed copy superseded',
+                    'landlord_notified' => 'Landlord notified',
                     'archived' => 'Archived',
                     'restored' => 'Restored',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
@@ -448,8 +474,43 @@ class RentalJobCard extends Model
             'worker_signed_off_at' => now(),
             'worker_signed_off_by_user_id' => $by->id,
             'worker_sign_off_name' => $workerName,
+            'worker_sign_off_via' => self::SIGN_OFF_VIA_OFFICE,
+            'worker_sign_off_ip' => null,
+            'worker_sign_off_device' => null,
         ])->save();
         $this->logUpdate('sign_off', $by, $workerName ? "Worker — done ({$workerName})" : 'Worker — done');
+    }
+
+    /**
+     * §14.27.5 / §14.27.6 item 5 — "crew completed": the worker sign-off
+     * recorded by the crew on their link (crew_link / crew_page, no CoreX
+     * user, $by null) or on their behalf from a signed paper copy
+     * (signed_copy, $by = the office user who uploaded it). It records the
+     * same worker_signed_off_* fields the office "Worker — done" button does,
+     * plus how / from where / on what device. It NEVER completes the card —
+     * the agent sign-off and complete() still do. A repeat overwrites the
+     * earlier crew completion (a corrected signed copy supersedes it); the
+     * earlier one stays in the history.
+     */
+    public function recordCrewCompletion(string $name, string $via, ?string $ip, ?string $device, ?User $by = null): void
+    {
+        $this->assertOpen();
+        $this->forceFill([
+            'worker_signed_off_at' => now(),
+            'worker_signed_off_by_user_id' => $by?->id,
+            'worker_sign_off_name' => $name,
+            'worker_sign_off_via' => $via,
+            'worker_sign_off_ip' => $ip,
+            'worker_sign_off_device' => $device !== null ? mb_substr($device, 0, 255) : null,
+        ])->save();
+
+        $viaLabel = match ($via) {
+            self::SIGN_OFF_VIA_CREW_LINK => 'via crew link',
+            self::SIGN_OFF_VIA_CREW_PAGE => 'via crew page',
+            self::SIGN_OFF_VIA_SIGNED_COPY => 'from the signed copy',
+            default => 'by the office',
+        };
+        $this->logUpdate('crew_completed', $by, "{$name} — {$viaLabel}" . ($ip ? " (IP {$ip})" : ''));
     }
 
     public function agentSignOff(User $by): void

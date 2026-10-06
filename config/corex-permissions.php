@@ -255,6 +255,10 @@ return [
         // rental_work_orders.complete/.record_approval.
         ['key' => 'rental_job_cards.sign_off', 'label' => 'Sign Off & Complete Job Cards', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 4],
         ['key' => 'rental_job_cards.cancel',     'label' => 'Cancel Job Cards',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 5],
+        // §14.28 — mint / email / revoke the crew's no-login link; the crew page
+        // link panel on Rental Crews reuses it (§14.29). A link is a live
+        // credential, so it is its own key rather than riding on .create.
+        ['key' => 'rental_job_cards.share',      'label' => 'Share Job Cards with Crew', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 6],
 
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.

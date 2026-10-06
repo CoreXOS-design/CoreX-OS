@@ -30,7 +30,7 @@
     <form method="GET" action="{{ route('corex.rental-crews.index') }}" class="flex flex-wrap items-end gap-3">
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Crew name" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, email or number" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
@@ -48,6 +48,7 @@
             <thead>
                 <tr style="background: var(--surface-2); color: var(--text-muted);">
                     <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-crews.index', array_merge(request()->except('page'), ['sort' => 'name', 'direction' => $sort === 'name' && $direction === 'asc' ? 'desc' : 'asc'])) }}">Name</a></th>
+                    <th class="text-left px-4 py-2 font-medium">Contact</th>
                     <th class="text-left px-4 py-2 font-medium">Members</th>
                     <th class="text-left px-4 py-2 font-medium">Notes</th>
                     <th class="text-right px-4 py-2 font-medium">Actions</th>
@@ -57,6 +58,14 @@
                 @forelse($crews as $crew)
                     <tr style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-2">{{ $crew->name }}</td>
+                        <td class="px-4 py-2">
+                            @if($crew->email || $crew->phone)
+                                @if($crew->email)<div>{{ $crew->email }}</div>@endif
+                                @if($crew->phone)<div style="color: var(--text-muted);">{{ $crew->phone }}</div>@endif
+                            @else
+                                <span style="color: var(--text-muted);">—</span>
+                            @endif
+                        </td>
                         <td class="px-4 py-2">{{ $crew->members_count }}</td>
                         <td class="px-4 py-2" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($crew->notes, 60) ?: '—' }}</td>
                         <td class="px-4 py-2 text-right space-x-2">
@@ -79,7 +88,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="4" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="5" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q'))
                                 No crews match this filter.
                             @elseif($status === 'archived')
