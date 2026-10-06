@@ -10,7 +10,8 @@
     .sheet-body { min-height: 320px; padding-bottom: 14px; }
     .sheet-foot { display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:space-between; align-items:center; border-top:1px solid #cbd5e1; padding: 10px 0 12px; font-size:.72rem; color:#475569; }
     .ini-box { display:inline-flex; align-items:center; gap:6px; }
-    .ini-chip { display:inline-block; min-width: 34px; text-align:center; border:1px solid #64748b; padding:2px 8px; font-weight:700; color:#0b2a4a; border-radius:3px; background:#f8fafc; }
+    .ini-chip { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-width: 56px; height: 30px; text-align:center; border:1px solid #64748b; padding:0 8px; font-weight:700; color:#0b2a4a; border-radius:6px; background:#f8fafc; }
+    .sheet-foot .btn.sm { height: 30px; box-sizing:border-box; }
     .ini-chip.done { border-color:#16a34a; color:#166534; background:#f0fdf4; }
     .btn { appearance:none; border:0; border-radius:6px; padding:.55rem 1rem; font-weight:600; font-size:.85rem; cursor:pointer; background:#00b4d8; color:#fff; }
     .btn:disabled { opacity:.45; cursor:not-allowed; }
@@ -49,6 +50,14 @@
     .agr .opt input:disabled + .tick { background:#f3f4f6; border-style:dashed; border-color:#94a3b8; cursor:not-allowed; }
     .agr .opt input:disabled:checked + .tick { background:#7dd3fc; border-color:#0369a1; box-shadow: inset 0 0 0 3px #f3f4f6; }
     .agr .opt:has(input:disabled) { cursor:not-allowed; }
+    .agr p.mf .mf-v .fld { height: 34px; }
+    .agr p.mf .mf-v textarea.fld { height: 40px; min-height: 40px; padding-top: 4px; line-height: 14px; }
+    .agr p.mf .mf-t { display:inline-block; width: 34%; vertical-align: middle; white-space: normal; }
+    .agr p.mf .mf-t .auto-tip { margin-left:.4rem; font-size:.72rem; line-height:1.25; max-width:none; }
+    .agr .tip-end { display:block; }
+    .agr .tip-end .auto-tip { margin-left:0; }
+    .agr .sigtable .sigpad canvas { height: 96px; }
+    .agr .sigtable .sigpad { padding: 2px 4px; }
     .agr .ctl-note { display:block; font-size:.78rem; color:#92400e; margin-top:.25rem; }
     .agr .masked { cursor: pointer; }
     .agr [data-calc] { font-variant-numeric: tabular-nums; }

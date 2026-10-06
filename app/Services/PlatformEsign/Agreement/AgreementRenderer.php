@@ -75,7 +75,57 @@ class AgreementRenderer
         // Tables written as "|||" have an empty header row — drop it so it does not render as a blank bar.
         $html = preg_replace('#<thead>\s*<tr>(\s*<th[^>]*>\s*</th>)+\s*</tr>\s*</thead>#', '', $html);
 
-        return preg_replace_callback(self::TOKEN, fn ($m) => $this->token($m[1], $m[2] ?? '', $m[3] ?? ''), $html);
+        $html = $this->alignmentHooks($html);
+        $html = preg_replace_callback(self::TOKEN, fn ($m) => $this->token($m[1], $m[2] ?? '', $m[3] ?? ''), $html);
+
+        return $this->isForm() ? $this->gatherTips($html) : $html;
+    }
+
+    /** Mandate rows laid out on one grid: label text => true. The text and its order are untouched — only classes and spans are added. */
+    private const MANDATE_ROWS = ['Address', 'Bank Name', 'Branch Name and Town', 'Branch Number', 'Account Number', 'Type of Account', 'Date', 'Contact Number', 'Amount',
+        'To (Name of Beneficiary)', 'Abbreviated Shortname to be used'];
+
+    /**
+     * Layout hooks (spec §11.21) — classes only, never wording: the Agency / RR Technologies signature table gets equal columns and fixed row heights so
+     * both blocks line up row by row; each mandate "Label: field" paragraph becomes a row of one aligned grid. Same on screen, preview, RR screen and both PDFs.
+     */
+    private function alignmentHooks(string $html): string
+    {
+        if (str_contains($html, 'For the Agency') && str_contains($html, 'For RR Technologies') && str_starts_with($html, '<table')) {
+            $html = preg_replace('/^<table>/', '<table class="sigtable">', $html, 1);
+            $html = preg_replace_callback('#<p>(Name|Capacity|Signature|Date|Place):#', fn ($m) => '<p class="sr sr-' . strtolower($m[1]) . '">' . $m[1] . ':', $html);
+
+            return $html;
+        }
+        if (preg_match('#^<p>Given by <em>\(name of Accountholder\):\s*(.*)</em></p>$#s', $html, $m)) {
+            return '<p class="mf"><span class="mf-l">Given by <em>(name of Accountholder):</em></span> <span class="mf-v">' . $m[1] . '</span></p>';
+        }
+        if (preg_match('#^<p>(' . implode('|', array_map(fn ($l) => preg_quote($l, '#'), self::MANDATE_ROWS)) . '):\s*(.*)</p>$#s', $html, $m)) {
+            return '<p class="mf"><span class="mf-l">' . $m[1] . ':</span> <span class="mf-v">' . $m[2] . '</span></p>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Screen-only tips: inside a mandate grid row they sit in their own third column (same line, equal row heights); inside a sentence
+     * (first payment date / collection day) they move to the end of the paragraph so the printed sentence still reads straight through.
+     */
+    private function gatherTips(string $html): string
+    {
+        $tip = '#<span class="auto-tip"[^>]*>.*?</span>#s';
+
+        return preg_replace_callback('#<p( class="mf")?>(.*?)</p>#s', function ($m) use ($tip) {
+            if (!preg_match_all($tip, $m[2], $found)) {
+                return $m[0];
+            }
+            $body = preg_replace($tip, '', $m[2]);
+            if ($m[1] !== '') {
+                return '<p class="mf">' . $body . ' <span class="mf-t">' . implode(' ', $found[0]) . '</span></p>';
+            }
+
+            return '<p>' . $body . ' <span class="tip-end">' . implode(' ', $found[0]) . '</span></p>';
+        }, $html);
     }
 
     // ── tokens ─────────────────────────────────────────────────────────────

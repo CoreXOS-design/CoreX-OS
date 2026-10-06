@@ -38,6 +38,7 @@ class PlatformEsignVerifyWording extends Command
         {--web-text= : file holding the browser text of the recipient page (scripts/verify-agreement-web-text.cjs)}
         {--seal : sign both sides (mail faked) and check the sealed PDF}
         {--cleanup : retire the throwaway agreement afterwards}
+        {--save-pdfs= : also write the wet-ink and sealed PDFs of the throwaway into this folder (wet.pdf, sealed.pdf)}
         {--source-dir= : read the two source files from this folder instead of resources/legal (agreement.md, netcash-mandate.md)}';
 
     protected $description = 'Word-for-word proof: recipient page, wet-ink PDF and sealed PDF against the signed-off Subscription Agreement text.';
@@ -66,6 +67,8 @@ class PlatformEsignVerifyWording extends Command
 
         return $tips;
     }
+
+    private int $defects = 0;
 
     /** @var array<string,int> */
     private array $screenTips = [];
@@ -195,6 +198,10 @@ class PlatformEsignVerifyWording extends Command
             $signer = $svc->agencySigner($doc);
             $layout = app(\App\Services\PlatformEsign\Agreement\AgreementLayout::class)->ensure($doc->wording);
             $wet = $svc->wetCopy($doc, $signer, null);
+            if ($dir = $this->option('save-pdfs')) {
+                @mkdir($dir, 0775, true);
+                file_put_contents(rtrim($dir, '/') . '/wet.pdf', $wet);
+            }
             $this->line('  wet-ink footer, page 1: ' . trim(preg_replace('/\s+/', ' ', AgreementFidelity::pdfFooterText($wet))));
             $actual = AgreementFidelity::fromRendered(AgreementFidelity::pdfText($wet, (int) $layout['total']), true);
             $ok = $this->report('WET-INK DOWNLOAD PDF', $expected, $actual, $doc, 'wet', $summary) && $ok;
@@ -241,6 +248,10 @@ class PlatformEsignVerifyWording extends Command
         }
         $fresh = Document::withoutGlobalScopes()->with(['wording', 'signers'])->findOrFail($doc->id);
         $pdf = $svc->sealedPdf($fresh);
+        if ($dir = $this->option('save-pdfs')) {
+            @mkdir($dir, 0775, true);
+            file_put_contents(rtrim($dir, '/') . '/sealed.pdf', $pdf);
+        }
         $layout = app(\App\Services\PlatformEsign\Agreement\AgreementLayout::class)->ensure($fresh->wording);
         $actual = AgreementFidelity::fromRendered(AgreementFidelity::pdfText($pdf, (int) $layout['total']), true);
         $this->line('  sealed PDF footer, page 1: ' . trim(preg_replace('/\s+/', ' ', AgreementFidelity::pdfFooterText($pdf))));
