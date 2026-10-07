@@ -114,6 +114,14 @@ lives in two new nullable columns mirroring `Property.agent_id` /
 - `contacts.second_agent_id` — optional co-agent. `different:agent_id`; collapses
   to null if the primary is cleared.
 
+**Primary agent follows a Core Matches reassignment (2026-10-07, Johan).** The
+primary agent is the one working with the client. When a manager reassigns a
+buyer's search (`ContactMatch::reassignTo()`, permission `core_matches.reassign`),
+the contact's `agent_id` is set to the new agent in the same transaction, with an
+`agent_assigned` contact-history row naming the manager and the from/to agents.
+Changing the primary on the Contact form (`contacts.reassign_agent`) remains the
+other route. Existing contacts are never bulk-changed by this rule.
+
 Both `nullOnDelete` (non-negotiable #1 — deactivating a user never deletes a
 contact). Migration: `2026_06_17_120000_add_agent_assignment_to_contacts_table.php`.
 Relationships: `Contact::agent()`, `Contact::secondAgent()`.

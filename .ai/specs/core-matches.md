@@ -208,11 +208,20 @@ constant-state badge:** "Assigned to" is suppressed entirely on the
 `own` scope — on that scope it's always the viewer, on every row, which
 is Johan's exact "badge that's always lit carries no information" case.
 It only earns space once Branch/Agency scope is selected, where it
-genuinely varies row to row. "Who received it first" (once cc4's column
-exists) is shown ONLY when it differs from who the match is currently
-assigned to — i.e., only when a reassignment has actually happened.
-When they're the same person, showing both is the same fact twice with
-extra steps.
+genuinely varies row to row.
+
+**The reassignment flag (rewritten 2026-10-07, Johan).** The old
+"Reassigned — first to X" badge inferred a move by comparing the first
+portal lead's receiver with the search owner. That produced a false
+"moved to Barbara" flag on searches Barbara simply created. It is gone.
+Now: **"Reassigned from X to Y (date)" is shown ONLY when a real
+`contact_match_reassignments` record exists for the search** (latest record
+wins) — never inferred from a portal lead or from the search owner. Where
+there is no such record and the search was created by someone other than
+the contact's primary agent (`contacts.agent_id`), the row says **"Search
+created by <name>"** instead. When creator and primary agent are the same
+person, neither shows. Tests:
+`tests/Feature/CoreMatches/ContactMatchReassignPrimaryAgentTest.php`.
 
 **Type pill**: kept, but suppressed entirely when the whole board is
 already locked to one listing type (the Rentals entry point, or the
@@ -469,7 +478,23 @@ fact from two angles, never recorded separately.
    granted to `branch_manager` + `admin` only (mirrors `contacts
    .reassign_agent`'s existing role placement exactly), never `agent`.
 2. Throws `InvalidArgumentException` on an empty reason.
-3. Writes the audit row, then updates `agent_id`, inside a transaction.
+3. Writes the audit row, updates `agent_id`, **and sets the contact's
+   primary agent (`contacts.agent_id`) to the new agent**, all inside ONE
+   transaction (Johan, 2026-10-07: "the primary agent is the one working with
+   the client, so when a manager reassigns a buyer to another agent the
+   contact's primary agent MUST change"). The contact is saved through the
+   model, so the contact history gets its `agent_assigned` row (actor = the
+   manager, old/new agent); the History tab already renders it as "{manager}
+   moved this contact from X to Y". A co-agent (`second_agent_id`) equal to the
+   new primary is cleared. If any step fails, none of it sticks. Only the one
+   search moves — the buyer's other searches keep their owner (open question
+   to Johan). Existing data is NOT bulk-changed; a read-only list of
+   record-vs-primary disagreements is produced separately for a clean-up
+   decision.
+   Reassign routes that exist: `POST /corex/core-matches/{match}/reassign`
+   only (no board button yet; the Buyer Pipeline has no reassign, and there is
+   no bulk buyer reassign). The Contact edit form's "Assigned Agents"
+   (`contacts.reassign_agent`) changes the primary but not search owners.
 
 Server-enforced twice over (BUILD_STANDARD §1c — direct-URL access must be
 blocked, not just absent from a menu): the route middleware
