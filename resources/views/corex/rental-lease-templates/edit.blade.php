@@ -1,8 +1,12 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="p-6 max-w-lg mx-auto space-y-4">
-    <h1 class="text-lg font-semibold">Edit Rental Lease Template</h1>
+<div class="p-6 max-w-3xl mx-auto space-y-4">
+    @if(session('success'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
+    @endif
+
+    <h1 class="text-lg font-semibold">Edit Rental Lease Agreement</h1>
 
     <form method="POST" action="{{ route('corex.rental-lease-templates.update', $rentalLeaseTemplate) }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
@@ -43,7 +47,35 @@
             Active
         </label>
 
-        <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="is_default" value="1" @checked(old('is_default', $rentalLeaseTemplate->is_default))>
+            Make this the default for its category
+        </label>
+
+        @if($status)
+            <div class="text-sm">
+                @if($status['state'] === 'ready')
+                    <span class="ds-badge ds-badge-success">Ready</span>
+                @elseif($status['state'] === 'needs_map')
+                    <span class="ds-badge ds-badge-warning">Needs field map</span>
+                @else
+                    <span class="ds-badge ds-badge-danger">Not usable</span>
+                @endif
+                @if(!empty($status['problems']))
+                    <ul class="text-xs mt-2 list-disc pl-4" style="color: var(--text-muted);">
+                        @foreach($status['problems'] as $problem)
+                            <li>{{ $problem }}</li>
+                        @endforeach
+                    </ul>
+                @endif
+            </div>
+        @endif
+
+        <button type="submit" class="corex-btn-primary text-xs">Check and save</button>
     </form>
+
+    @if($rentalLeaseTemplate->category === 'residential')
+        @include('corex.rental-lease-templates._field-map')
+    @endif
 </div>
 @endsection

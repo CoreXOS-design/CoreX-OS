@@ -3087,6 +3087,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'store'])->name('corex.rental-lease-templates.store');
         Route::get('/{rentalLeaseTemplate}/edit', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'edit'])->name('corex.rental-lease-templates.edit');
         Route::put('/{rentalLeaseTemplate}', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'update'])->name('corex.rental-lease-templates.update');
+        // LEASE-AGREEMENT BEGIN (leases.md §15.12.3 — Build L0): the agency's field map for its own lease agreement.
+        Route::put('/{rentalLeaseTemplate}/field-map', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'updateFieldMap'])->name('corex.rental-lease-templates.field-map.update');
+        // LEASE-AGREEMENT END
         Route::delete('/{rentalLeaseTemplate}', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'destroy'])->name('corex.rental-lease-templates.destroy');
         Route::post('/{rentalLeaseTemplate}/restore', [\App\Http\Controllers\CoreX\RentalLeaseTemplateController::class, 'restore'])->name('corex.rental-lease-templates.restore');
     });

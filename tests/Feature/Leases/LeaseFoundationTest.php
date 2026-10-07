@@ -248,7 +248,7 @@ final class LeaseFoundationTest extends TestCase
 
     // ── The shells: final signatures, and safe until they are built ────────────────
 
-    public function test_the_template_guard_shell_fails_closed_and_links_nothing(): void
+    public function test_the_template_guard_refuses_a_shared_template_and_links_nothing_until_a_row_is_ready(): void
     {
         [$agency, $branch] = $this->makeAgencyBranchProperty();
         $guard = app(LeaseAgreementTemplateGuard::class);
@@ -270,7 +270,7 @@ final class LeaseFoundationTest extends TestCase
             'agency_id' => $agency->id, 'name' => 'Residential', 'docuperfect_template_id' => $owned->id,
             'category' => RentalLeaseTemplate::CATEGORY_RESIDENTIAL, 'is_active' => true, 'is_default' => true,
         ]);
-        $this->assertNull($guard->linkedFor($agency->id), 'no agreement is linked until L0 writes the check');
+        $this->assertNull($guard->linkedFor($agency->id), 'a row with no field map is not a linked agreement');
         $this->assertFalse($row->isUsableBy($agency->id));
     }
 
