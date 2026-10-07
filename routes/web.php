@@ -3542,6 +3542,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
             ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');
         // LEASE-CAPTURE END
+        // LEASE-CAPTURE BEGIN (leases.md §15.9 — Build L3c): the lease screen in confirm mode — what the agent sees when the
+        // agreement was changed in e-sign. The GET also serves "Re-check". The POST is the "Confirm and activate" of a lease
+        // that was signed with a difference nobody had confirmed; the pre-approval confirmation is posted to the e-sign
+        // engine's own approve route instead (middleware `lease.agreement.confirmed`).
+        Route::get('/{lease}/agreement/confirm', [\App\Http\Controllers\CoreX\LeaseAgreementConfirmController::class, 'show'])
+            ->middleware('permission:leases.view')->name('corex.leases.agreement.confirm');
+        Route::post('/{lease}/agreement/confirm', [\App\Http\Controllers\CoreX\LeaseAgreementConfirmController::class, 'store'])
+            ->middleware('permission:leases.view')->name('corex.leases.agreement.confirm.store');
+        // LEASE-CAPTURE END
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
@@ -6453,7 +6462,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/documents/{document}/supporting/version/{version}/stream',       [\App\Http\Controllers\Docuperfect\SignatureController::class, 'streamSupportingFile'])->name('signatures.supporting.stream');
     // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)
     Route::get('/documents/{document}/signatures/view-live', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewLive'])->name('docuperfect.signatures.viewLive');
-    Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->name('docuperfect.signatures.approveAndAdvance');
+    // LEASE-AGREEMENT BEGIN (leases.md §15.8.4 — Build L3c): a lease agreement's final approval first checks the document against its lease.
+    Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->middleware('lease.agreement.confirmed')->name('docuperfect.signatures.approveAndAdvance');
+    // LEASE-AGREEMENT END
     Route::get('/documents/{document}/signatures/authorise-signing', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'authoriseSigning'])->name('docuperfect.signatures.authoriseSigning');
     Route::post('/documents/{document}/signatures/return-to-candidate', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'returnToCandidate'])->name('docuperfect.signatures.returnToCandidate');
     // WET-INK explicit resubmit — candidate sends an edited returned doc back to the authoriser (no re-sign).

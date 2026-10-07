@@ -78,12 +78,50 @@ class LeaseSigningStateService
             $before = [$lease->signing_status, $lease->status];
             $this->apply($lease, $envelope);
             $lease->refresh();
+            $this->noteEditsMade($lease);
 
             return $before !== [$lease->signing_status, $lease->status];
         } catch (\Throwable $e) {
             Log::warning('Lease signing: re-check failed', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
 
             return false;
+        }
+    }
+
+    /**
+     * §15.8.4 #3 — while the agreement is out, whoever changed a lease-relevant value in it, by whichever route, the
+     * end state differs from the lease. The first time that is seen (and again after each further edit — the printed
+     * values' fingerprint is the memory) one tenancy-log line says what changed. Information only: it blocks nothing,
+     * and the lease record is untouched until the agent confirms at approval. Never throws.
+     */
+    private function noteEditsMade(Lease $lease): void
+    {
+        try {
+            if (! in_array($lease->signing_status, [Lease::SIGNING_OUT_FOR_SIGNING, Lease::SIGNING_AWAITING_AGENT_REVIEW], true)) {
+                return;
+            }
+
+            $verdict = $this->check->verdict($lease);
+            if (! $verdict['applicable'] || ! $verdict['has_differences']) {
+                return;
+            }
+
+            $last = $lease->events()->where('event_type', LeaseEvent::TYPE_AGREEMENT_EDITED)->latest('id')->first();
+            if ($last && ($last->metadata['fingerprint'] ?? null) === $verdict['fingerprint']) {
+                return;
+            }
+
+            $summary = collect($verdict['differences'])->take(3)
+                ->map(fn ($d) => "{$d['label']} " . ($d['lease'] ?? 'not on record') . ' → ' . ($d['agreement'] ?? '—'))
+                ->implode('; ');
+            $more = count($verdict['differences']) > 3 ? ' (and ' . (count($verdict['differences']) - 3) . ' more)' : '';
+
+            $this->event($lease, LeaseEvent::TYPE_AGREEMENT_EDITED, mb_substr("The agreement was changed in e-sign: {$summary}{$more}", 0, 500), null, [
+                'fingerprint' => $verdict['fingerprint'],
+                'differences' => collect($verdict['differences'])->map(fn ($d) => ['key' => $d['key'], 'lease' => $d['lease'], 'agreement' => $d['agreement']])->all(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Lease signing: could not compare the agreement with the lease', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
         }
     }
 
@@ -165,35 +203,39 @@ class LeaseSigningStateService
                 'signature_template_id' => $envelope->id,
             ]);
 
-            // What was printed in the agreement (including anything corrected in Fill & review) reaches the lease's
-            // agreement details, so the next renewal pre-fills from what was actually signed. Never blocks acceptance.
-            $this->harvestFrom($locked, $documentId);
-
             $activated = false;
             $note = null;
 
-            $verdict = $this->check->verdict($locked);
-            if ($verdict['has_differences'] || $verdict['cannot_verify'] !== []) {
-                // §15.5 — an approval that skipped the confirm step: signed, but the lease may not go live while it
-                // disagrees with its own agreement. (Build L3c supplies the real comparison and the confirm screen.)
+            // §15.8.4 #2 — the net under every approval path: re-read the agreement and compare it with the lease
+            // BEFORE anything is harvested from it (the harvest writes the document's values into the lease's
+            // agreement details, which would make every difference vanish). A check that cannot run is treated as
+            // "needs confirming" — the lease may not go live on an agreement nobody has checked.
+            try {
+                $verdict = $this->check->verdict($locked);
+                $needsConfirmation = $verdict['needs_confirmation'];
+                $differences = $verdict['differences'];
+            } catch (\Throwable $e) {
+                Log::error('Lease signing: the agreement could not be compared with the lease', ['lease_id' => $locked->id, 'error' => $e->getMessage()]);
+                $needsConfirmation = true;
+                $differences = [];
+            }
+
+            if (! $needsConfirmation) {
+                // What was printed in the agreement (including anything corrected in Fill & review) reaches the lease's
+                // agreement details, so the next renewal pre-fills from what was actually signed. Never blocks acceptance.
+                $this->harvestFrom($locked, $documentId);
+            }
+
+            if ($needsConfirmation) {
+                // §15.5 — an approval that skipped the confirm step (wet-ink signing, an unattended completion, an
+                // engine path that never touches the route): signed, but the lease may not go live while it disagrees
+                // with its own agreement. The agent confirms on the lease screen, then the lease activates.
                 $this->event($locked, LeaseEvent::TYPE_AGREEMENT_NEEDS_CONFIRMATION, 'Signed — confirm the lease details before it goes active', $actor, [
-                    'differences' => $verdict['differences'],
+                    'differences' => collect($differences)->map(fn ($d) => ['key' => $d['key'], 'lease' => $d['lease'], 'agreement' => $d['agreement']])->all(),
                 ]);
                 $note = 'Signed — confirm the lease details.';
             } else {
-                try {
-                    $locked = $this->activate($locked, $actor);
-                    $activated = true;
-                    $this->event($locked, LeaseEvent::TYPE_LEASE_ACTIVATED_BY_SIGNING, 'Lease active — signed on ' . $signedAt->format('d M Y'), $actor, [
-                        'start_date' => optional($locked->start_date)->toDateString(), 'end_date' => optional($locked->end_date)->toDateString(),
-                    ]);
-                } catch (ValidationException $e) {
-                    // Another lease is still active on this property. Signed stays signed; the lease stays a draft,
-                    // visibly, until the other one is ended or renewed (§15.5). Nothing is lost.
-                    $note = collect($e->errors())->flatten()->first() ?: 'Another lease is still active on this property.';
-                    $this->event($locked, LeaseEvent::TYPE_SIGNED_NOT_ACTIVATED, 'Signed, not yet active — ' . $note, $actor, ['reason' => $note]);
-                    Log::warning('Lease signing: signed but not activated', ['lease_id' => $locked->id, 'reason' => $note]);
-                }
+                [$locked, $activated, $note] = $this->goLive($locked, $actor, $signedAt);
             }
 
             return ['lease' => $locked->fresh(), 'activated' => $activated, 'note' => $note];
@@ -206,6 +248,67 @@ class LeaseSigningStateService
         $this->announceSigned($outcome['lease'], $envelope, $actor, $outcome['activated'], $outcome['note']);
 
         return true;
+    }
+
+    /**
+     * Signed and in agreement with its lease: the lease goes active (a renewal through its own activation, which expires
+     * the previous term and records the escalation). If another lease is still active on the property the lease stays
+     * a draft, visibly, until that one is ended or renewed — signed is never lost (§15.5).
+     *
+     * @return array{0: Lease, 1: bool, 2: ?string} the lease, whether it is now active, and the reason it is not
+     */
+    private function goLive(Lease $locked, ?User $actor, \DateTimeInterface $signedAt): array
+    {
+        try {
+            $locked = $this->activate($locked, $actor);
+            $this->event($locked, LeaseEvent::TYPE_LEASE_ACTIVATED_BY_SIGNING, 'Lease active — signed on ' . $signedAt->format('d M Y'), $actor, [
+                'start_date' => optional($locked->start_date)->toDateString(), 'end_date' => optional($locked->end_date)->toDateString(),
+            ]);
+
+            return [$locked, true, null];
+        } catch (ValidationException $e) {
+            $note = collect($e->errors())->flatten()->first() ?: 'Another lease is still active on this property.';
+            $this->event($locked, LeaseEvent::TYPE_SIGNED_NOT_ACTIVATED, 'Signed, not yet active — ' . $note, $actor, ['reason' => $note]);
+            Log::warning('Lease signing: signed but not activated', ['lease_id' => $locked->id, 'reason' => $note]);
+
+            return [$locked, false, $note];
+        }
+    }
+
+    /**
+     * §15.9 "Same screen after completion" — a lease that was signed with a difference nobody had confirmed has just had
+     * its details confirmed by the agent. The agent's confirmation IS the final approval of what the lease now says
+     * (R5), so the approval is stamped now, and the lease goes active exactly as an ordinary signing would have.
+     *
+     * @return array{activated: bool, note: ?string}|null null when the lease is not a signed draft waiting for this
+     */
+    public function activateConfirmed(Lease $lease, User $actor): ?array
+    {
+        $outcome = DB::transaction(function () use ($lease, $actor) {
+            /** @var Lease|null $locked */
+            $locked = Lease::withoutGlobalScopes()->whereKey($lease->id)->lockForUpdate()->first();
+            if (! $locked || $locked->signing_status !== Lease::SIGNING_SIGNED || $locked->status !== Lease::STATUS_DRAFT) {
+                return null;
+            }
+
+            $locked->forceFill(['accepted_at' => now(), 'accepted_by_user_id' => $actor->id])->save();
+            $this->event($locked, LeaseEvent::TYPE_AGREEMENT_ACCEPTED, "Lease details confirmed and approved by {$actor->name}", $actor, []);
+
+            [$locked, $activated, $note] = $this->goLive($locked, $actor, $locked->signed_at ?? now());
+
+            return ['lease' => $locked->fresh(), 'activated' => $activated, 'note' => $note];
+        });
+
+        if ($outcome === null) {
+            return null;
+        }
+
+        $envelope = $outcome['lease']->signature_template_id ? SignatureTemplate::withoutGlobalScopes()->find($outcome['lease']->signature_template_id) : null;
+        if ($envelope) {
+            $this->announceSigned($outcome['lease'], $envelope, $actor, $outcome['activated'], $outcome['note']);
+        }
+
+        return ['activated' => $outcome['activated'], 'note' => $outcome['note']];
     }
 
     private function activate(Lease $lease, ?User $actor): Lease

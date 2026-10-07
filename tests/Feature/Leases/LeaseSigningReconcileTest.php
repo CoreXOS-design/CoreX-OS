@@ -570,9 +570,22 @@ final class LeaseSigningReconcileTest extends TestCase
 
         $this->finalise($envelope, $document);
 
+        // Build L3c (§15.8, R6): a value corrected in the agreement is a DIFFERENCE, not something the completion may
+        // write into the lease on its own. The lease is signed but stays a draft, and its agreement details are untouched
+        // until the agent confirms ...
+        $lease = $lease->fresh();
+        $this->assertSame(Lease::SIGNING_SIGNED, $lease->signing_status);
+        $this->assertSame(Lease::STATUS_DRAFT, $lease->status);
+        $this->assertSame(1, LeaseAgreementTerms::where('lease_id', $lease->id)->first()->adults, 'not silently overwritten');
+
+        // ... and then the corrected value is what the next renewal pre-fills from. A blank in the document never wipes
+        // what was captured: the agent says what the agreement means by it.
+        $verdict = app(\App\Services\Rentals\LeaseAgreementCheck::class)->verdict($lease);
+        app(\App\Services\Rentals\LeaseAgreementConfirmService::class)->confirm($lease, $this->agent, $verdict['fingerprint'], ['pets' => 'None']);
+
         $terms = LeaseAgreementTerms::where('lease_id', $lease->id)->first();
-        $this->assertSame(2, $terms->adults, 'the corrected value');
-        $this->assertSame('None', $terms->pets, 'a blank in the document never wipes what was captured');
+        $this->assertSame(2, $terms->adults, 'the corrected value, once confirmed');
+        $this->assertSame('None', $terms->pets);
     }
 
     public function test_a_document_with_no_known_map_harvests_nothing_and_never_guesses(): void

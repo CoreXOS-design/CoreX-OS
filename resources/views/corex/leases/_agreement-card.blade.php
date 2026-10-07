@@ -62,6 +62,12 @@
             @if($card['continue_url'])
                 <a href="{{ $card['continue_url'] }}" class="corex-btn-primary text-xs" data-qa="agreement-continue">Continue to the agreement</a>
             @endif
+            @if(!empty($card['review_url']))
+                <a href="{{ $card['review_url'] }}" class="corex-btn-outline text-xs" data-qa="agreement-review-changes">Review changes</a>
+            @endif
+            @if(!empty($card['confirm_url']))
+                <a href="{{ $card['confirm_url'] }}" class="corex-btn-primary text-xs" data-qa="agreement-confirm-details">Confirm the lease details</a>
+            @endif
             @if($card['approve_url'])
                 <a href="{{ $card['approve_url'] }}" class="corex-btn-primary text-xs">Approve the signed agreement</a>
             @endif

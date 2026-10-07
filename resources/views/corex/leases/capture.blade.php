@@ -12,6 +12,10 @@
 --}}
 
 @section('content')
+{{-- leases.md §15.9 (Build L3c) — `mode=confirm`: the same screen opened on the lease's own record, showing the lease's value beside the agreement's. --}}
+@if(($mode ?? null) === 'confirm')
+    @include('corex.leases._agreement-confirm')
+@else
 @php
     $isRenew = $mode === 'renew';
     $propertyPickerConfig = [
@@ -484,4 +488,5 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
     };
 }
 </script>
+@endif
 @endsection

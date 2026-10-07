@@ -36,6 +36,7 @@ final class NoHfcWordingInLeaseProcessTest extends TestCase
             'app/Services/Rentals/LeaseAgreementValuesReader.php',
             'app/Services/Rentals/LeaseAgreementHarvest.php',
             'app/Services/Rentals/LeaseAgreementCheck.php',
+            'app/Services/Rentals/LeaseAgreementConfirmService.php',
             'app/Services/Rentals/LeaseAgreementTemplateGuard.php',
             'app/Services/Rentals/PreviousTermValuesReader.php',
             'app/Services/Rentals/LeaseSigningStateService.php',
@@ -59,6 +60,7 @@ final class NoHfcWordingInLeaseProcessTest extends TestCase
             'resources/views/corex/leases/_signing-checklist.blade.php',
             'resources/views/corex/leases/_signers-panel.blade.php',
             'resources/views/corex/leases/_agreement-card.blade.php',
+            'resources/views/corex/leases/_agreement-confirm.blade.php',
             'resources/views/corex/rental-lease-templates/_field-map.blade.php',
             'resources/views/agency-setup/steps/rentals-lease-agreement.blade.php',
         ];
