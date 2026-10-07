@@ -1946,6 +1946,12 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
+        // Other Agency Stock can never be duplicated (spec other-agency-stock.md §5b) —
+        // the button is disabled too, but hiding a button is not the fix: this is.
+        if (! $property->canBeDuplicated()) {
+            return $this->refuseOtherAgencyStockDuplicate($request);
+        }
+
         $currentType = $property->listing_type ?: 'sale';
         $targetType  = $request->input('target_type', $currentType);
         if (! in_array($targetType, ['sale', 'rental'], true)) {
@@ -1992,6 +1998,12 @@ class PropertyController extends Controller
     public function changeType(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
+
+        // Change-type is a duplicate + archive — the same ban applies (it is also
+        // already refused for any non-draft, which Other Agency Stock always is).
+        if (! $property->canBeDuplicated()) {
+            return $this->refuseOtherAgencyStockDuplicate($request);
+        }
 
         // AT-262 (Johan's gate) — change-type is ONLY for a draft that has never been
         // advertised. Server-side guard so the rule holds even if the UI is bypassed:
@@ -2040,9 +2052,25 @@ class PropertyController extends Controller
             . ' listing was archived and de-listed. Complete the new listing and save.');
     }
 
+    /** One refusal for every clone entry point: 403 for JSON/API callers, a plain message back to the screen otherwise. */
+    private function refuseOtherAgencyStockDuplicate(Request $request)
+    {
+        $reason = Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON;
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $reason], 403);
+        }
+
+        return back()->with('error', $reason);
+    }
+
     /** Build a draft clone as $targetType — shared fields carried, other-type fields cleared. */
     private function makeClone(Property $property, string $targetType): Property
     {
+        // Last line of defence: no caller — present or future — can clone Other Agency Stock.
+        if (! $property->canBeDuplicated()) {
+            throw new \DomainException(Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON);
+        }
+
         $clone = $property->replicate([
             'external_id', 'published_at', 'p24_ref', 'p24_syndication_enabled',
             'p24_syndication_status', 'p24_last_submitted_at', 'p24_activated_at',

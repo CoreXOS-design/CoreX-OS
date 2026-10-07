@@ -139,6 +139,19 @@ class Property extends Model
         return $this->normalizedStatus() === self::STATUS_OTHER_AGENCY_STOCK;
     }
 
+    /**
+     * Other Agency Stock is another agency's advert, imported read-only (spec
+     * other-agency-stock.md §5b). A copy of it would be a second, editable,
+     * syndicate-able version of someone else's listing under our name — so it can
+     * never be duplicated, by any route (UI button, web route, change-type clone).
+     */
+    public function canBeDuplicated(): bool
+    {
+        return ! $this->isOtherAgencyStock();
+    }
+
+    public const OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON = 'Other Agency Stock is another agency\'s listing and can\'t be duplicated. To use it again, import the portal listing again.';
+
     /** Source-of-record metadata (portal, listing ref, listing agent/agency) — see PropertyExternalSource. */
     public function externalSource(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
