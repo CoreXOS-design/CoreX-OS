@@ -69,8 +69,10 @@ final class CheckLeaseExpiryCommandTest extends TestCase
         Notification::assertSentTo($agent, LeaseExpiryAlert::class, function (LeaseExpiryAlert $n) use ($lease) {
             return $n->lease->id === $lease->id && $n->level === 'urgent';
         });
-        // Delivery stays database-only — the legacy dead email path must never fire.
-        Notification::assertNothingSent(fn ($n) => $n instanceof \Illuminate\Notifications\Messages\MailMessage);
+        // Delivery stays database-only — the legacy dead email path must never fire. (Notification::assertNothingSent()
+        // takes no filter, so it failed after ANY send; the channel list is what actually proves "no mail".)
+        Notification::assertSentTo($agent, LeaseExpiryAlert::class, fn (LeaseExpiryAlert $n, array $channels) => $channels === ['database']);
+        Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 1);
     }
 
     /**
@@ -150,7 +152,13 @@ final class CheckLeaseExpiryCommandTest extends TestCase
         Notification::assertNothingSent();
     }
 
-    public function test_legacy_lease_record_path_is_untouched_and_still_fires_its_own_alert(): void
+    /**
+     * leases.md §E — the command was REPOINTED from the legacy `lease_records` table (2 test-artifact rows, migrated into
+     * `leases` by leases:migrate-legacy) to the real `Lease` model; it no longer reads LeaseRecord at all. This used to assert
+     * the opposite ("legacy path still fires its own alert") — true only of the pre-AT-439 command. The legacy notification
+     * CLASS is untouched (it still renders a LeaseRecord); nothing sends it from this command any more.
+     */
+    public function test_a_legacy_lease_record_is_no_longer_read_by_the_command(): void
     {
         [$agency, $branch, $agent] = $this->makeAgencyBranchAgentProperty();
 
@@ -167,9 +175,8 @@ final class CheckLeaseExpiryCommandTest extends TestCase
         Notification::fake();
         $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
 
-        // The legacy command path (LeaseRecord/LeaseExpirationAlert) must keep
-        // working byte-for-byte as it did before this change.
-        Notification::assertSentTo($agent, LeaseExpirationAlert::class);
+        Notification::assertNothingSent();
+        self::assertTrue(class_exists(LeaseExpirationAlert::class), 'the legacy notification class itself is untouched');
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

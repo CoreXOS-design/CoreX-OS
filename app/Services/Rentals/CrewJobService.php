@@ -102,6 +102,10 @@ class CrewJobService
             'status' => $card->status,
             'status_label' => ucfirst(str_replace('_', ' ', $card->status)),
             'is_open' => ! $card->isClosed() && ! $card->trashed(),
+            // A plain yes/no — never the gate's own note (it can carry amounts the crew must not see). Decides whether the
+            // page offers "Mark work completed": the server refuses it on an unauthorised job (RentalJobCard::recordCrewCompletion),
+            // so the action is not offered until the job is authorised. A pure read (record: false), no side effects.
+            'authorised' => app(RentalApprovalGateService::class)->authoriseCard($card, false)->authorised,
             'address' => $address,
             'map_url' => $this->mapUrl($property, $address),
             'access_notes' => $card->access_notes,

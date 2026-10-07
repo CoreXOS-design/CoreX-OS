@@ -35,7 +35,7 @@
             <p class="text-sm">Approved amount (to the owner): <strong>R{{ number_format((float) $jaWorkOrder->approved_amount, 2) }}</strong></p>
         @endif
         @if($jaLatest)
-            <p class="text-xs"><span style="color: var(--text-muted);">Why was this approved?</span> {{ $jaLatest->note }}</p>
+            <p class="text-xs"><span style="color: var(--text-muted);">{{ $jaWorkOrder->approvalReasonLabel() }}</span> {{ $jaLatest->note }}</p>
         @endif
         @if(!$jaProceed->authorised)
             <p class="text-xs" style="color: var(--ds-crimson);">Work cannot start or be scheduled yet: {{ $jaProceed->note }}

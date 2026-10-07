@@ -519,7 +519,7 @@
             {{-- 5. Photos — collapsed --}}
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <button type="button" onclick="document.getElementById('jc-photos').classList.toggle('hidden')" class="text-sm font-semibold w-full text-left">Photos ({{ $jobCard->photos->count() + ($jobCard->workOrder?->photos->count() ?? 0) }})</button>
-                <div id="jc-photos" class="hidden space-y-3">
+                <div id="jc-photos" class="{{ session('jc_open_photos') ? '' : 'hidden ' }}space-y-3">
                     @php $allPhotos = $jobCard->photos->concat($jobCard->workOrder?->photos ?? collect()); @endphp
                     @if($allPhotos->isEmpty())
                         <p class="text-xs" style="color: var(--text-muted);">No photos yet.</p>

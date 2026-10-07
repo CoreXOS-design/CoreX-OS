@@ -289,6 +289,21 @@ class RentalWorkOrder extends Model
         return $this->approvalDecisions()->first();
     }
 
+    /**
+     * §17.28 — the label in front of the latest decision's note. The note is the reason for the CURRENT state, so the
+     * label must say which state that is: "Why was this approved?" on a job still waiting for the owner (or declined,
+     * or with no decision at all) claims an approval that does not exist.
+     */
+    public function approvalReasonLabel(): string
+    {
+        return match (true) {
+            $this->owner_approval_status === self::APPROVAL_PENDING => 'Why is the owner\'s approval needed?',
+            $this->owner_approval_status === self::APPROVAL_DECLINED => 'Why was this declined?',
+            $this->approvalBasisLabel() !== null => 'Why was this approved?',
+            default => 'Approval decision:',
+        };
+    }
+
     /** §17.8.3 — "Approved as emergency work on {date}" for statements and quote PDFs; null unless an un-voided emergency approval stands. */
     public function emergencyBanner(): ?string
     {

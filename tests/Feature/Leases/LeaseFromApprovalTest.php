@@ -17,8 +17,10 @@ use Tests\TestCase;
 /**
  * .ai/specs/leases.md §1.3a — conductor ruling 2026-09-15, "C": linking an
  * approved tenant to a property now also creates the Lease record, in the
- * same request, capturing rent/deposit/dates. Explicit carve-out: property
- * status is never touched — that ruling stays pending with Johan.
+ * same request, capturing rent/deposit/dates. The original carve-out ("property
+ * status is never touched — pending with Johan") was CLOSED by Johan's Gate 2
+ * approval of AT-444 item 7 / §12.5 point 1: an activated lease moves the
+ * property to "let out" through the normal save path (LeaseActivationService).
  */
 final class LeaseFromApprovalTest extends TestCase
 {
@@ -54,8 +56,9 @@ final class LeaseFromApprovalTest extends TestCase
         self::assertCount(1, $lease->tenants);
         self::assertSame($application->contact_id, $lease->tenants->first()->contact_id);
 
-        // The carve-out: property status must be completely untouched.
-        self::assertSame($originalStatus, $property->fresh()->status);
+        // §12.5 point 1 — activating the lease lets the property out, and remembers what it was before.
+        self::assertSame('let_out', $property->fresh()->status);
+        self::assertSame($originalStatus, $property->fresh()->status_before_letting);
     }
 
     public function test_relinking_the_same_application_does_not_create_a_second_lease(): void

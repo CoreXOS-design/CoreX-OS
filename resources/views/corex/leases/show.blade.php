@@ -513,6 +513,13 @@
                 <form id="lease-edit-form" method="POST" action="{{ route('corex.leases.update', $lease) }}" class="space-y-3">
                     @csrf
                     @method('PUT')
+                    {{-- Johan, 2026-09-22 — "the rental amount shows on the lease screen, but not on the edit screen... displaying the
+                         rent amount makes it easy to type again [the deposit]." Read-only display only — rent is never editable here,
+                         it only ever changes through a recorded escalation / renewal. (Dropped by the Lease Hub rebuild, restored.) --}}
+                    <div>
+                        <label class="prop-label">Monthly rental (R)</label>
+                        <input type="text" value="R{{ number_format((float) $lease->rental_amount, 2) }}" disabled class="prop-input">
+                    </div>
                     <div>
                         <label class="prop-label">Deposit (R)</label>
                         <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" class="prop-input">

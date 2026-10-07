@@ -33,7 +33,7 @@
     @endif
 
     <div class="text-sm">
-        <span style="color: var(--text-muted);">Why was this approved?</span>
+        <span style="color: var(--text-muted);">{{ $workOrder->approvalReasonLabel() }}</span>
         @if($apLatest)
             {{ $apLatest->note }}
         @elseif($workOrder->approval_basis === \App\Models\RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED)

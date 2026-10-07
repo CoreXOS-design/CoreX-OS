@@ -853,20 +853,64 @@ class RentalJobCardController extends Controller
         return view('corex.rental-job-cards.print-list', ['jobCards' => $list->all(), 'list' => $list]);
     }
 
-    /** req #10 — same photo pipeline as the linked work order, reused, not duplicated. */
-    public function storePhoto(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): JsonResponse
+    /**
+     * req #10 — same photo pipeline as the linked work order, reused, not duplicated.
+     *
+     * One action, two callers: the office's photo form on the card (a normal browser POST — it must save the photo
+     * and bring the person BACK TO THE CARD with a message, never show the raw JSON a script would get) and a
+     * script/fetch client that asks for JSON (Accept: application/json — keeps the 201 + photo body).
+     */
+    public function storePhoto(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): JsonResponse|RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $validated = $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'photo_type' => ['required', 'in:reported,in_progress,completed'],
             'client_idempotency_key' => 'nullable|uuid',
+        ], [
+            'photo.required' => 'Choose a photo to upload.',
+            'photo.mimes' => 'The photo must be a JPG, PNG, WEBP or HEIC image.',
+            'photo.max' => 'That photo is too large — the limit is 50 MB.',
+            'photo.uploaded' => 'The photo did not upload — it may be too large for the server. Try a smaller photo.',
+            'photo_type.required' => 'Choose whether this is a Before, In progress or Completed photo.',
+            'photo_type.in' => 'Choose whether this is a Before, In progress or Completed photo.',
         ]);
 
-        $photo = $service->storePhoto($rentalJobCard, $request->file('photo'), $validated['photo_type'], $request->user(), $validated['client_idempotency_key'] ?? null);
+        $wantsJson = $request->expectsJson();
 
-        return response()->json($photo, 201);
+        if ($validator->fails()) {
+            if ($wantsJson) {
+                throw new ValidationException($validator);
+            }
+
+            return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)
+                ->withErrors($validator)->with('jc_open_photos', true);
+        }
+
+        $validated = $validator->validated();
+
+        try {
+            $photo = $service->storePhoto($rentalJobCard, $request->file('photo'), $validated['photo_type'], $request->user(), $validated['client_idempotency_key'] ?? null);
+        } catch (\Throwable $e) {
+            if ($wantsJson) {
+                throw $e;
+            }
+            report($e);
+
+            return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)
+                ->withErrors(['photo' => 'The photo could not be saved. Nothing was uploaded — please try again.'])
+                ->with('jc_open_photos', true);
+        }
+
+        if ($wantsJson) {
+            return response()->json($photo, 201);
+        }
+
+        $label = ['reported' => 'Before', 'in_progress' => 'In progress', 'completed' => 'Completed'][$validated['photo_type']];
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)
+            ->with('success', $label . ' photo uploaded.')->with('jc_open_photos', true);
     }
 
     /**

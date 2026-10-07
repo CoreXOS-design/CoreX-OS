@@ -163,6 +163,11 @@
 
     @if($job['crew_completed'])
         <div class="cj-banner">Completed — signed by {{ $job['crew_completed']['name'] }}<div class="cj-muted" style="font-weight:400;">{{ $job['crew_completed']['at'] }}</div></div>
+    @elseif($job['is_open'] && ! ($job['authorised'] ?? true))
+        <div class="cj-card">
+            <h2>Mark work completed</h2>
+            <div class="cj-muted">This job has not been approved yet — contact the office. This button appears once the job is approved.</div>
+        </div>
     @elseif($job['is_open'])
         {{-- BUILD 3 — while the tenant has disputed the finished work, the same form reads "Report fixed" (§17.10.6). --}}
         @php $disputed = !empty($job['blocks']['dispute'] ?? []); @endphp
