@@ -146,16 +146,16 @@ class ListingStockController extends Controller
         ]);
     }
     /**
-     * Reassigning listing agents is a manager/admin action. Gate = the one the Properties
-     * module already uses to let someone pick another agent (PropertyController::store):
-     * properties.edit AND an 'all' / 'branch' properties data scope. Agents, viewers and
-     * assistants never reach it, even if a custom role handed them the stock permission.
+     * Reassigning listing agents is a manager/admin action: view_branch_stats (the manager permission
+     * agents do not hold — the route group already requires it) AND the Properties module's own gate
+     * for picking another agent (PropertyController::store): properties.edit plus an 'all' / 'branch'
+     * properties data scope. Assistants never reach it.
      */
     private function authorizeReassign(Request $request, ListingStock $listing): void
     {
         $viewer = $request->user();
 
-        abort_unless($viewer && ! $viewer->is_assistant && $viewer->hasPermission('properties.edit'), 403);
+        abort_unless($viewer && ! $viewer->is_assistant && $viewer->hasPermission('view_branch_stats') && $viewer->hasPermission('properties.edit'), 403);
         abort_unless(in_array(\App\Services\PermissionService::getDataScope($viewer, 'properties'), ['all', 'branch'], true), 403);
 
         // The row itself must be inside the viewer's own/branch/agency breadth. Another

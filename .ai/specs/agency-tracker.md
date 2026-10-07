@@ -55,8 +55,8 @@ Historical bugs that have been resolved — documented to avoid regression:
 ## Access and agency scoping (2026-10-07)
 
 **Listing-stock routes** (`admin.listings.stock`, `admin.listings.agents`, `admin.listings.agents.show`, `admin.listings.stock.agents.edit|update`, `bm.listings`):
-- Gate: `access_listing_stock` (branch managers and admins by default; agents and viewers get 403) on top of `view_listings`.
+- Gate: `view_branch_stats` (the manager permission the sidebar's Branch group already sits behind; agents do not hold it) on top of `access_listing_stock` and `view_listings`. Note: on HFC's real grants agents also hold `access_listing_stock`, a listings scope of `all` and `properties.edit`, so only `view_branch_stats` separates them from a manager.
 - Rows are narrowed to the viewer's own / branch / agency breadth (`ListingStock::scopeVisibleTo`, data scope `listings`); another agency's rows and users 404 (global agency scope on route binding). There is no export route.
-- Reassigning listing agents additionally needs the Properties module's manager gate: `properties.edit` and a `properties` data scope of `all` or `branch` (assistants never). Every assignee must belong to the listing's agency (422 otherwise).
+- Reassigning listing agents additionally needs `properties.edit` and the Properties module's gate for picking another agent: a `properties` data scope of `all` or `branch` (assistants never). Every assignee must belong to the listing's agency (422 otherwise).
 
 **Agency scope on performance figures:** every caller of `CompanyPerformanceService::getPeriodRollup / getBranchRollup / getAgentRollup` must pass the agency id — the service's raw queries filter by agency only when handed one. The agent dashboard's Company and Branch tiles pass the viewer's agency (and stay empty when no agency resolves).

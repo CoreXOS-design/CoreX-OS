@@ -1418,12 +1418,13 @@ Route::middleware(['auth', 'permission:view_server_health'])->group(function () 
 });
 
 // ===== LISTING STOCK ===== (Agency Tracker surface)
-// Server-side gate (2026-10-07): view_listings alone is held by every agent and viewer, so
-// typing these URLs showed agency-wide stock. access_listing_stock is the stock permission
-// (branch managers / admins) the Branch Listing Stock menu item and /bm/listings already use;
-// the controllers then narrow rows to the viewer's own / branch / agency breadth, and the
-// reassign screens add the manager gate (see Admin\ListingStockController::authorizeReassign).
-Route::middleware(['auth','permission:view_listings','permission:access_listing_stock','feature:agency-tracker'])->group(function () {
+// Server-side gate (2026-10-07): view_listings alone is held by every agent, so typing these URLs showed
+// agency-wide stock — and on HFC's real grants agents ALSO hold access_listing_stock and a listings scope
+// of 'all', so neither of those separates them from a manager. view_branch_stats is the manager permission
+// the sidebar's Branch group (which holds Branch Listing Stock) already sits behind; agents do not have it.
+// The controllers then narrow rows to the viewer's own / branch / agency breadth, and the reassign screens
+// add the manager gate (see Admin\ListingStockController::authorizeReassign).
+Route::middleware(['auth','permission:view_listings','permission:access_listing_stock','permission:view_branch_stats','feature:agency-tracker'])->group(function () {
     Route::get('/admin/listings/agents', [\App\Http\Controllers\Admin\ListingStockController::class, 'agents'])
         ->name('admin.listings.agents');
 
@@ -1695,7 +1696,7 @@ Route::middleware(['auth'])->group(function () {
 
 Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('bm.performance');
 
-Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware('permission:access_listing_stock')->name('bm.listings');
+Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware(['permission:access_listing_stock', 'permission:view_branch_stats'])->name('bm.listings');
 
     // ===== TV MESSAGES (Admin + BM) =====
     Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {

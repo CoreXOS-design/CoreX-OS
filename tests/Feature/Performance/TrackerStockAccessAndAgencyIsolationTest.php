@@ -105,6 +105,19 @@ final class TrackerStockAccessAndAgencyIsolationTest extends TestCase
                 }
             }
         }
+
+        // HFC's REAL grants (read off QA1): agents/viewers hold access_listing_stock and a listings + properties
+        // scope of 'all', plus properties.edit. Mirror that, so the 403s below hold against the shape that
+        // actually shipped, not just against the config defaults.
+        foreach (['agent', 'viewer'] as $role) {
+            foreach ([$this->agency, $this->other] as $agency) {
+                RolePermission::updateOrCreate(['role' => $role, 'permission_key' => 'access_listing_stock', 'agency_id' => $agency->id], []);
+                RolePermission::updateOrCreate(['role' => $role, 'permission_key' => 'properties.edit', 'agency_id' => $agency->id], []);
+                foreach (['listings.view', 'properties.view'] as $key) {
+                    RolePermission::updateOrCreate(['role' => $role, 'permission_key' => $key, 'agency_id' => $agency->id], ['scope' => 'all']);
+                }
+            }
+        }
         PermissionService::clearCache();
     }
 
@@ -151,14 +164,14 @@ final class TrackerStockAccessAndAgencyIsolationTest extends TestCase
         }
     }
 
-    public function test_holding_the_stock_permission_is_still_not_enough_to_reassign_without_the_manager_gate(): void
+    public function test_even_with_the_manager_permission_a_narrow_properties_scope_cannot_reassign(): void
     {
-        // A custom grant of access_listing_stock to the agent role: it may READ its own stock, but the
-        // Properties module's manager gate (properties data scope all/branch) still blocks reassign.
-        RolePermission::updateOrCreate(
-            ['role' => 'agent', 'permission_key' => 'access_listing_stock', 'agency_id' => $this->agency->id],
-            [],
-        );
+        // Give the agent role the manager permission but narrow its scopes to 'own': it may read ONLY its own
+        // stock, and the Properties module's gate (properties data scope all/branch) still blocks reassign.
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'view_branch_stats', 'agency_id' => $this->agency->id], []);
+        foreach (['listings.view', 'properties.view'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        }
         PermissionService::clearCache();
 
         $this->actingAs($this->agent);
