@@ -28,11 +28,12 @@ use Illuminate\Validation\ValidationException;
  * lease + tenants + agreement terms in one transaction, for a new lease and for a renewal, for "Create
  * lease only", the signed paper copy and "Create lease & prepare for signing".
  *
- * "Create lease & prepare for signing" in THIS build (conductor ruling, 7 Oct 2026, on the spec gap that
- * the L2 plan never says what the button does before the launcher exists): it checks the agency has a
- * linked, ready lease agreement and that every agreement detail the agency's own lease marks required is
- * filled in, creates the lease as a DRAFT remembering which agreement it is for, and stops — NO e-sign
- * document is created and nothing is sent. Opening the document is Build L3a's, on the same intent.
+ * "Create lease & prepare for signing" (§15.4 (b)): checks the agency has a linked, ready lease agreement,
+ * creates the lease as a DRAFT and — in the same transaction — has LeaseSigningLauncher gate it (a landlord on
+ * the property, every signer with an email and an ID/passport number, the agreement details the agency's own
+ * lease marks required) and open the e-sign flow with the signers in the fixed order agent → tenant(s) →
+ * landlord(s). Anything missing rolls the whole capture back: nothing is created and nothing is sent. Opening
+ * the finished agreement for the agent to check and sign is the redirect the controller makes (Build L3a).
  *
  * Everything written for one capture sits in ONE transaction: an activation refused by the overlap guard
  * (§3.5) rolls the whole capture back, so a half-created lease can never be left behind (§15.22 #1).
@@ -53,6 +54,7 @@ class LeaseCaptureService
         private readonly LeaseAgreementTemplateGuard $guard,
         private readonly LeaseAgreementValuesReader $reader,
         private readonly PreviousTermValuesReader $previousTerms,
+        private readonly LeaseSigningLauncher $launcher,
     ) {
     }
 
@@ -140,6 +142,15 @@ class LeaseCaptureService
                 continue;
             }
             $fields[] = $build($key, $entry, null);
+        }
+
+        // The letting commission % belongs beside a service fee (§15.12.5 #22): asked for only when the agency's
+        // own lease carries a service fee / net-to-owner, stored with the other schedule values in `extra`.
+        if ((isset($mapped['agent_service_fee']) || isset($mapped['net_to_owner'])) && ! isset($mapped['commission_percent'])) {
+            $fields[] = [
+                'key' => 'commission_percent', 'label' => 'Letting commission (%)', 'type' => 'percent',
+                'required' => false, 'column' => null, 'extra' => true, 'max' => 255,
+            ];
         }
 
         return $fields;
@@ -291,6 +302,13 @@ class LeaseCaptureService
                     'previous_lease_id' => $previous?->id,
                     'agreement_template_id' => $lease->agreement_template_id,
                 ]);
+
+                if ($intent === self::INTENT_LEASE_AND_SIGN) {
+                    // LEASE-AGREEMENT (Build L3a, §15.4): the gate (landlord, every signer's email + ID, the
+                    // required agreement details) and the flow, in this transaction — a gap throws, the whole
+                    // capture rolls back, nothing is left behind.
+                    $this->launcher->launch($lease, $agreement, $user);
+                }
 
                 if ($intent === self::INTENT_PAPER_COPY) {
                     $this->attachSignedCopy($lease, $file, $user, $previous !== null, $storedPath);
@@ -469,7 +487,7 @@ class LeaseCaptureService
         $base = $previous ? "Lease created as a renewal of lease #{$previous->id}" : 'Lease created';
 
         return match ($intent) {
-            self::INTENT_LEASE_AND_SIGN => $base . ' — signing document not prepared yet',
+            self::INTENT_LEASE_AND_SIGN => $base . ' — prepared for signing',
             self::INTENT_PAPER_COPY => $base . ' with a signed paper copy',
             default => $base,
         };

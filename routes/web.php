@@ -3501,6 +3501,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // this user may see (not only ones that already have a lease). Before /{lease}.
         Route::get('/search-rental-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchRentalProperties'])
             ->middleware('permission:leases.create')->name('corex.leases.search-rental-properties');
+        // LEASE-CAPTURE BEGIN (leases.md §15.3 — Build L3a): the capture screen's landlord panel + per-tenant hints.
+        // Static path — must sit before /{lease}.
+        Route::get('/party-check', [\App\Http\Controllers\CoreX\LeaseController::class, 'partyCheck'])
+            ->middleware('permission:leases.view')->name('corex.leases.party-check');
+        // LEASE-CAPTURE END
         Route::get('/{lease}',[\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3508,6 +3513,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.create')->name('corex.leases.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
+        // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
+        Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
+            ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');
+        // LEASE-CAPTURE END
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])

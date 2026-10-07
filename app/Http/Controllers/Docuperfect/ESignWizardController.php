@@ -3818,6 +3818,13 @@ class ESignWizardController extends Controller
             $flow->current_step = 6; // Step 6 is the final wizard step — do not advance past it
             $flow->save();
 
+            // LEASE-AGREEMENT BEGIN (leases.md §15.4 step 6 — Build L3a): a flow launched from a lease tells the
+            // lease which envelope and document it became. A no-op for every other flow; never throws.
+            if ($flow->lease_id) {
+                app(\App\Services\Rentals\LeaseSigningLauncher::class)->linkEnvelope($flow, $sigTemplate, $document);
+            }
+            // LEASE-AGREEMENT END
+
             // Auto-advance-past-setup safety gate (see comment above the
             // transaction). Mirrors setup()'s own preconditions exactly:
             // - field-completion gate (setup() redirects back with an error
@@ -6558,7 +6565,7 @@ class ESignWizardController extends Controller
      * slug (e.g. "seller_name_surname_id") and type "field_group_display".
      * The actual value is resolved later by autoFillFieldGroups().
      */
-    private function buildFieldsFromMappings(array $fieldMappings): array
+    public function buildFieldsFromMappings(array $fieldMappings): array
     {
         // Pre-load all referenced named fields for proper field_name derivation
         $namedFieldIds = collect($fieldMappings)->pluck('namedFieldId')->filter()->unique()->values();
