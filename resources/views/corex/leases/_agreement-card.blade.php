@@ -69,7 +69,10 @@
                 <a href="{{ $card['open_url'] }}" class="corex-btn-outline text-xs">Open in e-sign</a>
             @endif
             @if($card['signed_copy_url'])
-                <a href="{{ $card['signed_copy_url'] }}" class="corex-btn-outline text-xs">View signed copy</a>
+                <a href="{{ $card['signed_copy_url'] }}" class="corex-btn-outline text-xs" data-qa="agreement-signed-copy">Download signed copy</a>
+            @endif
+            @if($card['certificate_url'])
+                <a href="{{ $card['certificate_url'] }}" class="corex-btn-outline text-xs" data-qa="agreement-certificate">Download signing certificate</a>
             @endif
             @if($card['can_prepare_again'])
                 <form method="POST" action="{{ route('corex.leases.signing.prepare-again', $lease) }}">

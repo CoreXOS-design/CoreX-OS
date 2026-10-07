@@ -41,6 +41,10 @@ Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 // Lease rent escalations recorded with a future effective date — applied once due.
 Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOverlapping();
 
+// .ai/specs/leases.md §15.15 (Build L3b) — safety net for the lease e-sign agreement: re-reads every lease whose
+// agreement is still in flight and repairs any e-sign announcement that was missed. Agency by agency; idempotent.
+Schedule::command('leases:reconcile-signing')->dailyAt('00:20')->withoutOverlapping();
+
 // .ai/specs/rental-inspections.md §43 — scheduled-inspection reminders, N
 // days before per agency setting (default 1, 0 = off). Idempotent per
 // inspection-per-day (RentalInspectionNotification log), so an overlapping

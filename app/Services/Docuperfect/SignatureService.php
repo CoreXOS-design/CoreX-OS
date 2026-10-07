@@ -1131,6 +1131,10 @@ class SignatureService
             requestId: $request->id,
             metadata: ['signer_email' => $request->signer_email],
         );
+
+        // leases.md §15.15 — a signing request just went out; a lease whose agreement this is learns it is out
+        // for signing. Announced, never relied on: a listener fault cannot disturb the send.
+        $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeSent::class, $template);
     }
 
     /**
@@ -4131,6 +4135,10 @@ class SignatureService
             'finalization_error' => null,
             'finalization_finished_at' => now(),
         ]);
+
+        // leases.md §15.15 — signed, approved and filed: THE point a lease agreement is finished. This one recorder
+        // is shared by the synchronous cascade and FinalizeSignedDocumentJob, so both paths announce it exactly here.
+        $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeFinalized::class, $template);
     }
 
     /**
@@ -4993,6 +5001,109 @@ class SignatureService
     }
 
     // ──────────────────────────────────────────────
+    // Envelope announcements (leases.md §15.15) and cancelling
+    // ──────────────────────────────────────────────
+
+    /**
+     * Tells the rest of CoreX that something happened to an envelope — sent, finalised, declined, cancelled or
+     * expired — by dispatching the named domain event (scalars only). The Rentals listener uses it to keep a lease's
+     * signing state in step; nothing in the e-sign pipeline depends on it. Fire-and-forget by design: any fault is
+     * logged and swallowed, because a listener must never be able to disturb a signing that has legally happened.
+     *
+     * @param class-string<\App\Events\AbstractDomainEvent> $eventClass
+     */
+    public function announceEnvelope(string $eventClass, ?SignatureTemplate $template, ?string $reason = null): void
+    {
+        if (! $template) {
+            return;
+        }
+
+        try {
+            event(new $eventClass((int) $template->id, $template->document_id ? (int) $template->document_id : null, $template->agency_id ? (int) $template->agency_id : null, $reason));
+        } catch (\Throwable $e) {
+            Log::warning('SignatureService: envelope announcement failed (signing unaffected)', [
+                'event' => $eventClass,
+                'signature_template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Cancels an envelope that is not finished: every waiting/pending party's link stops working, the envelope is
+     * marked cancelled with the reason and who cancelled it, the audit log records it, the rest of CoreX is told
+     * (SignatureEnvelopeCancelled) and each party who was still waiting gets the cancellation mail. This is the one
+     * implementation of "cancel document" — ESignWizardController::cancelDocument() and a lease being cancelled with
+     * its agreement out both go through it (leases.md §15.15, Build L3b; behaviour moved, not changed).
+     *
+     * The caller decides who may cancel (the creator, in the controller) and that the envelope is not already
+     * completed or cancelled.
+     *
+     * @param array<string,mixed> $auditMetadata merged into the audit entry beside the reason
+     * @return int how many waiting parties were notified
+     */
+    public function cancelEnvelope(SignatureTemplate $envelope, User $by, string $reason, ?string $ip = null, ?string $userAgent = null, array $auditMetadata = []): int
+    {
+        // Collect the waiting parties BEFORE cancelling (they are the ones to notify).
+        $waiting = $envelope->requests()
+            ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
+            ->get();
+
+        DB::transaction(function () use ($envelope, $by, $reason, $ip, $userAgent, $auditMetadata) {
+            $envelope->requests()
+                ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
+                ->update(['status' => 'cancelled']);
+
+            $envelope->update([
+                'status' => SignatureTemplate::STATUS_CANCELLED,
+                'cancellation_reason' => $reason,
+                'cancelled_by' => $by->id,
+                'cancelled_at' => now(),
+            ]);
+
+            SignatureAuditLog::log(
+                $envelope,
+                SignatureAuditLog::ACTION_CANCELLED,
+                SignatureAuditLog::ACTOR_USER,
+                $by->name,
+                $by->email,
+                $by->id,
+                null,
+                $ip,
+                $userAgent,
+                ['reason' => $reason] + $auditMetadata,
+            );
+        });
+
+        $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeCancelled::class, $envelope, $reason);
+
+        $documentName = $envelope->document->name ?? 'Untitled';
+        foreach ($waiting as $sigReq) {
+            if (empty($sigReq->signer_email)) {
+                continue;
+            }
+            try {
+                \Illuminate\Support\Facades\Mail::to($sigReq->signer_email)->send(
+                    (new \App\Mail\Signatures\DocumentCancelledMail(
+                        signerName: $sigReq->signer_name ?? 'Signer',
+                        documentName: $documentName,
+                        agentName: $by->name,
+                        cancellationReason: $reason,
+                    ))->fromAgent($by)
+                );
+            } catch (\Throwable $e) {
+                Log::error('Failed to send cancellation email', [
+                    'request_id' => $sigReq->id,
+                    'signer_email' => $sigReq->signer_email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $waiting->count();
+    }
+
+    // ──────────────────────────────────────────────
     // Decline
     // ──────────────────────────────────────────────
 
@@ -5023,6 +5134,14 @@ class SignatureService
                 metadata: ['reason' => $reason],
             );
         });
+
+        // leases.md §15.15 — after the decline is committed, so a lease sees the settled state.
+        $declinedBy = trim((string) $request->signer_name);
+        $this->announceEnvelope(
+            \App\Events\Docuperfect\SignatureEnvelopeDeclined::class,
+            $request->template,
+            trim(($declinedBy !== '' ? $declinedBy . ' declined' : 'Declined') . ($reason ? ' — ' . $reason : '')),
+        );
     }
 
     // ──────────────────────────────────────────────
@@ -5138,6 +5257,7 @@ class SignatureService
             $fromStatus = $template->status;
 
             $template->update(['status' => $newStatus]);
+            $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeExpired::class, $template, 'the signing deadline passed');
 
             SignatureAuditLog::log(
                 $template,
@@ -5181,6 +5301,7 @@ class SignatureService
 
             if (!$hasActiveRequests && $template->status !== SignatureTemplate::STATUS_COMPLETED) {
                 $template->update(['status' => SignatureTemplate::STATUS_EXPIRED]);
+                $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeExpired::class, $template, 'the signing links ran out before everyone signed');
             }
 
             SignatureAuditLog::log(
@@ -5512,6 +5633,14 @@ class SignatureService
             return null;
         }
 
+        // leases.md §15.15 (Build L3b) — a document launched from a lease already HAS its lease: it was linked by
+        // id when the agent prepared signing, and UpdateLeaseSigningState finishes it when SignatureEnvelopeFinalized
+        // fires. Guessing a lease from the address and the tenant's name — what this method does for a document that
+        // was started from the generic wizard — could only create a second lease, or promote the wrong draft.
+        if (Lease::withoutGlobalScopes()->where('signature_template_id', $template->id)->exists()) {
+            return null;
+        }
+
         $fields = $this->extractLeaseFields($document);
         $property = app(\App\Services\Rentals\LeasePropertyResolver::class)
             ->matchOneByAddress($fields['property_address']);
@@ -5523,9 +5652,12 @@ class SignatureService
         $parties = $template->parties_json ?? [];
         $tenant = $this->firstPartyWithRole($parties, ['tenant', 'lessee']);
 
-        $startDate = $fields['lease_start_date'] ?? now()->toDateString();
+        // A value the document does not carry never overwrites what a matched draft already holds (leases.md
+        // §15.22 #4: a rent of 0, today's date as the start, a blank end date). The no-draft branch below has no
+        // draft to protect and keeps its old defaults.
+        $startDate = $fields['lease_start_date'] ?? null;
         $endDate = $fields['lease_end_date'] ?? null;
-        $rentalAmount = $fields['rental_amount'] ?? 0;
+        $rentalAmount = (float) ($fields['rental_amount'] ?? 0);
 
         // Resolved up front (rather than only after a brand-new Lease is
         // created, as before) so the draft-match-by-tenant lookup below can
@@ -5562,9 +5694,9 @@ class SignatureService
         if ($draftLease) {
             $lease = DB::transaction(function () use ($draftLease, $rentalAmount, $startDate, $endDate, $document) {
                 $draftLease->forceFill([
-                    'rental_amount' => $rentalAmount,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
+                    'rental_amount' => $rentalAmount > 0 ? $rentalAmount : $draftLease->rental_amount,
+                    'start_date' => $startDate ?? $draftLease->start_date,
+                    'end_date' => $endDate ?? $draftLease->end_date,
                     'source' => 'esign_document',
                     'source_document_id' => $document->id,
                 ])->save();
@@ -5605,17 +5737,32 @@ class SignatureService
                 }
             });
         } else {
+            // leases.md §15.22 #2 (Build L3b) — created as a draft and activated through the one activation
+            // service, so the one-active-lease-per-property guard and the let-out status flip apply here as they do
+            // everywhere else. If another lease is already active on the property the lease simply stays a draft
+            // (the document is linked); nothing is thrown into the completion cascade.
             $lease = Lease::withoutGlobalScopes()->create([
                 'agency_id' => $property->agency_id,
                 'branch_id' => $property->branch_id,
                 'property_id' => $property->id,
-                'status' => Lease::STATUS_ACTIVE,
+                'status' => Lease::STATUS_DRAFT,
                 'rental_amount' => $rentalAmount,
-                'start_date' => $startDate,
+                'start_date' => $startDate ?? now()->toDateString(),
                 'end_date' => $endDate,
                 'source' => 'esign_document',
                 'source_document_id' => $document->id,
             ]);
+
+            try {
+                $lease = app(LeaseActivationService::class)->activate($lease);
+            } catch (ValidationException $e) {
+                Log::warning('createLeaseFromSignedDocument: new lease created from the signed document but NOT activated — another lease is already active on this property', [
+                    'lease_id' => $lease->id,
+                    'property_id' => $property->id,
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         if ($tenantContact && !LeaseTenant::where('lease_id', $lease->id)->where('contact_id', $tenantContact->id)->exists()) {

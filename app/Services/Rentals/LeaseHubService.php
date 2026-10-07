@@ -174,6 +174,9 @@ class LeaseHubService
 
             case Lease::SIGNING_AWAITING_AGENT_REVIEW:
                 $envelope = $lease->signature_template_id ? \App\Models\Docuperfect\SignatureTemplate::find($lease->signature_template_id) : null;
+                if ($envelope && $envelope->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_COMPLETED) {
+                    return $none('Signed — filing the document');
+                }
                 if ($envelope && $envelope->document_id) {
                     return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.signatures.review', 'route_param' => $envelope->document_id];
                 }
@@ -181,6 +184,11 @@ class LeaseHubService
                 return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.esign.myDocuments', 'route_param' => []];
 
             case Lease::SIGNING_SIGNED:
+                // leases.md §15.5 — signed, but another lease is still active on the property: say what to do.
+                if ($lease->events()->where('event_type', \App\Models\LeaseEvent::TYPE_SIGNED_NOT_ACTIVATED)->exists()) {
+                    return $none('Signed — another lease is still active on this property. End or renew it, then activate.');
+                }
+
                 return ['label' => 'Signed — activate', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
 
             case Lease::SIGNING_DECLINED:

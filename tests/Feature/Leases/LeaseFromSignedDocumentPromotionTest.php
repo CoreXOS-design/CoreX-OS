@@ -226,4 +226,74 @@ final class LeaseFromSignedDocumentPromotionTest extends TestCase
         self::assertEquals(8000.0, (float) $escalation->previous_rental_amount);
         self::assertEquals(12500.0, (float) $escalation->new_rental_amount);
     }
+
+    // ═══ Build L3b (leases.md §15.15 / §15.22 #2-#4) ═══
+
+    /**
+     * A document that was launched FROM a lease already has its lease: it was linked by id when the agent prepared
+     * signing and UpdateLeaseSigningState finishes it. Guessing a lease from the address would at best repeat that
+     * and at worst promote a different draft — so the address-matching path stands aside for it.
+     */
+    public function test_a_document_launched_from_a_lease_is_never_matched_by_address_or_given_a_second_lease(): void
+    {
+        $template = $this->signedLeaseTemplate();
+        $linked = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_DRAFT, 'rental_amount' => 9100, 'start_date' => '2026-11-01',
+            'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+            'signing_status' => Lease::SIGNING_OUT_FOR_SIGNING, 'signature_template_id' => $template->id,
+        ]);
+        // A second, untenanted draft on the same property — exactly what the address matcher would have promoted.
+        $bystander = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_DRAFT, 'rental_amount' => 7000, 'start_date' => '2026-12-01',
+            'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $result = app(SignatureService::class)->createLeaseFromSignedDocument($template);
+
+        self::assertNull($result);
+        self::assertSame(2, Lease::where('property_id', $this->property->id)->count(), 'no third lease');
+        self::assertNull($bystander->fresh()->source_document_id, 'the other draft was not promoted');
+        self::assertSame(Lease::STATUS_DRAFT, $bystander->fresh()->status);
+        self::assertNull($linked->fresh()->source_document_id, 'and the linked lease is left to its own listener');
+        self::assertEquals(9100.0, (float) $linked->fresh()->rental_amount);
+    }
+
+    public function test_a_document_that_carries_no_rent_or_dates_never_overwrites_what_the_matched_draft_holds(): void
+    {
+        $draft = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_DRAFT, 'rental_amount' => 9000, 'start_date' => '2026-12-01', 'end_date' => '2027-11-30',
+            'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $template = $this->signedLeaseTemplate(['rental_amount' => null, 'lease_start' => null, 'lease_end' => null]);
+        $lease = app(SignatureService::class)->createLeaseFromSignedDocument($template);
+
+        self::assertSame($draft->id, $lease->id);
+        self::assertEquals(9000.0, (float) $lease->rental_amount, 'a rent of 0 is "not in the document", never a rent');
+        self::assertSame('2026-12-01', $lease->start_date->toDateString(), 'today is not a start date');
+        self::assertSame('2027-11-30', $lease->end_date->toDateString());
+        self::assertSame($template->document_id, $lease->source_document_id);
+    }
+
+    public function test_a_new_lease_made_from_a_document_never_becomes_a_second_active_lease_on_the_property(): void
+    {
+        $existing = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 8000, 'start_date' => now()->subMonths(6)->toDateString(),
+            'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $template = $this->signedLeaseTemplate();
+        $lease = app(SignatureService::class)->createLeaseFromSignedDocument($template);
+
+        self::assertNotNull($lease, 'the document is still linked to a lease');
+        self::assertNotSame($existing->id, $lease->id);
+        self::assertSame(Lease::STATUS_DRAFT, $lease->status, 'left a draft — the property already has an active lease');
+        self::assertSame($template->document_id, $lease->source_document_id);
+        self::assertSame(1, Lease::where('property_id', $this->property->id)->where('status', Lease::STATUS_ACTIVE)->count());
+        self::assertSame(Lease::STATUS_ACTIVE, $existing->fresh()->status);
+    }
 }

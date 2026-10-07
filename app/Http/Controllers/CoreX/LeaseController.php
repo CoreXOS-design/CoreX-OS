@@ -101,6 +101,16 @@ class LeaseController extends Controller
 
         $leases = $query->paginate($perPage)->withQueryString();
 
+        // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L3b): the safety net — a lease on this page whose agreement
+        // is still in flight is re-checked against its e-sign envelope, so a missed announcement never shows a stale
+        // status. One cheap read per in-flight lease on the page; a lease with no agreement costs nothing.
+        foreach ($leases->items() as $listed) {
+            if ($listed->signature_template_id && in_array($listed->signing_status, Lease::SIGNING_IN_FLIGHT, true)) {
+                $listed->reconcileSigning();
+            }
+        }
+        // LEASE-AGREEMENT END
+
         // §39, 2026-09-28 — Johan: a summary tiles row, the same reused
         // FICA/rental-applications pattern as rental-inspections (§39
         // there). Status tiles are the real enum (Lease::STATUS_*), not
@@ -480,6 +490,12 @@ class LeaseController extends Controller
     public function show(Request $request, Lease $lease): View
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L3b): the safety net — bring the lease in step with its
+        // e-sign envelope before showing it, whatever the engine did or failed to announce. A no-op for any lease
+        // whose agreement is not in flight.
+        $lease->reconcileSigning();
+        // LEASE-AGREEMENT END
 
         $lease->load(['property', 'tenants.contact', 'escalations.createdByUser', 'previousLease', 'renewedLease']);
 
