@@ -2630,6 +2630,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/contact/{contact}/documents', [\App\Http\Controllers\Compliance\FicaController::class, 'contactDocuments'])->name('contact-documents');
         Route::get('/{submission}', [\App\Http\Controllers\Compliance\FicaController::class, 'show'])->name('show');
         Route::get('/{submission}/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'downloadPdf'])->name('pdf');
+        // The client's online questions & answers + signature as a form for the agent's file (download / print).
+        Route::get('/{submission}/questions-answers/pdf', [\App\Http\Controllers\Compliance\FicaController::class, 'questionsAnswersPdf'])->name('questions-answers.pdf');
+        Route::get('/{submission}/questions-answers/print', [\App\Http\Controllers\Compliance\FicaController::class, 'questionsAnswersPrint'])->name('questions-answers.print');
         Route::post('/{submission}/agent-approve', [\App\Http\Controllers\Compliance\FicaController::class, 'agentApprove'])->name('agent-approve');
         Route::post('/{submission}/tfs-screen', [\App\Http\Controllers\Compliance\FicaController::class, 'screenTfs'])->name('tfs-screen');
         Route::post('/{submission}/tfs-force-download', [\App\Http\Controllers\Compliance\FicaController::class, 'tfsForceDownload'])->name('tfs-force-download');
