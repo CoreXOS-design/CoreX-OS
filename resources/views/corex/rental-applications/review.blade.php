@@ -2094,7 +2094,7 @@
                         {{-- .lazy — see the statement-period date fields' own comment above. --}}
                         <input type="date" class="corex-input text-xs w-full mb-1" x-model.lazy="manualEntry.entry_date" aria-label="Date">
                         <input type="text" class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_description" maxlength="255" placeholder="Description" aria-label="Description">
-                        <input type="number" step="0.01" data-manual-entry-amount class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_amount" placeholder="Amount" aria-label="Amount" @keydown.enter.prevent="saveManualEntry()">
+                        <input type="text" inputmode="decimal" autocomplete="off" data-manual-entry-amount class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_amount" placeholder="Amount" aria-label="Amount" @keydown.enter.prevent="saveManualEntry()">
                         <p class="text-[11px] mb-1" style="color: var(--ds-crimson, #dc2626);" x-show="manualEntryError" x-text="manualEntryError"></p>
                         <div class="flex items-center justify-end gap-2">
                             <button type="button" class="text-[11px]" style="color: var(--text-muted);" @click="cancelManualEntry()">Cancel</button>
@@ -2855,8 +2855,11 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
                 this.manualEntryError = 'Choose Income or Expense first.';
                 return;
             }
-            const amount = parseFloat(this.manualEntry.entry_amount);
-            if (this.manualEntry.entry_amount === '' || Number.isNaN(amount)) {
+            // Money is typed as text (a native number box eats the "." mid-typing);
+            // the raw string goes to the server, whose sanitizer is the only place
+            // that interprets "40,638.40" / "40638,40" / "R40 638.40".
+            const amount = String(this.manualEntry.entry_amount ?? '').trim();
+            if (!/\d/.test(amount)) {
                 this.manualEntryError = 'Enter an amount.';
                 return;
             }
@@ -2882,7 +2885,7 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
                 });
                 if (!res.ok) {
                     const body = await res.json().catch(() => ({}));
-                    this.manualEntryError = body.error || 'Could not save this entry.';
+                    this.manualEntryError = body.error || (body.errors ? Object.values(body.errors)[0]?.[0] : null) || 'Could not save this entry.';
                     this.manualEntrySaving = false;
                     return;
                 }

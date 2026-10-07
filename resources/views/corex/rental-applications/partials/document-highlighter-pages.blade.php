@@ -317,7 +317,7 @@
                 </div>
                 <div>
                     <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Amount</label>
-                    <input type="number" step="0.01" data-capture-chip-amount class="corex-input text-xs w-full" x-model="captureChip.amount">
+                    <input type="text" inputmode="decimal" autocomplete="off" data-capture-chip-amount class="corex-input text-xs w-full" x-model="captureChip.amount">
                 </div>
                 <p class="text-[11px]" style="color: var(--ds-crimson, #dc2626);" x-show="captureChip.error" x-text="captureChip.error"></p>
                 <div class="flex items-center justify-between gap-2 pt-1">

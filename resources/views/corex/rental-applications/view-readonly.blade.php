@@ -395,11 +395,11 @@
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Supporting Documents</h2>
             <p class="text-xs" style="color: var(--text-muted);" @if($rentalApplication->documents->isNotEmpty()) hidden @endif>None uploaded yet.</p>
-            <ul class="text-xs space-y-1" style="color: var(--text-secondary);" @if($rentalApplication->documents->isEmpty()) hidden @endif>
+            <ul id="supportingDocumentsList" class="text-xs space-y-1" style="color: var(--text-secondary);" @if($rentalApplication->documents->isEmpty()) hidden @endif>
                 @foreach($rentalApplication->documents as $doc)
                     <li>✓ <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $doc]) }}" style="color: var(--brand-icon, #2563eb);">{{ $doc->original_name }}</a> @if($doc->documentType) ({{ $doc->documentType->label }}) @endif
                         <span style="color: var(--text-muted);">— {{ $doc->uploaded_by ? 'added by ' . ($doc->uploader->name ?? 'an agent') : 'from applicant' }}</span>
-                        @if($rentalApplication->submitted_at && $doc->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at) && $doc->uploaded_by)
+                        @if($rentalApplication->submitted_at && $doc->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at))
                             <span class="ds-badge ds-badge-warning" title="This document was added after the application was submitted">Added after submission</span>
                             <span style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y H:i') }}</span>
                         @endif

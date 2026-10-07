@@ -586,8 +586,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
     /** Same OWN/BRANCH/AGENCY scoping convention as RentalInspection::scopeVisibleTo(). */
     public function scopeVisibleTo(Builder $query, User $user, ?string $requestedScope = null): Builder
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_inventories');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_inventories', $requestedScope);
 
         if ($scope === 'all') {
             return $query;

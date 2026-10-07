@@ -1083,8 +1083,7 @@ class RentalWorkOrder extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user, ?string $requestedScope = null): Builder
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_work_orders');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_work_orders', $requestedScope);
 
         if ($scope === 'all') {
             return $query;

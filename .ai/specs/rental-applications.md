@@ -14874,3 +14874,37 @@ text, with no suburb, and one of them was a "1 Bedroom Commercial Property". Cha
   `app/Services/RentalApplications/RentalApplicationPropertyMatcher.php`; tests
   `RentalApplicationApprovedMailLinksTest` (new) and `RentalApplicationApprovedMailAddressPrivacyTest`
   (suburb no longer forbidden).
+
+## 7 Oct 2026 — four rentals bug fixes from the red-test sweep (QA1)
+
+Owner: cc6. Source: the red-test report (items 2–5) plus one earlier finding. Each fix has a test that
+was proven red on the old code and green on the new.
+
+1. **"Added after submission" on the read-only application screen** (`view-readonly.blade.php`).
+   The badge was gated on `uploaded_by`, so a document the **applicant** added after submitting (no
+   uploader) was never tagged. The rule stays exactly the RA-03 rule — `created_at >= submitted_at`,
+   whoever added it — identical to `show.blade.php` and `review.blade.php`. The list also carries
+   `id="supportingDocumentsList"` like the editable screen. Test: `RentalApplicationAgentControllerTest`.
+2. **Approve / decline never 500s because the decider cannot see the applicant's contact.**
+   `RentalApplication::contact()` now ignores `ContactScope` (still `withTrashed`, still agency-scoped).
+   Whether a user may open or decide an application is decided by `scopeVisibleTo()` and the authoriser
+   guards; anyone allowed to decide it necessarily sees who applied. The three `->full_name` reads
+   (approve / decline confirmation, decline-email draft) are also null-safe. A user **not** permitted to
+   decide still gets a clean 403. Test: `RentalApplicationDecisionContactVisibilityTest`.
+3. **Capture ledger refuses a future-dated entry.** `entry_date` is `before_or_equal:today` on all three
+   ledger saves (highlight capture, "Add line manually", edit), with a plain message: "A ledger entry
+   cannot be dated in the future — use the date on the statement." This is the existing rule from the
+   items screen it replaced (Round 11: "a transaction date can't be in the future"); the spec holds no
+   business reason for future-dated entries. Test: `RentalApplicationCaptureLedgerEntryRulesTest`.
+4. **Ledger amount boxes are text inputs, not browser number boxes.** The manual-entry amount
+   (`review.blade.php`) was `type="number"`; the document capture chip (`document-highlighter-pages`)
+   had the same. Both are now `type="text" inputmode="decimal"` (the Round 11 money-input rule). The raw
+   typed string goes to the server, which runs it through `RentalApplication::sanitizeNumericInput()`
+   (`40,638.40`, `40638,40`, `R40 638.40` all resolve) before validating; server messages are shown
+   under the box. Same test file as 3.
+5. **A role with no scope row is a 403, not a 500, on every rentals `scopeVisibleTo()`.**
+   `PermissionService::getDataScope()` answers null for "no access" and `clampScope()` demands a string,
+   so the scope threw a TypeError. New `App\Services\Rentals\RentalDataScope::resolve()` aborts 403 on a
+   null ceiling and otherwise clamps as before; used by `RentalInspection`, `RentalInspectionPlannedDate`,
+   `Lease`, `RentalWorkOrder`, `RentalFaultReport`, `RentalJobCard`, `RentalInventory`,
+   `RentalTakeOnImportRun`. Test: `RentalDataScopeNoGrantTest`.

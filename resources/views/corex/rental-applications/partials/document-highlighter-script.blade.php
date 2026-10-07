@@ -461,8 +461,10 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         },
         async confirmCaptureChip() {
             if (!this.captureChip || this.captureChip.saving) return;
-            const amount = parseFloat(this.captureChip.amount);
-            if (this.captureChip.amount === '' || Number.isNaN(amount)) {
+            // Money is typed as text (a native number box eats the "." mid-typing);
+            // the raw string goes to the server, whose sanitizer interprets it.
+            const amount = String(this.captureChip.amount ?? '').trim();
+            if (!/\d/.test(amount)) {
                 this.captureChip.error = 'Enter an amount.';
                 return;
             }
@@ -516,7 +518,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                     });
                     if (!res.ok) {
                         const body = await res.json().catch(() => ({}));
-                        this.captureChip.error = body.error || 'Could not save this entry.';
+                        this.captureChip.error = body.error || (body.errors ? Object.values(body.errors)[0]?.[0] : null) || 'Could not save this entry.';
                         this.captureChip.saving = false;
                         return;
                     }
@@ -539,7 +541,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                     });
                     if (!res.ok) {
                         const body = await res.json().catch(() => ({}));
-                        this.captureChip.error = body.error || 'Could not save this entry.';
+                        this.captureChip.error = body.error || (body.errors ? Object.values(body.errors)[0]?.[0] : null) || 'Could not save this entry.';
                         this.captureChip.saving = false;
                         return;
                     }
