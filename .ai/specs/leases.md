@@ -106,6 +106,8 @@ exactly the gap Johan is describing.
 
 ### 1.3a Gap 1 closed, 2026-09-15 (conductor ruling, "C") — Gap 2 deliberately untouched
 
+> **Superseded 2026-10-07 (cleanup, cc2):** the "do NOT touch property status" carve-out below was closed by Johan's Gate 2 approval of AT-444 item 7 — see §12.5 point 1: activating a lease (including the one created here) lets the property out. `LeaseFromApprovalTest` asserts `let_out`, not "untouched".
+
 Johan's ruling: build the lease creation on approval, capturing rent, deposit and dates in that flow,
 with one explicit carve-out — do NOT touch property status. That is Gap 2 above, and it stays
 Johan's call to make, pending.
