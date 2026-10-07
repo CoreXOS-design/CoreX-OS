@@ -103,6 +103,8 @@ seller-linked to it.
 }
 ```
 
+**2026-10-07 — figures changed.** `performance.market_value` is now the latest presentation's recommended price (null when the property has no presentation or it has no price; see `presentations.md` §13) instead of a suburb-sales calculation. `performance.days_on_market` / `headline.days_on_market` count from the real `listed_date` only and are null when it is unknown (see `seller-live-link.md` §2) instead of falling back to the import date. A draft presentation's price counts.
+
 ## 6. Permissions
 
 Client-side surface — authorised by Sanctum `client` ability + ownership

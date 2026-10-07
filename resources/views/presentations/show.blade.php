@@ -171,6 +171,22 @@
                 @endif
             </div>
         </div>
+        {{-- The price the agent recommends to the seller in this presentation — the same
+             figure the seller PDF prints as "your home fits best at …" and the property's
+             Intelligence tab shows (PresentationRecommendedPrice). --}}
+        <div class="py-2 min-w-0 border-t" style="border-color:var(--border);" data-recommended-price-panel>
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Recommended price</div>
+            <div class="text-base font-semibold mt-0.5" style="color:var(--text-primary);">
+                @if(($recommendedPrice['price'] ?? null) !== null)
+                    R {{ number_format($recommendedPrice['price'], 0, '.', ' ') }}
+                @else
+                    <span class="text-[13px] font-normal" style="color:var(--text-muted);">&mdash;</span>
+                @endif
+            </div>
+            @if(($recommendedPrice['price'] ?? null) === null)
+                <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">Not calculated yet &mdash; it appears once the presentation has a valuation.</div>
+            @endif
+        </div>
         <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Seller</div>
             <div class="text-[13px] mt-0.5" style="color:var(--text-primary);">

@@ -625,3 +625,24 @@ Order is now: Outcome → Refresh requests → Power Panel → Buyer Demand → 
 Links → Documents → Executive Summary → Last Analysis | Holding Costs → Market
 News → Live updates. Further show-page work extends this frame; do not
 reintroduce a page banner or a standalone action bar.
+
+
+## 13. Recommended price — one figure everywhere (2026-10-07, Johan)
+
+**Rule.** "The price the agent recommends to the seller" is the presentation's **evaluated value** (CMA middle) — exactly what the seller PDF prints as "your home fits best at R…" (`PresentationPdfService::buildSummaryPayload`, `$recommendedPrice = $cmaMiddle`). It is read from the version's **frozen** `presentation_versions.snapshot_payload.cma_valuation.cma_middle` (the blob the PDF and public seller page read) — never from `presentation_snapshots.computed_json` (an older copy that disagrees in ~40% of presentations) and never recalculated.
+- One resolver: `App\Services\Presentations\PresentationRecommendedPrice` (`forProperty()`, `forPresentationId()`).
+- "Latest presentation for the property" = highest presentation id for that `property_id` (same agency). A **draft** presentation counts (Johan's ruling — status is not consulted). Within a presentation, the latest version that carries a frozen `cma_valuation` block; an unfrozen newer version does not shadow it. A `cma_middle` of null/0 means "no price".
+- A newer presentation with no price does NOT fall back to an older presentation's figure (the seller and the screen would disagree).
+- States: `none` (no presentation), `no_price` (presentation exists, nothing calculated), `price`.
+- Agent's own Lower/Middle/Upper click (`cma_selected_range`) is NOT the recommended price — Johan chose the PDF's figure; the PDF itself still always prints the middle.
+
+**Where it shows.**
+- Presentation screen (`presentations/show.blade.php`) left panel: "Recommended price" directly under "Asking price" (this presentation's own price; "—" + "Not calculated yet" when none).
+- Property → Intelligence tab, "Presentations & Market Positioning" card: Recommended Price = latest presentation's price with "From the presentation of {date}" + Open. No presentation → "No presentation done yet" + **Generate presentation** (agent screen only, only with `create_presentations`; it fires the existing header generator via the `corex:generate-presentation` event — no second generate flow). Presentation but no price → "—" + "The presentation has no price yet". Preview-as-Seller omits the cell unless there is a price. Rentals: no card.
+- Client mobile API `performance.market_value` reads the same figure (was the old suburb-sales calculation) — null when no presentation.
+- Seller live link: shows no recommended price today and still doesn't.
+- `PropertyIntelligenceService::getPresentations()` now looks presentations up by `property_id` (was the unused `listing_id`, so the tab's list was always empty).
+
+The old suburb-sales calculation (`MarketDataSnapshotService::calculateRecommendedPrice` / `CompPoolBuilder` fallbacks) is no longer called from the Intelligence tab or the API; it is untouched for its other callers.
+
+Tests: `tests/Feature/Intelligence/RecommendedPriceFromPresentationTest.php`.

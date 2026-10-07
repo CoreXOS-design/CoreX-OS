@@ -355,9 +355,14 @@ class PresentationController extends Controller
                 ->getBuyerDemandForProperty($presentation->listing_id, $agencyId);
         }
 
+        // The price the agent recommends to the seller in THIS presentation (left panel,
+        // under the asking price) — same resolver the Intelligence tab uses.
+        $recommendedPrice = app(\App\Services\Presentations\PresentationRecommendedPrice::class)
+            ->forPresentationId($presentation->id);
+
         return view('presentations.show', compact(
             'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'powerPanel',
-            'linkViews', 'isAdmin', 'latestVersion',
+            'linkViews', 'isAdmin', 'latestVersion', 'recommendedPrice',
             'maxCaptureId', 'maxCaptureUpdatedAt', 'maxLinkUpdatedAt',
             'addedArticles', 'suggestedArticles', 'buyerDemand'
         ));
