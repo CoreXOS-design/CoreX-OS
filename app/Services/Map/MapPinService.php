@@ -47,7 +47,7 @@ final class MapPinService
 
     private static function addressIndexCacheKey(int $agencyId): string
     {
-        return "map:address-index:agency:{$agencyId}";
+        return "map:address-index:v2:agency:{$agencyId}";
     }
 
     /**
@@ -89,18 +89,29 @@ final class MapPinService
             self::ADDRESS_INDEX_CACHE_TTL_SECONDS,
             function () use ($agencyId) {
                 $index = [];
+                // 2026-10-07 (structured address matching, step 6) — the key is number | street CORE | suburb. It was
+                // street_number | street_name_normalised (type included, number only when it sat in its own column) |
+                // suburb, so "19 Grindewald Drive" never folded onto property "19 Grindewald" and every property whose
+                // number was written inside the street name (47% on QA1) never folded at all. The parser reads the
+                // number and core out of whichever column holds them; a backfilled street_core is used as stored.
+                $parser = new \App\Services\Address\AddressParser();
                 DB::table('properties')
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
-                    ->whereNotNull('street_number')
-                    ->whereNotNull('street_name_normalised')
+                    ->whereNotNull('street_name')
                     ->whereNotNull('suburb_normalised')
-                    ->select(['street_number', 'street_name_normalised', 'suburb_normalised', 'unit_number'])
+                    ->select(['street_number', 'street_name', 'street_core', 'suburb_normalised', 'unit_number'])
                     ->orderBy('id')
-                    ->chunk(2000, function ($rows) use (&$index) {
+                    ->chunk(2000, function ($rows) use (&$index, $parser) {
                         foreach ($rows as $pr) {
-                            $key = trim((string) $pr->street_number) . '|' . $pr->street_name_normalised . '|' . $pr->suburb_normalised;
-                            $index[$key][] = TrackedPropertyAddress::normaliseNumericIdentifier($pr->unit_number);
+                            [$num, $core, $type] = $parser->numberAndCore($pr->street_number, $pr->street_name, $pr->street_core);
+                            if ($num === null || $core === null) {
+                                continue;
+                            }
+                            $index[$num . '|' . $core . '|' . $pr->suburb_normalised][] = [
+                                'unit' => TrackedPropertyAddress::normaliseNumericIdentifier($pr->unit_number),
+                                'type' => $type,
+                            ];
                         }
                     });
 
@@ -640,24 +651,30 @@ final class MapPinService
             // lookup — see agencyAddressIndex() docblock.
             $propertyIndex = $this->agencyAddressIndex($req->agencyId);
 
-            $rows = $rows->reject(function ($r) use ($propertyIndex) {
-                if (!$r->street_number || !$r->street_name || !$r->suburb) {
+            $addressParser = new \App\Services\Address\AddressParser();
+            $rows = $rows->reject(function ($r) use ($propertyIndex, $addressParser) {
+                if (!$r->street_name || !$r->suburb) {
                     return false;
                 }
-                $streetNorm = TrackedPropertyAddress::normaliseStreet($r->street_name);
+                [$num, $core, $type] = $addressParser->numberAndCore($r->street_number, $r->street_name);
                 $suburbNorm = TrackedPropertyAddress::normaliseSuburb($r->suburb);
-                if ($streetNorm === null || $suburbNorm === null) {
+                if ($num === null || $core === null || $suburbNorm === null) {
                     return false;
                 }
-                $key = trim((string) $r->street_number) . '|' . $streetNorm . '|' . $suburbNorm;
+                $key = $num . '|' . $core . '|' . $suburbNorm;
                 if (!isset($propertyIndex[$key])) {
                     return false;
                 }
                 $tpUnit = TrackedPropertyAddress::normaliseNumericIdentifier($r->section_number ?: $r->unit_number);
-                foreach ($propertyIndex[$key] as $candUnit) {
+                foreach ($propertyIndex[$key] as $cand) {
+                    // A street TYPE written on both sides must agree ("Grindewald Road" is not "Grindewald Drive");
+                    // a missing type on either side is compatible.
+                    if ($type !== null && $cand['type'] !== null && $type !== $cand['type']) {
+                        continue;
+                    }
                     // No conflict (either side blank, or both agree) → same
                     // property already on our books; fold the T-pin away.
-                    if ($tpUnit === null || $candUnit === null || $tpUnit === $candUnit) {
+                    if ($tpUnit === null || $cand['unit'] === null || $tpUnit === $cand['unit']) {
                         return true;
                     }
                 }

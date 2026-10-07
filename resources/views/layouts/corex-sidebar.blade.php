@@ -265,7 +265,8 @@
         'corex.outreach-canvassing.*', // Part 4 — Outreach & Canvassing board lives in Real Estate
         'corex.outreach-summary.*',  // AT-91 — WhatsApp Outreach Summary lives in Real Estate
         'corex.outreach-queue.*',    // AT-117/AT-120 — Outreach Queue lives in Real Estate
-        'corex.deeds-capture.*'      // Deeds Capture lives in Real Estate
+        'corex.deeds-capture.*',     // Deeds Capture lives in Real Estate
+        'corex.address-review.*'     // Address Review (unreadable addresses) lives beside it
     ) && !request()->routeIs('market-intelligence.suburb-report*')) {
         // Suburb Report (2026-08-25) moved into the Reports panel, not Market
         // Intelligence — excluded here so it falls through to the reports
@@ -946,6 +947,15 @@
                 @endif
                 @endpermission
                 @endfeature
+
+                {{-- Structured address matching (2026-10-07) — admin-only list of addresses CoreX could not read. --}}
+                @permission('address_review.manage')
+                @if(\Illuminate\Support\Facades\Route::has('corex.address-review.index'))
+                <a href="{{ route('corex.address-review.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.address-review.*') ? 'active' : '' }}">
+                    <span>Address Review</span>
+                </a>
+                @endif
+                @endpermission
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))

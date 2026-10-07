@@ -126,7 +126,7 @@ Before/after counts per status; per reason (suburb unresolved / numbers disagree
 
 ## 9. Settings (admin-only, defaults, NOT in the Setup Wizard)
 
-Page `/settings/prospecting/address-matching` (inside the Prospecting Setup group, permission `prospecting_setup.manage`, agency admin). Stored in `address_match_settings`.
+Page `/corex/settings/prospecting/address-matching` (inside the Prospecting Setup group, permission `prospecting_setup.manage`, agency admin). Stored in `address_match_settings`.
 
 | Setting | Default | Range |
 |---|---|---|
@@ -166,10 +166,10 @@ Merging duplicate property records (decision 3); the Pull-as-my-own-listing flow
 | 3 | `AddressParser` + `StreetTypes` + `SuburbResolver` + `LpiCode` + `AddressStructurer`, unit-tested | landed (QA1) |
 | 4 | Writers wired: `Property::saving`, `TrackedProperty::creating/updating`, `TrackedPropertyAddress::creating`, `canonicalFactsForWrite` (+ `lpi_code`, `erf_portion`), CMA report parsers' `makeAddress`, the capture endpoints (LPI from the property block or `source_ref`) | landed (QA1) |
 | 5 | Scorer (`AddressFacts`, `AddressMatchScorer`, `AddressMatcher`); `resolveMatch` strategies 3 / 3b / 4, `findExistingStock`, `findSameStreetOthers`, `resolvePropertyMatch`, the Deeds evidence panel, the pre-check response (additive `tier` / `matched_on` / `columns`, possible tracked matches); promote asks on a possible match (Deeds screen and MIC) | landed (QA1) |
-| 6 | Other consumers: `DeedsCaptureLinkService`, `ContactAddressPropertyGuard`, `MapPinService` fold, `MicPropertyReconciliationService`, `PropertyCmaPropagationService`, `ProspectingStockMatchService` pass 2 | — |
-| 7 | Backfill command `address:backfill-structured` + QA1 dry run and run | — |
-| 8 | Review list + settings page (navigation, permission, CRUD standard) | — |
-| 9 | Extension 3.9.0 | — |
+| 6 | Other consumers: `DeedsCaptureLinkService`, `ContactAddressPropertyGuard`, `MapPinService` fold, `MicPropertyReconciliationService`, `PropertyCmaPropagationService`, `ProspectingStockMatchService` pass 2 — each with its own test file | landed (QA1) |
+| 7 | Backfill command `address:backfill-structured` (dry run first; QA/local/testing only) + QA1 dry run and run | command landed (QA1); QA1 run — see the build report |
+| 8 | Review list + settings page (navigation, permission, CRUD standard) | landed (QA1) |
+| 9 | Extension 3.9.0 | landed (QA1) |
 | 10 | QA1 walkthrough for Johan + final report | — |
 
 ### 14.1 What the build found and decided on the way (steps 2–5)
@@ -180,3 +180,18 @@ Merging duplicate property records (decision 3); the Pull-as-my-own-listing flow
 - **Promote (decision 2)** is enforced inside `promoteToStock()` (`$askOnPossible`) so every agent-facing promote — Deeds screen and MIC — asks; programmatic callers (the rental take-on import) behave as before. `$linkToPropertyId` carries the agent's "same — this one".
 - **The structured layer sits beside the raw columns** — `street_core` / `street_type` are new, `street_name` is never rewritten; only EMPTY existing columns are filled (`street_number`, `unit_number`, `complex_name`, `scheme_number`, `erf_portion`, `erf_number`, `properties.p24_suburb_id`).
 - `SuburbResolver` memoisation is off by default (a stale memo could hand back an id from a row that no longer exists; `properties.p24_suburb_id` has a foreign key) and on only inside the backfill.
+
+- **"Nothing to read" is not "could not read".** A record that holds no address text at all (the ~32,000 Property24 / PrivateProperty captures carry a suburb and nothing else) gets an EMPTY parse status, not `unparseable`; the admin Address Review list therefore holds only addresses that exist and could not be read. Found by the QA1 dry run (32,234 of 39,998 captured rows would otherwise have been listed).
+
+### 14.2 Step 6 — what each consumer does differently now
+
+| Consumer | Before | Now |
+|---|---|---|
+| `DeedsCaptureLinkService` (owner lookup for a property being pitched) | "possible deed" tier compared the **first word** of the suburb ("Port Edward" = "Port Shepstone"); confirmed tier compared erf / street-name columns exactly | confirmed tier = the scorer's EXACT tier (GPS ~5 m stays); possible tier = same street number in the same **or Property24-neighbouring** suburb. Only when the suburb is not a Property24 suburb at all does the first-word rule still apply, so the real "Ramsgate / Ramsgate Beach" case cannot vanish |
+| `ContactAddressPropertyGuard` (stock side) | exact normalised street name incl. type + raw number column | scorer EXACT; a unit on one side only still warns, a conflicting unit vetoes (as before) |
+| `MapPinService` T-pin fold | key `number|street name incl. type|suburb`, number only from its own column | key `number|street core|suburb`, the number read from whichever column holds it; a street type written on both sides must agree; cache key bumped to `v2` |
+| `MicPropertyReconciliationService` | promoted-sibling lookup by exact erf / street-name columns | scorer EXACT, siblings already promoted, newest promotion first |
+| `PropertyCmaPropagationService` | exact text, then any 2 shared words (no number veto); erf with a suburb *substring* | scorer EXACT, a single POSSIBLE; the 2-word pass only for candidates the scorer does not veto; erf needs the **same** suburb |
+| `ProspectingStockMatchService` pass 2 (portal listing -> "In stock") | raw suburb equality + number + a non-generic word | scorer EXACT on on-market stock; the "no readable number, no fuzzy match" ruling kept; the generic-word list retired. Neighbouring suburbs stay a POSSIBLE match, never the badge |
+
+Not moved (deliberate): `OnMarketStockService` / `ProspectingListing::normalizeAddress` keep their documented "Uvongo never meets Uvongo Beach" suburb semantics (a different question — counting on-market stock per suburb); the presentation comps `SuburbMatcher` (word-stripping for comp geocoding) and `DealPropertyLinkService` / `PortalInventoryGuard` (own fuzzy scorers over deals and portal inventory) are listed in the design and left for a later pass — they do not feed the tracked/stock matcher.

@@ -56,30 +56,20 @@ class MicPropertyReconciliationService
         // street_number+street_name+suburb) so MIC still reconciles to the one canonical property
         // instead of minting a duplicate. Uses the matched row's normalised keys — never invents new
         // matching semantics beyond what the matcher already produced.
-        $hasErf    = !empty($tp->erf_number) && !empty($tp->suburb_normalised);
-        $hasStreet = !empty($tp->street_number) && !empty($tp->street_name) && !empty($tp->suburb_normalised);
-        if (! $hasErf && ! $hasStreet) {
-            return null;
+        // 2026-10-07 (structured address matching, step 6) — the sibling lookup was exact column equality on erf
+        // or on the street NAME (type included, number only when in its own column). It is now the scorer's EXACT
+        // tier against the matched row — erf (+ portion / LPI), scheme + unit, or number + street + suburb, with
+        // the same vetoes everything else uses — restricted to siblings already promoted to a property.
+        $siblings = [];
+        foreach (app(\App\Services\Address\AddressMatcher::class)->trackedProperties(
+            $agencyId, \App\Services\Address\AddressFacts::fromModel($tp), null, [(int) $tp->id]
+        ) as $h) {
+            if ($h['result']['tier'] === \App\Services\Address\AddressMatchScorer::TIER_EXACT && ! empty($h['model']->promoted_to_property_id)) {
+                $siblings[] = $h['model'];
+            }
         }
-
-        $sibling = TrackedProperty::withoutGlobalScopes()
-            ->where('agency_id', $agencyId)
-            ->whereNotNull('promoted_to_property_id')
-            ->where(function ($q) use ($tp, $hasErf, $hasStreet) {
-                if ($hasErf) {
-                    $q->orWhere(fn ($qq) => $qq
-                        ->where('erf_number', $tp->erf_number)
-                        ->where('suburb_normalised', $tp->suburb_normalised));
-                }
-                if ($hasStreet) {
-                    $q->orWhere(fn ($qq) => $qq
-                        ->where('street_number', $tp->street_number)
-                        ->where('street_name', $tp->street_name)
-                        ->where('suburb_normalised', $tp->suburb_normalised));
-                }
-            })
-            ->orderByDesc('promoted_at')
-            ->first();
+        usort($siblings, fn ($x, $y) => [$y->promoted_at?->getTimestamp() ?? 0, $y->id] <=> [$x->promoted_at?->getTimestamp() ?? 0, $x->id]);
+        $sibling = $siblings[0] ?? null;
 
         if ($sibling && $sibling->promoted_to_property_id) {
             return $this->liveProperty((int) $sibling->promoted_to_property_id);

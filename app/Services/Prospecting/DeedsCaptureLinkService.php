@@ -8,6 +8,11 @@ use App\Models\Contact;
 use App\Models\ProspectingListing;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Scopes\ContactScope;
+use App\Models\Prospecting\TrackedPropertyAddress;
+use App\Services\Address\AddressFacts;
+use App\Services\Address\AddressMatcher;
+use App\Services\Address\AddressMatchScorer;
+use App\Services\Address\SuburbResolver;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -211,24 +216,35 @@ class DeedsCaptureLinkService
     private function findCandidates(int $agencyId, ?TrackedProperty $seedTp, array $facts): array
     {
         $streetNumber = $seedTp->street_number ?? ($facts['street_number'] ?? null);
-        $suburbNorm   = $seedTp->suburb_normalised ?? (
-            ! empty($facts['suburb']) ? TrackedProperty::normaliseSuburb((string) $facts['suburb']) : null
-        );
+        $suburb       = $seedTp->suburb ?? ($facts['suburb'] ?? null);
         $streetNumber = $streetNumber !== null ? trim((string) $streetNumber) : '';
-        $suburbNorm   = $suburbNorm !== null ? trim((string) $suburbNorm) : '';
-        if ($streetNumber === '' || $suburbNorm === '') {
+        $suburb       = $suburb !== null ? trim((string) $suburb) : '';
+        if ($streetNumber === '' || $suburb === '') {
             return [];
         }
-        $token = explode(' ', $suburbNorm)[0] ?? '';
-        if ($token === '') {
-            return [];
-        }
+
+        // 2026-10-07 (structured address matching, step 6) — the suburb used to be compared on its FIRST WORD
+        // (`SUBSTRING_INDEX(suburb_normalised, ' ', 1)`), which made "Port Edward" the same as "Port Shepstone".
+        // Now: the same suburb by spelling (Saint/St, aliases) or a Property24 NEIGHBOUR of it ("Ramsgate" /
+        // "Ramsgate Beach" — the real case this tier exists for). Only when the suburb is not a Property24 suburb at
+        // all (so there is no neighbour list to ask) does the old first-word comparison still apply, so a
+        // spelling CoreX has never seen cannot make the real case disappear.
+        $keys = TrackedPropertyAddress::suburbSpellingKeys($suburb);
+        $neighbours = TrackedPropertyAddress::neighbouringSuburbKeys($suburb, $seedTp->latitude ?? null, $seedTp->longitude ?? null);
+        $unknownToP24 = SuburbResolver::resolve($suburb)['p24_suburb_id'] === null;
+        $suburbNorm = TrackedProperty::normaliseSuburb($suburb);
+        $token = $suburbNorm !== null ? (explode(' ', $suburbNorm)[0] ?? '') : '';
 
         $tps = TrackedProperty::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->when($seedTp !== null, fn ($q) => $q->where('id', '!=', $seedTp->id))
             ->where('street_number', $streetNumber)
-            ->whereRaw("SUBSTRING_INDEX(suburb_normalised, ' ', 1) = ?", [$token])
+            ->where(function ($w) use ($keys, $neighbours, $unknownToP24, $token) {
+                $w->whereIn('suburb_normalised', array_merge($keys, $neighbours));
+                if ($unknownToP24 && $token !== '') {
+                    $w->orWhereRaw("SUBSTRING_INDEX(suburb_normalised, ' ', 1) = ?", [$token]);
+                }
+            })
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('tracked_property_owners as tpo')
@@ -255,21 +271,30 @@ class DeedsCaptureLinkService
      */
     private function findOwnerBearingSibling(int $agencyId, ?TrackedProperty $seedTp, array $facts): ?TrackedProperty
     {
-        $erf              = $seedTp->erf_number ?? null;
-        $suburbNormalised = $seedTp->suburb_normalised ?? (
-            ! empty($facts['suburb']) ? TrackedProperty::normaliseSuburb((string) $facts['suburb']) : null
-        );
-        $streetNumber = $seedTp->street_number ?? ($facts['street_number'] ?? null);
-        $streetName   = $seedTp->street_name ?? null;
-
         // GPS: prefer the deeds-office authoritative pin, then the portal pin.
         $lat = $seedTp->cma_gps_lat ?? $seedTp->latitude ?? null;
         $lng = $seedTp->cma_gps_lng ?? $seedTp->longitude ?? null;
+        $hasGps = $lat !== null && $lng !== null;
 
-        $hasErf    = ! empty($erf) && ! empty($suburbNormalised);
-        $hasStreet = ! empty($streetNumber) && ! empty($streetName) && ! empty($suburbNormalised);
-        $hasGps    = $lat !== null && $lng !== null;
-        if (! $hasErf && ! $hasStreet && ! $hasGps) {
+        // 2026-10-07 (structured address matching, step 6) — erf + suburb and street + suburb used to be exact column
+        // equality (street TYPE, number-in-the-name rows and suburb spelling all defeated it). They are now the scorer's
+        // EXACT tier: erf (+ portion / LPI), scheme + unit, or street number + street + suburb. A POSSIBLE match is
+        // never an owner link — it stays in findCandidates() for the agent to verify.
+        $a = $seedTp !== null
+            ? AddressFacts::fromModel($seedTp)
+            : AddressFacts::fromPayload(array_filter([
+                'street_number' => $facts['street_number'] ?? null,
+                'suburb'        => $facts['suburb'] ?? null,
+                'address'       => $facts['address'] ?? null,
+            ], static fn ($v) => $v !== null && $v !== ''));
+
+        $exactIds = [];
+        foreach (app(AddressMatcher::class)->trackedProperties($agencyId, $a, null, $seedTp !== null ? [(int) $seedTp->id] : []) as $h) {
+            if ($h['result']['tier'] === AddressMatchScorer::TIER_EXACT) {
+                $exactIds[] = (int) $h['model']->getKey();
+            }
+        }
+        if ($exactIds === [] && ! $hasGps) {
             return null;
         }
 
@@ -281,17 +306,9 @@ class DeedsCaptureLinkService
                     ->from('tracked_property_owners as tpo')
                     ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id');
             })
-            ->where(function ($q) use ($hasErf, $hasStreet, $hasGps, $erf, $suburbNormalised, $streetNumber, $streetName, $lat, $lng) {
-                if ($hasErf) {
-                    $q->orWhere(fn ($qq) => $qq
-                        ->where('erf_number', $erf)
-                        ->where('suburb_normalised', $suburbNormalised));
-                }
-                if ($hasStreet) {
-                    $q->orWhere(fn ($qq) => $qq
-                        ->where('street_number', $streetNumber)
-                        ->where('street_name', $streetName)
-                        ->where('suburb_normalised', $suburbNormalised));
+            ->where(function ($q) use ($exactIds, $hasGps, $lat, $lng) {
+                if ($exactIds !== []) {
+                    $q->orWhereIn('id', $exactIds);
                 }
                 if ($hasGps) {
                     $q->orWhere(fn ($qq) => $qq
