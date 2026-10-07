@@ -21,6 +21,25 @@ final class StaleClaimServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // prospecting_claims carries real foreign keys to users + prospecting_listings (the
+        // schema snapshot has no rows), so the ids this file's claims point at must exist:
+        // agency 1, agents 10 and 20, and listing 1.
+        DB::table('agencies')->insert(['id' => 1, 'name' => 'Stale Claims', 'slug' => 'stale-claims', 'created_at' => now(), 'updated_at' => now()]);
+        foreach ([10, 20] as $userId) {
+            \App\Models\User::factory()->create(['id' => $userId, 'agency_id' => 1]);
+        }
+        \App\Models\ProspectingListing::unguarded(fn () => \App\Models\ProspectingListing::create([
+            'id' => 1, 'agency_id' => 1, 'captured_by_user_id' => 10, 'portal_source' => 'p24',
+            'portal_ref' => 'P24-STALE-1', 'address' => '1 Stale Street', 'suburb' => 'Uvongo',
+            'price' => 1_000_000, 'property_type' => 'House',
+            'first_seen_at' => now(), 'last_seen_at' => now(),
+        ]));
+    }
+
     private function claimRow(array $overrides = []): int
     {
         return (int) DB::table('prospecting_claims')->insertGetId(array_merge([

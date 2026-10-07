@@ -137,7 +137,8 @@ final class DeedsCapturePrecedenceTest extends TestCase
         // live on QA1's tracked_property 402 (bond_holder = '-') before this fix.
         $tp->forceFill(['bond_holder' => '-'])->save();
 
-        $resp2 = $this->ingest($ref, [], ['bond_holder' => 'ABSA Bank']);
+        // The API requires a non-empty `property` block on every capture (captures.*.property).
+        $resp2 = $this->ingest($ref, ['street_name' => 'Bairn Street', 'suburb' => 'Uvongo Beach'], ['bond_holder' => 'ABSA Bank']);
         $resp2->assertOk();
         $tp->refresh();
         $this->assertSame('ABSA Bank', $tp->bond_holder);

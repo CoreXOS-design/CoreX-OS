@@ -135,14 +135,20 @@ class DeedsCaptureDismissTest extends TestCase
         );
     }
 
-    public function test_dismiss_property_blocked_for_non_deeds_capture(): void
+    // 2026-08-19 — a capture matched onto an existing MIC/prospecting record is no longer a 404: Remove
+    // clears only deeds_captured_at (the row leaves the deeds-capture screen) and the lead itself is
+    // left untouched — deleting it would wipe a live lead just because the agent wanted the DEED gone.
+    public function test_dismiss_property_on_a_non_deeds_capture_only_clears_the_capture_stamp(): void
     {
-        $tp = $this->deedsCapture(['capture_kind' => 'prospecting']);
+        $tp = $this->deedsCapture(['capture_kind' => 'prospecting', 'deeds_captured_at' => now()]);
 
         $response = $this->actingAs($this->user)
             ->post(route('corex.deeds-capture.dismiss', $tp->id));
 
-        $response->assertNotFound();
+        $response->assertRedirect(route('corex.deeds-capture.index'));
+        $fresh = TrackedProperty::withoutGlobalScopes()->find($tp->id);
+        $this->assertNull($fresh->deleted_at, 'the underlying lead must NOT be deleted');
+        $this->assertNull($fresh->deeds_captured_at, 'it only drops off the deeds-capture screen');
     }
 
     // ──────────────────────── dismissTva() — HTTP layer ──────────────────────────

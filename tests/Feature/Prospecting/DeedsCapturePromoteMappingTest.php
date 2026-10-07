@@ -82,7 +82,9 @@ class DeedsCapturePromoteMappingTest extends TestCase
 
     public function test_sectional_capture_with_real_section_number_promotes_as_flat(): void
     {
-        $tp = $this->deedsCapture(['scheme_name' => 'Kubu Bali', 'section_number' => '3']);
+        // A genuinely sectional capture carries no freehold signal (erf_number) — with both signals the
+        // promotion deliberately leaves the type blank for the agent rather than guess (2026-08-19 audit).
+        $tp = $this->deedsCapture(['scheme_name' => 'Kubu Bali', 'section_number' => '3', 'erf_number' => null]);
 
         $this->promote($tp);
 
@@ -114,7 +116,7 @@ class DeedsCapturePromoteMappingTest extends TestCase
 
     // ──────────────────────── item 6 — erf / unit size ─────────────────────────
 
-    public function test_erf_and_floor_size_are_mapped(): void
+    public function test_floor_size_is_mapped_and_cadastral_extent_is_never_written_to_erf_size(): void
     {
         $tp = $this->deedsCapture([
             'cadastral_extent' => '308',
@@ -124,7 +126,10 @@ class DeedsCapturePromoteMappingTest extends TestCase
         $this->promote($tp);
 
         $property = \App\Models\Property::find($tp->fresh()->promoted_to_property_id);
-        $this->assertSame(308, (int) $property->erf_size_m2);
+        // Spec §6.4 (2026-08-19 mapping audit): cadastral_extent is NEVER written into erf_size_m2 —
+        // it is a freehold's "cadastral extent" or a sectional's "section extent", not an erf size —
+        // so erf size stays unset until a real erf-size field is captured.
+        $this->assertNull($property->erf_size_m2);
         $this->assertSame(96, (int) $property->size_m2); // decimal(10,2) -> int unsigned column rounds
     }
 
