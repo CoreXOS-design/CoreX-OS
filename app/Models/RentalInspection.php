@@ -121,6 +121,44 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 $inspection->status = self::STATUS_DRAFT;
             }
         });
+
+        // §45.8 (Build I-6b) — the inspection's history. Hooked on the MODEL, not in controllers, so every path that
+        // changes an inspection (the web screens today, a mobile endpoint or a job tomorrow) leaves the same trail.
+        static::created(function (self $inspection) {
+            RentalInspectionAuditLog::record(
+                $inspection,
+                RentalInspectionAuditLog::EVENT_CREATED,
+                ucfirst(str_replace('_', '-', (string) $inspection->type)) . '-inspection created' . ($inspection->scheduled_for ? ' for ' . $inspection->scheduled_for->format('d M Y') : '') . '.',
+                null,
+                ['type' => $inspection->type, 'status' => $inspection->status],
+            );
+        });
+        static::updated(function (self $inspection) {
+            if (! $inspection->wasChanged('status')) {
+                return;
+            }
+            $from = (string) $inspection->getOriginal('status');
+            $to = (string) $inspection->status;
+            if ($to === self::STATUS_CANCELLED) {
+                RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_CANCELLED,
+                    'Cancelled' . ($inspection->cancel_reason ? ': ' . $inspection->cancel_reason : '.'), ['status' => $from], ['status' => $to]);
+
+                return;
+            }
+            RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_STATUS_CHANGED,
+                'Status changed from ' . str_replace('_', ' ', $from) . ' to ' . str_replace('_', ' ', $to) . '.', ['status' => $from], ['status' => $to]);
+        });
+        static::deleted(function (self $inspection) {
+            if ($inspection->isForceDeleting()) {
+                return;
+            }
+            RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_ARCHIVED, 'Archived.', null, ['archived_by_user_id' => $inspection->archived_by_user_id]);
+        });
+        static::restored(function (self $inspection) {
+            // archived_by_user_id is cleared right after a restore; the history keeps who had archived it.
+            RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_RESTORED,
+                'Restored' . ($inspection->archived_by_user_id ? ' (it had been archived by ' . (User::withoutGlobalScopes()->find($inspection->archived_by_user_id)?->name ?? 'unknown') . ').' : '.'));
+        });
     }
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -292,6 +330,22 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             ->filter(fn (RentalInspectionObservation $obs) => RentalInspectionSetting::conditionRequiresNotesFor($this->agency_id, $obs->condition)
                 && trim((string) $obs->notes) === '')
             ->values();
+    }
+
+    /**
+     * §45.8 (Build I-6b) — a COMPLETED inspection, or one that already carries a live signed / paper-signed
+     * signature, is evidence rather than a working draft. Archiving it needs `rental_inspections.archive_completed`.
+     */
+    public function isEvidenceRecord(): bool
+    {
+        if ($this->status === self::STATUS_COMPLETED) {
+            return true;
+        }
+
+        return $this->signatures()
+            ->whereNull('superseded_at')
+            ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
+            ->exists();
     }
 
     /**
@@ -992,6 +1046,12 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             'schedule_note' => array_key_exists('schedule_note', $new) ? $new['schedule_note'] : $this->schedule_note,
         ])->save();
 
+        RentalInspectionAuditLog::record($this, RentalInspectionAuditLog::EVENT_RESCHEDULED,
+            'Rescheduled' . ($reason ? ': ' . $reason : '.'),
+            ['scheduled_for' => $record->old_scheduled_for?->format('Y-m-d'), 'scheduled_time' => $record->old_scheduled_time, 'inspector_user_id' => $record->old_inspector_user_id],
+            ['scheduled_for' => $record->new_scheduled_for?->format('Y-m-d'), 'scheduled_time' => $record->new_scheduled_time, 'inspector_user_id' => $record->new_inspector_user_id],
+            $by);
+
         app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
         app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyRescheduled($this, $record);
 
@@ -1146,13 +1206,23 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             'public_token_expires_at' => now()->addDays($days),
         ])->save();
 
+        // §45.8 — never the token itself (it is the credential), only that one was issued and until when.
+        RentalInspectionAuditLog::record($this, RentalInspectionAuditLog::EVENT_PUBLIC_LINK_ISSUED,
+            'Public link issued, live until ' . $this->public_token_expires_at->format('d M Y') . ' (any earlier link stopped working).',
+            null, ['public_token_expires_at' => $this->public_token_expires_at->format('Y-m-d')]);
+
         return $this->public_token;
     }
 
     /** Revoke: clear the token — any existing link (PDF already printed, forwarded email) stops working immediately. */
     public function revokePublicLink(): void
     {
+        $had = $this->public_token !== null;
         $this->forceFill(['public_token' => null, 'public_token_expires_at' => null])->save();
+
+        if ($had) {
+            RentalInspectionAuditLog::record($this, RentalInspectionAuditLog::EVENT_PUBLIC_LINK_REVOKED, 'Public link revoked.');
+        }
     }
 
     public function publicLinkIsValid(): bool
@@ -1416,13 +1486,33 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             throw new \LogicException('Cannot edit inspection details once the inspection is completed or cancelled.');
         }
 
-        $this->update(array_intersect_key($attributes, array_flip([
+        $fields = [
             'electricity_meter_reading', 'water_meter_reading',
             'furnished_status', 'property_type',
             'keys_count', 'keys_description',
             'remotes_count', 'remotes_description',
             'move_in_date_recorded',
-        ])));
+        ];
+        $stringify = fn ($v) => $v instanceof \DateTimeInterface ? $v->format('Y-m-d') : $v;
+        $snapshot = fn () => collect($this->only($fields))->map($stringify);
+        $before = $snapshot();
+
+        $this->update(array_intersect_key($attributes, array_flip($fields)));
+
+        // §45.8 — only the fields that actually changed, compared against what was there before THIS call (the model's
+        // own getOriginal()/getChanges() are not reliable after a save: the original is already synced, and a save with
+        // nothing dirty keeps the PREVIOUS save's changes). An autosave that changed nothing leaves no row.
+        $after = $snapshot();
+        $changed = $after->filter(fn ($value, $key) => $value != $before[$key])->keys();
+        if ($changed->isNotEmpty()) {
+            RentalInspectionAuditLog::record(
+                $this,
+                RentalInspectionAuditLog::EVENT_DETAILS_EDITED,
+                'Details edited: ' . $changed->map(fn ($k) => str_replace('_', ' ', $k))->implode(', ') . '.',
+                $changed->mapWithKeys(fn ($k) => [$k => $before[$k]])->all(),
+                $changed->mapWithKeys(fn ($k) => [$k => $after[$k]])->all(),
+            );
+        }
     }
 
     /**

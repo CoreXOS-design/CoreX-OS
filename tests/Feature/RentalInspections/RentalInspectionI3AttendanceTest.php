@@ -368,9 +368,13 @@ final class RentalInspectionI3AttendanceTest extends TestCase
             'outcome' => 'attended', 'attended_as' => 'self', 'recorded_by_user_id' => $this->agent->id, 'recorded_at' => now(), 'created_at' => now(),
         ]);
 
+        // BelongsToAgency forces a new record into the acting user's agency, so a user of ANOTHER agency must be created
+        // with nobody logged in — otherwise this "outsider" would silently be a same-agency colleague.
+        \Illuminate\Support\Facades\Auth::logout();
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
         // A non-owner role: the global "admin" role is a platform owner who deliberately sees every agency.
         $outsider = User::factory()->create(['agency_id' => $otherAgency->id, 'role' => 'agent']);
+        $this->assertSame($otherAgency->id, $outsider->fresh()->agency_id, 'the outsider really is in another agency');
         $colleague = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
 
         foreach (['outsider' => $outsider, 'colleague' => $colleague] as $who => $user) {

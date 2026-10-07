@@ -190,6 +190,17 @@ return [
         // rental_inspections.resolve_discrepancy.
         ['key' => 'rental_inspections.record_attendance',   'label' => 'Record Inspection Attendance',            'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 7],
         // agency-onboarding-rentals-step.md §8 — same role as leases.manage_settings.
+        // §45.8 (Build I-6b) — what used to be one blanket `.create` is split so each action can be given (or withheld)
+        // on its own. Granted wherever `.create` is today (and `.export` wherever `.view` is) so nobody loses anything,
+        // EXCEPT archiving a COMPLETED, signed inspection — evidence — which is `.archive_completed`: managers only.
+        ['key' => 'rental_inspections.edit_details',        'label' => 'Edit Inspection Details',                 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 8],
+        ['key' => 'rental_inspections.archive',             'label' => 'Archive Inspections',                     'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 9],
+        ['key' => 'rental_inspections.archive_completed',   'label' => 'Archive Completed (Signed) Inspections',  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 10],
+        ['key' => 'rental_inspections.restore',             'label' => 'Restore Archived Inspections',            'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 11],
+        ['key' => 'rental_inspections.cancel',              'label' => 'Cancel Inspections',                      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 12],
+        ['key' => 'rental_inspections.reschedule',          'label' => 'Reschedule Inspections',                  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 13],
+        ['key' => 'rental_inspections.public_link',         'label' => 'Issue / Revoke the Public Report Link',   'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 14],
+        ['key' => 'rental_inspections.export',              'label' => 'Export / Print the Inspections List',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 15],
         ['key' => 'rental_inspections.manage_settings',     'label' => 'Manage Rental Inspection Settings',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 5],
         // §45.7 (Build I-5) — load / move / skip / archive the interim inspection dates an agency wants. Granted wherever
         // rental_inspections.create is (the Due tab itself needs only .view).
@@ -1067,6 +1078,7 @@ return [
                 // properties.syndication.manage_approvers is deliberately NOT here.
                 'leases.view', 'leases.create', 'leases.renew', 'leases.cancel',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
+                'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
                 'rental_inspections.review_deposit_comparison',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
@@ -1228,6 +1240,7 @@ return [
                 // stays admin-only.
                 'leases.view', 'leases.create', 'leases.renew',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
+                'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',

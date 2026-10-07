@@ -7,6 +7,7 @@ use App\Models\ContactProperty;
 use App\Models\LeaseTenant;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionAttendance;
+use App\Models\RentalInspectionAuditLog;
 use App\Models\RentalInspectionNotification;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -317,6 +318,7 @@ class RentalInspectionAttendanceService
         $contactId = null;
         $userId = null;
         $represents = null;
+        $superseded = false;
 
         if ($role === RentalInspectionAttendance::PARTY_OTHER) {
             if ($outcome !== RentalInspectionAttendance::OUTCOME_ATTENDED) {
@@ -362,7 +364,7 @@ class RentalInspectionAttendanceService
             }
         }
 
-        return DB::transaction(function () use ($inspection, $by, $role, $contactId, $userId, $outcome, $attendedAs, $name, $note, $arrived, $represents, $key) {
+        $row = DB::transaction(function () use ($inspection, $by, $role, $contactId, $userId, $outcome, $attendedAs, $name, $note, $arrived, $represents, $key, &$superseded) {
             $row = RentalInspectionAttendance::create([
                 'agency_id' => $inspection->agency_id,
                 'rental_inspection_id' => $inspection->id,
@@ -383,17 +385,35 @@ class RentalInspectionAttendanceService
 
             // A correction supersedes the live row for the SAME party; an `other` person is its own row.
             if ($role !== RentalInspectionAttendance::PARTY_OTHER) {
-                RentalInspectionAttendance::where('rental_inspection_id', $inspection->id)
+                $superseded = RentalInspectionAttendance::where('rental_inspection_id', $inspection->id)
                     ->where('id', '!=', $row->id)
                     ->where('party_role', $role)
                     ->when($contactId, fn ($q) => $q->where('party_contact_id', $contactId))
                     ->when($userId, fn ($q) => $q->where('party_user_id', $userId))
                     ->live()
-                    ->update(['superseded_at' => now(), 'superseded_by_id' => $row->id]);
+                    ->update(['superseded_at' => now(), 'superseded_by_id' => $row->id]) > 0;
             }
 
             return $row;
         });
+
+        // §45.8 (Build I-6b) — recorded vs corrected are different facts in the history.
+        $who = $row->party_role === RentalInspectionAttendance::PARTY_OTHER
+            ? ($row->attendee_name ?: 'Another person')
+            : ($this->expectedParties($inspection)->first(fn (array $p) => $p['party_role'] === $row->party_role
+                && ($row->party_role === RentalInspectionAttendance::PARTY_AGENT ? (int) $p['user_id'] === (int) $row->party_user_id : (int) $p['contact_id'] === (int) $row->party_contact_id))['name'] ?? ucfirst($row->party_role));
+        RentalInspectionAuditLog::record(
+            $inspection,
+            $superseded ? RentalInspectionAuditLog::EVENT_ATTENDANCE_CORRECTED : RentalInspectionAuditLog::EVENT_ATTENDANCE_RECORDED,
+            $who . ': ' . ($row->outcome === RentalInspectionAttendance::OUTCOME_ATTENDED ? 'attended' : 'did not attend')
+                . ($row->attended_as === RentalInspectionAttendance::AS_REPRESENTATIVE && $row->attendee_name ? ' (represented by ' . $row->attendee_name . ')' : '')
+                . ($superseded ? ' — corrected.' : '.'),
+            null,
+            ['party_role' => $row->party_role, 'outcome' => $row->outcome, 'attended_as' => $row->attended_as],
+            $by,
+        );
+
+        return $row;
     }
 
     /** The live record for one expected party, if any — what a correction would supersede. */
@@ -423,6 +443,13 @@ class RentalInspectionAttendanceService
         }
 
         $attendance->forceFill(['superseded_at' => now(), 'superseded_by_id' => null])->save();
+
+        RentalInspectionAuditLog::record(
+            $attendance->inspection,
+            RentalInspectionAuditLog::EVENT_ATTENDANCE_WITHDRAWN,
+            'An attendance record was withdrawn (' . $attendance->party_role . ', ' . str_replace('_', ' ', $attendance->outcome) . ').',
+            ['party_role' => $attendance->party_role, 'outcome' => $attendance->outcome],
+        );
     }
 
     /**
@@ -461,7 +488,7 @@ class RentalInspectionAttendanceService
             throw new \InvalidArgumentException('That person is not one of the parties expected at this inspection.');
         }
 
-        return RentalInspectionNotification::create([
+        $notification = RentalInspectionNotification::create([
             'agency_id' => $inspection->agency_id,
             'rental_inspection_id' => $inspection->id,
             'event' => RentalInspectionNotification::EVENT_INVITATION_MANUAL,
@@ -476,6 +503,17 @@ class RentalInspectionAttendanceService
             'occurred_at' => $occurred,
             'method' => $method,
         ]);
+
+        RentalInspectionAuditLog::record(
+            $inspection,
+            RentalInspectionAuditLog::EVENT_INVITATION_RECORDED,
+            'Invitation given to ' . $party['name'] . ' recorded (' . $method . ', ' . $occurred->format('j M Y H:i') . ').',
+            null,
+            ['party_role' => $role, 'method' => $method, 'occurred_at' => $occurred->toIso8601String()],
+            $by,
+        );
+
+        return $notification;
     }
 
     private function normaliseTime(mixed $value): ?string

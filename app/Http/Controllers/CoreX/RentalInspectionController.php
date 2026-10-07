@@ -289,6 +289,10 @@ class RentalInspectionController extends Controller
             $query->leftJoin('users as inspector_users', 'inspector_users.id', '=', 'rental_inspections.inspector_user_id')
                 ->orderBy('inspector_users.name', $direction)
                 ->select('rental_inspections.*');
+        } elseif ($sort === 'scheduled_for') {
+            // §45.8 — COALESCE with the creation time, so a start-now inspection (no scheduled date) is not always last.
+            $query->orderByRaw("COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at) {$direction}")
+                ->orderBy('rental_inspections.id', $direction);
         } else {
             $query->orderBy("rental_inspections.{$sort}", $direction);
         }
@@ -342,10 +346,11 @@ class RentalInspectionController extends Controller
             'perPageOptions' => self::PER_PAGE_OPTIONS,
             'tileCounts' => $tileCounts,
             'scheduled' => $scheduled,
-            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance']),
+            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance', 'lease_id']),
+            'leaseFilterLabel' => $this->leaseFilterLabel($request),
             'attendedCounts' => $attendedCounts,
             'expectedCounts' => $expectedCounts,
-            'inspectorOptions' => User::where('agency_id', $user->effectiveAgencyId())->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'inspectorOptions' => $this->inspectorOptionsForViewer($user, $maxScope),
             'resolvedScope' => $resolvedScope,
             'scopeOptions' => $scopeOptions,
         ]);
@@ -395,11 +400,19 @@ class RentalInspectionController extends Controller
             $query->where('rental_inspections.inspector_user_id', $inspectorId);
         }
 
+        // §45.8 (Build I-6b) — an inspection started on the spot has no scheduled date; it is placed by the day it
+        // was created, so it can be found by a date range and sorts where it belongs instead of last.
         if ($dateFrom = $request->get('date_from')) {
-            $query->where('rental_inspections.scheduled_for', '>=', $dateFrom);
+            $query->whereRaw('DATE(COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at)) >= ?', [$dateFrom]);
         }
         if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_inspections.scheduled_for', '<=', $dateTo);
+            $query->whereRaw('DATE(COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at)) <= ?', [$dateTo]);
+        }
+
+        // §45.8 (Build I-6b) — the Lease Hub's "inspections for this lease" link (`?lease_id=`) was silently ignored.
+        // Narrows the SAME own/branch/agency-scoped query, so it can only ever show what the user may already see.
+        if ($leaseId = (int) $request->get('lease_id')) {
+            $query->where('rental_inspections.lease_id', $leaseId);
         }
 
         if ($request->boolean('has_unresolved_discrepancy')) {
@@ -445,6 +458,9 @@ class RentalInspectionController extends Controller
         if ($request->boolean('has_unresolved_discrepancy')) {
             $out['Unresolved discrepancy'] = 'Yes';
         }
+        if ($request->get('lease_id')) {
+            $out['Lease'] = $this->leaseFilterLabel($request) ?? '';
+        }
         if ($inspectorId = $request->get('inspector_id')) {
             $out['Inspector'] = User::find($inspectorId)?->name ?? "#{$inspectorId}";
         }
@@ -463,10 +479,62 @@ class RentalInspectionController extends Controller
     }
 
     /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
-    public function printList(Request $request): View
+    /** §45.8 (Build I-6b) — the most rows one print / export will produce; beyond this the user is told to narrow the filter. */
+    public const EXPORT_ROW_CAP = 5000;
+
+    /** @return \Illuminate\Http\RedirectResponse|null a redirect with a plain message when the filtered list is too large to print or export */
+    private function refuseIfTooLargeToExport(Request $request): ?\Illuminate\Http\RedirectResponse
     {
-        $inspections = $this->filteredInspectionsQuery($request, $request->boolean('archived'))
-            ->orderBy('rental_inspections.scheduled_for', 'desc')
+        $cap = (int) config('rental-inspections.export_row_cap', self::EXPORT_ROW_CAP);
+        $count = $this->filteredInspectionsQuery($request, $request->boolean('archived'))->setEagerLoads([])->count();
+        if ($count <= $cap) {
+            return null;
+        }
+
+        return redirect()->route('corex.rental-inspections.index', $request->except(['format']))
+            ->withErrors(['export' => 'That list has ' . number_format($count) . ' inspections — more than the ' . number_format($cap) . ' one print or export can carry. Narrow it with a date range, status or inspector and try again.']);
+    }
+
+    /** §45.8 — one source for the order a printed / exported list uses (matches the screen's default: newest first). */
+    private function exportOrder($query)
+    {
+        return $query->orderByRaw('COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at) desc')->orderByDesc('rental_inspections.id');
+    }
+
+    /**
+     * §45.8 — the inspector filter offers only people inside the viewer's own reach: an `own` viewer sees just
+     * themselves, a `branch` viewer their branch, an `all` viewer the agency (never another agency's staff).
+     */
+    private function inspectorOptionsForViewer(User $user, ?string $maxScope)
+    {
+        return User::query()
+            ->where('agency_id', $user->effectiveAgencyId())
+            ->where('is_active', true)
+            ->when($maxScope === 'branch', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()))
+            ->when(! in_array($maxScope, ['all', 'branch'], true), fn ($q) => $q->whereIn('id', $user->dataIdentityIds()))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    }
+
+    /** §45.8 — the chip shown while the list is narrowed to one lease (so the narrowing is never invisible). */
+    private function leaseFilterLabel(Request $request): ?string
+    {
+        $leaseId = (int) $request->get('lease_id');
+        if (! $leaseId) {
+            return null;
+        }
+        $lease = Lease::query()->visibleTo($request->user(), null)->with('property')->find($leaseId);
+
+        return $lease ? ($lease->property?->buildDisplayAddress() ?: 'Lease #' . $lease->id) : 'a lease you cannot see';
+    }
+
+    public function printList(Request $request)
+    {
+        if ($refused = $this->refuseIfTooLargeToExport($request)) {
+            return $refused;
+        }
+
+        $inspections = $this->exportOrder($this->filteredInspectionsQuery($request, $request->boolean('archived')))
             ->get();
 
         return view('corex.rental-inspections.print-list', [
@@ -478,8 +546,11 @@ class RentalInspectionController extends Controller
     /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
     public function export(Request $request)
     {
-        $inspections = $this->filteredInspectionsQuery($request, $request->boolean('archived'))
-            ->orderBy('rental_inspections.scheduled_for', 'desc')
+        if ($refused = $this->refuseIfTooLargeToExport($request)) {
+            return $refused;
+        }
+
+        $inspections = $this->exportOrder($this->filteredInspectionsQuery($request, $request->boolean('archived')))
             ->get();
 
         $headers = ['Property', 'Tenant(s)', 'Type', 'Status', 'Scheduled'];
@@ -547,6 +618,19 @@ class RentalInspectionController extends Controller
             // recorded on the property's Inspections tab, where the rest of the recording happens).
             'attendanceBoard' => app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->board($rentalInspection),
             'attendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($rentalInspection->agency_id),
+            // §45.8 (Build I-6b) — the History panel: newest first, optionally narrowed to one event kind. The filter
+            // choices are only the kinds that actually occur on THIS inspection, with their counts.
+            'historyEvents' => \App\Models\RentalInspectionAuditLog::query()
+                ->where('rental_inspection_id', $rentalInspection->id)
+                ->selectRaw('event, COUNT(*) as c')->groupBy('event')->pluck('c', 'event')->all(),
+            'historyFilter' => (string) $request->get('history_event', ''),
+            'historyRows' => \App\Models\RentalInspectionAuditLog::query()
+                ->where('rental_inspection_id', $rentalInspection->id)
+                ->when($request->filled('history_event'), fn ($q) => $q->where('event', (string) $request->get('history_event')))
+                ->with('user')
+                ->orderByDesc('id')
+                ->limit(200)
+                ->get(),
             'followUpObservations' => $followUpObservations,
             'followUpMarkers' => $followUpService->comparisonMarkersFor($rentalInspection, $followUpObservations),
             'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
@@ -815,6 +899,13 @@ class RentalInspectionController extends Controller
     public function destroy(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        // §45.8 (Build I-6b) — a completed or signed inspection is evidence; archiving it is a separate, managerial
+        // permission. (Any inspection still being worked on stays archivable with plain `.archive`, as before.)
+        if ($rentalInspection->isEvidenceRecord() && ! $request->user()->hasPermission('rental_inspections.archive_completed')) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => 'A completed or signed inspection is a record — only a manager can archive it.']);
+        }
 
         $rentalInspection->forceFill(['archived_by_user_id' => $request->user()->id])->save();
         $rentalInspection->delete();

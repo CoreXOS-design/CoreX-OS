@@ -512,6 +512,16 @@ class RentalInspectionSignature extends Model
 
             $existing->forceFill(['superseded_by_signature_id' => $replacement->id])->save();
 
+            // §45.8 (Build I-6b) — a replaced signature is evidence being corrected; the history says who, for whom.
+            RentalInspectionAuditLog::record(
+                $inspection,
+                RentalInspectionAuditLog::EVENT_SIGNATURE_SUPERSEDED,
+                ucfirst($existing->party_role) . ' paper signature replaced (' . str_replace('_', ' ', $existing->disposition) . ' → paper scan on file).',
+                ['signature_id' => $existing->id, 'disposition' => $existing->disposition],
+                ['signature_id' => $replacement->id, 'disposition' => $replacement->disposition],
+                $recordedByUserId ? User::withoutGlobalScopes()->find($recordedByUserId) : null,
+            );
+
             return $replacement;
         });
     }

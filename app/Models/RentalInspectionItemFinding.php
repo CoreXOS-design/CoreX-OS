@@ -122,6 +122,16 @@ class RentalInspectionItemFinding extends Model
                     'superseded_at' => now(),
                     'superseded_by_finding_id' => $replacement->id,
                 ])->save();
+
+                // §45.8 (Build I-6b) — a classification that replaces an earlier one is a judgement being revised.
+                RentalInspectionAuditLog::record(
+                    $outInspection,
+                    RentalInspectionAuditLog::EVENT_FINDING_SUPERSEDED,
+                    'Finding on "' . ($item->label ?? 'item') . '" changed from ' . str_replace('_', ' ', (string) $existing->disposition) . ' to ' . str_replace('_', ' ', $disposition) . '.',
+                    ['finding_id' => $existing->id, 'disposition' => $existing->disposition],
+                    ['finding_id' => $replacement->id, 'disposition' => $disposition],
+                    $recordedBy,
+                );
             }
 
             return $replacement;

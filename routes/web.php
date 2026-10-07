@@ -3667,8 +3667,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-439 Part 3 — shared rental list standard: print-list/export, same
         // scoping as index(). Registered before /{rentalInspection} for the
         // same greedy-binding reason /create is.
-        Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printList'])->name('corex.rental-inspections.print-list');
-        Route::get('/export', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'export'])->name('corex.rental-inspections.export');
+        Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printList'])->middleware('permission:rental_inspections.export')->name('corex.rental-inspections.print-list');
+        Route::get('/export', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'export'])->middleware('permission:rental_inspections.export')->name('corex.rental-inspections.export');
         // INSPECTIONS I-5 BEGIN — §45.7 the "Due" tab (In/Out due + the interim dates the agency loads) and CRUD on the loaded dates.
         // Static paths, so they sit ahead of the /{rentalInspection} wildcard below.
         Route::get('/due', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'index'])->name('corex.rental-inspections.due');
@@ -3702,9 +3702,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'next'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.next');
         Route::post('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'generatePublicLink'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.public-link.generate');
+            ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.public-link.generate');
         Route::delete('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'revokePublicLink'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.public-link.revoke');
+            ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.public-link.revoke');
         // §13 — the OMR scan reader, part 2 of cc5's two-part job. Upload/
         // apply/archive are mutating (.create gate, matching cancel/destroy
         // above); review/download are read (the group's own .view gate).
@@ -3717,12 +3717,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::delete('/{rentalInspection}/scans/{scan}', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'destroy'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.destroy');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
+            ->middleware('permission:rental_inspections.cancel')->name('corex.rental-inspections.cancel');
         // §43 — reschedule a booked inspection; keeps the old date/time/
         // inspector as history (RentalInspectionReschedule), re-syncs the
         // calendar event, re-notifies the parties.
         Route::post('/{rentalInspection}/reschedule', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'reschedule'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.reschedule');
+            ->middleware('permission:rental_inspections.reschedule')->name('corex.rental-inspections.reschedule');
         // §15 (AT-447) — the Follow-up block's "Create fault report" action.
         // Gated on rental_fault_reports.create (the same permission the
         // normal "Report a Fault" create form already requires) in ADDITION
@@ -3732,16 +3732,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{rentalInspection}/follow-up/fault-reports', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'storeFollowUpFaultReports'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-inspections.follow-up.fault-reports');
         Route::delete('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'destroy'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.destroy');
+            ->middleware('permission:rental_inspections.archive')->name('corex.rental-inspections.destroy');
         Route::post('/{rentalInspection}/restore', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'restore'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.restore');
+            ->middleware('permission:rental_inspections.restore')->name('corex.rental-inspections.restore');
 
         // Recording — RentalInspectionRecordingController, deliberately separate
         // (this controller's own docblock). Spec: rental-inspections.md §14.1/§14.2.
         // §17 — the header block (meter readings, furnished state, property
         // type, keys/remotes, move-in date).
         Route::post('/{rentalInspection}/details', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateDetails'])
-            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.details.update');
+            ->middleware('permission:rental_inspections.edit_details')->name('corex.rental-inspections.details.update');
         Route::post('/{rentalInspection}/observations', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeObservation'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.store');
         Route::post('/{rentalInspection}/observations/{observation}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhoto'])

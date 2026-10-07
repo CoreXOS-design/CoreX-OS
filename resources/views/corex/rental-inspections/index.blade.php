@@ -92,12 +92,27 @@
         :per-page-options="$perPageOptions"
         :archivable="true"
         :archived="$archived"
-        :print-url="route('corex.rental-inspections.print-list', request()->query())"
-        :export-xlsx-url="route('corex.rental-inspections.export', array_merge(request()->query(), ['format' => 'xlsx']))"
-        :export-csv-url="route('corex.rental-inspections.export', array_merge(request()->query(), ['format' => 'csv']))"
+        :print-url="auth()->user()->hasPermission('rental_inspections.export') ? route('corex.rental-inspections.print-list', request()->query()) : null"
+        :export-xlsx-url="auth()->user()->hasPermission('rental_inspections.export') ? route('corex.rental-inspections.export', array_merge(request()->query(), ['format' => 'xlsx'])) : null"
+        :export-csv-url="auth()->user()->hasPermission('rental_inspections.export') ? route('corex.rental-inspections.export', array_merge(request()->query(), ['format' => 'csv'])) : null"
     />
 
+    @error('export')
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson, #e11d48) 8%, transparent); border: 1px solid var(--ds-crimson, #e11d48); color: var(--text-primary);" data-qa="export-refused">{{ $message }}</div>
+    @enderror
+
+    {{-- §45.8 (Build I-6b) — the list is narrowed to one lease (the Lease Hub link); never an invisible narrowing. --}}
+    @if(! empty($filters['lease_id']))
+        <div class="flex items-center gap-2 text-xs" data-qa="lease-filter-chip" style="color: var(--text-secondary);">
+            <span class="ds-badge ds-badge-info">Showing inspections for {{ $leaseFilterLabel }}</span>
+            <a href="{{ route('corex.rental-inspections.index', request()->except(['lease_id', 'page'])) }}" class="underline" style="color: var(--text-muted);">Show all</a>
+        </div>
+    @endif
+
     <form method="GET" action="{{ route('corex.rental-inspections.index') }}" class="flex flex-wrap items-end gap-3">
+        @if(! empty($filters['lease_id']))
+            <input type="hidden" name="lease_id" value="{{ $filters['lease_id'] }}">
+        @endif
         @if($archived)
             <input type="hidden" name="archived" value="1">
         @endif
@@ -153,7 +168,7 @@
             Has unresolved discrepancy
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance']))
+        @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance', 'lease_id']))
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -181,7 +196,7 @@
                     <td class="px-4 py-2">{{ ucfirst(str_replace('_', '-', $inspection->type)) }}</td>
                     <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
                     <td class="px-4 py-2">
-                        {{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}
+                        {{ $inspection->scheduled_for?->format('Y-m-d') ?? $inspection->created_at?->format('Y-m-d') . ' (started)' }}
                         @if($inspection->scheduled_for && $inspection->scheduled_time)
                             {{ substr((string) $inspection->scheduled_time, 0, 5) }}
                         @endif
@@ -204,7 +219,7 @@
                     </td>
                     <td class="px-4 py-2 text-right">
                         @if($archived)
-                            @permission('rental_inspections.create')
+                            @permission('rental_inspections.restore')
                             <form method="POST" action="{{ route('corex.rental-inspections.restore', $inspection->id) }}" class="inline">
                                 @csrf
                                 <button type="submit" class="corex-btn-outline text-xs">Restore</button>

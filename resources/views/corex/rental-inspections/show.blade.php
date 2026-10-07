@@ -110,7 +110,7 @@
          Regenerating shows a NEW link and immediately invalidates any
          previous one — RentalInspection::generatePublicLink()'s own
          docblock. --}}
-    @permission('rental_inspections.create')
+    @permission('rental_inspections.public_link')
         <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold">Public link</h2>
             @if($inspection->publicLinkIsAvailable())
@@ -166,38 +166,51 @@
         @endif
 
         <div class="flex gap-2 pt-2">
-            @permission('rental_inspections.create')
+            {{-- §45.8 (Build I-6b) — each button is gated by its OWN permission now (was one blanket `.create`). --}}
+            @if(true)
                 {{-- §43 — "Start" opens the SAME recording tab the original
                      immediate-Start flow always landed on; a scheduled
                      inspection that hasn't been opened yet needs an
                      explicit way in, since nothing redirected here
                      automatically the way start() does. --}}
                 @if($inspection->scheduled_for && $inspection->isRecordable())
+                    @permission('rental_inspections.create')
                     <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-primary text-xs">Start recording</a>
+                    @endpermission
+                    @permission('rental_inspections.reschedule')
                     <button type="button" onclick="document.getElementById('reschedule-inspection-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Reschedule</button>
+                    @endpermission
                 @endif
                 @if(!in_array($inspection->status, ['completed', 'cancelled'], true))
+                    @permission('rental_inspections.cancel')
                     <button type="button" onclick="document.getElementById('cancel-inspection-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel inspection</button>
+                    @endpermission
                 @endif
                 {{-- 2026-09-20 — isDeletable()/the completed-status restriction are both
                      retired: archiving is now unconditional (real evidence is never
                      destroyed by a soft delete), matching RentalInspectionController::
                      destroy(). This button is only hidden once the record is already
                      archived, below. --}}
+                {{-- §45.8 (Build I-6b) — a completed, signed inspection is evidence: archiving it needs its own
+                     permission (`archive_completed`, managers). The server re-checks; this only hides a dead button. --}}
                 @if(!$inspection->trashed())
+                    @if(auth()->user()->hasPermission('rental_inspections.archive') && (! $inspection->isEvidenceRecord() || auth()->user()->hasPermission('rental_inspections.archive_completed')))
                     <form method="POST" action="{{ route('corex.rental-inspections.destroy', $inspection) }}" onsubmit="return confirm('Archive this inspection?');">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
                     </form>
+                    @endif
                 @endif
                 @if($inspection->trashed())
+                    @permission('rental_inspections.restore')
                     <form method="POST" action="{{ route('corex.rental-inspections.restore', $inspection->id) }}">
                         @csrf
                         <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                     </form>
+                    @endpermission
                 @endif
-            @endpermission
+            @endif
         </div>
 
         <form id="cancel-inspection-form" method="POST" action="{{ route('corex.rental-inspections.cancel', $inspection) }}" class="hidden space-y-2 pt-2">
@@ -280,6 +293,44 @@
 
     {{-- §45.6 (Build I-4) — who the completed report went to, and what happened. --}}
     @include('corex.rental-inspections.partials._copies-sent', ['inspection' => $inspection])
+
+    {{-- §45.8 (Build I-6b) — History: who did what to this inspection, and when. Append-only; newest first. --}}
+    <div id="history" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="inspection-history">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+            <h2 class="text-sm font-semibold">History</h2>
+            <form method="GET" action="{{ route('corex.rental-inspections.show', $inspection) }}#history" class="flex items-center gap-2">
+                <select name="history_event" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);" onchange="this.form.submit()">
+                    <option value="">All events ({{ array_sum($historyEvents) }})</option>
+                    @foreach($historyEvents as $eventKey => $eventCount)
+                        <option value="{{ $eventKey }}" @selected($historyFilter === $eventKey)>{{ \App\Models\RentalInspectionAuditLog::EVENT_LABELS[$eventKey] ?? $eventKey }} ({{ $eventCount }})</option>
+                    @endforeach
+                </select>
+                @if($historyFilter !== '')
+                    <a href="{{ route('corex.rental-inspections.show', $inspection) }}#history" class="text-xs underline" style="color: var(--text-muted);">Clear</a>
+                @endif
+            </form>
+        </div>
+        @forelse($historyRows as $entry)
+            <div class="text-sm py-1.5" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center justify-between gap-3">
+                    <span style="color: var(--text-primary);"><span class="font-semibold">{{ $entry->eventLabel() }}</span> — {{ $entry->summary ?? '' }}</span>
+                    <span class="text-xs flex-none" style="color: var(--text-muted);">{{ $entry->created_at?->format('d M Y H:i') }} · {{ $entry->user?->name ?? 'System' }}</span>
+                </div>
+                @if($entry->event === 'details_edited' && is_array($entry->after))
+                    <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                        @foreach($entry->after as $field => $newValue)
+                            {{ str_replace('_', ' ', $field) }}: {{ ($entry->before[$field] ?? null) !== null && ($entry->before[$field] ?? '') !== '' ? $entry->before[$field] : '(empty)' }} → {{ $newValue !== null && $newValue !== '' ? $newValue : '(empty)' }}@if(! $loop->last); @endif
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+        @empty
+            <p class="text-xs" style="color: var(--text-muted);">{{ $historyFilter !== '' ? 'No history of that kind on this inspection.' : 'Nothing has been recorded against this inspection yet.' }}</p>
+        @endforelse
+        @if($historyRows->count() >= 200)
+            <p class="text-xs" style="color: var(--text-muted);">Showing the 200 most recent entries.</p>
+        @endif
+    </div>
 
     @if($inspection->discrepancies->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">

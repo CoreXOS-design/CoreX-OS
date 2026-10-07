@@ -66,6 +66,21 @@ class RentalInspectionCopiesService
 
         $this->alertIfAnyDidNotGoOut($inspection, $results);
 
+        // §45.8 (Build I-6b) — an automatic (or resent) mailing is a settings-driven action; the history records the
+        // outcome counts, not the addresses (those are in the "Copies sent" panel).
+        if ($results !== []) {
+            $counts = array_count_values(array_column($results, 'status'));
+            \App\Models\RentalInspectionAuditLog::record(
+                $inspection,
+                \App\Models\RentalInspectionAuditLog::EVENT_COPIES_SENT,
+                ($autoOnly ? 'Report copies sent automatically on completion' : 'Report copies sent again') . ': '
+                    . ($counts['sent'] ?? 0) . ' sent, ' . ($counts['failed'] ?? 0) . ' failed, ' . ($counts['skipped'] ?? 0) . ' not sent (no address).',
+                null,
+                ['sent' => $counts['sent'] ?? 0, 'failed' => $counts['failed'] ?? 0, 'skipped' => $counts['skipped'] ?? 0],
+                $triggeredBy,
+            );
+        }
+
         return $results;
     }
 
