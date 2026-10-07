@@ -30,7 +30,14 @@
 @section('content')
 <div class="p-6 space-y-4">
     <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental Inspections</h1>
+        <div class="flex items-center gap-3">
+            <h1 class="text-lg font-semibold">Rental Inspections</h1>
+            {{-- §45.7 (Build I-5) — the Due tab: In/Out due + the interim dates the agency loads. --}}
+            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                <a href="{{ route('corex.rental-inspections.index') }}" class="px-3 py-1.5 text-xs font-semibold" style="background: var(--brand-icon, #0ea5e9); color: #fff;">All inspections</a>
+                <a href="{{ route('corex.rental-inspections.due') }}" data-qa="due-tab" class="px-3 py-1.5 text-xs font-semibold" style="border-left: 1px solid var(--border); background: var(--surface); color: var(--text-muted);">Due</a>
+            </div>
+        </div>
         <div class="flex items-center gap-2">
             @permission('rental_inspections.create')
             <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs">Start Inspection</a>
@@ -111,7 +118,7 @@
             <label class="text-xs" style="color: var(--text-muted);">Type</label><br>
             <select name="type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach(['in' => 'In-inspection', 'out' => 'Out-inspection', 'ad_hoc' => 'Ad-hoc'] as $value => $label)
+                @foreach(['in' => 'In-inspection', 'interim' => 'Interim', 'out' => 'Out-inspection', 'ad_hoc' => 'Ad-hoc'] as $value => $label)
                     <option value="{{ $value }}" @selected(($filters['type'] ?? '') === $value)>{{ $label }}</option>
                 @endforeach
             </select>

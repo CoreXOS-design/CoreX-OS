@@ -47,6 +47,12 @@ Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOver
 // or repeated run sends nothing twice.
 Schedule::command('rentals:send-inspection-reminders')->dailyAt('07:15')->withoutOverlapping();
 
+// INSPECTIONS I-5 BEGIN — .ai/specs/rental-inspections.md §45.7. Agent-only reminders: the interim dates the agency
+// LOADED, and the computed In/Out due list. One notice row per milestone, so a re-run or a missed tick is harmless.
+Schedule::command('rentals:send-planned-inspection-reminders')->dailyAt('07:20')->withoutOverlapping();
+Schedule::command('rentals:send-due-inspection-reminders')->dailyAt('07:25')->withoutOverlapping();
+// INSPECTIONS I-5 END
+
 // AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
 Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
 

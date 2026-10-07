@@ -30,6 +30,10 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     public const TYPE_IN = 'in';
     public const TYPE_OUT = 'out';
     public const TYPE_AD_HOC = 'ad_hoc';
+    // §45.7 (Build I-5) — a planned mid-tenancy inspection the AGENCY loaded a date for (rental_inspection_planned_dates).
+    // Joins the chain between In and Out and is signed by all three parties like In/Out (Johan, 6 Oct 2026, Q7).
+    // ad_hoc stays the unplanned check.
+    public const TYPE_INTERIM = 'interim';
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_IN_PROGRESS = 'in_progress';
@@ -449,8 +453,8 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     public function startAwaitingSignature(): void
     {
         $this->assertRecordable();
-        if (! in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
-            throw new \LogicException('Only an in- or out-inspection has a signing window.');
+        if (! in_array($this->type, [self::TYPE_IN, self::TYPE_OUT, self::TYPE_INTERIM], true)) {
+            throw new \LogicException('Only an in-, interim or out-inspection has a signing window.');
         }
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
@@ -499,7 +503,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         }
         $this->guardMissingRequiredNotes('complete');
 
-        if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
+        if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT, self::TYPE_INTERIM], true)) {
             $outstanding = $this->outstandingSignatories();
             if ($outstanding->isNotEmpty()) {
                 $first = $outstanding->first();
@@ -949,7 +953,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         if ($type === self::TYPE_IN) {
             throw new \LogicException('An In-inspection is always the first link in a chain — it cannot follow another inspection.');
         }
-        if (! in_array($type, [self::TYPE_OUT, self::TYPE_AD_HOC], true)) {
+        if (! in_array($type, [self::TYPE_OUT, self::TYPE_AD_HOC, self::TYPE_INTERIM], true)) {
             throw new \LogicException('Unknown inspection type.');
         }
         // Audit L6 — a cancelled (never happened) or archived inspection cannot be chained from.

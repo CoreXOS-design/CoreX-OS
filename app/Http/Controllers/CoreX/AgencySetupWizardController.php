@@ -697,6 +697,10 @@ class AgencySetupWizardController extends Controller
                     'notify_via_whatsapp_enabled' => \App\Models\RentalInspectionSetting::notifyViaWhatsappFor($agency->id),
                     'minimum_notice_days' => \App\Models\RentalInspectionSetting::minimumNoticeDaysFor($agency->id),
                     'reminder_days_before' => \App\Models\RentalInspectionSetting::reminderDaysBeforeFor($agency->id),
+                    // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+                    'raise_due_inspections_enabled' => \App\Models\RentalInspectionSetting::raiseDueInspectionsEnabledFor($agency->id),
+                    'planned_date_lead_days' => \App\Models\RentalInspectionSetting::plannedDateLeadDaysFor($agency->id),
+                    'out_due_lead_days' => \App\Models\RentalInspectionSetting::outDueLeadDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own

@@ -393,6 +393,10 @@ class RentalInspectionSetting extends Model
         'notify_via_whatsapp_enabled',
         'minimum_notice_days',
         'reminder_days_before',
+        // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+        'planned_date_lead_days',
+        'out_due_lead_days',
+        'raise_due_inspections_enabled',
     ];
 
     protected $casts = [
@@ -417,7 +421,52 @@ class RentalInspectionSetting extends Model
         'notify_via_whatsapp_enabled' => 'boolean',
         'minimum_notice_days' => 'integer',
         'reminder_days_before' => 'integer',
+        'planned_date_lead_days' => 'integer',
+        'out_due_lead_days' => 'integer',
+        'raise_due_inspections_enabled' => 'boolean',
     ];
+
+    /**
+     * §45.7 item 6 (Build I-5) — the due-date settings. Read-time defaults like every resolver here: nothing saved reads as
+     * the default, nothing is written on read. There is deliberately NO interim interval setting (Johan, 6 Oct, Q6 — nothing
+     * in CoreX computes an interim date; the agency loads its own).
+     */
+    public const DEFAULT_PLANNED_DATE_LEAD_DAYS = 14;
+    public const DEFAULT_OUT_DUE_LEAD_DAYS = 7;
+    public const DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED = true;
+
+    /** Days before a LOADED interim date that the agent is first reminded (0 = remind on the day only). */
+    public static function plannedDateLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_PLANNED_DATE_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('planned_date_lead_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_PLANNED_DATE_LEAD_DAYS;
+    }
+
+    /** Days before a lease's out-inspection is due that it starts showing as due (0 = only from the day itself). */
+    public static function outDueLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_OUT_DUE_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('out_due_lead_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_OUT_DUE_LEAD_DAYS;
+    }
+
+    /** Whether the daily scan reminds the agent about In/Out inspections that are due. On the Due tab and Command Centre regardless. */
+    public static function raiseDueInspectionsEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('raise_due_inspections_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED;
+    }
 
     /**
      * Property 5792, Johan: "whether the requirement BLOCKS progression or
