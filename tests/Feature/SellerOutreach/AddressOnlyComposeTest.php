@@ -176,6 +176,19 @@ final class AddressOnlyComposeTest extends TestCase
         $propertyId = $this->seedProperty($agencyId, $userId, suburb: 'Margate');
         $property = Property::withoutGlobalScopes()->findOrFail($propertyId);
 
+        // AT-145: the per-property claim is only made when the REAL count is >= 1 (a zero collapses the segment
+        // and blocks the send). So give the property a genuine active buyer whose wishlist fits it.
+        $buyer = Contact::withoutGlobalScopes()->create([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId, 'created_by_user_id' => $userId, 'agent_id' => $userId,
+            'is_buyer' => true, 'buyer_state' => 'warm', 'first_name' => 'Bea', 'last_name' => 'Buyer',
+            'phone' => '0821110000', 'email' => 'bea-claim@example.co.za',
+        ]);
+        \App\Models\ContactMatch::withoutGlobalScopes()->create([
+            'agency_id' => $agencyId, 'contact_id' => $buyer->id, 'status' => \App\Models\ContactMatch::STATUS_ACTIVE,
+            'listing_type' => 'sale', 'price_min' => 1_500_000, 'price_max' => 2_200_000, 'beds_min' => 3,
+            'property_types' => ['House'],
+        ]);
+
         $ctx = app(SellerOutreachComposerService::class)->composeContext(
             agencyId: $agencyId,
             contact:  $contact,
@@ -184,7 +197,7 @@ final class AddressOnlyComposeTest extends TestCase
             agent:    User::find($userId),
         );
 
-        // matching_buyer_count is a numeric string (incl. '0') → claim is made.
+        // matching_buyer_count is a positive numeric string → the claim is made.
         $this->assertNotSame('', $ctx->mergeFields['matching_buyer_count']);
         $this->assertIsNumeric($ctx->mergeFields['matching_buyer_count']);
         $this->assertStringContainsString('of them are specifically searching', $ctx->renderedBody);

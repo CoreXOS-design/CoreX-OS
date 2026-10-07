@@ -77,7 +77,13 @@ final class OutreachWritesToArchiveTest extends TestCase
         $this->assertSame($contact->id, (int) $link->linkable_id);
         $this->assertNull($link->confirmed_at, 'provisional link: confirmed_at set only on reconcile');
 
-        // (b) + (c) tile count increments and last_contacted_at advances.
+        // AT-323: a WhatsApp pitch is click-to-chat — CoreX cannot confirm delivery — so the archive row is
+        // born NOT counted. The tile only moves once the agent answers "Yes, I sent it".
+        $contact->refresh();
+        $this->assertSame(0, $contact->outboundCommCount(Communication::CHANNEL_WHATSAPP), 'unconfirmed click-to-chat is not a sent message');
+        $this->confirmSent($comm, $contact);
+
+        // (b) + (c) tile count increments and last_contacted_at advances — on confirmation.
         $contact->refresh();
         $this->assertSame(1, $contact->outboundCommCount(Communication::CHANNEL_WHATSAPP));
         $this->assertSame(0, $contact->outboundCommCount(Communication::CHANNEL_EMAIL), 'email tile untouched');
@@ -138,8 +144,11 @@ final class OutreachWritesToArchiveTest extends TestCase
         // Each contact has EXACTLY one outbound whatsapp row, correctly linked, no cross-talk.
         foreach ($contacts as $c) {
             $c->refresh();
-            $this->assertSame(1, $c->outboundCommCount(Communication::CHANNEL_WHATSAPP), "contact {$c->id} count");
             $comm = $this->soleCommunicationFor($c, Communication::CHANNEL_WHATSAPP);
+            $this->assertSame(0, $c->outboundCommCount(Communication::CHANNEL_WHATSAPP), "contact {$c->id} not counted before the agent confirms (AT-323)");
+            $this->confirmSent($comm, $c);
+            $c->refresh();
+            $this->assertSame(1, $c->outboundCommCount(Communication::CHANNEL_WHATSAPP), "contact {$c->id} count");
             $links = CommunicationLink::withoutGlobalScopes()->where('communication_id', $comm->id)->get();
             $this->assertCount(1, $links, 'each archive row links to exactly one contact');
             $this->assertSame($c->id, (int) $links->first()->linkable_id, 'no cross-linking between recipients');
@@ -165,10 +174,13 @@ final class OutreachWritesToArchiveTest extends TestCase
             ])->assertOk();
 
         $contact->refresh();
-        $this->assertSame(1, $contact->outboundCommCount(Communication::CHANNEL_WHATSAPP), 'provisional counts as 1');
-
         $provisional = $this->soleCommunicationFor($contact, Communication::CHANNEL_WHATSAPP);
         $this->assertNotNull($provisional->provisional_at);
+        // AT-323: born uncounted; the agent's "Yes, I sent it" makes the provisional row count as 1.
+        $this->assertSame(0, $contact->outboundCommCount(Communication::CHANNEL_WHATSAPP));
+        $this->confirmSent($provisional, $contact);
+        $contact->refresh();
+        $this->assertSame(1, $contact->outboundCommCount(Communication::CHANNEL_WHATSAPP), 'provisional counts as 1 once confirmed');
 
         // Simulate the WA/Sent-folder ingestion of the SAME message: same text_hash
         // is the deterministic reconcile key (agent did not edit before sending).
@@ -208,7 +220,7 @@ final class OutreachWritesToArchiveTest extends TestCase
         $contact = $this->seedContactWithAddress($agencyId);
 
         $throwingLogger = new class extends OutboundProvisionalLogger {
-            public function log(Contact $contact, string $channel, ?string $subject, ?string $body, ?int $userId = null): Communication
+            public function log(Contact $contact, string $channel, ?string $subject, ?string $body, ?int $userId = null, ?int $resentFromCommunicationId = null, ?string $recipientValue = null): Communication
             {
                 throw new \RuntimeException('simulated archive write failure');
             }
@@ -319,5 +331,12 @@ final class OutreachWritesToArchiveTest extends TestCase
             'created_at'             => now(),
             'updated_at'             => now(),
         ]);
+    }
+
+    /** The agent answering "Yes, I sent it" on the sent page — the one truthful delivery signal (AT-323). */
+    private function confirmSent(Communication $comm, Contact $contact): void
+    {
+        app(\App\Services\Communications\CommunicationSendStatusService::class)
+            ->markSent($comm, $contact, null);
     }
 }
