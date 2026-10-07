@@ -6077,6 +6077,23 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/templates/{id}/archive', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'archive'])->name('docuperfect.templates.archive');
     Route::post('/templates/{id}/restore', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'restore'])->name('docuperfect.templates.restore');
     Route::post('/templates/{id}/copy', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'copy'])->name('docuperfect.templates.copy');
+
+    // E-sign template packages (export / import between environments and agencies).
+    // Owner-level only — owner_only AND the templates.transfer key (never granted to
+    // agency admins). Spec: .ai/specs/esign-template-transfer.md.
+    Route::middleware(['owner_only', 'permission:templates.transfer'])->group(function () {
+        $c = \App\Http\Controllers\Docuperfect\TemplateTransferController::class;
+        Route::get('/templates/{id}/export', [$c, 'export'])->whereNumber('id')->name('docuperfect.templates.export');
+        Route::post('/templates/export-selected', [$c, 'exportSelected'])->name('docuperfect.templates.exportSelected');
+        Route::prefix('template-transfer')->name('docuperfect.template-transfer.')->group(function () use ($c) {
+            Route::get('/', [$c, 'index'])->name('index');
+            Route::post('/upload', [$c, 'upload'])->name('upload');
+            Route::post('/settings', [$c, 'saveSettings'])->name('settings');
+            Route::get('/preview/{token}', [$c, 'preview'])->name('preview');
+            Route::post('/preview/{token}/confirm', [$c, 'confirm'])->name('confirm');
+            Route::post('/preview/{token}/cancel', [$c, 'cancel'])->name('cancel');
+        });
+    });
     Route::delete('/templates/{id}', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'destroy'])->name('docuperfect.templates.destroy');
 
     // Template Wizard Config

@@ -440,6 +440,7 @@ return [
         ['key' => 'templates.create',            'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 15],
         ['key' => 'templates.edit',              'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 16],
         ['key' => 'templates.archive',           'label' => 'Archive',                     'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 17],
+        ['key' => 'templates.transfer',          'label' => 'Export / Import Template Packages (owner)', 'section' => 'docuperfect', 'type' => 'action', 'module' => 'templates', 'sort_order' => 18],
         ['key' => 'clauses.view',                'label' => 'View',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 18],
         ['key' => 'clauses.create',              'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 19],
         ['key' => 'clauses.edit',                'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 20],
@@ -955,7 +956,7 @@ return [
             // board — owner-only, so admin is excluded from the all-minus rule.
             // manage_reference_sources is likewise platform-owner-only: it's a
             // global, not per-agency, allowlist (ellie-reference-sources spec).
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources'],
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
