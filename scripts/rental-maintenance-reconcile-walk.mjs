@@ -45,7 +45,7 @@ const check = (name, pass, detail = '') => { results.push({ name, pass: !!pass, 
 const note = (msg) => console.log(`  NOTE  ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const loadState = () => (fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : {});
+const loadState = () => { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8') || '{}'); } catch { return {}; } };
 const saveState = (s) => fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2));
 
 function fixture(args) {
@@ -399,6 +399,246 @@ async function main_() {
       check('the crew now sees the extra as Approved', /Approved/i.test(ct) && !/do not start/i.test(ct), (ct.match(/[^\n]*Approved[^\n]*/i) || [''])[0]);
       saveState(state);
       await shot(office, '11-variation-approved');
+    }
+
+    // ── STAGE 12 — the tenant (phone) says "not complete" with a photo → both records Disputed ──
+    if (want(12)) {
+      console.log('\nSTAGE 12 — tenant dispute');
+      const mail = await findMail('Please check the work', state.tenant_email, state.startedAt);
+      check('the tenant was emailed a one-tap "Please check the work" mail', !!mail, mail ? mail.Subject : 'no mail');
+      const html = mail ? (mail.HTML || '') + ' ' + (mail.Text || '') : '';
+      state.tenant_link = (html.match(/https?:\/\/[^\s"'<>]*\/secure\/completion\/[A-Za-z0-9]+/) || [''])[0];
+      check('the mail carries the one-click response link', !!state.tenant_link);
+      const money = /R\s?\d[\d, ]*\.\d\d|1[ ,]?380|margin|markup/i.test((mail?.HTML || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' '));
+      check('the tenant\'s mail shows no money at all', !money);
+      await go(tenant, state.tenant_link);
+      let t = await body(tenant);
+      check('the tenant page asks "All done, thanks" / "Not complete" at phone width', /All done, thanks/i.test(t) && /Not complete/i.test(t));
+      check('the tenant page shows no money', !/R\s?\d[\d, ]*\.\d\d|1[ ,]?380|margin|markup|selling/i.test(t));
+      await clickText(tenant, 'Not complete', { tags: 'button, label, a, summary', nav: false });
+      await tenant.type('textarea[name=note]', 'The geyser still is not heating and there is a puddle under it (reconciliation walk).');
+      const png = path.join(os.tmpdir(), 'reconcile-walk.png');
+      fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64'));
+      const file = await tenant.$('input[type=file]');
+      if (file) await file.uploadFile(png);
+      await clickText(tenant, 'Send', { tags: 'button[type=submit]' });
+      t = await body(tenant);
+      check('the tenant is told the report was sent', /thank|received|sent|reported|you answered/i.test(t), t.replace(/\s+/g, ' ').slice(0, 120));
+      await shot(tenant, '12-tenant-disputed', true);
+      await go(office, `/corex/rental-job-cards/${state.card_id}`);
+      t = await main(office);
+      check('the job card is now Disputed with the tenant\'s note on it', /DISPUTED/.test(t) && /puddle under it/.test(t), (t.split('\n').find((l) => /DISPUTED/.test(l)) || '').slice(0, 100));
+      check('the card says the tenant said NOT complete (and never "confirmed fixed")', /Tenant — said the work is NOT complete/.test(t) && !/Tenant — confirmed fixed/.test(t), (t.match(/Tenant — [^\n]*/) || ['(no tenant line)'])[0].slice(0, 100));
+      check('no "Changed since sent — re-send" notice on an owner-approved job', !/Changed since sent|Re-send to update the owner/i.test(t));
+      await go(office, `/corex/rental-work-orders/${state.wo_id}`);
+      t = await main(office);
+      check('the work order is Disputed too', /DISPUTED/.test(t.split('\n').slice(0, 4).join(' ')) && /puddle under it/.test(t));
+      await go(office, '/corex/rental-job-cards?status=disputed');
+      check('Job Cards ▸ Disputed tile lists it', /ZZ Walk - geyser not heating/.test(await main(office)));
+      saveState(state);
+      await shot(office, '12-office-disputed');
+    }
+
+    // ── STAGE 13 — the office resolves the dispute: close refused → send back → crew reports fixed ──
+    if (want(13)) {
+      console.log('\nSTAGE 13 — resolve the dispute');
+      await go(office, `/corex/rental-job-cards/${state.card_id}`);
+      let t = await main(office);
+      if (/Complete job card/i.test(t)) {
+        await clickText(office, 'Complete job card', { tags: 'button[type=submit], button' });
+        t = await main(office);
+        check('while Disputed, Complete job card is refused in the tenant-dispute words and nothing closes', /tenant has reported this work as not complete/i.test(t) && !/Job card completed/i.test(t), (t.match(/[^\n]*not complete[^\n]*/i) || ['(no message)'])[0].slice(0, 150));
+      } else {
+        note('no Complete job card button while Disputed (the reopen reset the sign-offs) — close is unreachable, which is also correct');
+      }
+      state.sentBackAt = Date.now();
+      await clickText(office, 'Send back to crew', { tags: 'button[type=submit]' });
+      const mail = await findMail('Please revisit', state.crew_email, state.sentBackAt);
+      check('the crew is emailed "Please revisit…" with the tenant\'s note and a FRESH link', !!mail, mail ? mail.Subject : 'no mail');
+      const mtext = mail ? (mail.HTML || '') + ' ' + (mail.Text || '') : '';
+      const newLink = (mtext.match(/https?:\/\/[^\s"'<>]*\/secure\/job-cards\/[A-Za-z0-9]+/) || [''])[0];
+      check('the new link differs from the old one', !!newLink && newLink !== state.crew_link);
+      check('that mail carries the tenant\'s note, with the photo as an ABSOLUTE link (not /storage/…), and no money', /puddle under it/.test(mtext) && !/href="\/storage\//.test(mtext) && /href="https?:\/\/[^"]*\/storage\//.test(mtext) && !/margin|markup|1[ ,]?380/i.test(mtext.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')));
+      const oldLink = state.crew_link;
+      state.crew_link = newLink;
+      await go(phone, oldLink);
+      const oldText = await body(phone);
+      check('the OLD crew link no longer works', !/Parts & labour|Mark work completed|Report fixed/i.test(oldText), oldText.replace(/\s+/g, ' ').slice(0, 90));
+      await go(phone, newLink);
+      let ct = await body(phone);
+      check('the crew\'s fresh link shows the tenant\'s complaint and a "Report fixed" button', /puddle under it/.test(ct) && /Report fixed/i.test(ct));
+      check('…and still no selling / margin / owner amount', !/selling|markup|margin|owner amount|1[ ,]?380/i.test(ct));
+      await shot(phone, '13-crew-dispute-banner', true);
+      await phone.type('form[action$="/complete"] input[name=full_name]', 'Sipho Crew');
+      await phone.click('form[action$="/complete"] input[name=confirm]');
+      state.round2At = Date.now();
+      await clickText(phone, 'Report fixed', { tags: 'button[type=submit]', within: 'form[action$="/complete"]' });
+      ct = await body(phone);
+      check('the crew\'s "Report fixed" is accepted', !/not been approved|refused|error/i.test(ct), ct.replace(/\s+/g, ' ').slice(0, 120));
+      saveState(state);
+    }
+
+    // ── STAGE 14 — round 2: the tenant confirms; the office closes both; the owner is sent the final statement ──
+    if (want(14)) {
+      console.log('\nSTAGE 14 — round 2: the tenant confirms; the office closes; the owner is sent the final statement');
+      const mail = await findMail('Please check the work', state.tenant_email, state.round2At || state.startedAt);
+      check('the tenant is asked again (round 2)', !!mail);
+      const link = mail ? ((mail.HTML || '') + (mail.Text || '')).match(/https?:\/\/[^\s"'<>]*\/secure\/completion\/[A-Za-z0-9]+/) : null;
+      state.tenant_link2 = link ? link[0] : '';
+      check('round 2 has its own response link', !!state.tenant_link2 && state.tenant_link2 !== state.tenant_link);
+      await go(tenant, state.tenant_link2);
+      if (/You answered/i.test(await body(tenant))) note('round 2 was already answered on a previous run of this stage');
+      else await clickText(tenant, 'All done, thanks', { tags: 'button[type=submit], button' });
+      const tt = await body(tenant);
+      check('the tenant confirms "All done, thanks"', /thank|answered/i.test(tt), tt.replace(/\s+/g, ' ').slice(0, 100));
+      await go(office, `/corex/rental-job-cards/${state.card_id}`);
+      let t = await main(office);
+      check('the card no longer says Disputed; the tenant check shows both rounds', !/DISPUTED/.test(t.split('\n').slice(0, 14).join(' ')) && /Round|#2|2\b/.test(t));
+      if (!/Complete job card/i.test(t)) {
+        // the crew's "Report fixed" gives the worker sign-off again; the office gives whichever of the two is still missing
+        if (await office.$('form[action$="/worker-sign-off"] input[name=worker_sign_off_name]')) {
+          await office.type('form[action$="/worker-sign-off"] input[name=worker_sign_off_name]', 'Sipho Crew');
+          await clickText(office, 'Worker sign-off', { tags: 'button[type=submit]' });
+        }
+        if (await office.$('form[action$="/agent-sign-off"]')) await clickText(office, 'Agent sign-off', { tags: 'button[type=submit]' });
+      }
+      state.closeAt = Date.now();
+      await clickText(office, 'Complete job card', { tags: 'button[type=submit], button' });
+      t = await main(office);
+      check('Complete job card now succeeds', /COMPLETED/.test(t.split('\n').slice(0, 14).join(' ')) || /Job card completed/i.test(t), t.split('\n').slice(10, 14).join(' | ').slice(0, 120));
+      await go(office, `/corex/rental-work-orders/${state.wo_id}`);
+      const w = await main(office);
+      check('the work order is Completed in the same step', /COMPLETED/.test(w.split('\n').slice(0, 4).join(' ')), w.split('\n').slice(1, 3).join(' | '));
+      const fin = await findMail('final statement', state.landlord_email, state.closeAt);
+      check('the owner is mailed a final statement', !!fin, fin ? fin.Subject : 'no mail');
+      await go(office, `/corex/rental-job-cards/${state.card_id}`);
+      check('a closed, owner-approved card shows no "Changed since sent" chip', !/Changed since sent/i.test(await main(office)));
+      saveState(state);
+      await shot(office, '14-closed');
+    }
+
+    // ── STAGE 15 — EMERGENCY: nothing priced, the owner's agreement is captured with NO cost, and it is never overridden ──
+    if (want(15)) {
+      console.log('\nSTAGE 15 — emergency job (second job on the same property)');
+      await go(office, `/corex/rental-work-orders/create?property_id=${state.property_id}&lease_id=${state.lease_id}`);
+      await office.click('input[name=assignment_type][value=internal]');
+      await office.select('select[name=reported_by_type]', 'agent_noticed');
+      await office.type('input[name=title]', 'ZZ Walk EMERGENCY - burst pipe in the kitchen');
+      await office.type('textarea[name=description]', 'Water running down the wall. Crew phoned the office. (reconciliation walk, throwaway)');
+      await clickText(office, 'Log Work Order', { tags: 'button[type=submit]' });
+      const u = office.url();
+      state.card2_id = idFromUrl(u, 'rental-job-cards');
+      check('an internal work order lands on its job card (no job card without its work order)', !!state.card2_id, u);
+      await office.select('select[name=rental_crew_id]', String(state.crew_id));
+      await clickText(office, 'Assign', { tags: 'button[type=submit]' });
+      state.wo2_id = await office.evaluate(() => (document.querySelector('a[href*="/rental-work-orders/"]')?.href.match(/rental-work-orders\/(\d+)/) || [])[1] || null);
+      await office.$eval('form[action$="/schedule"] input[name=scheduled_at]', (e) => { e.value = '2026-10-21T08:00'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+      await clickText(office, 'Set', { tags: 'button[type=submit]', within: 'form[action$="/schedule"]' });
+      let t = await main(office);
+      check('with nothing priced and no emergency agreement, scheduling is refused and the card says what to do', /price the job|emergency approval|record the owner/i.test(t) && !/Scheduled:\s*2026-10-21/.test(t), (t.match(/[^\n]*Nothing has been priced[^\n]*/i) || ['(no text)'])[0].slice(0, 150));
+      await go(office, `/corex/rental-work-orders/${state.wo2_id}`);
+      await clickText(office, "Record owner's emergency approval", { tags: 'summary', nav: false });
+      const amountFields = await office.$$eval('form[action$="/emergency-approval"] input, form[action$="/emergency-approval"] select, form[action$="/emergency-approval"] textarea', (els) => els.map((e) => e.name).filter((n) => /amount|cost|price|rand|total/i.test(n)));
+      check('the emergency form has NO amount / cost / price field (by ruling)', amountFields.length === 0, amountFields.join(','));
+      await office.type('form[action$="/emergency-approval"] input[name=approved_by_name]', 'Mr Walk Landlord');
+      await office.select('form[action$="/emergency-approval"] select[name=approved_via]', 'phone');
+      await office.type('form[action$="/emergency-approval"] textarea[name=reason]', 'Burst pipe, water in the wall — cannot wait for a quote.');
+      await office.type('form[action$="/emergency-approval"] input[name=reported_by_crew_name]', 'Sipho Crew');
+      await clickText(office, "Record the owner's agreement", { tags: 'button[type=submit]' });
+      t = await main(office);
+      check('the emergency approval is recorded and shows who / how / why', /Mr Walk Landlord/.test(t) && /phone/i.test(t) && /Burst pipe/.test(t), (t.match(/[^\n]*Mr Walk Landlord[^\n]*/) || [''])[0].slice(0, 130));
+      check('no amount appears anywhere in the emergency record', !/emergency[^\n]*R\s?\d/i.test(t));
+      await go(office, `/corex/rental-job-cards/${state.card2_id}`);
+      await office.$eval('form[action$="/schedule"] input[name=scheduled_at]', (e) => { e.value = '2026-10-21T08:00'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+      await clickText(office, 'Set', { tags: 'button[type=submit]', within: 'form[action$="/schedule"]' });
+      t = await main(office);
+      check('after the owner\'s emergency agreement the job can be scheduled', /Scheduled:\s*2026-10-21/.test(t) && /Emergency/i.test(t), (t.match(/Scheduled:[^\n]*/) || [''])[0]);
+      await clickText(office, 'Generate link', { tags: 'button[type=submit]' });
+      const link = await office.evaluate(() => [...document.querySelectorAll('a, input, code, span')].map((e) => e.href || e.value || e.innerText || '').find((x) => /\/secure\/job-cards\/[A-Za-z0-9]{20,}/.test(x)) || '');
+      state.crew_link2 = (link.match(/https?:\/\/[^\s"']*\/secure\/job-cards\/[A-Za-z0-9]+/) || [''])[0];
+      check('the crew link for the emergency job exists', !!state.crew_link2);
+      await go(phone, state.crew_link2);
+      const ct = await body(phone);
+      check('crew link: "Approved to proceed (emergency)" and nothing about the owner, his phone or any money', /Approved to proceed \(emergency\)/i.test(ct) && !/Walk Landlord|example\.invalid|selling|margin|R\s?\d{3,}/i.test(ct));
+      await shot(phone, '15-crew-emergency', true);
+      saveState(state);
+      await shot(office, '15-emergency');
+    }
+
+    // ── STAGE 16 — close the emergency job: the owner's final statement carries the "Approved as emergency work" flag ──
+    if (want(16)) {
+      console.log('\nSTAGE 16 — close the emergency job');
+      await go(phone, state.crew_link2);
+      await phone.type('form[action$="/complete"] input[name=full_name]', 'Sipho Crew');
+      await phone.click('form[action$="/complete"] input[name=confirm]');
+      await clickText(phone, 'Mark work completed', { tags: 'button[type=submit]', within: 'form[action$="/complete"]' });
+      check('the crew can report the emergency job done (it is authorised)', !/not been approved/i.test(await body(phone)));
+      const png = path.join(os.tmpdir(), 'reconcile-walk.png');
+      fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64'));
+      await go(office, `/corex/rental-job-cards/${state.card2_id}`);
+      await clickText(office, 'Photos (', { tags: 'button', nav: false });
+      await office.select('form[action$="/photos"][enctype] select[name=photo_type]', 'completed');
+      await (await office.$('form[action$="/photos"][enctype] input[name=photo]')).uploadFile(png);
+      await clickText(office, 'Upload photo', { tags: 'button[type=submit]' });
+      await go(office, `/corex/rental-job-cards/${state.card2_id}`);
+      if (await office.$('form[action$="/agent-sign-off"]')) await clickText(office, 'Agent sign-off', { tags: 'button[type=submit]' });
+      state.close2At = Date.now();
+      await clickText(office, 'Complete job card', { tags: 'button[type=submit], button' });
+      const t = await main(office);
+      check('the emergency job closes (card + work order)', /COMPLETED/.test(t.split('\n').slice(0, 14).join(' ')), t.split('\n').slice(10, 13).join(' | ').slice(0, 100));
+      const fin = await findMail('final statement', state.landlord_email, state.close2At);
+      check('the owner is mailed a final statement', !!fin, fin ? fin.Subject : 'no mail');
+      const text = fin ? (fin.HTML || '').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ') : '';
+      check('the final statement mail carries "Approved as emergency work on …"', /Approved as emergency work on/i.test(text), (text.match(/Approved as emergency work[^.]*/i) || ['(not found)'])[0].slice(0, 100));
+      check('…and shows no cost / margin / markup', !/margin|markup|our cost|unit cost/i.test(text));
+      saveState(state);
+      await shot(office, '16-emergency-closed');
+    }
+
+    // ── STAGE 16b — the two new list filters, counted across the whole agency now that one job is closed and one waits on nobody ──
+    if (want('16b')) {
+      console.log('\nSTAGE 16b — list tiles after both jobs closed');
+      await go(office, '/corex/rental-job-cards');
+      const t = await main(office);
+      check('Job Cards: "Awaiting owner" and "Variation pending" tiles are on the screen', /AWAITING OWNER/i.test(t) && /VARIATION PENDING/i.test(t));
+      await go(office, '/corex/rental-job-cards?variation_pending=1');
+      check('a closed job is in neither filter (waiting on nobody)', !/ZZ Walk - geyser not heating/.test(await main(office)));
+      await go(office, '/corex/rental-work-orders');
+      const w = await main(office);
+      check('Work Orders: both tiles are on the screen', /AWAITING OWNER/i.test(w) && /VARIATION PENDING/i.test(w));
+    }
+
+    // ── STAGE 17 — REPORT ONLY (Build 1's observation): an agency capturing prices INCL VAT — does re-saving a catalogue item lower its price? ──
+    if (want(17)) {
+      console.log('\nSTAGE 17 — catalogue incl-VAT edit observation (report only)');
+      fixture([`--vat-incl=${state.agency_id}`]);
+      const dbPrice = () => fixture([`--catalogue-prices=${state.agency_id}`]).trim().split('\n').find((l) => l.startsWith('ZZ-INCL')) || '(none)';
+      await go(office, '/corex/rental-catalogue-items/create');
+      await office.select('select[name=rental_catalogue_item_type_id]', await office.$eval('select[name=rental_catalogue_item_type_id] option:nth-child(2)', (o) => o.value));
+      await office.type('input[name=code]', 'ZZ-INCL');
+      await office.type('input[name=description]', 'ZZ incl-VAT observation item');
+      await office.select('select[name=rental_catalogue_unit_id]', await office.$eval('select[name=rental_catalogue_unit_id] option:nth-child(2)', (o) => o.value));
+      const vatOpt = await office.$$eval('select[name=default_rental_vat_type_id] option', (os) => os.find((o) => /Standard/i.test(o.textContent))?.value || '');
+      await office.select('select[name=default_rental_vat_type_id]', vatOpt);
+      await sleep(300);
+      await office.type('input[name=default_price]', '115');
+      await clickText(office, 'Add Item', { tags: 'button[type=submit]' });
+      const strip = (x) => x.replace(/\|\d+$/, '');
+      state.catalogue_before = strip(dbPrice());
+      note('created in the form by typing R115.00 INCL VAT → stored: ' + state.catalogue_before);
+      const itemId = (dbPrice().match(/\|(\d+)$/) || [])[1] || null;
+      state.catalogue_item_id = itemId;
+      const seen = [];
+      for (let round = 1; round <= 2; round++) {
+        await go(office, `/corex/rental-catalogue-items/${itemId}/edit`);
+        const shown = await office.$$eval('input[name=default_price]', (els) => els.map((e) => e.value));
+        seen.push(shown.join('/'));
+        await clickText(office, 'Save', { tags: 'button[type=submit]' }).catch(async () => { await clickText(office, 'Update', { tags: 'button[type=submit]' }); });
+        note(`edit #${round}: the price box shows ${shown.join(' / ')} → after saving with no change, stored: ${strip(dbPrice())}`);
+      }
+      state.catalogue_after = strip(dbPrice());
+      check('OBSERVATION (a FAIL here = defect reproduced; report only): saving an unchanged catalogue item in an INCL-VAT agency leaves its price alone', state.catalogue_before === state.catalogue_after, `before ${state.catalogue_before}; the box showed ${seen.join(' then ')}; after two plain re-saves ${state.catalogue_after}`);
+      saveState(state);
     }
   } finally {
     saveState(state);

@@ -34,6 +34,7 @@ use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\LeaseTenant;
 use App\Models\Property;
+use App\Models\RentalCatalogueItem;
 use App\Models\RentalCatalogueItemType;
 use App\Models\RentalCatalogueUnit;
 use App\Models\RentalCrew;
@@ -143,6 +144,7 @@ if ($agencyId) {
     $soft('fault_reports', RentalFaultReport::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('leases', Lease::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('crews', RentalCrew::withoutGlobalScopes()->where('agency_id', $agencyId));
+    $soft('catalogue_items', RentalCatalogueItem::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('properties', Property::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('contacts', Contact::withoutGlobalScopes()->where('agency_id', $agencyId));
     \App\Models\RentalSecureAccessToken::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('revoked_at')->update(['revoked_at' => now()]);
