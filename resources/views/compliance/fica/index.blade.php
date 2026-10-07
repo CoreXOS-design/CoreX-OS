@@ -287,7 +287,7 @@
                                     $canCoReview = $isCO || $isAdmin;
                                     // Own FICA (officer who may not review their own) — only worth asking on review-state rows.
                                     $rowOwnBlock = $isCO && in_array($sub->status, ['submitted', 'agent_approved', 'referred_to_co'], true)
-                                        ? $sub->ownReviewBlockFor($authUser) : null;
+                                        ? $sub->ownReviewBlockFor($authUser, $ownReviewCtx ??= new \App\Support\Compliance\FicaOwnReviewContext($authUser)) : null;
                                 @endphp
                                 <div class="flex items-center justify-end gap-2">
                                     @if($sub->intake_type !== 'wet_ink' && $sub->token && in_array($sub->status, ['draft', 'corrections_requested']))

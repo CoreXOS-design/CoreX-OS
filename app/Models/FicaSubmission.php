@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\Concerns\BelongsToBranch;
+use App\Support\Compliance\FicaOwnReviewContext;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -255,27 +256,71 @@ class FicaSubmission extends Model
         return in_array((int) $user->id, $this->ownWorkUserIds(), true);
     }
 
+    /** Stage 1 - the first check of a returned form. Open to any user with compliance access, not only officers. */
+    public const STAGE_ONE_STATUSES = ['submitted', 'under_review', 'corrections_requested'];
+
     /**
-     * Why this user may not review/mark up this submission — null when they may.
+     * The statuses in which an own-FICA block can actually bite on a review / mark-up
+     * action (stage 1, the RO queue, a referred pack). On a finished or not-yet-sent
+     * record (approved / rejected / cancelled / draft) there is nothing to review, so the
+     * screens show no "your own FICA" notice and the audit ledger is not written to.
+     * A rejected record is the one other place the rule applies - the Reopen action - which
+     * is handled by ownReopenBlockFor().
+     */
+    public const OWN_REVIEW_STATUSES = ['submitted', 'under_review', 'corrections_requested', 'agent_approved', 'referred_to_co'];
+
+    /** Is this submission in a status where a review / mark-up action exists to be blocked? */
+    public function isInOwnReviewState(): bool
+    {
+        return in_array($this->status, self::OWN_REVIEW_STATUSES, true);
+    }
+
+    /**
+     * Why this user may not review/mark up this submission - null when they may.
+     * Status-blind on purpose: this is the SERVER rule, evaluated at the start of every
+     * review route. Screens use ownReviewNoticeFor()/ownReopenBlockFor() so they only talk
+     * about it while there is something to review.
      *
      * Same rule as the end-of-flow guard in FicaController::complianceApprove (AT-236):
      * an appointed officer (RO/MLRO) may not review their own FICA; the PRIMARY
      * Compliance Officer is the one exception. Everyone else (an agent doing the stage-1
-     * check on a FICA they sent, an admin who is not an officer) is unaffected — stage-1
+     * check on a FICA they sent, an admin who is not an officer) is unaffected - stage-1
      * work on their own request is the normal flow; the officer steps are what stay
      * separate.
+     *
+     * Pass a FicaOwnReviewContext when asking about many rows (list, contact tab) so the
+     * officer lookups happen once per agency, not once per row.
      */
-    public function ownReviewBlockFor(User $user): ?string
+    public function ownReviewBlockFor(User $user, ?FicaOwnReviewContext $ctx = null): ?string
     {
         $agencyId = (int) $this->agency_id;
+        $ctx ??= new FicaOwnReviewContext($user);
 
-        if (! $user->isComplianceOfficer($agencyId)
-            || $user->isPrimaryComplianceOfficer($agencyId)
-            || ! $this->isOwnWorkOf($user)) {
+        if (! $this->isOwnWorkOf($user)
+            || ! $ctx->isOfficer($agencyId)
+            || $ctx->isPrimary($agencyId)) {
             return null;
         }
 
-        if ($this->hasOtherEligibleReviewer($user)) {
+        // Stage 1 is open to any user with compliance access, so "nobody else can do it" is
+        // never true here - never claim it, whatever the officer roster looks like.
+        if (in_array($this->status, self::STAGE_ONE_STATUSES, true)) {
+            return 'You cannot approve your own FICA - another Responsible Officer or the Compliance Officer must review it, '
+                . 'or any other user with compliance access can do this first check.';
+        }
+
+        // A referred pack is decided only at the referral station (the recipient or the primary CO).
+        if ($this->status === 'referred_to_co') {
+            if ($this->hasOtherEligibleReviewer($user, $ctx)) {
+                return 'You cannot approve your own FICA - this pack was referred, so only the Compliance Officer it was referred to '
+                    . '(or the Primary Compliance Officer) can decide it.';
+            }
+
+            return 'You cannot approve your own FICA, and there is no other Compliance Officer able to decide this referred pack. '
+                . 'An administrator must appoint one under Company Settings → Compliance Officers.';
+        }
+
+        if ($this->hasOtherEligibleReviewer($user, $ctx)) {
             return 'You cannot approve your own FICA - another Responsible Officer or the Compliance Officer must review it.';
         }
 
@@ -283,20 +328,44 @@ class FicaSubmission extends Model
             . 'An administrator must appoint one under Company Settings → Compliance Officers.';
     }
 
-    /**
-     * Is there an active officer other than $user who may review this submission?
-     * The primary CO always may; any other officer only if it is not their own work too.
-     */
-    public function hasOtherEligibleReviewer(User $user): bool
+    /** The block for the "this is your own FICA" notice and review buttons - only while there is something to review. */
+    public function ownReviewNoticeFor(User $user, ?FicaOwnReviewContext $ctx = null): ?string
     {
-        $ownIds = $this->ownWorkUserIds();
+        return $this->isInOwnReviewState() ? $this->ownReviewBlockFor($user, $ctx) : null;
+    }
 
-        return FicaOfficerAppointment::where('agency_id', (int) $this->agency_id)
-            ->active()
-            ->where('user_id', '!=', $user->id)
-            ->get(['user_id', 'role'])
-            ->contains(fn ($a) => $a->role === FicaOfficerAppointment::ROLE_PRIMARY
-                || ! in_array((int) $a->user_id, $ownIds, true));
+    /** The block for the Reopen-for-Corrections action - only on a rejected record, the only place it exists. */
+    public function ownReopenBlockFor(User $user, ?FicaOwnReviewContext $ctx = null): ?string
+    {
+        return $this->status === 'rejected' ? $this->ownReviewBlockFor($user, $ctx) : null;
+    }
+
+    /**
+     * Is there an active officer other than $user who may decide this submission?
+     * The primary CO always may; any other officer only if it is not their own work too.
+     * For a referred pack only the referral station counts: the primary CO, or the
+     * resolved recipient (FicaReferralService::isReferralStationOwner) when it is not
+     * also their own work.
+     */
+    public function hasOtherEligibleReviewer(User $user, ?FicaOwnReviewContext $ctx = null): bool
+    {
+        $agencyId = (int) $this->agency_id;
+        $ctx ??= new FicaOwnReviewContext($user);
+        $ownIds = $this->ownWorkUserIds();
+        $others = $ctx->appointments($agencyId)->filter(fn ($a) => (int) $a->user_id !== (int) $user->id);
+
+        if ($this->status === 'referred_to_co') {
+            $recipientId = $ctx->referralRecipientId($agencyId);
+
+            return $others->contains(fn ($a) => $a->role === FicaOfficerAppointment::ROLE_PRIMARY)
+                || ($recipientId !== null
+                    && $recipientId !== (int) $user->id
+                    && ! in_array($recipientId, $ownIds, true)
+                    && $others->contains(fn ($a) => (int) $a->user_id === $recipientId));
+        }
+
+        return $others->contains(fn ($a) => $a->role === FicaOfficerAppointment::ROLE_PRIMARY
+            || ! in_array((int) $a->user_id, $ownIds, true));
     }
 
     public function scopePending(Builder $query): Builder
