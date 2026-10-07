@@ -360,7 +360,7 @@
 
     // Full open-chain for the active group, root-most first.
     $activeChain = [];
-    for ($_g = $activeGroup; $_g !== null; $_g = $navGroupParents[$_g] ?? null) {
+    for ($_g = $activeGroup; $_g !== null && !in_array($_g, $activeChain, true); $_g = $navGroupParents[$_g] ?? null) {
         array_unshift($activeChain, $_g);
     }
     $groupOpen = fn (string $g): bool => in_array($g, $activeChain, true);
@@ -642,10 +642,11 @@
 
     {{-- Navigation — sliding-panel drill-down (root + per-group overlay panels) --}}
     <nav class="flex-1 min-h-0 corex-nav-viewport"
+         @scroll="if ($el.scrollLeft) $el.scrollLeft = 0"
          x-data="{
             groupParents: @js($navGroupParents),
             stack: @js($activeChain),
-            chain(g) { const out = []; for (let c = g; c; c = this.groupParents[c] || null) out.unshift(c); return out },
+            chain(g) { const out = []; for (let c = g; c && !out.includes(c); c = this.groupParents[c] || null) out.unshift(c); return out },
             push(g) { if (this.stack[this.stack.length - 1] !== g) this.stack.push(g) },
             pop() { this.stack.pop() },
             inStack(g) { return this.stack.includes(g) },
@@ -718,7 +719,7 @@
              x-init="const _sk = 'sidebarScroll:' + (openGroup || 'root');
                      const _saved = sessionStorage.getItem(_sk);
                      if (_saved !== null) { $el.scrollTop = _saved; }
-                     else { $nextTick(() => { const _a = $el.querySelector('.corex-nav-item.active, .corex-nav-subitem.active'); if (_a) _a.scrollIntoView({ block: 'center' }); }); }"
+                     else { $nextTick(() => { const _a = $el.querySelector('.corex-nav-item.active, .corex-nav-subitem.active'); if (_a) { const _c = _a.closest('.corex-nav-panel') || $el; _c.scrollTop = _a.getBoundingClientRect().top - _c.getBoundingClientRect().top + _c.scrollTop - (_c.clientHeight - _a.offsetHeight) / 2; } }); }"
              @scroll.debounce.100ms="sessionStorage.setItem('sidebarScroll:' + (openGroup || 'root'), $el.scrollTop)">
 
         @permission('sidebar.section.agents')
