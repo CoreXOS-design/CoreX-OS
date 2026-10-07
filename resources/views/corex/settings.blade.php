@@ -1107,7 +1107,7 @@
                     @csrf @method('PUT')
 
                     <div>
-                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many days a buyer can go without a note, a message, a live link share, or "Last Contacted" being pressed before the Core Matches board shows them as gone quiet.</p>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many days a buyer can go without a message, a live link share, or being marked as contacted ("Last Contacted" pressed, or "Contacted and note") before the Core Matches board shows them as gone quiet. A note on its own does not count as contact.</p>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Working window (days)</label>

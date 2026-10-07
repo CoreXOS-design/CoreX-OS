@@ -51,6 +51,18 @@ calls `markContacted()`. Sync is by construction — one endpoint, one signal, o
 (c) a not-sent WhatsApp attempt leaves `last_contacted_at` unchanged;
 (d) a modal-confirmed sent comm DOES update `last_contacted_at`.
 
+## Ruling 2026-10-07 (Johan) — a plain note is NOT contact; supersedes the Core Matches "any note resets it"
+Verbatim: "Only 'Contacted and note' moves it. 'Note only' could be anything and does not mean the
+contact was contacted; 'Contacted and note' means it."
+
+"Contacted" stays an explicit signal, and now that includes notes: `ContactNote` creation has NO hook
+(the earlier `ContactNoteObserver`, added by Core Matches ruling 2, is deleted). Only `mark_contacted=1` on
+`ContactNoteController::store()` → `Contact::markContacted()` moves it. This applies to every writer of a
+note — all screens, the mobile API, imports, system-generated notes, quick-pick-only notes (the "Contacted"
+quick pick included). The mobile notes endpoint has no `mark_contacted` option, so a mobile note is always a
+plain note. Outbound sent communication and a confirmed live-link share still move it, unchanged.
+Test: `tests/Feature/Contacts/NoteOnlyDoesNotMarkContactedTest.php`.
+
 ## Deliberately NOT in scope
 The Performance-report prospected-vs-contacted split (cc3's lane). Email flows unchanged.
 

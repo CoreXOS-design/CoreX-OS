@@ -255,9 +255,9 @@ final class CoreMatchBuyerStatusGateTest extends TestCase
     // ---- Notes control: same endpoint, same effects as the contact screen -----
 
     /**
-     * A note always resets the working clock (ContactNoteObserver — Johan's earlier ruling), so
-     * "Note only" bumps last_contacted_at too; what it does NOT do is record the explicit
-     * "contacted" mark (contacted_marked_at) that "Contacted and note" adds.
+     * "Note only" moves NOTHING about contact — neither last_contacted_at nor the explicit
+     * contacted_marked_at (Johan, 2026-10-07 — supersedes the earlier "any note resets the clock").
+     * Only "Contacted and note" does (next test).
      */
     public function test_note_only_saves_the_note_but_does_not_record_the_explicit_contacted_mark(): void
     {
@@ -269,6 +269,7 @@ final class CoreMatchBuyerStatusGateTest extends TestCase
 
         $this->assertDatabaseHas('contact_notes', ['contact_id' => $contact->id, 'body' => 'Left a voicemail', 'user_id' => $this->agent->id]);
         $this->assertNull($contact->fresh()->contacted_marked_at);
+        $this->assertNull($contact->fresh()->last_contacted_at);
     }
 
     public function test_contacted_and_note_saves_the_note_and_updates_last_contacted(): void

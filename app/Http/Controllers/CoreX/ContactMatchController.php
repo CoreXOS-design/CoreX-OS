@@ -435,8 +435,9 @@ class ContactMatchController extends Controller
         // A REMAINING count, not a static label. The clock is
         // Contact::last_contacted_at — per AgencyContactSettings'
         // coreMatchesWorkingWindowDays() docblock, this setting measures
-        // days without a note/message/live-link-share/"Last Contacted"
-        // press, NOT days since the lead was first received (a different
+        // days without a message/live-link-share/"Last Contacted"
+        // press/"Contacted and note" (a plain note does not count — Johan,
+        // 2026-10-07), NOT days since the lead was first received (a different
         // clock entirely — that one only feeds the "first received" badge
         // above). No fallback to created_at when never contacted: the
         // header's own "Never contacted" badge already carries that signal,
