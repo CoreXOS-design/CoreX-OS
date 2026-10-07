@@ -36,7 +36,9 @@ class CompanyListingStockController extends Controller
             : "DATEDIFF(DATE(expires_at), CURDATE())";
         $todayExpr = $isSqlite ? "DATE('now')" : "CURDATE()";
 
+        // Own / branch / agency breadth (agency leg = the model's global scope).
         $q = ListingStock::query()
+            ->visibleTo($u)
             ->where('source', 'propcon');
 
         // Status dropdown filter (same behaviour as Agent/BM)

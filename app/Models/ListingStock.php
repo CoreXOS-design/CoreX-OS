@@ -112,6 +112,22 @@ return $d < 0 ? 0 : $d;
         return $query->whereRaw('1 = 0');
     }
 
+    /**
+     * May $viewer look at $target's stock? Same own / branch / agency breadth as
+     * scopeVisibleTo(), applied to a person rather than a row — the agency leg is
+     * the User model's own agency scope on route binding.
+     */
+    public static function viewerMaySeeAgent(\App\Models\User $viewer, \App\Models\User $target): bool
+    {
+        $scope = \App\Services\PermissionService::getDataScope($viewer, 'listings');
+
+        if ($scope === 'all') return true;
+        if ($scope === 'branch') return (int) $target->branch_id === (int) $viewer->effectiveBranchId();
+        if ($scope === 'own') return in_array((int) $target->id, array_map('intval', $viewer->dataIdentityIds()), true);
+
+        return false;
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

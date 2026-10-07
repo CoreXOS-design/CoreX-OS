@@ -1418,7 +1418,12 @@ Route::middleware(['auth', 'permission:view_server_health'])->group(function () 
 });
 
 // ===== LISTING STOCK ===== (Agency Tracker surface)
-Route::middleware(['auth','permission:view_listings','feature:agency-tracker'])->group(function () {
+// Server-side gate (2026-10-07): view_listings alone is held by every agent and viewer, so
+// typing these URLs showed agency-wide stock. access_listing_stock is the stock permission
+// (branch managers / admins) the Branch Listing Stock menu item and /bm/listings already use;
+// the controllers then narrow rows to the viewer's own / branch / agency breadth, and the
+// reassign screens add the manager gate (see Admin\ListingStockController::authorizeReassign).
+Route::middleware(['auth','permission:view_listings','permission:access_listing_stock','feature:agency-tracker'])->group(function () {
     Route::get('/admin/listings/agents', [\App\Http\Controllers\Admin\ListingStockController::class, 'agents'])
         ->name('admin.listings.agents');
 
