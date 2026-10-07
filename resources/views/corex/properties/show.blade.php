@@ -410,9 +410,21 @@
             <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
                 <p class="text-[0.6875rem] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Actions</p>
 
+                {{-- Other Agency Stock (spec other-agency-stock.md §5c): each button below declares its OAS
+                     behaviour with data-oas-action (registry: OtherAgencyStockActionRules). A blocked action is
+                     greyed with a plain reason AND refused server-side; this is its own rule, not the compliance
+                     gate. The block follows the status, so it lifts the moment the property stops being OAS. --}}
+                @php
+                    $oasRules   = \App\Services\Properties\OtherAgencyStockActionRules::class;
+                    $oasAd      = $oasRules::isBlocked('ad_builder', $property);
+                    $oasMarket  = $oasRules::isBlocked('market_property', $property);
+                    $oasPitch   = $oasRules::isBlocked('pitch_seller', $property);
+                    $oasPresent = $oasRules::isBlocked('generate_presentation', $property);
+                @endphp
+
                 {{-- Save Changes + Compliance Status live in the identity strip at the top of the page. --}}
 
-                <button type="button"
+                <button type="button" data-oas-action="syndication"
                         @unless($canEdit ?? true) data-edit-only @endunless
                         @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}"
                         class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
@@ -421,7 +433,7 @@
                     Syndication
                 </button>
 
-                <button type="button"
+                <button type="button" data-oas-action="live_preview"
                         @click="{{ $isMarketable ? "synOpen=true; synStep='preview'" : 'complianceModalOpen = true' }}"
                         class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
                         title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Open public listing preview' }}">
@@ -429,46 +441,60 @@
                     Live Preview
                 </button>
 
-                @if($isMarketable)
-                <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand" @unless($canEdit ?? true) data-edit-only @endunless>
+                @if($isMarketable && ! $oasAd)
+                <a href="{{ route('corex.properties.ad', $property) }}" class="prop-action-btn prop-action-btn-brand" data-oas-action="ad_builder" @unless($canEdit ?? true) data-edit-only @endunless>
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Ad Builder
                 </a>
                 @else
-                <button type="button" @click="complianceModalOpen = true"
-                        class="prop-action-btn prop-action-btn-brand opacity-50 cursor-not-allowed"
-                        title="Marketing blocked — open Compliance Status to resolve">
+                @if($oasAd)<span class="block" title="{{ $oasRules::reason('ad_builder') }}">@endif
+                <button type="button" data-oas-action="ad_builder"
+                        @if($oasAd) disabled aria-disabled="true" style="pointer-events:none;" @else @click="complianceModalOpen = true" title="Marketing blocked — open Compliance Status to resolve" @endif
+                        class="prop-action-btn prop-action-btn-brand opacity-50 cursor-not-allowed">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     Ad Builder
                 </button>
+                @if($oasAd)</span>@endif
                 @endif
 
                 @if(\Illuminate\Support\Facades\Route::has('corex.properties.marketing.index') && \App\Models\PerformanceSetting::get('marketing_enabled', 1))
-                    @if($isMarketable)
+                    @if($isMarketable && ! $oasMarket)
                     <a href="{{ route('corex.properties.marketing.index', $property) }}"
-                       class="prop-action-btn prop-action-btn-fb"
+                       class="prop-action-btn prop-action-btn-fb" data-oas-action="market_property"
                        title="Social media marketing"
                        @unless($canEdit ?? true) data-edit-only @endunless>
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
                         Market Property
                     </a>
                     @else
-                    <button type="button" @click="complianceModalOpen = true"
-                            class="prop-action-btn prop-action-btn-fb opacity-50 cursor-not-allowed"
-                            title="Marketing blocked — open Compliance Status to resolve">
+                    @if($oasMarket)<span class="block" title="{{ $oasRules::reason('market_property') }}">@endif
+                    <button type="button" data-oas-action="market_property"
+                            @if($oasMarket) disabled aria-disabled="true" style="pointer-events:none;" @else @click="complianceModalOpen = true" title="Marketing blocked — open Compliance Status to resolve" @endif
+                            class="prop-action-btn prop-action-btn-fb opacity-50 cursor-not-allowed">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535"/></svg>
                         Market Property
                     </button>
+                    @if($oasMarket)</span>@endif
                     @endif
                 @endif
 
                 @if(auth()->user()->hasPermission('outreach.compose'))
+                @if($oasPitch)
+                <span class="block" title="{{ $oasRules::reason('pitch_seller') }}">
+                <button type="button" disabled aria-disabled="true" data-oas-action="pitch_seller" style="pointer-events:none;"
+                        class="prop-action-btn prop-action-btn-neutral opacity-50 cursor-not-allowed">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>
+                    Pitch Seller
+                </button>
+                </span>
+                @else
                 <a href="{{ route('seller-outreach.entry.from-property', $property) }}"
-                   class="prop-action-btn prop-action-btn-neutral"
+                   class="prop-action-btn prop-action-btn-neutral" data-oas-action="pitch_seller"
                    title="Compose a WhatsApp/Email pitch to the seller linked to this property">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg>
                     Pitch Seller
                 </a>
+                @endif
                 @endif
 
                 {{-- Share listing — public link (copy / WhatsApp / email). Spec: listing-share-link.md --}}
@@ -486,6 +512,15 @@
                         <div class="font-semibold" style="color:var(--text-primary);">Presentation not available</div>
                         <div class="mt-0.5">This is a rental. Presentations compare a property against sale prices in the area, so there isn't one to generate for a rental listing.</div>
                     </div>
+                @elseif($oasPresent)
+                    {{-- Other Agency Stock (spec §5c): never presented. Greyed with the reason; the server refuses too. --}}
+                    <span class="block" title="{{ $oasRules::reason('generate_presentation') }}">
+                        <button type="button" disabled aria-disabled="true" data-oas-action="generate_presentation" style="pointer-events:none;"
+                                class="prop-action-btn prop-action-btn-brand opacity-50 cursor-not-allowed w-full">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/></svg>
+                            Generate Presentation
+                        </button>
+                    </span>
                 @else
                 @php
                     // Pre-generate accuracy warning (Johan, 2026-08-20 — relocated
@@ -522,7 +557,7 @@
                          source (coverage.recommendation), just not taking sidebar height. --}}
                     <div class="relative" @click.outside="covOpen = false" @keydown.escape.window="covOpen = false">
                         <div class="flex items-stretch gap-1">
-                            <button type="button"
+                            <button type="button" data-oas-action="generate_presentation"
                                     @click="onClickGenerate()"
                                     class="prop-action-btn prop-action-btn-brand flex-1"
                                     :disabled="generating"
@@ -691,7 +726,7 @@
                                             style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
                                         Cancel
                                     </button>
-                                    <button type="button" @click="submitFromModal()"
+                                    <button type="button" data-oas-action="generate_presentation" @click="submitFromModal()"
                                             :disabled="generating"
                                             class="prop-action-btn prop-action-btn-brand"
                                             :class="generating ? 'opacity-60 cursor-wait' : ''">
@@ -885,13 +920,13 @@
                 @if(! $property->canBeDuplicated())
                 {{-- Other Agency Stock can never be duplicated (spec other-agency-stock.md §5b); the server refuses it too. --}}
                 <span title="{{ \App\Models\Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON }}">
-                    <button type="button" disabled aria-disabled="true" class="prop-action-btn prop-action-btn-neutral" style="opacity:.5; cursor:not-allowed;">
+                    <button type="button" disabled aria-disabled="true" data-oas-action="duplicate" class="prop-action-btn prop-action-btn-neutral" style="opacity:.5; cursor:not-allowed;">
                         Duplicate
                     </button>
                 </span>
                 @else
                 <div class="relative" x-data="{ dupOpen: false }" @keydown.escape="dupOpen = false" @click.outside="dupOpen = false">
-                    <button type="button" @click="dupOpen = !dupOpen" class="prop-action-btn prop-action-btn-neutral">
+                    <button type="button" data-oas-action="duplicate" @click="dupOpen = !dupOpen" class="prop-action-btn prop-action-btn-neutral">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75"/></svg>
                         Duplicate
                         <svg class="w-3 h-3 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
@@ -932,14 +967,14 @@
 
                 <form method="POST" action="{{ route('corex.properties.destroy', $property) }}" onsubmit="return confirm('Archive this property? It will be soft-deleted and recoverable by admin.')">
                     @csrf @method('DELETE')
-                    <button type="submit" class="prop-action-btn prop-action-btn-danger">
+                    <button type="submit" data-oas-action="archive" class="prop-action-btn prop-action-btn-danger">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                         Archive
                     </button>
                 </form>
 
                 @permission('compliance.whistleblow.create')
-                <button type="button" @click="$dispatch('open-wb-report')" class="prop-action-btn prop-action-btn-neutral">
+                <button type="button" data-oas-action="report_non_compliance" @click="$dispatch('open-wb-report')" class="prop-action-btn prop-action-btn-neutral">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
                     Report Non-Compliance
                 </button>
@@ -10646,7 +10681,10 @@
                                 @else
                                     <div class="text-sm font-bold" style="color: var(--text-primary);" data-no-presentation>No presentation done yet</div>
                                     <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
-                                    @if($canGeneratePresentation)
+                                    @if($canGeneratePresentation && \App\Services\Properties\OtherAgencyStockActionRules::isBlocked('generate_presentation', $property))
+                                        {{-- Other Agency Stock is never presented (spec §5c) — same reason as the sidebar button. --}}
+                                        <div class="mt-1 text-[10px]" style="color: var(--text-muted);" data-oas-no-presentation>{{ \App\Services\Properties\OtherAgencyStockActionRules::reason('generate_presentation') }}</div>
+                                    @elseif($canGeneratePresentation)
                                         <button type="button" data-generate-presentation
                                                 @click="$dispatch('corex:generate-presentation')"
                                                 class="mt-1 text-[10px] font-semibold px-2 py-1 rounded"

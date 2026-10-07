@@ -66,7 +66,139 @@
   "garden": true,
   "kitchen_features": [],
   "garden_features": [],
-  "security_features": [],
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117621889"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "House"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Street Address",
+      "v": [
+        "42 Springwood, Umhlali Golf Estate"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Description",
+      "v": [
+        "Single Storey"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "14 September 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Erf Size",
+      "v": [
+        "664 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "287 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Levies",
+      "v": [
+        "R 1 590"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 3 700"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Pets Allowed",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bedrooms",
+      "v": [
+        "3"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bathrooms",
+      "v": [
+        "2.5"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Kitchens",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Office",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garage",
+      "v": [
+        "2"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garden",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Number of floors",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Special Feature",
+      "v": [
+        "Balcony"
+      ]
+    }
+  ],
+  "strip_tags": [
+    "Study",
+    "Pet Friendly",
+    "Garden"
+  ],
   "bathroom_features": [],
   "_title": "3 Bedroom House for sale in Umhlali Golf Estate",
   "_expected_photo_count": 27

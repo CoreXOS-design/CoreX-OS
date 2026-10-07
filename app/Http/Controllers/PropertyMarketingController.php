@@ -32,6 +32,7 @@ class PropertyMarketingController extends Controller
     public function index(Property $property)
     {
         $this->authorizeProperty($property);
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('market_property', $property);
 
         /** @var \App\Models\User $user */
         $user = auth()->user();
@@ -60,6 +61,7 @@ class PropertyMarketingController extends Controller
     public function generateCopy(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('market_property', $property);
 
         $data = $request->validate([
             'platform' => 'required|in:facebook,instagram',
@@ -84,6 +86,7 @@ class PropertyMarketingController extends Controller
     public function publish(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('market_property', $property);
         // .ai/specs/other-agency-stock.md §2 — this call was missing entirely
         // (every other syndication controller — P24, PP, Website — already
         // calls it). Without it, Other Agency Stock (and, incidentally, any
