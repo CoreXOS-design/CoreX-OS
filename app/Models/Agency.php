@@ -242,6 +242,10 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        // .ai/specs/ppra-ffc-employment-letter.md §11 — the letter's "RE:" addressee block (null = PPRA's own
+        // address). Was never mass-assignable, so SettingsController::savePpraEmploymentLetterSettings'
+        // update() silently discarded it (found 2026-10-07 wiring the Setup Wizard control).
+        'ppra_employment_letter_address_block',
         // AT-267 — Assistants. Ships OFF for every agency; also the resolver's first
         // check, so flipping it off gives every assistant zero permissions instantly.
         'assistants_enabled',

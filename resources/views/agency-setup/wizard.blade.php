@@ -126,10 +126,14 @@
 
                     @if ($type === 'text')
                         <input id="f_{{ $key }}" name="{{ $key }}" type="text" value="{{ $val }}"
+                               @if (!empty($control['placeholder'])) placeholder="{{ $control['placeholder'] }}" @endif
                                class="mt-2 w-full rounded-md px-3 py-2 text-sm outline-none"
                                style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">
                     @elseif ($type === 'textarea')
-                        <textarea id="f_{{ $key }}" name="{{ $key }}" rows="3"
+                        {{-- Optional per-control `rows` and `placeholder` (a blank-means-default
+                             setting shows its default greyed out, as the settings page does). --}}
+                        <textarea id="f_{{ $key }}" name="{{ $key }}" rows="{{ $control['rows'] ?? 3 }}"
+                                  @if (!empty($control['placeholder'])) placeholder="{{ $control['placeholder'] }}" @endif
                                   class="mt-2 w-full rounded-md px-3 py-2 text-sm outline-none"
                                   style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">{{ $val }}</textarea>
                     @elseif ($type === 'number')

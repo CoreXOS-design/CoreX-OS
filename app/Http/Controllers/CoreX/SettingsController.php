@@ -1475,10 +1475,11 @@ class SettingsController extends Controller
 
     /**
      * PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md.
-     * Two settings: the "RE:" addressee block (default: PPRA's own published
-     * Sandton address — not HFC's), and the principal reminder cadence
-     * (0 = off). Deliberately NOT surfaced in the Setup Wizard — see the
-     * spec's "Deliberately NOT in the wizard" list for the reasoning.
+     * One setting: the "RE:" addressee block (default: PPRA's own published
+     * Sandton address — not HFC's). Two callers: the settings page and the
+     * Setup Wizard's Compliance step (spec §11), so the write is guarded by
+     * $request->has() — a post that never rendered the field leaves the saved
+     * value alone (agency-onboarding-setup.md §6.1).
      */
     public function savePpraEmploymentLetterSettings(Request $request)
     {
@@ -1493,9 +1494,11 @@ class SettingsController extends Controller
             return redirect()->back()->with('error', 'Agency not found.');
         }
 
-        $agency->update([
-            'ppra_employment_letter_address_block' => $data['ppra_employment_letter_address_block'] ?? null,
-        ]);
+        if ($request->has('ppra_employment_letter_address_block')) {
+            $agency->update([
+                'ppra_employment_letter_address_block' => $data['ppra_employment_letter_address_block'] ?? null,
+            ]);
+        }
 
         return redirect()->route('corex.settings', ['s' => 'ppra-employment-letter-settings'])
             ->with('success', 'PPRA FFC Employment Letter settings saved.');

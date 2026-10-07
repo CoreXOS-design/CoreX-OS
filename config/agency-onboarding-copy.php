@@ -850,6 +850,9 @@ return [
             // §6.7/§10a. A required <select> always posts a value, so no §6.1
             // has()-guard is needed here (that rule protects optional checkboxes only).
             ['controller' => SettingsController::class, 'method' => 'savePpraInspectionPackSettings'],
+            // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
+            // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
+            ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -883,6 +886,14 @@ return [
              'label' => 'PPRA ZIP max files',
              'explain' => 'The most files the PPRA Inspection Pack\'s mandate register "Download ZIP" (and other per-list ZIP exports) will ever bundle in one download.',
              'affects' => 'How many files the mandate register\'s bulk ZIP export includes before it stops and reports the rest as available-but-not-included.'],
+            // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
+            // Leave blank = the PPRA's own published address (shown greyed out as the
+            // placeholder, exactly like the settings page), so it is correct for any agency.
+            ['key' => 'ppra_employment_letter_address_block', 'source' => 'agency', 'type' => 'textarea', 'rows' => 4,
+             'placeholder' => \App\Models\Compliance\PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK,
+             'label' => 'PPRA employment letter — who it is addressed to',
+             'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
+             'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
         ],
     ],
 

@@ -247,7 +247,7 @@ agency, so the visible count is ≤ 13.
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) and `agency_contact_settings.core_matches_excluded_buyer_states` (Won/Lost buyers — 2026-10-07, new `multiselect` control type + `_present` marker, `core_matches` source) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
 | 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude) |
+| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude); `agencies.ppra_employment_letter_address_block` (PPRA employment letter addressee — 2026-10-07, saver `SettingsController@savePpraEmploymentLetterSettings`) |
 | 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
 | 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
 | 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
@@ -282,6 +282,22 @@ by oversight — do not reinstate them without asking:
   omission sits in this central list rather than only in the module spec. Configured on
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
+
+- **PPRA employment letter addressee — IN the wizard (2026-10-07).** It was shipped with a recorded
+  "not in the wizard" omission (the feature's own spec, written by the lane, not by Johan — §10a makes that
+  call his) and a staging-plan audit found it never reached onboarding. Now surfaced, no new setting, no
+  behaviour change, same saver as the settings page (one source of truth):
+  - **Compliance step:** `agencies.ppra_employment_letter_address_block` — textarea, blank = the PPRA's own
+    published address (`PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK`, shown as the greyed placeholder,
+    never pre-filled as a value so a save cannot freeze the default into the agency). Saver
+    `SettingsController@savePpraEmploymentLetterSettings`, now `$request->has()`-guarded (§6.1). The
+    reminder cadence setting no longer exists (removed 6 Oct, wet-ink flow) so it is not here. The
+    agency's PPRA registration number and trading name the letter prints are already controls on the
+    Identity step; the Role-Manager "can receive a letter" permission is a role setting, not an agency
+    control (Role Manager screen; the Roles explainer step already points there).
+  - New generic view features on `text`/`textarea` controls: optional `placeholder`, and `rows` for
+    textarea.
+  Tests: `tests/Feature/Onboarding/AgencySetupWizardPpraTest.php`.
 
 - **Portal-listing stale window — IN the wizard (2026-10-07).** `suggested_action_thresholds.listing_off_market_days`
   (days a portal listing may go un-sighted before it is presumed off the market; default 90, Johan: "a
