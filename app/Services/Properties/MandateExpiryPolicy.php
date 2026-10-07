@@ -202,18 +202,25 @@ final class MandateExpiryPolicy
     // ── The popup ─────────────────────────────────────────────────────────
 
     /**
-     * On-market listings in the user's list scope whose expiry date falls in
-     * the agency's warning window AND that this user has not been shown yet
-     * (for the expiry date they currently carry). Soonest first.
+     * On-market listings that are THIS USER'S OWN — listing agent, second agent,
+     * or (for an assistant) their agent's — whose expiry date falls in the
+     * agency's warning window AND that this user has not been shown yet (for the
+     * expiry date they currently carry). Soonest first.
+     *
+     * The pop-up is a personal alert ("your mandate is about to run out"), so it
+     * is NEVER widened by role: an admin, branch manager or owner is warned about
+     * their own listings only, not everyone else's. The role-wide view of the same
+     * stock is the "Expiring soon" filter on the Properties list, on demand.
+     * (Owner ruling 2026-10-07; replaces spec §2.2's "admin sees the agency".)
      */
-    public static function unannouncedExpiringFor(User $user, ?int $agencyId, string $viewScope = 'my'): Builder
+    public static function unannouncedExpiringFor(User $user, ?int $agencyId): Builder
     {
         [$from, $to] = self::expiringWindow($agencyId);
 
         return Property::query()
             ->expiringSoon($from, $to)
             ->excludingImportedOffMarket()
-            ->visibleInListFor($user, $viewScope)
+            ->ownListingsFor($user)
             ->whereNotExists(function ($sub) use ($user) {
                 $sub->selectRaw('1')
                     ->from('property_expiry_popup_views as pepv')
@@ -226,13 +233,13 @@ final class MandateExpiryPolicy
     }
 
     /**
-     * Record "shown" for the given property ids — ONLY those the user may
-     * actually see, re-checked here, never trusted from the request. Idempotent.
+     * Record "shown" for the given property ids — ONLY the user's own listings,
+     * re-checked here, never trusted from the request. Idempotent.
      *
      * @param  list<int>  $propertyIds
      * @return int rows recorded (new or already present)
      */
-    public static function markAnnounced(User $user, ?int $agencyId, array $propertyIds, string $viewScope = 'my'): int
+    public static function markAnnounced(User $user, ?int $agencyId, array $propertyIds): int
     {
         $ids = array_values(array_unique(array_filter(array_map('intval', $propertyIds))));
         if ($ids === []) {
@@ -242,7 +249,7 @@ final class MandateExpiryPolicy
         $rows = Property::query()
             ->whereIn('id', $ids)
             ->whereNotNull('expiry_date')
-            ->visibleInListFor($user, $viewScope)
+            ->ownListingsFor($user)
             ->get(['id', 'expiry_date']);
 
         $count = 0;

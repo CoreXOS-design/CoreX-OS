@@ -14,8 +14,9 @@ use Illuminate\Http\Request;
  *
  * Self-scoped like SystemUpdateDismissController: user_id comes from auth(),
  * never from input, and every posted property id is re-checked against the
- * user's own list scope before a row is written — a crafted id for a listing
- * outside their scope (or another agency) is simply ignored, never an error.
+ * user's OWN listings (not their role-wide view — an admin cannot mark someone
+ * else's listing as seen either) before a row is written — a crafted id for any
+ * other listing, or another agency's, is simply ignored, never an error.
  * Idempotent: posting the same ids twice records nothing new.
  */
 class PropertyExpiryPopupDismissController extends Controller
@@ -25,7 +26,6 @@ class PropertyExpiryPopupDismissController extends Controller
         $validated = $request->validate([
             'ids'   => ['required', 'array', 'max:50'],
             'ids.*' => ['integer'],
-            'scope' => ['nullable', 'in:my,branch'],
         ]);
 
         $user     = $request->user();
@@ -34,8 +34,7 @@ class PropertyExpiryPopupDismissController extends Controller
         $recorded = MandateExpiryPolicy::markAnnounced(
             $user,
             $agencyId,
-            $validated['ids'],
-            $validated['scope'] ?? 'my'
+            $validated['ids']
         );
 
         return response()->json([

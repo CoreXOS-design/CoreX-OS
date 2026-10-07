@@ -73,8 +73,12 @@ needs no new code; it needs to be proven on the lane.
 - Popup list is capped at 10 rows with "+N more — View all".
 - The filter **Expiring soon** (`status=expiring_soon`) is added to the Status dropdown on both lenses so
   the popup has a real destination and a manager can pull the list any time.
-- Who sees what: the popup uses exactly the list's default role scope — an agent sees their own (and
-  co-listed) listings, a branch manager their branch, an admin the agency. Never another agency.
+- Who sees what (**owner ruling 2026-10-07, replaces the earlier "role scope" rule**): the popup is a
+  PERSONAL alert — it shows only the user's OWN listings: the listing agent, the second agent, and an
+  assistant for their agent's. It is **never widened by role**: an admin, branch manager or the system
+  owner is warned about their own mandates only, not other agents'. The agency-/branch-wide view of the
+  same stock is the **Expiring soon** filter (and its "View all" link), on demand, scoped by role as the
+  list is. Never another agency. `?scope=` has no effect on the popup.
 
 ### 2.3 Expiry lock + Extension
 - New agency setting **"Expiry lock"** (toggle, default **off**).
@@ -203,7 +207,7 @@ Saver: `['controller' => SettingsController::class, 'method' => 'updateMandateEx
 | Screen | Entry | Permission | Scope | Search / sort / filter |
 |---|---|---|---|---|
 | Properties list — Expired tile + filter, Expiring-soon filter | existing page, both lenses | `access_properties` (existing) | existing own/branch/all + AgencyScope; counts use the same filtered clone | existing search; sort unchanged (default newest); new filter values `expired`, `expiring_soon` |
-| Expiry popup | opens on Properties list load | `access_properties` | same `applyRoleScope()` as the list (make the private helper reusable, or add `Property::scopeVisibleToListDefault`) + AgencyScope; cap 10 | sorted `expiry_date ASC`; empty ⇒ no popup rendered at all |
+| Expiry popup | opens on Properties list load | `access_properties` | the user's OWN listings only (`Property::scopeOwnListingsFor`) + AgencyScope — NOT the role-wide list scope; cap 10 | sorted `expiry_date ASC`; empty ⇒ no popup rendered at all |
 | Property page — locked Expiry Date + banner + callout | existing Lifecycle section / Overview | existing edit auth (`authorizeProperty`) | existing | n/a |
 | Drive — Extension folder | automatic (active type with listing_types) | existing Drive permissions | existing | existing |
 | Settings card | rail: Modules → Properties & Listings | `access_settings` | per agency (`agency.required`) | n/a |
@@ -214,14 +218,14 @@ No new page ⇒ no new sidebar entry. No new permission key (declared; nothing h
 ## 7. User flows
 
 **A. Agent opens Properties, 5 days before a mandate ends (warn days = 7)**
-1. Controller computes `expiringSoon` for the user's scope, minus listings with a `property_expiry_popup_views` row for this user and this expiry date ⇒ pass `$expiringProperties` to the view (none ⇒ no popup markup at all).
+1. Controller computes `expiringSoon` for the user's OWN listings, minus listings with a `property_expiry_popup_views` row for this user and this expiry date ⇒ pass `$expiringProperties` to the view (none ⇒ no popup markup at all).
 2. Popup opens — built on the System Updates modal's proven self-contained shape (scrim, Esc, ×, "Got it",
    and every link inside all record the dismissal; relative dismiss URL), since `<x-modal>` offers no
    close hook for the fire-and-forget POST. Rows link to properties (by address, never title); View all →
    `?status=expiring_soon`.
 3. Got it / overlay / Esc / click-through → `POST api/v1/properties/expiry-popup/dismiss` (named, under
    `/api/v1`, relative URL per the System-Updates gotcha) writes one `property_expiry_popup_views` row per
-   listed property (idempotent upsert, ids re-checked against the user's scope) for this user.
+   listed property (idempotent upsert, ids re-checked against the user's own listings) for this user.
 
 **B. Agent extends a live mandate, lock ON**
 1. Property page shows Expiry Date read-only + banner + "Go to Drive → Extension".
@@ -260,7 +264,8 @@ No new page ⇒ no new sidebar entry. No new permission key (declared; nothing h
 | Property with null expiry_date in the window | Not "expiring"; not in popup |
 | Listing agent deleted / null on a popup row | Render "— " for agent; row still links |
 | Popup dismissal on a web-only QA box | Works (direct DB write, no queue) |
-| Dismiss posted twice / for a property outside the user's scope | Upsert is idempotent; ids are re-checked against the user's scope before writing |
+| Dismiss posted twice / for a listing that is not the user's own (even by an admin) | Upsert is idempotent; ids are re-checked against the user's own listings before writing; others' ids ignored |
+| An admin / branch manager / owner opens Properties while only other agents' listings expire | No popup at all |
 | Expiry date extended after being announced | New (user, property, expiry_date) key ⇒ announces again when it re-enters the window |
 
 ## 9. Verification plan (what will be proven, with which paths)
@@ -269,8 +274,8 @@ Single relevant test file during the build: **`tests/Feature/Properties/Property
 - status item: migration provisions "Expired" per agency, idempotent, new agency gets it from defaults,
   dropdown slug equals `expired`;
 - tiles/filters: expired count equals filtered rows; `expiring_soon` honours window + scope + lens;
-- popup: shown inside window, hidden outside, hidden when none, hidden for off-market, scoped own/branch/
-  all, once per listing per user (seen rows excluded; a new expiry date announces again), dismiss
+- popup: shown inside window, hidden outside, hidden when none, hidden for off-market, OWN listings only
+  (listing agent, second agent; never widened for admin / branch manager), once per listing per user (seen rows excluded; a new expiry date announces again), dismiss
   endpoint registered under `/api/v1`, named, idempotent, scope-checked;
 - lock: off ⇒ editable; on + draft ⇒ editable; on + live ⇒ 422 with message; on + live + fresh
   extension ⇒ saves and re-locks; stale extension (older than last change) ⇒ 422; cleared date ⇒ 422;

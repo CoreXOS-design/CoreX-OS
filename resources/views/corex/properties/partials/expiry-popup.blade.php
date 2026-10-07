@@ -18,9 +18,8 @@
     $__exIds = $expiringProperties->pluck('id')->map(fn ($i) => (int) $i)->values()->all();
     $__exMore = (int) ($expiringMore ?? 0);
     $__exViewAll = $expiringViewAllUrl ?? '#';
-    $__exScope = $expiringScope ?? 'my';
 @endphp
-<div x-data="coreXExpiryPopup({{ \Illuminate\Support\Js::from($__exIds) }}, '{{ route('api.v1.properties.expiry-popup.dismiss', [], false) }}', '{{ $__exScope }}')"
+<div x-data="coreXExpiryPopup({{ \Illuminate\Support\Js::from($__exIds) }}, '{{ route('api.v1.properties.expiry-popup.dismiss', [], false) }}')"
      x-show="open"
      x-cloak
      @keydown.escape.window="close()"
@@ -96,7 +95,7 @@
  * modal call send() declaratively (@click) — no init() DOM walk, so the render
  * gate exercises the real registration path.
  */
-function coreXExpiryPopup(ids, dismissUrl, scope) {
+function coreXExpiryPopup(ids, dismissUrl) {
     return {
         open: true,
         ids: ids,
@@ -111,7 +110,7 @@ function coreXExpiryPopup(ids, dismissUrl, scope) {
             if (this.sent || !this.ids.length) return;
             this.sent = true;
 
-            const body = JSON.stringify({ ids: this.ids, scope: scope });
+            const body = JSON.stringify({ ids: this.ids });
             const post = window.CoreX?.api?.fetch
                 ? window.CoreX.api.fetch(dismissUrl, {
                       method: 'POST',

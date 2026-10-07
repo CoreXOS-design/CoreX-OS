@@ -664,22 +664,19 @@ class PropertyController extends Controller
         // AT-448 — "Mandates expiring soon" pop-up (spec §2.2, §7 flow A). Only
         // on the real Properties entry points (never on Imported Stock), only the
         // listings this user has NOT yet been shown for the expiry date they carry,
-        // and only within the user's own default list breadth — the same rule the
-        // list applies (Property::scopeVisibleInListFor). Capped; the remainder is
-        // one line + "View all", which lands on the expiring_soon filter.
+        // and ONLY the user's OWN listings (listing agent / second agent / their
+        // agent's, for an assistant) — never widened by role, and not by ?scope=
+        // either. An admin or branch manager is warned about their own mandates;
+        // everyone else's is on demand via the "Expiring soon" filter. Capped; the
+        // remainder is one line + "View all", which lands on that filter.
         $expiringProperties = collect();
         $expiringMore       = 0;
         $expiringWarnDays   = MandateExpiryPolicy::DEFAULT_WARN_DAYS;
         $expiringViewAllUrl = route($indexRouteName, ['status' => 'expiring_soon']);
-        // ?scope= is free text from the address bar. The list treats anything but
-        // 'branch' as 'my' (Property::scopeOwnListingsFor), so normalise to the two
-        // values the dismiss endpoint accepts — otherwise a hand-edited scope would
-        // make every dismissal 422 and the pop-up would re-announce on every visit.
-        $expiringScope = $viewScope === 'branch' ? 'branch' : 'my';
         if (! $importedStock) {
             $exAgencyId = (int) ($user->effectiveAgencyId() ?: 0);
             $expiringWarnDays = MandateExpiryPolicy::warnDaysFor($exAgencyId);
-            $unannounced = MandateExpiryPolicy::unannouncedExpiringFor($user, $exAgencyId, $expiringScope)->with('agent');
+            $unannounced = MandateExpiryPolicy::unannouncedExpiringFor($user, $exAgencyId)->with('agent');
             if ($isRentalEntry) {
                 $unannounced->where('listing_type', 'rental');
             }
@@ -695,7 +692,7 @@ class PropertyController extends Controller
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
             'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
             'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds',
-            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl', 'expiringScope'
+            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl'
         ));
     }
 

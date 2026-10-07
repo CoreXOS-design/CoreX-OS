@@ -213,11 +213,55 @@ final class PropertyExpiryTest extends TestCase
         $this->assertDatabaseMissing('property_expiry_popup_views', ['property_id' => $theirs->id]);
         $this->assertDatabaseHas('property_expiry_popup_views', ['property_id' => $mine->id, 'user_id' => $agentA->id]);
 
-        // An admin (all) is announced both — in the popup, regardless of the list's
-        // own default "my listings" agent filter.
+    }
+
+    /**
+     * Owner ruling 2026-10-07: the pop-up is a PERSONAL alert. An admin, branch manager or
+     * owner is NOT shown other people's listings — only their own. (Reverses the earlier
+     * "admin sees the whole agency" rule; the agency-wide view is the Expiring-soon filter.)
+     */
+    public function test_the_popup_is_never_widened_by_role(): void
+    {
+        [$agencyId, $agent] = $this->agencyWithUser('agent');
+        $agentsListing = $this->property($agencyId, $agent, 'ZZZ-Agents', ['expiry_date' => today()->addDays(2), 'street_number' => '12', 'street_name' => 'Agents Avenue']);
+
+        foreach (['admin', 'branch_manager'] as $role) {
+            $boss = $this->user($agencyId, $role);
+
+            // Sees nothing: the only expiring listing belongs to somebody else.
+            $this->actingAs($boss)->get(route('corex.properties.index'))->assertOk()
+                ->assertDontSee(self::POPUP_HEADING)->assertDontSee('Agents Avenue');
+
+            // A crafted dismiss for it is ignored too — a boss cannot mark another agent's listing as seen.
+            $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [$agentsListing->id]])
+                ->assertOk()->assertJson(['recorded' => 0]);
+
+            // Their OWN expiring listing does announce — and ONLY that one.
+            $own = $this->property($agencyId, $boss, "ZZZ-Own-{$role}", ['expiry_date' => today()->addDays(3), 'street_number' => '5', 'street_name' => ucfirst(str_replace('_', '', $role)) . ' Road']);
+            $this->actingAs($boss)->get(route('corex.properties.index'))->assertOk()
+                ->assertSee(self::POPUP_HEADING)->assertSee(ucfirst(str_replace('_', '', $role)) . ' Road')->assertDontSee('Agents Avenue');
+            $own->delete();
+        }
+
+        // The standing, role-wide view is still there on demand.
         $admin = $this->user($agencyId, 'admin');
-        $this->actingAs($admin)->get(route('corex.properties.index'))->assertOk()
-            ->assertSee(self::POPUP_HEADING)->assertSee('Mine Crescent')->assertSee('Theirs Avenue');
+        $listed = $this->actingAs($admin)->get(route('corex.properties.index', ['status' => 'expiring_soon', 'agent_ids' => 'all']))->assertOk()
+            ->viewData('properties')->getCollection()->pluck('id')->all();
+        $this->assertContains($agentsListing->id, $listed);
+    }
+
+    public function test_the_second_agent_on_a_listing_gets_the_popup_too(): void
+    {
+        [$agencyId, $lead] = $this->agencyWithUser('agent');
+        $second = $this->user($agencyId, 'agent');
+        $other  = $this->user($agencyId, 'agent');
+        $this->property($agencyId, $lead, 'ZZZ-Shared', [
+            'expiry_date' => today()->addDays(2), 'street_number' => '9', 'street_name' => 'Shared Lane', 'pp_second_agent_id' => $second->id,
+        ]);
+
+        $this->actingAs($lead)->get(route('corex.properties.index'))->assertSee('Shared Lane');
+        $this->actingAs($second)->get(route('corex.properties.index'))->assertSee('Shared Lane');
+        $this->actingAs($other)->get(route('corex.properties.index'))->assertDontSee('Shared Lane');
     }
 
     public function test_dismiss_rejects_malformed_input(): void
@@ -227,22 +271,27 @@ final class PropertyExpiryTest extends TestCase
 
         $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), [])->assertStatus(422);
         $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => ['abc']])->assertStatus(422);
-        $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [1], 'scope' => 'everything'])->assertStatus(422);
     }
 
-    public function test_a_hand_edited_scope_never_reaches_the_dismiss_call(): void
+    /** ?scope= (and any scope posted) has no say: the pop-up is the user's own listings, full stop. */
+    public function test_a_scope_in_the_address_or_the_request_changes_nothing(): void
     {
         [$agencyId, $agent] = $this->agencyWithUser('agent');
+        $other = $this->user($agencyId, 'agent');
         $this->actingAs($agent);
         $p = $this->property($agencyId, $agent, 'ZZZ-Scope-House', ['expiry_date' => today()->addDays(3)]);
+        $this->property($agencyId, $other, 'ZZZ-Other', ['expiry_date' => today()->addDays(3), 'street_number' => '3', 'street_name' => 'Elsewhere Close']);
 
-        // ?scope= is free text; the pop-up must hand the dismiss endpoint only 'my' or
-        // 'branch' (anything else would 422 and re-announce the listing on every visit).
-        $this->get(route('corex.properties.index', ['scope' => 'bogus']))->assertOk()
-            ->assertSee(self::POPUP_HEADING)
-            ->assertSee("coreXExpiryPopup(JSON.parse('[{$p->id}]'), '" . route('api.v1.properties.expiry-popup.dismiss', [], false) . "', 'my')", false);
+        foreach (['bogus', 'branch', 'all'] as $scope) {
+            $this->get(route('corex.properties.index', ['scope' => $scope]))->assertOk()
+                ->assertSee(self::POPUP_HEADING)
+                // The pop-up's id list is exactly this user's one listing — the other agent's is
+                // not in it (the LIST below may legitimately show it under the branch view).
+                ->assertSee("coreXExpiryPopup(JSON.parse('[{$p->id}]'), '" . route('api.v1.properties.expiry-popup.dismiss', [], false) . "')", false);
+        }
 
-        $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [$p->id], 'scope' => 'my'])
+        // A scope posted to the dismiss call is ignored, not an error.
+        $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [$p->id], 'scope' => 'everything'])
             ->assertOk()->assertJson(['recorded' => 1]);
     }
 
