@@ -51,6 +51,12 @@ class RentalInspectionRoomChecklistController extends Controller
         $this->authorizeForInspections($property);
         $room = $this->resolveRoom($property, $room);
 
+        // §47 — a signed report is locked: its checklist cannot grow underneath the signatures.
+        $tail = \App\Models\RentalInspection::chainTailFor($property);
+        if ($tail && $tail->isRecordable() && $tail->isSignedLocked()) {
+            return response()->json(['message' => (new \App\Exceptions\RentalInspectionSignedLockedException())->getMessage(), 'reason' => 'signed_locked'], 409);
+        }
+
         $validated = $request->validate([
             'labels' => ['required', 'array', 'min:1', 'max:100'],
             'labels.*' => ['string', 'max:191'],

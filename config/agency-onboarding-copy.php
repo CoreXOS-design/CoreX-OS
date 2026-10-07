@@ -567,8 +567,8 @@ return [
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
              'affects' => 'How long the "report a fault" window stays open on a new tenancy. 7 days suits most agencies — a report after this window still reaches the agent, it is just their call whether to accept it.'],
             ['key' => 'out_inspection_signing_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 60,
-             'label' => 'Days a tenant has to sign the out-inspection',
-             'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
+             'label' => 'Days a tenant has to sign an inspection',
+             'explain' => 'Once any inspection (In, Routine, Interim or Out) is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
              'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
             // 2026-09-23 — same saver as the two window fields above
             // (RentalInspectionSettingsController::update() — registered

@@ -31,9 +31,6 @@ use Illuminate\Support\Str;
  */
 class RentalInspectionSigningLinkService
 {
-    /** Inspection types that are signed at all (ad-hoc checks are not — §45.6). */
-    private const SIGNED_TYPES = [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM];
-
     // ═══ Who the parties are ═══════════════════════════════════════════════════
 
     /**
@@ -101,8 +98,8 @@ class RentalInspectionSigningLinkService
 
     public function enabledFor(RentalInspection $inspection): bool
     {
-        return in_array($inspection->type, self::SIGNED_TYPES, true)
-            && RentalInspectionSetting::signingLinkEnabledFor($inspection->agency_id);
+        // Every inspection type is signed (Johan, 7 Oct 2026) — only the agency's own switch decides.
+        return RentalInspectionSetting::signingLinkEnabledFor($inspection->agency_id);
     }
 
     /** The party's live signature row (a superseded row is a corrected mistake, not the party's answer). */
@@ -170,12 +167,89 @@ class RentalInspectionSigningLinkService
         })->values()->all();
 
         return [
+            'lock' => $this->lockState($inspection),
+            'reopened' => $this->reopenedState($inspection, $rows),
             'enabled' => $enabled,
             'signable' => $enabled,
             'ready_to_sign' => $inspection->status === RentalInspection::STATUS_AWAITING_SIGNATURE,
             'expiry_days' => RentalInspectionSetting::signingLinkExpiryDaysFor($inspection->agency_id),
             'rows' => $rows,
         ];
+    }
+
+    /**
+     * §47 — what the screen needs to show for a signed / sent report: whether it is locked, whether "Edit report" is
+     * possible, whether it has been DISTRIBUTED (then only "Start new inspection" is left), and its replaces / replaced-by.
+     *
+     * @return array<string, mixed>
+     */
+    public function lockState(RentalInspection $inspection): array
+    {
+        $replacedBy = RentalInspection::withoutGlobalScopes()->where('replaces_inspection_id', $inspection->id)->where('status', '!=', RentalInspection::STATUS_CANCELLED)->first();
+        $replaces = $inspection->replaces_inspection_id ? RentalInspection::withoutGlobalScopes()->withTrashed()->find($inspection->replaces_inspection_id) : null;
+        $distributed = $inspection->isDistributed();
+
+        return [
+            'signed_locked' => $inspection->isSignedLocked(),
+            'distributed' => $distributed,
+            'can_reopen' => $inspection->canBeReopened(),
+            'can_replace' => $distributed && ! $inspection->trashed() && $inspection->status !== RentalInspection::STATUS_CANCELLED && ! $replacedBy,
+            'replaced_by' => $replacedBy ? ['id' => $replacedBy->id, 'url' => route('corex.rental-inspections.show', $replacedBy->id), 'label' => RentalInspection::typeName($replacedBy->type) . ' #' . $replacedBy->id] : null,
+            'replaces' => $replaces ? ['id' => $replaces->id, 'url' => route('corex.rental-inspections.show', $replaces->id), 'label' => RentalInspection::typeName($replaces->type) . ' #' . $replaces->id] : null,
+        ];
+    }
+
+    /**
+     * §47 — after an "Edit report": who reopened it, why, and whether the agent still has to resend links (a party whose
+     * signature was voided and who has neither signed again nor been sent a link since the reopen).
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<string, mixed>|null
+     */
+    public function reopenedState(RentalInspection $inspection, array $rows): ?array
+    {
+        $reopen = app(RentalInspectionReopenService::class)->latestFor($inspection);
+        if (! $reopen) {
+            return null;
+        }
+
+        $voidedKeys = collect($reopen->voided_signatures)->map(fn ($v) => $v['party_role'] . ':' . ($v['party_role'] === 'agent' ? '' : $this->contactIdOfSignature((int) $v['signature_id'])))->all();
+        $resend = collect($rows)->contains(function ($row) use ($voidedKeys, $reopen) {
+            if ($row['is_agent'] || $row['recorded']) {
+                return false;
+            }
+            if (! in_array($row['role'] . ':' . $row['contact_id'], $voidedKeys, true)) {
+                return false;
+            }
+            $sentAt = $row['link']['last_sent_at'] ?? null;
+
+            return ! $sentAt || \Illuminate\Support\Carbon::parse($sentAt)->lt($reopen->reopened_at);
+        });
+
+        return [
+            'at' => $reopen->reopened_at->toIso8601String(),
+            'by' => $reopen->reopenedBy?->name,
+            'reason' => $reopen->reason,
+            'resend_needed' => $resend,
+        ];
+    }
+
+    private function contactIdOfSignature(int $signatureId): ?int
+    {
+        return RentalInspectionSignature::withoutGlobalScopes()->whereKey($signatureId)->value('party_contact_id');
+    }
+
+    /** §47 — this party's signature was voided by an "Edit report" and they have not signed the changed report yet. */
+    public function mustSignAgain(RentalInspection $inspection, array $party): bool
+    {
+        if ($party['role'] === RentalInspectionSigningLink::ROLE_AGENT || $this->liveSignatureFor($inspection, $party)) {
+            return false;
+        }
+
+        return RentalInspectionSignature::withoutGlobalScopes()
+            ->where('rental_inspection_id', $inspection->id)
+            ->where('party_role', $party['role'])->where('party_contact_id', $party['contact_id'])
+            ->whereNotNull('voided_by_reopen_id')->exists();
     }
 
     private function describeSignature(RentalInspectionSignature $s): array
@@ -325,11 +399,12 @@ class RentalInspectionSigningLinkService
         $mail = new RentalInspectionSigningLinkMail(
             recipientName: $party['name'],
             propertyAddress: $inspection->property?->buildDisplayAddress() ?? '',
-            inspectionLabel: ucfirst(str_replace('_', '-', $inspection->type)) . '-inspection',
+            inspectionLabel: RentalInspection::typeName($inspection->type),
             signingUrl: $link->url(),
             expiresOn: $link->expires_at->format('d M Y'),
             canSign: $party['role'] !== RentalInspectionSigningLink::ROLE_AGENT,
             agentName: $by->name,
+            reSign: $this->mustSignAgain($inspection, $party),
         );
 
         $result = app(SignedDocumentDistributionService::class)->sendGenericMail($party['email'], $mail, $by);
@@ -363,9 +438,6 @@ class RentalInspectionSigningLinkService
     /** @throws LinkException */
     private function assertCanIssue(RentalInspection $inspection): void
     {
-        if (! in_array($inspection->type, self::SIGNED_TYPES, true)) {
-            throw new LinkException(LinkException::NOT_SIGNABLE_TYPE, 'This kind of inspection is not signed, so it has no signing links.');
-        }
         if (! RentalInspectionSetting::signingLinkEnabledFor($inspection->agency_id)) {
             throw new LinkException(LinkException::NOT_ENABLED, 'Signing by link is switched off for this agency (Settings → Rental inspections).');
         }

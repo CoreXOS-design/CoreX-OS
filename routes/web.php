@@ -3745,6 +3745,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.public-link.generate');
         Route::delete('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'revokePublicLink'])
             ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.public-link.revoke');
+        // §47 — "Edit report" on a SIGNED report (voids every signature; .edit_details, the existing inspection-edit key) and
+        // "Start new inspection" for a report that has been SENT to the parties and can never be edited (.create).
+        Route::post('/{rentalInspection}/reopen', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reopen'])
+            ->middleware('permission:rental_inspections.edit_details')->name('corex.rental-inspections.reopen');
+        Route::post('/{rentalInspection}/replace', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'replace'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.replace');
         // §46 — signing by personal link. Managing links is the same act as sharing the public report link
         // (.public_link, checked in the controller for the per-link actions); signing on the agent's device is the same
         // act as recording a signature on the recording screen (.create, checked in the controller).

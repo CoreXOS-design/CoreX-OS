@@ -200,7 +200,7 @@ class RentalInspectionSigningLinkController extends Controller
     {
         $first = trim(explode(' ', (string) ($party['name'] ?? ''))[0] ?? '');
         $text = ($first !== '' ? "Hi {$first}, " : 'Hi, ')
-            . 'here is the ' . strtolower(str_replace('_', '-', $inspection->type)) . '-inspection report for '
+            . 'here is the ' . strtolower(RentalInspection::typeName($inspection->type)) . ' report for '
             . ($inspection->property?->buildDisplayAddress() ?? 'the property')
             . '. You can read it and sign it here: ' . $link->url();
 

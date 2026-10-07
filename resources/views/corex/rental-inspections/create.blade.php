@@ -65,8 +65,8 @@
             <select name="type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 <option value="{{ \App\Models\RentalInspection::TYPE_IN }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_IN)>In-inspection — move-in condition</option>
                 <option value="{{ \App\Models\RentalInspection::TYPE_OUT }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_OUT)>Out-inspection — move-out condition</option>
-                <option value="{{ \App\Models\RentalInspection::TYPE_INTERIM }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_INTERIM)>Interim — a planned mid-tenancy inspection</option>
-                <option value="{{ \App\Models\RentalInspection::TYPE_AD_HOC }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_AD_HOC)>Ad-hoc — an unplanned mid-tenancy check</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_AD_HOC }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_AD_HOC)>Routine — an unplanned mid-tenancy check</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_INTERIM }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_INTERIM)>Interim — a planned mid-tenancy inspection, from a date you loaded</option>
             </select>
         </div>
 

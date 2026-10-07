@@ -11,7 +11,6 @@ use RuntimeException;
 class RentalInspectionSigningLinkException extends RuntimeException
 {
     public const NOT_ENABLED = 'not_enabled';
-    public const NOT_SIGNABLE_TYPE = 'not_signable_type';
     public const NOT_READY = 'not_ready';
     public const UNAVAILABLE = 'unavailable';
     public const ALREADY_USED = 'already_used';

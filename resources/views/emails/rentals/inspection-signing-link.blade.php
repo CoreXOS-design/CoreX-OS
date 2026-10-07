@@ -13,6 +13,13 @@
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Hi {{ $recipientName }},</p>
 
+        @if($reSign)
+            <p style="background-color: #fffbeb; border-left: 4px solid #d97706; padding: 12px;">
+                <strong>This report has been changed since you last signed it.</strong>
+                Your earlier signature no longer counts, so please read the changed report and sign it again.
+            </p>
+        @endif
+
         <p>
             @if($canSign)
                 The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready for you to read.

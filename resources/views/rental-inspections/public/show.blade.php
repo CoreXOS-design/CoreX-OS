@@ -61,7 +61,7 @@
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
             <div class="flex items-start justify-between gap-3">
                 <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ ucfirst($inspection->type) }}-inspection report</p>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ \App\Models\RentalInspection::typeName($inspection->type) }} report</p>
                     <h1 class="text-xl font-bold text-slate-800 mt-1">{{ $inspection->property?->buildDisplayAddress() }}</h1>
                     <p class="text-sm text-slate-500 mt-1">
                         {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}

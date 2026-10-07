@@ -235,7 +235,7 @@ class RentalInspectionFormPdfService
             'page' => 1,
             'y' => $y,
             'address' => $inspection->property?->buildDisplayAddress() ?: '—',
-            'type' => ucfirst(str_replace('_', '-', $inspection->type)) . '-Inspection',
+            'type' => \App\Models\RentalInspection::typeName($inspection->type),
             'date' => optional($inspection->completed_at ?? $inspection->created_at)->format('Y-m-d') ?: now()->format('Y-m-d'),
             'landlord' => $inspection->property?->sellerOwnerContact()?->first_name . ' ' . $inspection->property?->sellerOwnerContact()?->last_name,
             'tenants' => $inspection->lease?->tenants->map(fn ($t) => trim(($t->contact?->first_name ?? '') . ' ' . ($t->contact?->last_name ?? '')))->filter()->values()->all() ?? [],

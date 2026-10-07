@@ -940,7 +940,7 @@ final class RentalInspectionDueDatesTest extends TestCase
 
     public function test_the_start_form_and_list_filter_offer_interim_and_the_old_types_still_work(): void
     {
-        $this->actingAs($this->agent)->get(route('corex.rental-inspections.create'))->assertOk()->assertSee('Interim — a planned mid-tenancy inspection')->assertSee('Ad-hoc');
+        $this->actingAs($this->agent)->get(route('corex.rental-inspections.create'))->assertOk()->assertSee('Interim — a planned mid-tenancy inspection')->assertSee('Routine — an unplanned mid-tenancy check')->assertDontSee('Ad-hoc');
         $this->actingAs($this->agent)->get(route('corex.rental-inspections.index'))->assertOk()->assertSee('Interim')->assertSee(route('corex.rental-inspections.due'));
 
         $this->actingAs($this->agent)->post(route('corex.rental-inspections.store'), ['property_id' => $this->property->id, 'type' => 'in', 'intent' => 'schedule', 'scheduled_for' => '2026-12-03'])->assertSessionHasNoErrors();

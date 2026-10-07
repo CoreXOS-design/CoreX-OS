@@ -274,7 +274,7 @@ class RentalInspectionNotificationService
         $date = $inspection->scheduled_for?->format('d M Y') ?? 'an unscheduled date';
         $time = $inspection->scheduled_time ? ' at ' . substr((string) $inspection->scheduled_time, 0, 5) : '';
 
-        return ucfirst(str_replace('_', '-', $inspection->type)) . '-inspection on ' . $date . $time;
+        return RentalInspection::typeName($inspection->type) . ' on ' . $date . $time;
     }
 
     private function subjectFor(RentalInspection $inspection, string $eventLabel): string
@@ -287,7 +287,7 @@ class RentalInspectionNotificationService
 
         return str_replace(
             ['{event}', '{type}', '{address}'],
-            [$eventLabel, ucfirst(str_replace('_', '-', $inspection->type)), $inspection->property?->buildDisplayAddress() ?? ''],
+            [$eventLabel, RentalInspection::typeLabel($inspection->type), $inspection->property?->buildDisplayAddress() ?? ''],
             $template,
         );
     }

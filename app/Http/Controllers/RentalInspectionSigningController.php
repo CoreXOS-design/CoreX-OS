@@ -147,6 +147,7 @@ class RentalInspectionSigningController extends Controller
             'outcome_at' => $link->outcome_at,
             'signature' => $signature,
             'completed' => $inspection->status === \App\Models\RentalInspection::STATUS_COMPLETED,
+            'resign_notice' => $party ? $this->links->mustSignAgain($inspection, $party) : false,
             'agent_open_url' => $link->party_role === 'agent'
                 ? route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
                 : null,
