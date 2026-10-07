@@ -646,3 +646,10 @@ reintroduce a page banner or a standalone action bar.
 The old suburb-sales calculation (`MarketDataSnapshotService::calculateRecommendedPrice` / `CompPoolBuilder` fallbacks) is no longer called from the Intelligence tab or the API; it is untouched for its other callers.
 
 Tests: `tests/Feature/Intelligence/RecommendedPriceFromPresentationTest.php`.
+
+
+## 14. Active Competition — never vanishes silently (2026-10-07, Johan)
+
+- **Review screen "2b · Active Competition"** (`presentations/review.blade.php`) and **analysis step "5. Active Market Competition"** (`partials/analysis-data-review.blade.php`): when there are no active competing listings the card is still drawn and says **"No active competition found for this area"**, names the presentation's suburb, says listings drop off after the agency's window (`listing_off_market_days`, default 90) without a re-sighting, and **recommends updating that suburb's portal stock with the CoreX Chrome extension** — with a link to My Portal → Tools (where the extension lives; shown only to people with `access_my_portal`, otherwise plain text). Shared partial: `presentations/partials/_no-active-competition.blade.php`. Before this the review card was gated on `$totalScored > 0` and disappeared with no message, which looked like the section had been removed.
+- **Seller PDF:** prints **no** empty Active Competition section. With zero scored competitors the whole Beat 3 block is omitted (`PresentationPdfService`), consistent with the Executive Summary (which already treated the beat as absent, so its page references stay right) and with the public seller page (already omitted). The agent's "choose which sections appear" toggle still governs the section whenever there IS competition. The spec (`seller-report-restructure.md` §7) only requires the Beat 3 *verdict* to be suppressed when empty; it does not ask for an empty section to be printed.
+- Tests: `tests/Feature/Presentation/ActiveCompetitionEmptyStateTest.php`. Window setting: `mic-sold-offmarket-ref-tracking.md` "Stale-listing window".

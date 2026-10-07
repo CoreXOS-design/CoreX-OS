@@ -750,6 +750,13 @@
         $compPrices5  = array_values(array_filter(array_map(fn ($c) => (int) ($c['price'] ?? 0), $compVisible5), fn ($p) => $p > 0));
         $compAvg5     = count($compPrices5) ? (int) round(array_sum($compPrices5) / count($compPrices5)) : null;
     @endphp
+    @if(empty($compVisible5))
+    {{-- Johan 2026-10-07 — an empty set must say so (and how to fix it), not vanish. Agent screen only. --}}
+    <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);" id="active-competition-empty">
+        <h3 class="ds-section-header">5. Active Market Competition</h3>
+        @include('presentations.partials._no-active-competition')
+    </div>
+    @endif
     @if(!empty($compVisible5))
     <div class="ds-status-card mb-4" style="border-left-color: var(--ds-cyan);">
         <h3 class="ds-section-header">5. Active Market Competition</h3>

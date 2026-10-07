@@ -11,6 +11,7 @@ use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
 use App\Http\Controllers\CoreX\RentalInventorySettingsController;
 use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
+use App\Http\Controllers\Settings\Prospecting\StaleRulesController;
 
 /**
  * Agency Onboarding Setup Wizard — content + control map (single source of truth).
@@ -789,6 +790,15 @@ return [
                 . 'opening the page immediately sees which not-yet-mandated properties fit a buyer they already have. '
                 . 'None of this can be filled in for you — it depends on the towns you actually work and how your '
                 . 'agency prices stock — so this is the one setup step that is genuinely yours to do.',
+        ],
+        'savers' => [
+            ['controller' => StaleRulesController::class, 'method' => 'updateListingWindow'],
+        ],
+        'controls' => [
+            ['key' => 'listing_off_market_days', 'source' => 'prospecting_thresholds', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 365,
+             'label' => 'Presume a portal listing off the market after (days unseen)',
+             'explain' => 'CoreX only knows a portal listing is still for sale when the CoreX Chrome extension sees it again. A listing that has not been seen for this many days is presumed off the market. A mandate normally runs 90 days, so 90 is the standard.',
+             'affects' => 'Which portal listings stay in Market Intelligence and in a presentation\'s Active Competition section. A shorter number drops listings an agent simply has not re-searched lately; a longer one keeps genuinely sold or withdrawn listings around for longer.'],
         ],
         'aux_partial' => 'agency-setup.steps.market-intelligence',
     ],

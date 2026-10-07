@@ -50,6 +50,7 @@ final class SuggestedActionThresholds extends Model
         'deeds_duplicate_auto_take_days',
         'mic_counts_cache_fresh_seconds',
         'mic_counts_cache_stale_seconds',
+        'listing_off_market_days',
     ];
 
     protected $casts = [
@@ -70,6 +71,7 @@ final class SuggestedActionThresholds extends Model
         'deeds_duplicate_auto_take_days'  => 'integer',
         'mic_counts_cache_fresh_seconds'  => 'integer',
         'mic_counts_cache_stale_seconds'  => 'integer',
+        'listing_off_market_days'         => 'integer',
     ];
 
     /**
@@ -109,6 +111,9 @@ final class SuggestedActionThresholds extends Model
             'deeds_duplicate_auto_take_days' => 14, // at/older than this → agent takes it automatically (Johan default)
             'mic_counts_cache_fresh_seconds' => 60,  // matches the old hardcoded fresh window
             'mic_counts_cache_stale_seconds' => 300, // matches the old hardcoded stale ceiling
+            // Days with no re-sighting before a portal listing is presumed off-market
+            // (prospecting:flag-stale-listings). Johan 2026-10-07: a mandate normally runs 90 days.
+            'listing_off_market_days'    => 90,
         ];
     }
 

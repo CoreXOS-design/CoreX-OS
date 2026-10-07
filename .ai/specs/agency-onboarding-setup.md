@@ -283,6 +283,13 @@ by oversight — do not reinstate them without asking:
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
 
+- **Portal-listing stale window — IN the wizard (2026-10-07).** `suggested_action_thresholds.listing_off_market_days`
+  (days a portal listing may go un-sighted before it is presumed off the market; default 90, Johan: "a
+  mandate normally runs 90 days") is a control on the **Market Intelligence (`market_intelligence`) step**
+  (source `prospecting_thresholds`, saver `StaleRulesController::updateListingWindow`, which writes only when
+  the field was posted — §6.1). It is the same value as the "Portal stock freshness" field on Settings →
+  Prospecting Setup → Stale-claim rules. Spec: `.ai/specs/mic-sold-offmarket-ref-tracking.md`.
+
 - **RULED IN (owner, 2026-09-30) — no longer omitted.** These were recorded here as "Pending Johan's
   ruling" (audit fix MED-3); the owner has ruled they belong in the wizard and they now live in the
   **Rentals (`leases`) step**:
