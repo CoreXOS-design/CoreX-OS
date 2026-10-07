@@ -27,8 +27,12 @@
 
     // Term defaults: what the agent just typed (old()), else — renewal only — the previous term's value.
     $dflt = $renewalBase ?? [];
-    $rentValue = old('rental_amount', $dflt['rental_amount'] ?? null);
-    $depositValue = old('deposit_amount', $dflt['deposit_amount'] ?? null);
+    // Johan, QA1, 2026-10-07 — from an approved application: the PROPERTY's rent (never the approved amount) and
+    // the approved deposit terms applied to it (LeaseController::applicationCaptureDefaults()).
+    $appDefaults = $applicationDefaults ?? [];
+    $rentValue = old('rental_amount', $dflt['rental_amount'] ?? ($appDefaults['rental_amount'] ?? null));
+    $depositValue = old('deposit_amount', $dflt['deposit_amount'] ?? ($appDefaults['deposit_amount'] ?? null));
+    $depositTypedOrCarried = old('deposit_amount') !== null || ($dflt['deposit_amount'] ?? null) !== null;
     $startValue = old('start_date', $dflt['start_date'] ?? null);
     $leaseTypeValue = old('lease_type', $dflt['lease_type'] ?? null);
 
@@ -44,8 +48,11 @@
         'agreementId' => $selectedAgreementId,
         'required' => $requiredByAgreement,
         'values' => collect($agreementValues)->map(fn ($v) => $v === null ? '' : (string) $v)->all(),
-        'depositMonths' => (float) $depositMonths,
-        'depositTouched' => $depositValue !== null && $depositValue !== '',
+        'depositMonths' => (float) ($appDefaults['deposit_months'] ?? $depositMonths),
+        'depositTouched' => $depositTypedOrCarried,
+        'approvedRent' => $appDefaults['approved_rental_amount'] ?? null,
+        'rentMode' => $appDefaults['mode'] ?? 'warn',
+        'rentNow' => $rentValue !== null && $rentValue !== '' ? (float) $rentValue : null,
         'activate' => (bool) old('activate_immediately'),
         'monthToMonth' => (bool) old('is_month_to_month'),
         'propertyStatus' => $property ? $property->statusBadge() : (($oldProperty ?? null)?->statusBadge() ?? ''),
@@ -200,6 +207,11 @@
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Monthly rental (R)</label>
                 <input type="number" name="rental_amount" value="{{ $rentValue }}" step="0.01" min="0" required x-ref="rent" @input="rentChanged()" class="prop-input">
+                @if($appDefaults && ($appDefaults['rental_amount'] ?? null) !== null && old('rental_amount') === null)
+                    <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">From the property's rent.</p>
+                @elseif($appDefaults && ($appDefaults['rental_amount'] ?? null) === null && old('rental_amount') === null)
+                    <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">The property has no rent on record — enter it.</p>
+                @endif
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Deposit (R)</label>
@@ -214,6 +226,25 @@
                 <input type="date" name="end_date" value="{{ old('end_date') }}" x-bind:disabled="monthToMonth" class="prop-input" style="color-scheme: light dark;">
             </div>
         </div>
+
+        {{-- Johan, QA1, 2026-10-07 — lease rent above the amount this tenant was approved for. Server twin:
+             RentalApplication::rentAboveApproved() via LeaseCaptureRequest (refuses / demands the reason regardless of this UI). --}}
+        @if($rentalApplication && $rentalApplication->approved_rental_amount !== null)
+            <div class="rounded-md px-3 py-2 text-xs" x-show="rentOver !== null" x-cloak data-test="rent-above-approved"
+                 style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #92400e); border: 1px solid var(--ds-amber, #f59e0b);">
+                <div>
+                    This tenant was approved for <strong x-text="money(approvedRent)"></strong> a month; this lease is
+                    <strong x-text="money(rentNow)"></strong> — <strong x-text="money(rentOver)"></strong> above.
+                    <span x-show="rentMode === 'block'">Your agency does not allow a lease above the approved amount.</span>
+                </div>
+                <div class="mt-1" x-show="rentMode !== 'block'">
+                    <label class="prop-label">Reason for leasing above the approved amount (required, logged)</label>
+                    <input type="text" name="rent_above_approved_reason" maxlength="1000" value="{{ old('rent_above_approved_reason') }}"
+                           :required="rentOver !== null && rentMode !== 'block'" class="prop-input">
+                </div>
+            </div>
+            @error('rent_above_approved_reason')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+        @endif
 
         <label class="flex items-center gap-2 text-sm">
             <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month')) x-model="monthToMonth">
@@ -310,6 +341,15 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
         depositMonths: Number(cfg.depositMonths) || 0,
         depositTouched: !!cfg.depositTouched,
         propertyStatus: cfg.propertyStatus || '',
+        // Rent above the approved amount (from an approved application only).
+        approvedRent: cfg.approvedRent === null || cfg.approvedRent === undefined ? null : Number(cfg.approvedRent),
+        rentMode: cfg.rentMode || 'warn',
+        rentNow: cfg.rentNow === null || cfg.rentNow === undefined ? null : Number(cfg.rentNow),
+        get rentOver() {
+            return (this.approvedRent !== null && this.rentNow !== null && !isNaN(this.rentNow) && Math.round(this.rentNow * 100) > Math.round(this.approvedRent * 100))
+                ? Math.round((this.rentNow - this.approvedRent) * 100) / 100 : null;
+        },
+        money(v) { return 'R' + Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
         // Property picker (.ai/specs/leases.md §7.2). propertyId is the single source of
         // truth for what gets posted; propertyQuery is only the text in the box.
         propertyActive: !!propertyCfg.active,
@@ -361,6 +401,8 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             return required.filter(function (f) { return String((this.vals[f.key] === undefined || this.vals[f.key] === null) ? '' : this.vals[f.key]).trim() === ''; }.bind(this));
         },
         rentChanged() {
+            const typed = parseFloat(this.$refs.rent ? this.$refs.rent.value : '');
+            this.rentNow = isNaN(typed) ? null : typed;
             // The agency's default deposit (months of rent) is only a starting suggestion, never forced:
             // once the agent touches the deposit box it is theirs.
             if (this.depositTouched || this.depositMonths <= 0 || !this.$refs.rent || !this.$refs.deposit) { return; }
@@ -449,6 +491,10 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
                 e.preventDefault();
                 this.propertyAttempted = true;
                 if (this.$refs.propertySearch) { this.$refs.propertySearch.focus(); }
+                return;
+            }
+            if (this.rentOver !== null && this.rentMode === 'block') {
+                e.preventDefault();
                 return;
             }
             // leases.md §12.5.2 — a lease CAN be made active on a withdrawn property; this is only a speed-bump

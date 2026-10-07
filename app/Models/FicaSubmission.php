@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\Concerns\BelongsToBranch;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
@@ -227,6 +228,75 @@ class FicaSubmission extends Model
 
         // 'own' (and the safe default for any unexpected value)
         return $query->where($this->getTable() . '.requested_by', $user->id);
+    }
+
+    // ── Own-FICA separation (review blocked at the START, not only at final approval) ──
+
+    /**
+     * The users this submission is "own work" of: whoever requested it and whoever did
+     * the stage-1 agent approval — the same set the end-of-flow guard (AT-236) uses.
+     *
+     * There is deliberately no third "the FICA is about this user" source: the data model
+     * has no link between a contact and a staff user (`contacts.client_user_id` points at
+     * the separate `client_users` portal table, not `users`).
+     *
+     * @return int[]
+     */
+    public function ownWorkUserIds(): array
+    {
+        return array_values(array_unique(array_filter([
+            (int) $this->requested_by,
+            (int) $this->agent_verified_by,
+        ])));
+    }
+
+    public function isOwnWorkOf(User $user): bool
+    {
+        return in_array((int) $user->id, $this->ownWorkUserIds(), true);
+    }
+
+    /**
+     * Why this user may not review/mark up this submission — null when they may.
+     *
+     * Same rule as the end-of-flow guard in FicaController::complianceApprove (AT-236):
+     * an appointed officer (RO/MLRO) may not review their own FICA; the PRIMARY
+     * Compliance Officer is the one exception. Everyone else (an agent doing the stage-1
+     * check on a FICA they sent, an admin who is not an officer) is unaffected — stage-1
+     * work on their own request is the normal flow; the officer steps are what stay
+     * separate.
+     */
+    public function ownReviewBlockFor(User $user): ?string
+    {
+        $agencyId = (int) $this->agency_id;
+
+        if (! $user->isComplianceOfficer($agencyId)
+            || $user->isPrimaryComplianceOfficer($agencyId)
+            || ! $this->isOwnWorkOf($user)) {
+            return null;
+        }
+
+        if ($this->hasOtherEligibleReviewer($user)) {
+            return 'You cannot approve your own FICA - another Responsible Officer or the Compliance Officer must review it.';
+        }
+
+        return 'You cannot approve your own FICA, and there is no other Responsible Officer or Compliance Officer in your agency to review it. '
+            . 'An administrator must appoint one under Company Settings → Compliance Officers.';
+    }
+
+    /**
+     * Is there an active officer other than $user who may review this submission?
+     * The primary CO always may; any other officer only if it is not their own work too.
+     */
+    public function hasOtherEligibleReviewer(User $user): bool
+    {
+        $ownIds = $this->ownWorkUserIds();
+
+        return FicaOfficerAppointment::where('agency_id', (int) $this->agency_id)
+            ->active()
+            ->where('user_id', '!=', $user->id)
+            ->get(['user_id', 'role'])
+            ->contains(fn ($a) => $a->role === FicaOfficerAppointment::ROLE_PRIMARY
+                || ! in_array((int) $a->user_id, $ownIds, true));
     }
 
     public function scopePending(Builder $query): Builder

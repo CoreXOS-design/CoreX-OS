@@ -416,8 +416,10 @@
                     <span class="text-xs" style="color: var(--text-muted);">Owner(s) already captured from the deeds record</span>
                 </div>
                 @if(auth()->user()->hasPermission('deeds_capture.access'))
+                    @feature('deeds-capture')
                     <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
                        class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">View full deed →</a>
+                    @endfeature
                 @endif
             </div>
             <div class="space-y-2">
@@ -464,8 +466,10 @@
                     <span class="text-xs" style="color: var(--text-muted);">Same street &amp; suburb — verify this is the same property before using</span>
                 </div>
                 @if(auth()->user()->hasPermission('deeds_capture.access'))
+                    @feature('deeds-capture')
                     <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener"
                        class="text-xs font-semibold no-underline" style="color: var(--ds-amber, #f59e0b);">Open Deeds Capture →</a>
+                    @endfeature
                 @endif
             </div>
             <div class="space-y-2">

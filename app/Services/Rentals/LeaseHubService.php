@@ -55,7 +55,10 @@ class LeaseHubService
         $leaseSigned = $lease->signed_at !== null
             || $lease->signing_status === Lease::SIGNING_SIGNED_ON_PAPER
             || ($lease->signing_status === Lease::SIGNING_SIGNED && $lease->status !== Lease::STATUS_DRAFT)
-            || ($lease->source !== Lease::SOURCE_ESIGN_DOCUMENT && $lease->status !== Lease::STATUS_DRAFT);
+            // Johan, QA1, 2026-10-07 — a lease created from a rental application is only "signed" once there is a
+            // signed agreement (or paper copy) behind it; being active is not evidence. Every other source keeps
+            // the §15.5 rule (a lease captured the ordinary way is no longer a draft).
+            || ($lease->source !== Lease::SOURCE_ESIGN_DOCUMENT && $lease->source !== 'rental_application' && $lease->status !== Lease::STATUS_DRAFT);
         $steps[] = $this->step('lease_signed', 'Lease signed', $leaseSigned ? 'done' : ($lease->status === Lease::STATUS_DRAFT ? 'current' : 'pending'));
 
         $steps[] = $this->step('in_inspection', 'In-inspection', $hasCompletedIn

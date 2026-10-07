@@ -4494,13 +4494,17 @@
                                 ({{ $activeLease->start_date?->format('Y-m-d') }}
                                 &ndash; {{ $activeLease->end_date?->format('Y-m-d') ?? ($activeLease->is_month_to_month ? 'month-to-month' : 'no end date') }})
                             </div>
+                            @feature('rental-leases')
                             <a href="{{ route('corex.leases.show', $activeLease) }}" class="corex-btn-outline text-xs">View lease</a>
+                            @endfeature
                         </div>
                     @else
                         <div class="flex items-center justify-between">
                             <span style="color: var(--text-muted);">No active lease on this property.</span>
                             @permission('leases.create')
+                            @feature('rental-leases')
                             <a href="{{ route('corex.leases.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">Create lease</a>
+                            @endfeature
                             @endpermission
                         </div>
                     @endif
@@ -4538,7 +4542,9 @@
                                         — {{ $pastLease->start_date?->format('Y-m-d') }}
                                         to {{ $pastLease->end_date?->format('Y-m-d') ?? '—' }}
                                         ({{ ucfirst($pastLease->status) }})</span>
+                                    @feature('rental-leases')
                                     <a href="{{ route('corex.leases.show', $pastLease) }}" class="text-xs underline">View</a>
+                                    @endfeature
                                 </li>
                             @endforeach
                         </ul>
@@ -4557,7 +4563,9 @@
                     <div class="flex items-center justify-between">
                         <strong>Fault reports</strong>
                         @permission('rental_fault_reports.create')
+                        @feature('rental-faults')
                         <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
+                        @endfeature
                         @endpermission
                     </div>
                     @if($recentFaultReports->isEmpty())
@@ -4567,7 +4575,9 @@
                             @foreach($recentFaultReports as $fr)
                                 <li class="flex items-center justify-between">
                                     <span>{{ $fr->title }} — {{ ucfirst(str_replace('_', ' ', $fr->status)) }}</span>
+                                    @feature('rental-faults')
                                     <a href="{{ route('corex.rental-fault-reports.show', $fr) }}" class="text-xs underline">View</a>
+                                    @endfeature
                                 </li>
                             @endforeach
                         </ul>
@@ -4584,7 +4594,9 @@
                     <div class="flex items-center justify-between">
                         <strong>Work orders</strong>
                         @permission('rental_work_orders.create')
+                        @feature('rental-work-orders')
                         <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+                        @endfeature
                         @endpermission
                     </div>
                     @if($recentWorkOrders->isEmpty())
@@ -4594,7 +4606,9 @@
                             @foreach($recentWorkOrders as $wo)
                                 <li class="flex items-center justify-between">
                                     <span>{{ $wo->title }} — {{ ucfirst(str_replace('_', ' ', $wo->status)) }}</span>
+                                    @feature('rental-work-orders')
                                     <a href="{{ route('corex.rental-work-orders.show', $wo) }}" class="text-xs underline">View</a>
+                                    @endfeature
                                 </li>
                             @endforeach
                         </ul>
@@ -4882,7 +4896,7 @@
                     // screen's own photos-visible/problem-filter preference,
                     // per user, not per-inspection — no id appended at call
                     // time, unlike every other inspectionUrls entry above.
-                    screenPreference: '{{ route('corex.rental-inspections.screen-preference') }}'
+                    screenPreference: '@feature('rental-inspections'){{ route('corex.rental-inspections.screen-preference') }}@endfeature'
                 },
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }},
                 {{-- Item 8, 2026-09-22 — "the property already knows it."

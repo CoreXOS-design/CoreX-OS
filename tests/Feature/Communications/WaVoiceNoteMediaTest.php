@@ -140,12 +140,16 @@ final class WaVoiceNoteMediaTest extends TestCase
     {
         $this->setConsent(AgentCaptureConsent::STATUS_OPTED_IN);
         Http::fake(['*' => Http::response('upstream error', 500)]);
+        // The retry is queued with a back-off. Under the sync test queue it would run (and exhaust its
+        // retries, ending 'failed') inside the ingest call, so hold it on a fake queue and assert it was queued.
+        \Illuminate\Support\Facades\Queue::fake();
 
         $msg = $this->voiceNoteMessage();
         $result = $this->ingest($msg);
 
         // The MESSAGE is never dropped just because its media could not be fetched.
         $this->assertSame(WaArchiveIngestor::RESULT_ARCHIVED, $result);
+        \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\Communications\RetryWaMediaDownloadJob::class);
 
         $comm = Communication::firstWhere('agency_id', $this->agencyId);
         $this->assertTrue((bool) $comm->has_attachments);

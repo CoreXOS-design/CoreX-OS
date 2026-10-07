@@ -43,12 +43,34 @@
                  addresses... 3 bed house... property header but not the
                  address." addressFreeDescriptor() (Property model, see its
                  own docblock) — never buildDisplayAddress() here. --}}
-            @foreach($properties as $property)
+            {{-- QA1, 2026-10-07 — Johan: "the properties must be clickable so the
+                 tenant can start viewing them", and the line must say WHERE
+                 ("3 Bedroom Apartment / Flat" alone tells the tenant nothing).
+                 Suburb only — still never a street address. Each card links to
+                 the property's public listing page; the optional button opens
+                 the tenant's own shared wishlist page, shown only when they
+                 have an active rental wishlist. --}}
+            @foreach($propertyCards as $card)
                 <div style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 16px; margin-bottom: 10px;">
-                    <div style="font-weight: bold;">{{ $property->addressFreeDescriptor() }}</div>
-                    <div style="color: #555; font-size: 14px;">R{{ number_format($property->effectivePrice(), 0) }} per month</div>
+                    <div style="font-weight: bold;">
+                        @if($card['url'])
+                            <a href="{{ $card['url'] }}" style="color: #0f5fa8; text-decoration: none;">{{ $card['descriptor'] }}@if($card['suburb']) &middot; {{ $card['suburb'] }}@endif</a>
+                        @else
+                            {{ $card['descriptor'] }}@if($card['suburb']) &middot; {{ $card['suburb'] }}@endif
+                        @endif
+                    </div>
+                    <div style="color: #555; font-size: 14px;">R{{ $card['price'] }} per month</div>
+                    @if($card['url'])
+                        <div style="margin-top: 6px; font-size: 14px;"><a href="{{ $card['url'] }}" style="color: #0f5fa8;">View this property &rarr;</a></div>
+                    @endif
                 </div>
             @endforeach
+
+            @if($viewAllUrl)
+                <p style="text-align: center; margin: 24px 0;">
+                    <a href="{{ $viewAllUrl }}" style="background-color: #059669; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">View all properties that match</a>
+                </p>
+            @endif
         @else
             <p style="margin-top: 24px; color: #666;">We don't currently have a matching property in our own stock, but your agent will keep an eye out within your approved amount.</p>
         @endif

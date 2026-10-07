@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\RequiresChromiumPdf;
 use Tests\TestCase;
 
 /**
@@ -27,6 +28,7 @@ use Tests\TestCase;
 final class PpraEmploymentLetterPdfLayoutTest extends TestCase
 {
     use RefreshDatabase;
+    use RequiresChromiumPdf;
 
     private Agency $agency;
     private Branch $branch;
@@ -36,6 +38,7 @@ final class PpraEmploymentLetterPdfLayoutTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->requireChromiumPdf();
         Storage::fake();
 
         $this->agency = Agency::create([

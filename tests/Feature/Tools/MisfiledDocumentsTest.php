@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -23,6 +24,7 @@ use Tests\TestCase;
  */
 final class MisfiledDocumentsTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -49,10 +51,8 @@ final class MisfiledDocumentsTest extends TestCase
             'ids'     => ['ID Copy', 'contact'],
             'fica'    => ['FICA', 'contact'],
         ] as $slug => [$label, $grouping]) {
-            $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
-                'slug' => $slug, 'label' => $label, 'sort_order' => 0, 'is_active' => true,
-                'grouping' => $grouping, 'contact_roles' => json_encode(['seller_owner']),
-                'fica_slot' => 'none', 'created_at' => now(), 'updated_at' => now(),
+            $this->typeIds[$slug] = $this->documentTypeId($slug, $label, [
+                'grouping' => $grouping, 'contact_roles' => json_encode(['seller_owner']), 'fica_slot' => 'none',
             ]);
         }
 
@@ -95,10 +95,42 @@ final class MisfiledDocumentsTest extends TestCase
         return $doc;
     }
 
-    /** Build the session manifest link() reads (no PDF needed — the block returns before extraction). */
+    /**
+     * A minimal valid N-page PDF. link() extracts each label group from the ORIGINAL with qpdf BEFORE it
+     * applies the contact-only block (the block needs the groups), so the original has to be a real PDF.
+     */
+    private function minimalPdf(int $pages): string
+    {
+        $objs = ["<</Type/Catalog/Pages 2 0 R>>"];
+        $kids = [];
+        for ($i = 0; $i < $pages; $i++) {
+            $kids[] = (3 + $i) . ' 0 R';
+        }
+        $objs[] = '<</Type/Pages/Kids[' . implode(' ', $kids) . ']/Count ' . $pages . '>>';
+        for ($i = 0; $i < $pages; $i++) {
+            $objs[] = '<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>';
+        }
+        $out = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objs as $n => $body) {
+            $offsets[] = strlen($out);
+            $out .= ($n + 1) . " 0 obj\n" . $body . "\nendobj\n";
+        }
+        $xref = strlen($out);
+        $out .= "xref\n0 " . (count($objs) + 1) . "\n0000000000 65535 f \n";
+        foreach ($offsets as $o) {
+            $out .= sprintf("%010d 00000 n \n", $o);
+        }
+        $out .= "trailer\n<</Root 1 0 R/Size " . (count($objs) + 1) . ">>\nstartxref\n" . $xref . "\n%%EOF\n";
+
+        return $out;
+    }
+
+    /** Build the session manifest link() reads, plus the original PDF it extracts from. */
     private function seedManifest(array $labels): string
     {
         $id = 'pack__20260101_000000';
+        Storage::disk('local')->put('private/splitter/originals/' . $id . '.pdf', $this->minimalPdf(max(1, count($labels))));
         Storage::disk('local')->put('private/splitter/tmp/' . $id . '/manifest.json', json_encode([
             'base' => 'pack', 'ts' => '20260101_000000',
             'origRel' => 'private/splitter/originals/' . $id . '.pdf',

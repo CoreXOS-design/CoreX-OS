@@ -59,6 +59,11 @@ return Application::configure(basePath: dirname(__DIR__))
             // AT-423 — a sub-user whose password an admin reset must choose a new one first.
             // Inert (one boolean) for everyone else.
             \App\Http\Middleware\EnsurePasswordChanged::class,
+            // Features on/off (2026-10-07) — 404 a signed-in request to a route whose owning
+            // feature the agency has switched off. GLOBAL and registry-driven on purpose: the
+            // per-group `feature:` middleware only covers groups someone remembered to decorate,
+            // and a toggle that hides the sidebar link while the URL still opens is a silent no-op.
+            \App\Http\Middleware\EnforceFeatureRoutes::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.

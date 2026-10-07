@@ -76,10 +76,15 @@ final class HostAuthLockTest extends TestCase
         $this->assertFalse(app(HostCircuitBreaker::class)->isAuthLocked('auth-lock-host.test'));
     }
 
-    public function test_a_non_auth_failure_never_counts_toward_the_auth_budget(): void
+    public function test_a_failure_that_proves_no_login_was_spent_never_counts_toward_the_auth_budget(): void
     {
+        // The budget is a BLOCKLIST since 2026-09-09 (honest auth-failure counting): any reason counts as a
+        // possibly-spent login EXCEPT these — no real attempt was made (incomplete_credentials, intercepted),
+        // or the login is proven to have SUCCEEDED and only a later step failed (send_rejected,
+        // no_sent_folder, append_failed). A bare connect_failed / unknown DOES count — the host may have
+        // counted the attempt even though we could not classify it.
         $breaker = app(HostCircuitBreaker::class);
-        foreach (['connect_failed', 'connect_timeout', 'read_timeout', null] as $reason) {
+        foreach (['incomplete_credentials', 'intercepted', 'send_rejected', 'no_sent_folder', 'append_failed', null] as $reason) {
             $breaker->recordAuthFailureIfApplicable('auth-lock-host.test', $reason);
         }
 
@@ -336,7 +341,7 @@ final class HostAuthLockTest extends TestCase
         $appender = new class($poller) extends ImapSentFolderAppender {
             public function append(CommunicationMailbox $mailbox, string $rawMime): array
             {
-                return ['ok' => false, 'reason' => 'connect_failed']; // IMAP leg: a DIFFERENT, non-auth failure
+                return ['ok' => false, 'reason' => 'no_sent_folder']; // IMAP leg: login succeeded, a LATER step failed — never a spent login
             }
         };
 

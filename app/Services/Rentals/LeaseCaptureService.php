@@ -303,6 +303,9 @@ class LeaseCaptureService
                     'agreement_template_id' => $lease->agreement_template_id,
                 ]);
 
+                $this->logRentAboveApproved($lease, $input, $user, $previous);
+                $this->linkApplicationToLease($lease, $property, $input, $user, $previous);
+
                 if ($intent === self::INTENT_LEASE_AND_SIGN) {
                     // LEASE-AGREEMENT (Build L3a, §15.4): the gate (landlord, every signer's email + ID, the
                     // required agreement details) and the flow, in this transaction — a gap throws, the whole
@@ -491,6 +494,87 @@ class LeaseCaptureService
             self::INTENT_PAPER_COPY => $base . ' with a signed paper copy',
             default => $base,
         };
+    }
+
+    /**
+     * Johan, QA1, 2026-10-07 — completing the lease screen is what links an approved application to the
+     * property (nothing is written when the agent merely opens it or cancels): the application's own
+     * property is pointed at the lease's, and the applicant becomes the property's tenant (the same
+     * contact_property link the old "Link as tenant" button wrote). Only for a new lease started from an
+     * application, and only for the applicant when they are one of the lease's tenants.
+     */
+    private function linkApplicationToLease(Lease $lease, Property $property, array $input, User $user, ?Lease $previous): void
+    {
+        if ($previous !== null || empty($input['rental_application_id'])) {
+            return;
+        }
+        $application = \App\Models\RentalApplication::withoutGlobalScopes()->find((int) $input['rental_application_id']);
+        if (! $application) {
+            return;
+        }
+
+        $audit = app(\App\Services\RentalApplications\RentalApplicationAuditService::class);
+        $oldPropertyId = $application->property_id;
+        if ((int) $oldPropertyId !== (int) $property->id) {
+            $application->property_id = $property->id;
+            $application->save();
+        }
+
+        $contact = $application->contact;
+        if ($contact && in_array((int) $contact->id, array_map('intval', (array) ($input['tenant_contact_ids'] ?? [])), true)) {
+            $link = \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'tenant');
+            if ($link->isNew) {
+                event(new \App\Events\Contact\ContactLinkedToProperty(
+                    contact: $contact,
+                    property: $property,
+                    role: 'tenant',
+                    actorUserId: $user->id,
+                ));
+            }
+        }
+
+        $audit->log(
+            $application,
+            eventCategory: 'tenant_link',
+            eventType: 'linked',
+            user: $user,
+            oldValues: ['property_id' => $oldPropertyId],
+            newValues: ['property_id' => $property->id, 'lease_id' => $lease->id],
+            humanSummary: 'Lease #' . $lease->id . ' created on ' . $property->buildDisplayAddress() . ($contact ? ' for ' . $contact->full_name : ''),
+        );
+    }
+
+    /**
+     * Johan, QA1, 2026-10-07 — a lease created at a rent above the amount its tenant was approved for. The
+     * request already refused it (block) or demanded a reason (warn); here the confirmation is written to the
+     * lease history AND the application's audit trail, so neither forgets who agreed to the gap, or why.
+     */
+    private function logRentAboveApproved(Lease $lease, array $input, User $user, ?Lease $previous): void
+    {
+        if ($previous !== null || empty($input['rental_application_id'])) {
+            return;
+        }
+        $application = \App\Models\RentalApplication::withoutGlobalScopes()->find((int) $input['rental_application_id']);
+        $gap = $application?->rentAboveApproved($input['rental_amount'] ?? null);
+        if (! $gap) {
+            return;
+        }
+
+        $reason = trim((string) ($input['rent_above_approved_reason'] ?? ''));
+        $summary = 'Lease rent R' . number_format($gap['rent'], 2) . ' is above the approved R' . number_format($gap['approved'], 2)
+            . ' (R' . number_format($gap['over'], 2) . ' over)' . ($reason !== '' ? ': ' . $reason : '');
+
+        $this->logEvent($lease, LeaseEvent::TYPE_RENT_ABOVE_APPROVED_CONFIRMED, $summary, $user, $gap + ['reason' => $reason]);
+
+        app(\App\Services\RentalApplications\RentalApplicationAuditService::class)->log(
+            $application,
+            eventCategory: 'lease',
+            eventType: 'rent_above_approved_confirmed',
+            user: $user,
+            oldValues: ['approved_rental_amount' => $gap['approved']],
+            newValues: ['lease_id' => $lease->id, 'lease_rental_amount' => $gap['rent'], 'reason' => $reason],
+            humanSummary: $summary,
+        );
     }
 
     private function logEvent(Lease $lease, string $type, string $description, User $user, ?array $metadata = null): void

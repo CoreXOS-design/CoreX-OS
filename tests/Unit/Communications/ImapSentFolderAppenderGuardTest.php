@@ -48,15 +48,17 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
         $appender = new ImapSentFolderAppender($poller);
 
+        // §42 (2026-09-28): any environment that is not a confirmed sending one (QA1, demo, local) is
+        // SIMULATED outright, before the overridable "intercept" switch is even consulted.
         Log::shouldReceive('warning')
             ->once()
-            ->with('OUTBOUND MAIL INTERCEPTED', \Mockery::on(
-                fn ($context) => $context['action'] === 'imap_sent_folder_append'
+            ->with('IMAP SENT-FOLDER APPEND SIMULATED (non-sending environment)', \Mockery::on(
+                fn ($context) => $context['app_env'] === 'local' && isset($context['real_imap_host'])
             ));
 
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
-        $this->assertSame(['ok' => false, 'reason' => 'intercepted', 'detail' => null], $result);
+        $this->assertSame(['ok' => false, 'reason' => 'simulated', 'detail' => null], $result);
         $this->assertSame(0, $poller->connectCalls, 'The IMAP connection must never be opened when the guard is active — that is the entire point of the fix.');
     }
 
@@ -80,7 +82,7 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
-        $this->assertSame('intercepted', $result['reason']);
+        $this->assertSame('simulated', $result['reason']);
         $this->assertSame(0, $poller->connectCalls);
     }
 
@@ -105,7 +107,7 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
         $result = $appender->append($this->mailbox(), 'Subject: test\r\n\r\nbody');
 
         $this->assertSame(1, $poller->connectCalls, 'On the confirmed live host, append() must behave exactly as before — a real connection attempt is made.');
-        $this->assertNotSame('intercepted', $result['reason']);
+        $this->assertNotSame('simulated', $result['reason']);
         // 2026-09-09 (diagnostics) — a message matching none of MailFailureClassifier's
         // known patterns classifies honestly as 'unknown', not a guessed 'connect_failed' —
         // "never invent a cause" (Johan). The raw text is still captured as $result['detail'].

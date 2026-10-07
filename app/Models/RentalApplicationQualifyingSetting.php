@@ -249,6 +249,17 @@ class RentalApplicationQualifyingSetting extends Model
     public const APPROVAL_MODES = ['two_step', 'one_step'];
 
     /**
+     * Johan, QA1, 2026-10-07 — what happens when a lease is created from an
+     * approved application at a rent ABOVE the amount the tenant was approved
+     * for. `warn` (default): the agent sees both figures and must confirm with
+     * a reason, logged on the lease history and the application audit trail.
+     * `block`: the lease cannot be created above the approved amount.
+     */
+    public const DEFAULT_RENT_ABOVE_APPROVED_MODE = 'warn';
+
+    public const RENT_ABOVE_APPROVED_MODES = ['warn', 'block'];
+
+    /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
      * not gated but if the applicant submits... after initial submission
      * we can gate on ID." Default is the applicant's own ID number
@@ -342,7 +353,7 @@ class RentalApplicationQualifyingSetting extends Model
         'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
         'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
-        'require_fica_before_authorisation', 'approval_mode', 'require_checklist_complete',
+        'require_fica_before_authorisation', 'approval_mode', 'rent_above_approved_mode', 'require_checklist_complete',
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
@@ -688,8 +699,21 @@ class RentalApplicationQualifyingSetting extends Model
             : self::DEFAULT_APPROVAL_MODE;
     }
 
+    public static function rentAboveApprovedModeFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_RENT_ABOVE_APPROVED_MODE;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->rent_above_approved_mode !== null && in_array($row->rent_above_approved_mode, self::RENT_ABOVE_APPROVED_MODES, true)
+            ? $row->rent_above_approved_mode
+            : self::DEFAULT_RENT_ABOVE_APPROVED_MODE;
+    }
+
     /**
-     * AT-430 §3.6 — "the checklist does not block approval by default."
+     * AT-430 §3.6 — "the checklist does not block approval by default.
      * Default OFF: Sherry's checklist is a working aid, not a gate, until an
      * agency deliberately turns it into one. Consulted by
      * RentalApplicationChecklistService::isCompleteFor() at the approve

@@ -20,7 +20,9 @@
     {{-- A soft-deleted lease has no reachable Lease Hub (default route-model binding 404s on it) —
          never build a dead-end link; the lease relation is withTrashed() so this can be non-null but archived. --}}
     @if($notice->lease && !$notice->lease->trashed())
+        @feature('rental-leases')
         <a href="{{ route('corex.leases.show', $notice->lease) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">&larr; Back to Lease Hub</a>
+        @endfeature
     @elseif($notice->lease)
         <span class="text-xs" style="color: var(--text-muted);">Lease #{{ $notice->lease->id }} (archived) — no Lease Hub to return to.</span>
     @endif

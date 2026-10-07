@@ -16,6 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -35,6 +36,7 @@ use Tests\TestCase;
 final class MarketingReadinessDriveGateTest extends TestCase
 {
     use RefreshDatabase;
+    use FindsOrCreatesDocumentTypes;
 
     private Agency $agency;
     private Branch $branch;
@@ -52,7 +54,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
             'branch_id' => $this->branch->id,
         ]);
 
-        // Schema snapshot carries no seed data — create the doc-type catalogue.
+        // The schema snapshot already carries the doc-type catalogue — reuse those rows (slug is unique).
         // grouping mirrors live: FICA is contact-level, the rest shared.
         foreach ([
             'mandate'    => ['Mandate', 'shared'],
@@ -60,11 +62,7 @@ final class MarketingReadinessDriveGateTest extends TestCase
             'disclosure' => ['Disclosure', 'shared'],
             'other'      => ['Other', 'shared'],
         ] as $slug => [$label, $grouping]) {
-            $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
-                'slug' => $slug, 'label' => $label, 'sort_order' => 0,
-                'is_active' => true, 'grouping' => $grouping,
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+            $this->typeIds[$slug] = $this->documentTypeId($slug, $label, ['grouping' => $grouping]);
         }
 
         // Default required set for this agency: mandate + fica + disclosure.

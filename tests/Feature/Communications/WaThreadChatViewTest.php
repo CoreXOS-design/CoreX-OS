@@ -121,8 +121,13 @@ final class WaThreadChatViewTest extends TestCase
         // Tasteful green tint on outbound (CoreX --ds-green), neutral inbound surface.
         $this->assertStringContainsString('--ds-green', $html);
 
-        // No emojis anywhere in the rendered markup.
-        $this->assertSame(0, preg_match('/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{1F399}\x{1F4CE}]/u', $html),
+        // No emojis in the THREAD markup. Scoped to the bubbles themselves: the surrounding app layout
+        // (reminder toast, Ellie widget) is shared chrome owned by other areas and carries its own 📍 —
+        // reported separately, not something a WhatsApp thread can fix.
+        $first = min((int) strpos($html, 'justify-start'), (int) strpos($html, 'justify-end'));
+        $last  = max((int) strrpos($html, 'Hi, is the house still available?'), (int) strrpos($html, 'Voice note'));
+        $thread = substr($html, max(0, $first - 300), $last - $first + 1100);
+        $this->assertSame(0, preg_match('/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{1F399}\x{1F4CE}]/u', $thread),
             'no emoji glyphs in the thread markup');
     }
 

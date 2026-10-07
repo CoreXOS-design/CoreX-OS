@@ -157,7 +157,7 @@ final class CommsVisibilityMatrixTest extends TestCase
         $noAgencyOwner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
         $this->actingAs($noAgencyOwner);
 
-        $view = (new CommunicationTriageController(app(CommunicationTriageService::class)))->index();
+        $view = (new CommunicationTriageController(app(CommunicationTriageService::class)))->index(request());
 
         $data = $view->getData();
         $this->assertTrue($data['noContext'] ?? false, 'null-agency owner gets the explained no-context panel, never a blank 403');
@@ -167,7 +167,7 @@ final class CommsVisibilityMatrixTest extends TestCase
     public function test_triage_renders_items_for_an_agent_with_context(): void
     {
         $this->actingAs($this->agentA);
-        $view = (new CommunicationTriageController(app(CommunicationTriageService::class)))->index();
+        $view = (new CommunicationTriageController(app(CommunicationTriageService::class)))->index(request());
 
         $this->assertFalse($view->getData()['noContext'] ?? true, 'agent with agency context renders the real queue, not the no-context panel');
     }

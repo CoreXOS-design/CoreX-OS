@@ -177,9 +177,12 @@ final class ProvisionalCommReconciliationTest extends TestCase
         $this->assertSame(2, $this->contact->fresh()->outboundCommCount(Communication::CHANNEL_EMAIL));
     }
 
-    // ── E: prune removes an aged unreconciled provisional (back to truth) ──
+    // ── E: prune flags an aged unreconciled provisional as NOT DELIVERED (AT-323) ──
+    //
+    // AT-323 replaced the old soft-purge: an unconfirmed send is never silently erased, it is kept
+    // and flagged not_delivered, which is what takes it out of the "sent" tile count (back to truth).
 
-    public function test_prune_soft_purges_aged_unreconciled_provisional(): void
+    public function test_prune_flags_aged_unreconciled_provisional_as_not_delivered(): void
     {
         $this->logger()->log($this->contact, Communication::CHANNEL_EMAIL, 'Subject', 'Body that will be edited away.', null);
         $provisional = Communication::firstWhere('agency_id', $this->agencyId);
@@ -189,9 +192,9 @@ final class ProvisionalCommReconciliationTest extends TestCase
 
         $this->artisan('communications:prune-provisional')->assertExitCode(0);
 
-        $purged = Communication::withTrashed()->find($provisional->id);
-        $this->assertNotNull($purged->deleted_at, 'soft-deleted');
-        $this->assertSame('provisional_unreconciled', $purged->purged_reason);
+        $flagged = Communication::withTrashed()->find($provisional->id);
+        $this->assertNull($flagged->deleted_at, 'never erased — kept as the record of an unconfirmed send');
+        $this->assertSame(Communication::SEND_STATUS_NOT_DELIVERED, $flagged->send_status);
         // Drops out of the derived tile count.
         $this->assertSame(0, $this->contact->fresh()->outboundCommCount(Communication::CHANNEL_EMAIL));
     }

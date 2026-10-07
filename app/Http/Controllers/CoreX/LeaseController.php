@@ -405,9 +405,23 @@ class LeaseController extends Controller
         $property = $presetPropertyId > 0
             ? $this->pickableRentalProperties($request)->find($presetPropertyId)
             : null;
+        // Visible to this user under their own rental-application scope — a forged or other-branch id is a 404,
+        // never a pre-fill of someone else's applicant.
         $rentalApplication = $request->get('rental_application_id')
-            ? RentalApplication::findOrFail($request->get('rental_application_id'))
+            ? RentalApplication::query()->visibleTo($request->user())->findOrFail($request->get('rental_application_id'))
             : null;
+
+        // Johan, QA1, 2026-10-07 — arriving from an approved application ("link the property"): the property is the
+        // one the agent just linked, the tenant is the applicant, the rent is the PROPERTY's (never the approved
+        // affordability amount) and the deposit follows the approved deposit terms applied to that rent. The agent
+        // still enters the dates and presses the button — nothing is created until they do (leases.md §15.3).
+        $applicationDefaults = null;
+        if ($rentalApplication && ! $property && $rentalApplication->property_id) {
+            $property = $this->pickableRentalProperties($request)->find($rentalApplication->property_id);
+        }
+        if ($rentalApplication) {
+            $applicationDefaults = $this->applicationCaptureDefaults($rentalApplication, $property);
+        }
 
         // A validation error bounces back here with the picked property only in
         // old('property_id'): resolve it again through the SAME scoped query as
@@ -426,10 +440,62 @@ class LeaseController extends Controller
                 'lease' => null,
                 'property' => $property,
                 'oldProperty' => $oldProperty,
-                'oldTenants' => $this->oldTenantSeed($request),
+                'oldTenants' => $this->oldTenantSeed($request) ?: $this->applicationTenantSeed($rentalApplication),
                 'rentalApplication' => $rentalApplication,
+                'applicationDefaults' => $applicationDefaults,
             ]
         ));
+    }
+
+    /**
+     * The applicant as the lease's first (primary) tenant — same shape as oldTenantSeed().
+     *
+     * @return list<array{id:int,name:string,email:string}>
+     */
+    private function applicationTenantSeed(?RentalApplication $application): array
+    {
+        $contact = $application?->contact;
+        if (! $contact) {
+            return [];
+        }
+
+        return [[
+            'id' => (int) $contact->id,
+            'name' => $contact->full_name !== '' ? $contact->full_name : 'Contact #' . $contact->id,
+            'email' => (string) ($contact->email ?? ''),
+        ]];
+    }
+
+    /**
+     * Rent/deposit starting values for a lease captured from an approved application, plus the figures the
+     * screen needs to warn when the agent goes above the approved amount (RentalApplication::rentAboveApproved()
+     * is the server-side twin). Rent: the property's own rental amount, blank when it has none — never the
+     * approved amount. Deposit: the approved deposit as a multiple of the approved rent (the approved
+     * "terms") applied to the lease rent; when the application carries no approved pair, the property's own
+     * deposit.
+     *
+     * @return array<string,mixed>
+     */
+    private function applicationCaptureDefaults(RentalApplication $application, ?Property $property): array
+    {
+        $rent = $property?->rental_amount !== null ? round((float) $property->rental_amount, 2) : null;
+        $approvedRent = $application->approved_rental_amount !== null ? (float) $application->approved_rental_amount : null;
+        $approvedDeposit = $application->approved_deposit_amount !== null ? (float) $application->approved_deposit_amount : null;
+
+        $months = ($approvedRent !== null && $approvedRent > 0 && $approvedDeposit !== null)
+            ? round($approvedDeposit / $approvedRent, 4)
+            : null;
+        $deposit = ($months !== null && $rent !== null)
+            ? round($rent * $months, 2)
+            : ($property?->deposit_amount !== null ? round((float) $property->deposit_amount, 2) : null);
+
+        return [
+            'rental_amount' => $rent,
+            'deposit_amount' => $deposit,
+            'deposit_months' => $months,
+            'approved_rental_amount' => $approvedRent,
+            'mode' => \App\Models\RentalApplicationQualifyingSetting::rentAboveApprovedModeFor((int) $application->agency_id),
+        ];
     }
 
     /**

@@ -20,6 +20,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -35,6 +36,7 @@ use Tests\TestCase;
  */
 final class RentalInventoryWetInkTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -66,8 +68,8 @@ final class RentalInventoryWetInkTest extends TestCase
         // not globally seeded in a test DB (DocumentTypesCatalogueSeeder
         // only runs via deploy:sync-reference-data), so created here
         // directly, same convention DocumentTypeClassifierTest already uses.
-        DocumentType::create(['slug' => 'inventory_list', 'label' => 'Inventory List', 'is_active' => true]);
-        DocumentType::create(['slug' => 'inspection_report', 'label' => 'Inspection Report', 'is_active' => true]);
+        $this->documentTypeId('inventory_list', 'Inventory List');
+        $this->documentTypeId('inspection_report', 'Inspection Report'); // already in the snapshot catalogue — reused
 
         $this->property = Property::forceCreate([
             'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,

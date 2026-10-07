@@ -517,22 +517,26 @@
                         </div>
                         <div class="flex flex-wrap items-center gap-3 text-xs" style="padding-left: 24px;">
                             @forelse($existingFaultReports as $faultReport)
-                                <a href="{{ route('corex.rental-fault-reports.show', $faultReport) }}" style="color: var(--brand-icon, #2563eb);">Fault report #{{ $faultReport->id }} ({{ ucfirst(str_replace('_', ' ', $faultReport->status)) }})</a>
+                                @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.show', $faultReport) }}" style="color: var(--brand-icon, #2563eb);">Fault report #{{ $faultReport->id }} ({{ ucfirst(str_replace('_', ' ', $faultReport->status)) }})</a>@else Fault report #{{ $faultReport->id }} ({{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}) @endfeature
                             @empty
                                 <button type="submit" formaction="{{ route('corex.rental-inspections.follow-up.fault-reports', $inspection) }}" name="observation_ids[]" value="{{ $observation->id }}" class="corex-btn-outline text-xs">Create fault report</button>
                             @endforelse
 
                             @forelse($existingWorkOrders as $workOrder)
-                                <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" style="color: var(--brand-icon, #2563eb);">Work order #{{ $workOrder->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->status)) }})</a>
+                                @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" style="color: var(--brand-icon, #2563eb);">Work order #{{ $workOrder->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->status)) }})</a>@else Work order #{{ $workOrder->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}) @endfeature
                                 @if($workOrder->jobCard)
-                                    <a href="{{ route('corex.rental-job-cards.show', $workOrder->jobCard) }}" style="color: var(--brand-icon, #2563eb);">Job card #{{ $workOrder->jobCard->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->jobCard->status)) }})</a>
+                                    @feature('rental-job-cards')<a href="{{ route('corex.rental-job-cards.show', $workOrder->jobCard) }}" style="color: var(--brand-icon, #2563eb);">Job card #{{ $workOrder->jobCard->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->jobCard->status)) }})</a>@else Job card #{{ $workOrder->jobCard->id }} ({{ ucfirst(str_replace('_', ' ', $workOrder->jobCard->status)) }}) @endfeature
                                 @endif
                             @empty
+                                @feature('rental-work-orders')
                                 <a href="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id]]) }}" class="corex-btn-outline text-xs">Create work order</a>
+                                @endfeature
                                 {{-- 2026-10-05 rebuild — a job card is its own screen now, not an
                                      assignment_type=internal work order; the observation becomes a
                                      pre-seeded (editable, nothing saved yet) task on the job card draft. --}}
+                                @feature('rental-job-cards')
                                 <a href="{{ route('corex.rental-job-cards.create', ['rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id]]) }}" class="corex-btn-outline text-xs">Create job card (our team)</a>
+                                @endfeature
                             @endforelse
                         </div>
                     </div>
@@ -557,10 +561,14 @@
                     <input type="checkbox" name="combine" value="1"> Combine ticked items into one
                 </label>
                 <button type="submit" class="corex-btn-outline text-xs">Create fault report</button>
+                @feature('rental-work-orders')
                 <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-work-orders.create', ['rental_inspection_id' => $inspection->id]) }}" class="corex-btn-outline text-xs">Create work order</button>
+                @endfeature
                 {{-- 2026-10-05 rebuild — job cards are their own screen; ticked
                      observation_ids[] (and combine) still serialize via plain GET form submit. --}}
+                @feature('rental-job-cards')
                 <button type="submit" formmethod="GET" formaction="{{ route('corex.rental-job-cards.create', ['rental_inspection_id' => $inspection->id]) }}" class="corex-btn-outline text-xs">Create job card (our team)</button>
+                @endfeature
             </form>
     </div>
     @endif

@@ -51,7 +51,7 @@
                         <td class="px-4 py-2">
                             @if($ev->jobCard)
                                 @permission('rental_job_cards.view')
-                                    <a href="{{ route('corex.rental-job-cards.show', $ev->jobCard) }}" class="underline text-xs">{{ \Illuminate\Support\Str::limit($ev->jobCard->title, 40) }}</a>
+                                    @feature('rental-job-cards')<a href="{{ route('corex.rental-job-cards.show', $ev->jobCard) }}" class="underline text-xs">{{ \Illuminate\Support\Str::limit($ev->jobCard->title, 40) }}</a>@else {{ \Illuminate\Support\Str::limit($ev->jobCard->title, 40) }} @endfeature
                                 @else
                                     <span class="text-xs">{{ \Illuminate\Support\Str::limit($ev->jobCard->title, 40) }}</span>
                                 @endpermission
