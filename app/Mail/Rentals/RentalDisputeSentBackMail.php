@@ -53,7 +53,9 @@ class RentalDisputeSentBackMail extends BaseSignatureMail
             'title' => $this->workOrder->title,
             'address' => $this->workOrder->property?->buildDisplayAddress(),
             'tenantNote' => $this->tenantNote,
-            'photoUrls' => array_map(fn ($u) => str_starts_with((string) $u, 'http') ? $u : url((string) $u), $this->photoUrls),
+            // NOT named `photoUrls`: a public property of a Mailable OVERRIDES a same-named key of with(), which silently put the raw relative
+            // "/storage/…" paths (a dead link in an inbox) back in place of these absolute ones.
+            'photoLinks' => array_map(fn ($u) => str_starts_with((string) $u, 'http') ? $u : url((string) $u), $this->photoUrls),
             'crewLinkUrl' => $this->crewLinkUrl,
             'footer' => $this->getAgentFooter(),
         ]);

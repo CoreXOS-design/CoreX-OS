@@ -28,9 +28,9 @@
         </div>
         <p>In the tenant's words:</p>
         <div class="quote">{{ $tenantNote }}</div>
-        @if(count($photoUrls))
+        @if(count($photoLinks))
             <p>Photos from the tenant:</p>
-            <ul>@foreach($photoUrls as $u)<li><a href="{{ $u }}">{{ $u }}</a></li>@endforeach</ul>
+            <ul>@foreach($photoLinks as $u)<li><a href="{{ $u }}">{{ $u }}</a></li>@endforeach</ul>
         @endif
         @if($crewLinkUrl)
             <p style="margin: 24px 0;"><a class="btn" href="{{ $crewLinkUrl }}">Open the job</a></p>
