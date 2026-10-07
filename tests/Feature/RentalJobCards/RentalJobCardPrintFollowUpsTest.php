@@ -396,9 +396,13 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
     {
         $landlord = \App\Models\Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Land', 'last_name' => 'Lord', 'email' => 'zz-print@example.invalid']);
         \App\Services\Property\ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
-        $card = $this->cardWithLandlord(RentalJobCard::STATUS_DRAFT);
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), ['scheduled_at' => '2026-10-12T09:00', 'due_at' => ''])->assertSessionHasNoErrors();
-        $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $card->fresh()->status);
+        // BUILD 2 (7 Oct): the approval gate now REFUSES to schedule a card above the owner's no-approval limit
+        // until its quote is approved, and a card inside the limit needs no quote at all — so "schedule a draft
+        // before its quote was sent" can no longer happen through the screen. What this test protects is that the
+        // quote box is offered on EVERY open card whatever its status, so put an over-limit card straight into
+        // Scheduled (as legacy cards are) and check the box + send still work.
+        RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['no_approval_spend_threshold' => 10]);
+        $card = $this->cardWithLandlord(RentalJobCard::STATUS_SCHEDULED);
         $this->show($card)->assertSee('id="jc-quote-box"', false)->assertSee('Send to owner as quote');
 
         // The service has no status rule beyond "not closed" — a send from

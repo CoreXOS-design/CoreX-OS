@@ -143,7 +143,7 @@ final class DocumentChangeHighlighterTest extends TestCase
         $out = $this->h()->highlight($cur, '', [ $cid => ['name' => 'B. Manager'] ]);
 
         $this->assertStringContainsString('<style>', $out);                 // CSS injected
-        $this->assertStringContainsString('.change-del{', $out);
+        $this->assertMatchesRegularExpression('/\.change-del\s*\{/', $out);  // the rule, however the stylesheet is spaced
         $this->assertStringContainsString('Schedule of Amendments', $out);  // listed in appendix
         $this->assertStringContainsString('Clause 5.1', $out);              // labelled by data-clause-ref
         $this->assertStringContainsString('Initialed by B. Manager', $out); // initialed via change_initials
