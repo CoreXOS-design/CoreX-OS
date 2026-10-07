@@ -71,6 +71,16 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
         $this->contact = Contact::create([
             'agency_id' => $this->agency->id, 'first_name' => 'Test', 'last_name' => 'Tenant',
         ]);
+
+        // properties.p24_suburb_id and p24_suburbs.p24_city_id are real foreign keys (the snapshot has no
+        // rows), so the ids this file points at — suburb 8, city 376 (KZN, where Margate lives) and city 999
+        // (a same-named suburb in ANOTHER province) — have to exist.
+        $country = \App\Models\P24Country::firstOrCreate(['p24_id' => 1], ['name' => 'South Africa']);
+        $kzn = \App\Models\P24Province::create(['p24_id' => 4, 'p24_country_id' => $country->id, 'name' => 'KwaZulu Natal']);
+        $gp  = \App\Models\P24Province::create(['p24_id' => 2, 'p24_country_id' => $country->id, 'name' => 'Gauteng']);
+        \App\Models\P24City::forceCreate(['id' => 376, 'p24_id' => 376, 'p24_province_id' => $kzn->id, 'name' => 'Margate']);
+        \App\Models\P24City::forceCreate(['id' => 999, 'p24_id' => 999, 'p24_province_id' => $gp->id, 'name' => 'Johannesburg']);
+        P24Suburb::forceCreate(['id' => 8, 'name' => 'Test Suburb', 'slug' => 'test-suburb', 'p24_city_id' => 376]);
     }
 
     /** A live to-let flat in the buyer's suburb. */
@@ -85,6 +95,9 @@ final class RentalStatusAndIncompleteDataMatchingTest extends TestCase
             'category'      => 'Residential',
             'property_type' => 'Apartment / Flat',
             'price'         => 7000,
+            // A rental's price is its monthly rent: effectivePrice() reads rental_amount for rental
+            // stock (price is the SALE column) — keep the two in step so the fixture means what it says.
+            'rental_amount' => ($overrides['price'] ?? 7000) ?: null, // 0 = "not captured yet" -> NULL
             'beds'          => 2,
             'p24_suburb_id' => 8,
         ], $overrides));

@@ -96,7 +96,7 @@ class PrivatePropertyEventFeedTest extends TestCase
     public function test_soap_faults_below_threshold_do_not_escalate(): void
     {
         $this->ppAgency('coastal', 'GUID-A');
-        Log::spy();
+        Log::spy()->shouldReceive('channel')->andReturnSelf(); // the feed logs through the private_property channel
 
         $client = Mockery::mock(PrivatePropertySoapClient::class);
         $client->shouldReceive('forAgency')->andReturnSelf();
@@ -114,7 +114,7 @@ class PrivatePropertyEventFeedTest extends TestCase
     public function test_soap_faults_at_threshold_escalate_to_critical(): void
     {
         $this->ppAgency('coastal', 'GUID-A');
-        Log::spy();
+        Log::spy()->shouldReceive('channel')->andReturnSelf(); // the feed logs through the private_property channel
 
         $client = Mockery::mock(PrivatePropertySoapClient::class);
         $client->shouldReceive('forAgency')->andReturnSelf();

@@ -62,7 +62,7 @@ class MandateExpiryWithdrawReadBackTest extends TestCase
 
     private function ppService(PrivatePropertySoapClient $client): PrivatePropertySyndicationService
     {
-        return new PrivatePropertySyndicationService($client, app(PrivatePropertyListingMapper::class));
+        return new PrivatePropertySyndicationService($client, app(PrivatePropertyListingMapper::class), app(\App\Services\Images\AgentPhotoNormalizer::class));
     }
 
     // ── Property24 ───────────────────────────────────────────────────────────
