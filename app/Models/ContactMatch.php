@@ -347,21 +347,25 @@ class ContactMatch extends Model
             throw new \InvalidArgumentException('A reason is required to reassign a buyer.');
         }
 
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($toAgent, $movedBy, $reason) {
-            $record = ContactMatchReassignment::record(
-                $this,
-                $this->agent_id,
-                $toAgent->id,
-                $movedBy->id,
-                $reason,
-            );
+        $contact = Contact::withoutGlobalScopes()
+            ->where('agency_id', $this->agency_id)
+            ->find($this->contact_id);
 
-            $this->agent_id = $toAgent->id;
-            $this->updated_by_user_id = $movedBy->id;
-            $this->save();
+        // Johan, 2026-10-07 (rulings C): the buyer moves as a whole — primary
+        // agent AND every saved search — in one transaction; see the service.
+        if (! $contact) {
+            return \Illuminate\Support\Facades\DB::transaction(function () use ($toAgent, $movedBy, $reason) {
+                $record = ContactMatchReassignment::record($this, $this->agent_id, $toAgent->id, $movedBy->id, $reason);
+                $this->agent_id = $toAgent->id;
+                $this->updated_by_user_id = $movedBy->id;
+                $this->save();
 
-            return $record;
-        });
+                return $record;
+            });
+        }
+
+        return app(\App\Services\Buyers\BuyerReassignmentService::class)
+            ->reassignBuyer($contact, $toAgent, $movedBy, $reason, $this);
     }
 
     /**

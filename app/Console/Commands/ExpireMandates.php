@@ -52,6 +52,16 @@ class ExpireMandates extends Command
                 // Mutate status inside a transaction; fire event AFTER commit.
                 DB::transaction(function () use ($property) {
                     $property->status = 'expired';
+                    // AT-448 (audit fix) — a P24-origin listing that was on the market and
+                    // is expired by the clock has lived in CoreX: engage the expiry lock so
+                    // the status-derived Imported Stock classification can never make it
+                    // exempt (spec D4: expired stays locked). It STAYS on the Imported Stock
+                    // page - imported_released_at is deliberately not touched.
+                    if ($property->p24_imported_at !== null
+                        && $property->imported_released_at === null
+                        && $property->expiry_lock_engaged_at === null) {
+                        $property->expiry_lock_engaged_at = now();
+                    }
                     $property->save();
                 });
 

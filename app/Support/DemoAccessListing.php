@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Events\Demo\DemoAccessExtended;
 use App\Models\DemoAccessGrant;
+use App\Models\DemoAccessGrantExtension;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -75,14 +78,17 @@ final class DemoAccessListing
     ];
 
     /**
-     * @return array{rows: LengthAwarePaginator, views: array<string,array>, filters: array<string,mixed>, issued: int, hasAny: bool, anyFilter: bool}
+     * @return array{rows: LengthAwarePaginator, views: array<string,array>, filters: array<string,mixed>, issued: int, anyFilter: bool}
      */
     public static function build(Request $request): array
     {
-        $search = trim((string) $request->input('q', ''));
-        $view   = (string) $request->input('view', $request->boolean('archived') ? 'archived' : 'all');
+        // Every free-text parameter is read through str(): ?q[]=x, ?view[]=x or ?sort[]=x
+        // arrive as arrays, and casting an array to string is a warning Laravel turns
+        // into a 500. A non-string simply falls back to the default.
+        $search = trim(self::str($request->input('q'), ''));
+        $view   = self::str($request->input('view'), $request->boolean('archived') ? 'archived' : 'all');
         $view   = array_key_exists($view, self::VIEWS) ? $view : 'all';
-        $sort   = (string) $request->input('sort', 'recent');
+        $sort   = self::str($request->input('sort'), 'recent');
         $sort   = array_key_exists($sort, self::SORTS) ? $sort : 'recent';
         $from   = self::date($request->input('issued_from'));
         $to     = self::date($request->input('issued_to'));
@@ -121,8 +127,6 @@ final class DemoAccessListing
         /** @var Collection<int,array> $metas */
         $metas = $query->get()->map(fn (DemoAccessGrant $g) => self::meta($g, $now));
 
-        $hasAny = $metas->isNotEmpty();
-
         // The hide switches shape the working set, so the rail counts agree with the list.
         $working = $metas->filter(function (array $m) use ($hideUnused, $hideEnded) {
             if ($hideUnused && $m['status'] === DemoAccessGrant::STATUS_PENDING) return false;
@@ -144,8 +148,11 @@ final class DemoAccessListing
         $list = $working->filter(fn (array $m) => self::inView($m, $view));
         $list = self::sort($list, $sort)->values();
 
-        $page    = max(1, (int) $request->input('page', 1));
-        $total   = $list->count();
+        $total    = $list->count();
+        // An out-of-range ?page= (a stale bookmark, a view that shrank) lands on the last
+        // page that exists rather than an empty grid with a nonsense summary.
+        $lastPage = max(1, (int) ceil($total / self::PER_PAGE));
+        $page     = min($lastPage, max(1, (int) $request->input('page', 1)));
         $slice   = $list->slice(($page - 1) * self::PER_PAGE, self::PER_PAGE)->values();
         $sparks  = self::sparklines($slice->pluck('id')->all());
 
@@ -169,8 +176,9 @@ final class DemoAccessListing
             'rows'      => $paginator,
             'views'     => $views,
             'filters'   => $filters,
-            'issued'    => $metas->count(),
-            'hasAny'    => $hasAny,
+            // Every grant ever issued — archived included, filters ignored. The header
+            // says "N grants issued", so it must not shrink when someone searches.
+            'issued'    => DemoAccessGrant::query()->count(),
             'anyFilter' => $search !== '' || $view !== 'all' || $sort !== 'recent' || $from || $to || $hideUnused || $hideEnded,
         ];
     }
@@ -337,6 +345,85 @@ final class DemoAccessListing
         }
 
         return $out;
+    }
+
+    private static function str(mixed $value, string $default): string
+    {
+        return is_string($value) ? $value : $default;
+    }
+
+    /** The host prospects are sent to — the same config the invitation email uses. */
+    public static function demoHost(): string
+    {
+        $url = (string) config('corex.instance.demo_url', '');
+
+        return parse_url($url, PHP_URL_HOST) ?: ($url !== '' ? $url : 'the demo');
+    }
+
+    // ---- "Time added" history ----------------------------------------------
+
+    /**
+     * Every extension of a grant, newest first, ready to render.
+     *
+     * The durable demo_access_grant_extensions table is the record. Extensions made
+     * before that table existed live only in domain_event_log, so they are merged in —
+     * minus any whose event_id the table already holds — and nothing that used to be
+     * listed disappears. Each row has the same shape either way.
+     *
+     * @return Collection<int,array{when:Carbon,by:string,added:string,basis:?string,ends:?Carbon,trial:?string,note:?string}>
+     */
+    public static function extensionHistory(DemoAccessGrant $grant, int $limit = 50): Collection
+    {
+        $durable = DemoAccessGrantExtension::query()
+            ->with('actor:id,name')
+            ->where('demo_access_grant_id', $grant->getKey())
+            ->orderByDesc('created_at')->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->map(fn (DemoAccessGrantExtension $e) => [
+                'when'  => $e->created_at,
+                'by'    => $e->actor?->name ?? 'Unknown',
+                'added' => self::humanHours((int) $e->hours_added),
+                'basis' => $e->basis,
+                'ends'  => $e->new_expires_at,
+                'trial' => $e->new_expiry_hours !== null ? self::humanHours((int) $e->new_expiry_hours) : null,
+                'note'  => $e->note,
+            ]);
+
+        $legacy = DB::table('domain_event_log')
+            ->where('event_name', DemoAccessExtended::class)
+            ->where('subject_type', DemoAccessGrant::class)
+            ->where('subject_id', $grant->getKey())
+            ->whereNotIn('event_id', DB::table('demo_access_grant_extensions')
+                ->where('demo_access_grant_id', $grant->getKey())
+                ->whereNotNull('event_id')
+                ->select('event_id'))
+            ->orderByDesc('occurred_at')
+            ->limit($limit)
+            ->get(['actor_user_id', 'context', 'occurred_at']);
+
+        $actors = $legacy->isEmpty() ? collect() : User::query()
+            ->whereIn('id', $legacy->pluck('actor_user_id')->filter()->unique())
+            ->pluck('name', 'id');
+
+        $legacy = $legacy->map(function ($row) use ($actors) {
+            $c = json_decode((string) $row->context, true) ?: [];
+
+            return [
+                'when'  => Carbon::parse($row->occurred_at),
+                'by'    => $actors[$row->actor_user_id] ?? 'Unknown',
+                'added' => self::humanHours((int) ($c['hours_added'] ?? 0)),
+                'basis' => $c['basis'] ?? null,
+                'ends'  => ! empty($c['new_expires_at']) ? Carbon::parse($c['new_expires_at']) : null,
+                'trial' => isset($c['new_expiry_hours']) ? self::humanHours((int) $c['new_expiry_hours']) : null,
+                'note'  => $c['note'] ?? null,
+            ];
+        });
+
+        return $durable->concat($legacy)
+            ->sortByDesc(fn (array $r) => $r['when']->getTimestamp())
+            ->take($limit)
+            ->values();
     }
 
     private static function date(mixed $value): ?Carbon

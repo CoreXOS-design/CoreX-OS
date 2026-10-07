@@ -79,7 +79,7 @@ Click Send → system:
 
 Clicking "Generate Presentation" on a property that already has one → **upsert**. The existing `Presentation` row is reused. A new `PresentationVersion` is created. Engagement history preserved.
 
-**The agent's comparable-sale picks survive re-generation** (hotfix 2026-10-07, presentation 213 / version 505). Re-generation retires every sold comp and inserts fresh copies of the same sales under new ids. The new version's `included_comp_ids_json` is carried across by *sale* (address or sectional scheme+section, sale date, sale price — `CompFingerprint::sourceAgnosticKey`), not by row id (`App\Support\Presentations\CompSelectionCarryForward`). The Review screen's soft-deleted-comp reconcile uses the same rule. A pick whose sale is no longer in the presentation at all is dropped and logged `comp_unavailable`. If *every* pick is gone the selection falls back to `null` (all comps), never `[]`: `[]` means the agent deliberately unticked everything, and the CMA Lower / Middle / Upper tiles go blank on it. The Review checkboxes read `null` vs `[]` exactly as the CMA compute does (`[]` renders all unticked), so the ticks on screen always match the numbers.
+**The agent's comparable-sale picks survive re-generation** (hotfix 2026-10-07, presentation 213 / version 505). Re-generation retires every sold comp and inserts fresh copies of the same sales under new ids. The new version's `included_comp_ids_json` is carried across by *sale* (address or sectional scheme+section, sale date, sale price — `CompFingerprint::sourceAgnosticKey`), not by row id (`App\Support\Presentations\CompSelectionCarryForward`). The Review screen's soft-deleted-comp reconcile uses the same rule. A pick whose sale is no longer in the presentation at all is dropped and logged `comp_unavailable` — on the regenerate path too, and the Review screen says so (§15). If *every* pick is gone the selection falls back to `null` (all comps), never `[]`. **`[]` is no longer a valid selection** (2026-10-07, §15): Review refuses to leave nothing ticked, and a stored `[]` is read as `null` by the engine, the compile carry-forward and the Review checkboxes alike (`CompSelectionRepair`), so the ticks on screen always match the numbers.
 
 ---
 
@@ -646,3 +646,53 @@ reintroduce a page banner or a standalone action bar.
 The old suburb-sales calculation (`MarketDataSnapshotService::calculateRecommendedPrice` / `CompPoolBuilder` fallbacks) is no longer called from the Intelligence tab or the API; it is untouched for its other callers.
 
 Tests: `tests/Feature/Intelligence/RecommendedPriceFromPresentationTest.php`.
+
+
+## 14. Active Competition — never vanishes silently (2026-10-07, Johan)
+
+- **Review screen "2b · Active Competition"** (`presentations/review.blade.php`) and **analysis step "5. Active Market Competition"** (`partials/analysis-data-review.blade.php`): when there are no active competing listings the card is still drawn and says **"No active competition found for this area"**, names the presentation's suburb, says listings drop off after the agency's window (`listing_off_market_days`, default 90) without a re-sighting, and **recommends updating that suburb's portal stock with the CoreX Chrome extension** — with a link to My Portal → Tools (where the extension lives; shown only to people with `access_my_portal`, otherwise plain text). Shared partial: `presentations/partials/_no-active-competition.blade.php`. Before this the review card was gated on `$totalScored > 0` and disappeared with no message, which looked like the section had been removed.
+- **Seller PDF:** prints **no** empty Active Competition section. With zero scored competitors the whole Beat 3 block is omitted (`PresentationPdfService`), consistent with the Executive Summary (which already treated the beat as absent, so its page references stay right) and with the public seller page (already omitted). The agent's "choose which sections appear" toggle still governs the section whenever there IS competition. The spec (`seller-report-restructure.md` §7) only requires the Beat 3 *verdict* to be suppressed when empty; it does not ask for an empty section to be printed.
+- Tests: `tests/Feature/Presentation/ActiveCompetitionEmptyStateTest.php`. Window setting: `mic-sold-offmarket-ref-tracking.md` "Stale-listing window".
+
+
+## 15. A presentation always has a price (2026-10-07, Johan)
+
+Johan: *"there should always be a price, that's the whole point. Why would we generate no price. That's the work that needs to be done."* Audit: `/tmp/qa1-cc5-presentation-dashes-2026-10-07.md`. The goal is not to block — every path that used to empty the selection or the figures is **fixed so the price survives**; only where the data truly cannot give one (no comparable sale with a sold price at all) is the agent **stopped with a plain message**, never handed a seller document with a dash or a silently missing valuation.
+
+"Has a price" = the CMA **Middle** is a number above zero (the figure the seller PDF prints as "your home fits best at R…"). Lower/Upper are derived from it, so all three stand or fall together.
+
+### 15.1 Paths that now keep the price (fix, not block)
+
+| Path (audit #) | Before | Now |
+|---|---|---|
+| Selection points only at retired comps, read outside Review (#3) | engine pool = 0, blank | `CompSelectionRepair` (engine entry, shared with Review): picks are carried onto the fresh copy of the same sale, else all comps; logged `[PRES-WARN]`; Review says "Your earlier picks are no longer available…" |
+| Stored `[]` — Select none / last untick / price-range slider matching nothing (#2) | tiles blank, Confirm froze a blank price | `[]` is read as all comps everywhere. Review **refuses** to create one: `setComps` / `toggleComp` return 422 with *"No comparable sales selected — tick at least one sale (or widen the price range) so a price can be calculated."*, write nothing, and the screen reloads to the saved ticks. A selection with no priced comp in it is refused the same way |
+| Ticked comps with no sold price (#7) | pool empty | read as all priced comps (same resolver); comps without a size still count (the median needs only the sold price) |
+| Regenerate drops picks whose sale is not in the fresh pull (#5) | dropped silently, headline moved 17% unannounced | one `comp_unavailable` override per drop (`reason: not_in_regenerated_set`) + Review banner "N of your earlier picks are no longer in the refreshed comparable sales" |
+| Version copy / Compile Pack (#13) | carried `[]` | carries `null` for `[]` |
+| Price-band gate at generation excludes every sale (#15) | zero comps, no price | `CompPoolBuilder`: when the band around the asking price excludes *every* type-gated sale, it re-centres on the type-gated median (the anchor used when no asking was given). A band that finds sales is untouched. Diagnostic `price_band_fallback` |
+| Seller Live ignored the agent's picks and condition (#11) | all comps, could differ from Review/PDF | compiled against the latest version, same as Analysis |
+
+### 15.2 The one shared check — `App\Services\Presentations\PresentationPriceReadiness`
+
+`fromAnalysis()` (a compile), `forLiveVersion()`, `forDocument()` (a confirmed version is judged on its **frozen** `snapshot_payload.cma_valuation.cma_middle` — what the seller actually sees; a draft on a live compile). Reasons, each with a plain message that names what is missing and what to do: `no_comps`, `no_priced_comps`, `no_price`, `frozen_without_price` (confirmed earlier without a price), `no_version`. Used in:
+
+- **Confirm & Generate** — server-side, judged on the very payload about to be frozen, **before anything is written** (a refusal leaves the version untouched); the button is hidden, not dead, while there is no price.
+- **Seller PDF and Complete Pack** — refused with the message.
+- **Public seller page** (`/p/{token}`) — a full view of a version without a price shows "Presentation being finalised" (no view recorded). Teaser mode (no valuation) is unaffected until a lead unlocks the full page.
+- **Sending** — `SnapshotLinkService::createLink` (the one place every share/send creates a link) throws `PresentationPriceMissingException`; delivery preview/send return the message (`price_missing`).
+- **Seller Live**.
+- **Banners** — Review ("No price yet" + the reason), Analysis (replaces the vanished "4. CMA Evaluation" block; Confirm and downloads hidden), Overview (banner; PDF/Pack links disabled with the reason as tooltip).
+
+### 15.3 Seller web page facts grid
+
+The Subject Snapshot grid (`presentations/public/show.blade.php`) used to print "—" for any unknown Type, Bedrooms, Bathrooms, Floor area, Erf size, Suburb and Municipal value. **A row whose value is unknown is now left out** (and a column with no known facts is not drawn). The spec (`seller-report-restructure.md`) does not require a placeholder; the seller PDF's subject card already worked this way, and Seller Live link spec §"collapses cleanly" is the same principle.
+
+### 15.4 Not done, on purpose
+
+- **Existing presentation data on QA1 / Staging is not repaired.** Those rows simply get a price, or the plain message, the next time an agent opens or regenerates them (Johan: demo data). Nothing here writes to existing rows on a read; the repair is a read-time resolution.
+- Asking price missing (#6): not a block — the asking-vs-price comparison is simply omitted (it already was); the PDF and seller page already omit the asking row.
+- The freshness re-hydration (`PresentationCompFreshnessService`) still resets curation to `null` on a changed property — documented, bannered ("Comparable set refreshed"), and `null` = all comps = a price.
+
+Tests: `tests/Feature/Presentation/AlwaysHasPriceTest.php` (one per path above), `tests/Unit/Presentations/CompPoolBuilderTest.php` (band fallback).
+

@@ -285,6 +285,9 @@
                                     $authUser = auth()->user();
                                     $isMySubmission = $sub->requested_by === $authUser->id;
                                     $canCoReview = $isCO || $isAdmin;
+                                    // Own FICA (officer who may not review their own) — only worth asking on review-state rows.
+                                    $rowOwnBlock = $isCO && in_array($sub->status, ['submitted', 'agent_approved', 'referred_to_co'], true)
+                                        ? $sub->ownReviewBlockFor($authUser, $ownReviewCtx ??= new \App\Support\Compliance\FicaOwnReviewContext($authUser)) : null;
                                 @endphp
                                 <div class="flex items-center justify-end gap-2">
                                     @if($sub->intake_type !== 'wet_ink' && $sub->token && in_array($sub->status, ['draft', 'corrections_requested']))
@@ -307,6 +310,12 @@
                                               onsubmit="return confirm('Cancel this FICA request? The client link will be voided.')">@csrf
                                             <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson, #c41e3a);">Cancel</button>
                                         </form>
+                                    @elseif($rowOwnBlock)
+                                        {{-- Own FICA: review is disabled with the reason; the server refuses the route too. --}}
+                                        <span class="text-xs font-semibold" aria-disabled="true" data-own-fica-review-disabled
+                                              style="color:var(--text-muted); opacity:.7; cursor:not-allowed;" title="{{ $rowOwnBlock }}">
+                                            {{ $sub->status === 'submitted' ? 'Verify' : 'Review' }} &mdash; your own FICA
+                                        </span>
                                     @elseif($sub->status === 'submitted' && $isMySubmission)
                                         <a href="{{ route('compliance.fica.show', $sub) }}" class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);">Verify</a>
                                     @elseif($sub->status === 'agent_approved' && $canCoReview)

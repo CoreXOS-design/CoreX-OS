@@ -1655,7 +1655,12 @@ class PropertyController extends Controller
         // Its own imported dates are meaningless, so a typed expiry date is validated against
         // TODAY — the listed date it will get if this save takes it over. That stand-in is
         // only for validation; it is stripped again below unless the listing is taken over.
-        $wasImportedStock    = $property->isImportedStock();
+        // AT-448 (audit fix): only genuinely UNTOUCHED Imported Stock takes the AT-422 takeover and
+        // the expiry-lock exemption. A P24-origin listing that lived on the market in CoreX
+        // (expiry_lock_engaged_at set) still shows on the Imported Stock page, but its expiry date
+        // is real: it saves like an ordinary property, the lock applies, and a status save can
+        // never reset its date.
+        $wasImportedStock    = $property->isUntouchedImportedStock();
         $importedListedInput = $request->filled('listed_date') ? (string) $request->input('listed_date') : null;
         if ($wasImportedStock && $importedListedInput === null) {
             $request->merge(['listed_date' => now()->toDateString()]);
@@ -1764,6 +1769,23 @@ class PropertyController extends Controller
             'gallery_images'   => 'nullable|array',
             'gallery_images.*' => 'image|max:204800',
         ]);
+
+        // AT-448 — the expiry lock. With the agency's lock on, a listing that has
+        // gone live may not have its EXISTING expiry date changed (later, earlier,
+        // or cleared) unless an Extension document was uploaded to Drive after the
+        // last change. The same date re-submitted is not a change; a first date on
+        // a listing with none is allowed; Imported Stock is exempt (its typed date
+        // is the AT-422 takeover). Rejected with the banner's own words, never a 500.
+        // Runs straight after validate() and BEFORE any file is stored or anything
+        // else is written, so a rejected save leaves no orphan uploads behind.
+        // Spec: .ai/specs/at448-property-expiry.md §2.3, §8.
+        if (array_key_exists('expiry_date', $data)
+            && ! $wasImportedStock
+            && MandateExpiryPolicy::isLockedChange($property, $data['expiry_date'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'expiry_date' => MandateExpiryPolicy::lockMessage(),
+            ]);
+        }
 
         // AT-267 H3 — ownership-column injection. agent_id / pp_second_agent_id validate only
         // exists:users,id (NOT agency-scoped) and there is no reassign gate. So:
@@ -1950,21 +1972,6 @@ class PropertyController extends Controller
             } else {
                 unset($data['listed_date']);   // only ever merged in for validation
             }
-        }
-
-        // AT-448 — the expiry lock. With the agency's lock on, a listing that has
-        // gone live may not have its EXISTING expiry date changed (later, earlier,
-        // or cleared) unless an Extension document was uploaded to Drive after the
-        // last change. The same date re-submitted is not a change; a first date on
-        // a listing with none is allowed; Imported Stock is exempt (its typed date
-        // is the AT-422 takeover). Rejected with the banner's own words, never a 500.
-        // Spec: .ai/specs/at448-property-expiry.md §2.3, §8.
-        if (array_key_exists('expiry_date', $data)
-            && ! $wasImportedStock
-            && MandateExpiryPolicy::isLockedChange($property, $data['expiry_date'])) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'expiry_date' => MandateExpiryPolicy::lockMessage(),
-            ]);
         }
 
         $previousP24SuburbId = $property->p24_suburb_id;

@@ -45,11 +45,16 @@ class PerformanceSetting extends Model
      * Keys that must NEVER fall back to the global (agency_id=NULL) row —
      * see the 2026-08-15 class docblock note. Matched by the 'company_'
      * prefix so any future company_* addition is covered without another
-     * code change.
+     * code change, and by the 'mandate_expiry_' prefix (AT-448).
      */
     private static function isAgencyOnlyKey(string $key): bool
     {
-        return str_starts_with($key, 'company_');
+        // AT-448 — mandate_expiry_* (warn days, expiry lock) are strictly per agency: a stray
+        // NULL-agency row (script / tinker) must never switch the lock on, or set the warning
+        // window, for every agency that has no row of its own. This also covers the Setup
+        // Wizard's currentValues() read, which resolves through get().
+        return str_starts_with($key, 'company_')
+            || str_starts_with($key, 'mandate_expiry_');
     }
 
     /**

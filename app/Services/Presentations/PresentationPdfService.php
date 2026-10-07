@@ -2545,7 +2545,12 @@ a:hover { text-decoration: underline; }
       // can render it BEFORE Beat 4 (CMA) per spec §1 beat order.
       // ══════════════════════════════════════════════════════════════════════ ?>
 <?php ob_start(); ?>
-<?php if ($sectionEnabled('active_competition')): ?>
+<?php /* Johan 2026-10-07 — no empty section on the seller PDF: with zero scored competitors the whole
+         Beat 3 block is omitted (the summary's page refs already treat the beat as absent when
+         competing_count = 0, and the public seller page omits it too). The AGENT screens show a
+         "No active competition found" notice instead. Ticking the section on still controls it when
+         there IS competition. */ ?>
+<?php if ($sectionEnabled('active_competition') && ($competingCount > 0 || !empty($data['competitor_stock']['visible'] ?? []))): ?>
 <div class="beat-eyebrow">Section <?= $summary['section_index']['competition'] ?? 5 ?> · Beat 3 — What's On The Market Now</div>
 <div class="section-header">
     <span class="section-number">__SECNO__</span>

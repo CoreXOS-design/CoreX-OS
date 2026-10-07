@@ -285,6 +285,22 @@ final class SnapshotAndRevisionTest extends TestCase
             'currency'           => 'ZAR',
             'asking_price_inc'   => 1_800_000,
         ]);
+        // Confirm & Generate refuses a presentation that has no price (Johan,
+        // 2026-10-07), so every fixture presentation carries comparable sales:
+        // three recent sales, median R1 500 000.
+        foreach ([1_400_000, 1_500_000, 1_600_000] as $i => $price) {
+            \App\Models\PresentationSoldComp::create([
+                'agency_id'       => $agencyId,
+                'presentation_id' => $presentation->id,
+                'sold_date'       => now()->subDays(30 * ($i + 1))->toDateString(),
+                'sold_price_inc'  => $price,
+                'suburb'          => 'Testville',
+                'property_type'   => 'house',
+                'size_m2'         => 200,
+                'raw_row_json'    => json_encode(['address' => ($i + 1) . ' Sale Road']),
+                'parser_version'  => 'test-v1',
+            ]);
+        }
         return PresentationVersion::create(array_merge([
             'agency_id'         => $agencyId,
             'presentation_id'   => $presentation->id,

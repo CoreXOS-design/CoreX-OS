@@ -44,19 +44,35 @@ return new class extends Migration
             return;
         }
 
-        // A re-run after a partial earlier insert (or a hand-made row without
-        // listing types) must still end with a real Drive folder.
+        // An existing row (a re-run, a partial earlier insert, a hand-made row, or one
+        // archived / deactivated since) must still end as a REAL, usable Drive folder:
+        // not archived, active, and assigned to listing types. The label is left alone.
+        $repairs = [];
+        if ($existing->deleted_at !== null) {
+            $repairs['deleted_at'] = null;
+        }
+        if (! $existing->is_active) {
+            $repairs['is_active'] = true;
+        }
         $types = json_decode((string) ($existing->listing_types ?? ''), true);
         if (empty($types)) {
-            DB::table('document_types')->where('id', $existing->id)->update([
-                'listing_types' => json_encode(['sale', 'rental']),
-                'updated_at'    => now(),
-            ]);
+            $repairs['listing_types'] = json_encode(['sale', 'rental']);
+        }
+        if ($repairs !== []) {
+            $repairs['updated_at'] = now();
+            DB::table('document_types')->where('id', $existing->id)->update($repairs);
         }
     }
 
     public function down(): void
     {
-        DB::table('document_types')->where('slug', self::SLUG)->delete();
+        // Never a hard delete: on installs where this row pre-existed (the local dev DB
+        // carried a hand-made "Mandate Extension"), up() did not create it, and filed
+        // documents point at it. Archive it instead (the table uses SoftDeletes) -
+        // documents keep their type, and up() restores it on the next run.
+        DB::table('document_types')
+            ->where('slug', self::SLUG)
+            ->whereNull('deleted_at')
+            ->update(['deleted_at' => now(), 'updated_at' => now()]);
     }
 };

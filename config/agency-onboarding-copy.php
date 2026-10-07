@@ -12,6 +12,7 @@ use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
 use App\Http\Controllers\CoreX\RentalInventorySettingsController;
 use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
+use App\Http\Controllers\Settings\Prospecting\StaleRulesController;
 
 /**
  * Agency Onboarding Setup Wizard — content + control map (single source of truth).
@@ -706,12 +707,12 @@ return [
             ['key' => 'mandate_expiry_warn_days', 'source' => 'perf', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'heading' => 'Mandate expiry',
              'label' => 'Warn agents before a mandate expires (days)',
-             'explain' => 'Every listing carries a mandate expiry date. This many days before that date, the agent sees a pop-up on the Properties page listing the mandates about to run out — once per listing, so nobody is nagged. When the date passes, CoreX marks the listing Expired at midnight and takes it off Property24, Private Property and your website automatically.',
+             'explain' => 'Every listing carries a mandate expiry date. This many days before that date, the agent sees a pop-up on the Properties page listing the mandates about to run out — once per listing, so nobody is nagged. When the date passes, CoreX marks the listing Expired at midnight and takes it off any portal or website it was being advertised on automatically.',
              'affects' => 'How far ahead of the expiry date your agents are shown the "Mandates expiring soon" pop-up, and which listings the "Expiring soon" filter on the Properties page shows.'],
 
             ['key' => 'mandate_expiry_lock_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
              'label' => 'Expiry lock',
-             'explain' => 'With this on, once a listing has gone live its expiry date can no longer be changed by hand. To extend a mandate the agent first uploads the signed extension to the Extension folder in the property\'s Drive, which unlocks the date for one change; saving the new date locks it again. Drafts that never went live are not affected.',
+             'explain' => 'With this on, once a listing has gone live its expiry date can no longer be changed by hand. To extend a mandate the agent first uploads the signed extension to the property\'s extension folder in Drive, which unlocks the date for one change; saving the new date locks it again. Drafts that never went live are not affected.',
              'affects' => 'Whether an agent can simply retype the expiry date on a live listing, or must have the signed extension on file in Drive before the date will accept a change.'],
 
             ['key' => 'flag_property_under_offer_on_deal', 'source' => 'deal_sync', 'type' => 'toggle', 'default' => 0,
@@ -848,6 +849,15 @@ return [
                 . 'None of this can be filled in for you — it depends on the towns you actually work and how your '
                 . 'agency prices stock — so this is the one setup step that is genuinely yours to do.',
         ],
+        'savers' => [
+            ['controller' => StaleRulesController::class, 'method' => 'updateListingWindow'],
+        ],
+        'controls' => [
+            ['key' => 'listing_off_market_days', 'source' => 'prospecting_thresholds', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 365,
+             'label' => 'Presume a portal listing off the market after (days unseen)',
+             'explain' => 'CoreX only knows a portal listing is still for sale when the CoreX Chrome extension sees it again. A listing that has not been seen for this many days is presumed off the market. A mandate normally runs 90 days, so 90 is the standard.',
+             'affects' => 'Which portal listings stay in Market Intelligence and in a presentation\'s Active Competition section. A shorter number drops listings an agent simply has not re-searched lately; a longer one keeps genuinely sold or withdrawn listings around for longer.'],
+        ],
         'aux_partial' => 'agency-setup.steps.market-intelligence',
     ],
 
@@ -898,6 +908,9 @@ return [
             // §6.7/§10a. A required <select> always posts a value, so no §6.1
             // has()-guard is needed here (that rule protects optional checkboxes only).
             ['controller' => SettingsController::class, 'method' => 'savePpraInspectionPackSettings'],
+            // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
+            // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
+            ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -931,6 +944,14 @@ return [
              'label' => 'PPRA ZIP max files',
              'explain' => 'The most files the PPRA Inspection Pack\'s mandate register "Download ZIP" (and other per-list ZIP exports) will ever bundle in one download.',
              'affects' => 'How many files the mandate register\'s bulk ZIP export includes before it stops and reports the rest as available-but-not-included.'],
+            // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
+            // Leave blank = the PPRA's own published address (shown greyed out as the
+            // placeholder, exactly like the settings page), so it is correct for any agency.
+            ['key' => 'ppra_employment_letter_address_block', 'source' => 'agency', 'type' => 'textarea', 'rows' => 4,
+             'placeholder' => \App\Models\Compliance\PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK,
+             'label' => 'PPRA employment letter — who it is addressed to',
+             'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
+             'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
         ],
     ],
 

@@ -255,8 +255,28 @@ final class CompPoolBuilder
         $priceGated = array_values(array_filter($typeGated, function ($c) use ($low, $high) {
             return $c['exempt'] || ($c['price'] >= $low && $c['price'] <= $high);
         }));
-        $diagnostics['price_band']    = ['low' => $low, 'high' => $high, 'pct' => $bandPct];
-        $diagnostics['n_after_price'] = count($priceGated);
+
+        // "A presentation must always have a price" (Johan, 2026-10-07): an
+        // asking price far from every comparable sale (a typo, or a hopeful
+        // figure) used to leave this gate with NOTHING — and a presentation with
+        // no comps and no price. When the band around the subject's value
+        // excludes EVERY type-gated sale, re-centre it on the type-gated median
+        // (the very anchor used when the agent gave no asking) rather than
+        // return an empty pool. A band that finds sales is never touched.
+        $bandFallback = false;
+        if (empty($priceGated) && $anchorBroad !== null && $anchorBroad > 0 && $bandAnchor !== $anchorBroad) {
+            $bandAnchor = $anchorBroad;
+            $low  = (int) floor($bandAnchor * (1 - $bandPct / 100));
+            $high = (int) ceil($bandAnchor * (1 + $bandPct / 100));
+            $priceGated = array_values(array_filter($typeGated, function ($c) use ($low, $high) {
+                return $c['exempt'] || ($c['price'] >= $low && $c['price'] <= $high);
+            }));
+            $bandFallback = true;
+            $diagnostics['anchor_used'] = $bandAnchor;
+        }
+        $diagnostics['price_band']          = ['low' => $low, 'high' => $high, 'pct' => $bandPct];
+        $diagnostics['price_band_fallback'] = $bandFallback;
+        $diagnostics['n_after_price']       = count($priceGated);
 
         // ── Stage A.4 — RADIUS gate with widen-if-thin ladder ──────────────
         $ladder = $this->effectiveLadder($config);

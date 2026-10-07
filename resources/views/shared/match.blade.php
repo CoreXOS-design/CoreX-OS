@@ -163,10 +163,16 @@
                 @if($agent)
                 <div class="flex items-center gap-3 flex-shrink-0 rounded-lg px-3.5 py-2.5"
                      style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);">
+                    {{-- Ruling D (2026-10-07): the agent's photo, when they have one, else initials. --}}
+                    @php $agentPhoto = method_exists($agent, 'profilePhotoUrl') ? $agent->profilePhotoUrl() : null; @endphp
+                    @if($agentPhoto)
+                    <img src="{{ $agentPhoto }}" alt="{{ $agent->name }}" class="w-10 h-10 rounded-full object-cover flex-shrink-0">
+                    @else
                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
                          style="background: var(--brand-icon);">
                         {{ strtoupper(substr($agent->name, 0, 2)) }}
                     </div>
+                    @endif
                     <div class="text-left">
                         <div class="text-[0.6875rem] font-semibold uppercase tracking-wider" style="color: rgba(255,255,255,0.55);">Your Agent</div>
                         <div class="text-sm font-semibold text-white leading-tight">{{ $agent->name }}</div>
@@ -175,6 +181,9 @@
                            class="text-xs font-medium" style="color: color-mix(in srgb, var(--brand-icon) 85%, #fff);">
                             {{ $agent->cell ?? $agent->phone }}
                         </a>
+                        @endif
+                        @if($agent->email)
+                        <a href="mailto:{{ $agent->email }}" class="block text-xs font-medium" style="color: color-mix(in srgb, var(--brand-icon) 85%, #fff);">{{ $agent->email }}</a>
                         @endif
                     </div>
                 </div>

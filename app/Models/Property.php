@@ -362,6 +362,19 @@ class Property extends Model
     }
 
     /**
+     * AT-448 (audit fix) - Imported Stock that is still genuinely untouched: nothing has
+     * put it on the market inside CoreX (expiry_lock_engaged_at IS NULL). ONLY this is
+     * exempt from the expiry lock and open to the AT-422 date takeover. A P24-origin
+     * listing that was live and then withdrawn / sold / expired stays on the Imported
+     * Stock page (isImportedStock() is unchanged) but is NOT untouched: its expiry date
+     * is real, so the lock applies and a status save never resets it.
+     */
+    public function isUntouchedImportedStock(): bool
+    {
+        return $this->isImportedStock() && $this->expiry_lock_engaged_at === null;
+    }
+
+    /**
      * AT-422 — the attributes that turn an imported listing into a normal, new-looking
      * one. Applied when a user changes the status, expiry date or listed date of
      * Imported Stock (PropertyController::update): Listed Date and Loaded become today,
@@ -772,6 +785,7 @@ class Property extends Model
         'listed_date',
         'expiry_date',
         'expiry_date_changed_at',
+        'expiry_lock_engaged_at',
         'lease_start_date',
         'lease_end_date',
         'headline',
@@ -917,6 +931,7 @@ class Property extends Model
         'listed_date'         => 'date',
         'expiry_date'         => 'date',
         'expiry_date_changed_at' => 'datetime',
+        'expiry_lock_engaged_at' => 'datetime',
         'occupation_date'     => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',

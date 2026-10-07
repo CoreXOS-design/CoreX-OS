@@ -55,7 +55,13 @@
                         Download FICA certificate (PDF)
                     </a>
                 @endif
-                @if($submission->status === 'agent_approved' && auth()->user()->isComplianceOfficer((int) $submission->agency_id))
+                @if(($ownReviewBlock ?? null) && $submission->status === 'agent_approved')
+                    {{-- Own FICA: the review button is disabled, with the reason (server refuses the route too). --}}
+                    <span class="corex-btn-outline text-xs" aria-disabled="true" data-own-fica-review-disabled
+                          style="opacity:.55; cursor:not-allowed;" title="{{ $ownReviewBlock }}">
+                        Compliance Review
+                    </span>
+                @elseif($submission->status === 'agent_approved' && auth()->user()->isComplianceOfficer((int) $submission->agency_id))
                     <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
                         Compliance Review
@@ -70,6 +76,11 @@
             </div>
         </div>
     </div>
+
+    {{-- Own FICA: the viewer is an officer who may not review this one (top-of-page notice, never a dead end) --}}
+    @if($ownReviewBlock ?? null)
+        @include('compliance.fica.partials.own-review-blocked', ['reason' => $ownReviewBlock])
+    @endif
 
     {{-- Recipient Form Link (online intake only) --}}
     @if(!$submission->isWetInk() && $submission->token)
@@ -112,7 +123,8 @@
                 @php
                     $canResubmit = $submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance');
                 @endphp
-                @if($canResubmit)
+                {{-- Own FICA: the server refuses the resubmit too, so the button is not offered. --}}
+                @if($canResubmit && ! ($ownReviewBlock ?? null))
                     <form method="POST" action="{{ route('compliance.fica.resubmit-corrections', $submission) }}" class="flex-shrink-0">
                         @csrf
                         <button type="submit" class="corex-btn-primary text-sm" onclick="return confirm('Resubmit this FICA for compliance officer review?')">
@@ -334,7 +346,12 @@
             @endif
 
             {{-- Agent approval form (for submitted/under_review/corrections_requested) --}}
-            @if(in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']))
+            @if(in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']) && ($ownReviewBlock ?? null))
+                {{-- Own FICA: checklist / approve / corrections / reject are not offered (server refuses them too).
+                     Screening info stays visible; escalating to the CO stays available. --}}
+                @include('compliance.fica.partials.tfs-panel', ['submission' => $submission])
+                @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
+            @elseif(in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']))
                 {{-- Verification Checklist --}}
                 <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                     <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Verification Checklist</h3>
@@ -486,7 +503,12 @@
                  review screen, or escalate straight from here. --}}
             @if($submission->status === 'agent_approved')
                 @if(auth()->user()->isComplianceOfficer((int) $submission->agency_id))
-                    <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary w-full justify-center text-sm mb-3">Open review</a>
+                    @if($ownReviewBlock ?? null)
+                        <span class="corex-btn-outline w-full justify-center text-sm mb-3" aria-disabled="true" data-own-fica-review-disabled
+                              style="opacity:.55; cursor:not-allowed;" title="{{ $ownReviewBlock }}">Open review</span>
+                    @else
+                        <a href="{{ route('compliance.fica.compliance-review', $submission) }}" class="corex-btn-primary w-full justify-center text-sm mb-3">Open review</a>
+                    @endif
                     @include('compliance.fica.partials.refer-to-co', ['submission' => $submission, 'referralEnabled' => $referralEnabled ?? true, 'viewerIsPrimaryCo' => $viewerIsPrimaryCo ?? false])
                 @else
                     <div class="rounded-md p-5 text-sm"
@@ -522,8 +544,13 @@
                         @endif
                     </dl>
 
-                    {{-- CO/Admin: Reopen button --}}
-                    @if(auth()->user()->isComplianceOfficer((int) $submission->agency_id) || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('compliance.fica.approve') || in_array(auth()->user()->role, ['admin', 'super_admin']))
+                    {{-- CO/Admin: Reopen button. An officer who may not review their own FICA gets the plain reason
+                         instead of a button the server would refuse. --}}
+                    @if($ownReopenBlock ?? null)
+                    <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
+                        <p class="text-xs" style="color:var(--text-secondary);" data-own-fica-reopen-blocked>{{ $ownReopenBlock }}</p>
+                    </div>
+                    @elseif(auth()->user()->isComplianceOfficer((int) $submission->agency_id) || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('compliance.fica.approve') || in_array(auth()->user()->role, ['admin', 'super_admin']))
                     <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
                         <button type="button" @click="reopenOpen = true" class="corex-btn-primary text-sm" style="background:var(--ds-amber,#f59e0b); box-shadow:none;">
                             Reopen for Corrections

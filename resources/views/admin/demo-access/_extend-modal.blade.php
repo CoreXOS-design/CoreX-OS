@@ -71,7 +71,7 @@
                     <span>Their access ends <strong x-text="g.endsAt"></strong>. The time you choose is added on top of that.</span>
                 </template>
                 <template x-if="g.status === 'expired'">
-                    <span>Their access ended <strong x-text="g.endsAt"></strong>. Adding time switches it back on from today, for the period you choose.</span>
+                    <span>Their access ended <strong x-text="g.endsAt"></strong>. Adding time switches it back on from today, for the period you choose. If they already tried to open the demo after it ended, they will need to sign in again with their original access code.</span>
                 </template>
             </p>
 
@@ -105,7 +105,9 @@
             </div>
 
             <p class="text-xs" style="color: var(--text-muted);">
-                Same access code and the terms they already accepted — nothing to resend.
+                Same access code and the terms they already accepted. We email them to say their access has been
+                extended (the email never contains the code, which cannot be re-sent - only a scrambled copy is kept).
+                If they have lost it, issue a new grant instead.
                 It reaches the demo within {{ (int) config('corex.instance.gate_cache_ttl', 60) }} seconds, not instantly.
             </p>
         </div>

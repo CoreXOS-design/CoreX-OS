@@ -40,6 +40,8 @@ return new class extends Migration
             ->distinct()
             ->pluck('agency_id');
 
+        $now = now();   // one instant, so created_at == updated_at marks the row as never edited (see down())
+
         foreach ($agencyIds as $agencyId) {
             if ($agencyId === null) {
                 continue;
@@ -63,19 +65,26 @@ return new class extends Migration
                 'sort_order' => 12,
                 'is_default' => 1,
                 'active'     => 1,
-                'created_at' => now(),
-                'updated_at' => now(),
+                'created_at' => $now,
+                'updated_at' => $now,
             ]);
         }
     }
 
     public function down(): void
     {
-        // Only the rows this migration owns (is_default = 1) — never tenant-authored copies.
+        // Soft-delete only (the table uses SoftDeletes - no hard delete, ever), and
+        // only the rows this migration could own: the default "Expired" item that is
+        // still active and has never been edited since it was written. A row an
+        // agency customised (renamed, deactivated, re-ordered, touched in any way)
+        // is left exactly as they have it.
         DB::table('property_setting_items')
             ->where('group', self::GROUP)
             ->where('name', self::NAME)
             ->where('is_default', 1)
-            ->delete();
+            ->where('active', 1)
+            ->whereNull('deleted_at')
+            ->whereColumn('updated_at', 'created_at')
+            ->update(['deleted_at' => now()]);
     }
 };

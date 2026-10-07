@@ -90,7 +90,16 @@ needs no new code; it needs to be proven on the lane.
     withdrawn listing stays locked — that is the point.
   - A draft that never went live is not locked.
   - Imported Stock (AT-422) is exempt until it is taken over — its date is an import artefact, and
-    setting an expiry *is* the takeover gesture.
+    setting an expiry *is* the takeover gesture. The exemption is keyed on "still genuinely
+    untouched", NOT on the current status: `Property::isUntouchedImportedStock()` =
+    `isImportedStock()` AND `expiry_lock_engaged_at IS NULL`. A P24-origin listing that was on the market
+    and is then moved off it by a signed-in user (Withdrawn, Expired, Sold…) or by the midnight sweep gets
+    `expiry_lock_engaged_at` stamped at that moment, so the lock applies and stays on (D4). **Johan's ruling
+    (2026-10-07): such listings STAY on the Imported Stock page** - Imported Stock membership
+    (`imported_released_at`, the scopes, the page) is not touched by this. An engaged listing is not
+    "untouched": the property page shows its real, locked date (not "Imported"), a status-only save never
+    resets or clears its date, and no AT-422 takeover happens for it. Genuinely imported, untouched
+    off-market stock behaves exactly as before.
   - A live listing with **no** expiry date may have one set for the first time (nothing is being
     extended). Once a date exists, **any** change to it (later or earlier, or clearing it) is locked.
 - On the property page the Expiry Date input is read-only with a banner (STANDARDS "No Silent Locks"):
@@ -105,9 +114,19 @@ needs no new code; it needs to be proven on the lane.
   date is edited, not on the Overview). This is the "comes from the expiry date setting" part of the
   request: the folder is always there; the prompt to use it is on the date itself.
 - Install note: on an install that already carries a `document_types` row with slug `mandate_extension`
-  (the local dev DB did, labelled "Mandate Extension"), the migration keeps that row and only ensures
-  its listing types; a fresh install gets the label "Extension". Either way the folder is renameable
-  under Settings → Document Types.
+  (the local dev DB did, labelled "Mandate Extension"), the migration keeps its label and repairs
+  everything else a usable folder needs (un-archives it, makes it active, ensures its listing types); a
+  fresh install gets the label "Extension".
+- **The Extension folder is a protected system row** (audit fix 2026-10-07). It is ONE global
+  `document_types` row that every agency's lock, banner wording and Drive picker read, so one agency
+  must not be able to change it for the others. Settings → Document Types (and the DocuPerfect types
+  screen) refuse to rename, reorder, deactivate, clear the listing types of, or archive it
+  (`MandateExpiryPolicy::isProtectedDocumentTypeSlug()`); the screen shows it as a "System folder" with
+  those controls fixed. The per-agency options on that row (compliance, Save To, routing, buyer-pack
+  override) still save per agency. No per-agency label override mechanism exists in the codebase, so
+  none was invented - label edits to this slug are simply ignored.
+- Never "locked forever": if the Extension folder is not usable (archived, inactive, or no listing
+  types) nothing could ever unlock the date, so the lock does not hold.
 - Server-side the lock is enforced in the web update (a locked change is rejected with the banner's
   message, never a 500), not in the model — so imports, the sweep and other system writers are untouched.
 - Lock **off** → the date is editable exactly as today; the Extension folder still exists.
@@ -127,7 +146,7 @@ needs no new code; it needs to be proven on the lane.
 | D5 | Any change to an existing date is locked, not just extensions | One rule to explain; shortening also needs the document. |
 | D6 | Any file type in Extension unlocks (PDF or photo) — **confirmed by Andre** | Agents photographing a signed extension on mobile are not trapped. |
 | D7 | Unlock is per-upload (document newer than last date change) | Each extension needs its own paperwork on file. |
-| D8 | Extension folder is global (every agency sees it) | That is how every Drive folder works; agencies rename in Settings → Document Types. |
+| D8 | Extension folder is global (every agency sees it) and protected | Every agency sees the same folder; because every agency's lock depends on it, no agency can rename, deactivate or remove it (audit fix 2026-10-07). |
 | D9 | Both settings go in the Setup Wizard (Properties step) | Nothing deliberately left out; no Johan omission call needed. |
 | D10 | Manual "Expired" fires `MandateExpired` like the sweep | One audit trail and one de-listing path whether a human or the clock expired it. |
 | D11 | Existing per-user bell notification `property.mandate_expiring` is untouched | Two dials exist (agency popup days vs user bell days); flagged in §11 as a possible follow-up, not changed here. |
@@ -158,9 +177,19 @@ needs no new code; it needs to be proven on the lane.
   Unique `(user_id, property_id, expiry_date)`. Model `App\Models\PropertyExpiryPopupView`. Rows are a
   log and are never deleted (no delete path exists).
 
+### 4.1a `properties.expiry_lock_engaged_at` (audit fix 2026-10-07)
+- `expiry_lock_engaged_at` TIMESTAMP NULL (migration `2026_10_15_100000_add_expiry_lock_engaged_at_to_properties`,
+  idempotent via `Schema::hasColumn`, reversible, no index). Stamped by `PropertyObserver::saving()` when a
+  signed-in user moves a P24-origin, never-taken-over listing from an on-market status to an Imported-Stock
+  off-market status, and by the `mandates:expire` sweep when it expires such a row. Cast `datetime`, in
+  `$fillable` like `expiry_date_changed_at`. Backfill: NULL.
+
 ### 4.4 `performance_settings` (per agency, via `PerformanceSetting::get/set` with explicit `$agencyId`)
 - `mandate_expiry_warn_days` int, default 7, range 1–90.
 - `mandate_expiry_lock_enabled` 0/1, default 0.
+- Both are **agency-only keys** (`PerformanceSetting::isAgencyOnlyKey()`, prefix `mandate_expiry_`): the
+  NULL-agency fallback row is never consulted, so a stray global row can never switch the lock on or set
+  the window for every agency (this also covers the Setup Wizard's `currentValues()` read).
 
 No schema snapshot change beyond the one new column → run `DB_DATABASE=hfc_dash_test php artisan
 schema:dump`, strip DEFINER with perl (memory: PowerShell strip corrupts), verify no table dropped.
@@ -171,7 +200,9 @@ schema:dump`, strip DEFINER with perl (memory: PowerShell strip corrupts), verif
 - Number input "Warn agents … days before a mandate expires" + Save.
 - Toggle "Expiry lock — once a listing is live, its expiry date can only change after an Extension
   document is uploaded to Drive" (switch submits on change, hidden `0` companion like `pp_exclusivity_enabled`).
-- Helper copy under each control: what it is + "What this changes:".
+- Helper copy under each control: what it is + "What this changes:". Copy is portal-neutral ("takes it off any
+  portal or website it was being advertised on" - a rentals-only agency may have no portals) and the Settings
+  card names the Extension folder by its live label.
 - Route `POST /corex/settings/mandate-expiry` → `SettingsController@updateMandateExpiry`,
   middleware `permission:access_settings` (same as Syndication Portals); redirect back to
   `['s' => 'feature-properties']`.
@@ -182,11 +213,14 @@ schema:dump`, strip DEFINER with perl (memory: PowerShell strip corrupts), verif
 
 ### 5.2 Runtime resolver (never read PerformanceSetting inline in jobs/controllers)
 `App\Services\Properties\MandateExpiryPolicy` (new, small):
-- `warnDaysFor(?int $agencyId): int` — default 7 when `$agencyId <= 0` or unset; clamps 1–90.
+- `warnDaysFor(?int $agencyId): int` — default 7 when `$agencyId <= 0`, unset or non-numeric; an out-of-range
+  value clamps to the nearest bound (0 → 1, 500 → 90).
 - `lockEnabledFor(?int $agencyId): bool` — false when `$agencyId <= 0`.
-- `isExpiryLocked(Property $p): bool` — lock on ∧ `hasGoneLive()` ∧ `expiry_date !== null` ∧
-  `!isImportedStock()` ∧ `!hasFreshExtensionDocument()`.
-- `hasFreshExtensionDocument(Property $p): bool` — a non-deleted `documents` row joined via
+- `lockState(Property $p): array` (the spec's `isExpiryLocked()`; `['locked']` is the answer) — lock on ∧
+  `hasGoneLive()` ∧ `expiry_date !== null` ∧ `!isImportedStock()` ∧ the Extension folder is usable ∧ no
+  fresh Extension document. `hasGoneLive()` (a DB query) is only evaluated while the lock is on.
+- `hasFreshExtensionDocument(Property $p): bool` — (single source: `lockState()` uses the same private
+  rule) a non-deleted `documents` row joined via
   `document_properties` with `document_type.slug='mandate_extension'` and `created_at >
   (expiry_date_changed_at ?? '1970-01-01')`.
 - `expiringWindow(?int $agencyId): [Carbon $from, Carbon $to]` — today … today+N.
@@ -211,6 +245,7 @@ Saver: `['controller' => SettingsController::class, 'method' => 'updateMandateEx
 | Property page — locked Expiry Date + banner + callout | existing Lifecycle section / Overview | existing edit auth (`authorizeProperty`) | existing | n/a |
 | Drive — Extension folder | automatic (active type with listing_types) | existing Drive permissions | existing | existing |
 | Settings card | rail: Modules → Properties & Listings | `access_settings` | per agency (`agency.required`) | n/a |
+| Popup dismiss endpoint (`POST /api/v1/properties/expiry-popup/dismiss`) | fired by the popup | `access_properties` + `agency.required` (no agency ⇒ 422) | the user's OWN on-market listings inside the warning window only | n/a |
 | Settings → Document Types | existing CRUD for the new type | existing | global | existing |
 
 No new page ⇒ no new sidebar entry. No new permission key (declared; nothing hidden behind a missing one).
@@ -258,13 +293,17 @@ No new page ⇒ no new sidebar entry. No new permission key (declared; nothing h
 | expiry_date re-submitted unchanged on a locked listing | Absorb: compared as normalised dates — not a change |
 | expiry_date cleared on a locked listing | Prevent: counts as a change |
 | first expiry date on a live listing with none | Absorb: allowed |
-| Imported Stock takeover via expiry date | Absorb: exempt from the lock |
+| Imported Stock takeover via expiry date | Absorb: exempt from the lock (only while never taken over and never on the market in CoreX) |
+| Live imported listing withdrawn / swept to Expired | Prevent: `expiry_lock_engaged_at` is stamped on leaving the market, so it is no longer "untouched" and stays locked; it STAYS on the Imported Stock page (Johan) |
+| Locked save rejected while the form carries photos | Prevent: the lock is checked straight after `validate()`, before any file is stored - a refused save leaves nothing on disk |
+| Extension folder archived / inactive / no listing types (data accident) | Absorb: the lock cannot hold (nothing could unlock it); the settings screens cannot cause this |
+| Agency tries to rename / deactivate / clear / archive the Extension folder | Prevent: refused / ignored server-side; shown as a fixed System folder |
 | Extension document soft-deleted after unlocking | Lock re-engages (query excludes trashed) |
 | Extension uploaded to an agency with lock OFF | Absorb: filed, no behaviour |
 | Property with null expiry_date in the window | Not "expiring"; not in popup |
 | Listing agent deleted / null on a popup row | Render "— " for agent; row still links |
 | Popup dismissal on a web-only QA box | Works (direct DB write, no queue) |
-| Dismiss posted twice / for a listing that is not the user's own (even by an admin) | Upsert is idempotent; ids are re-checked against the user's own listings before writing; others' ids ignored |
+| Dismiss posted twice / for a listing that is not the user's own (even by an admin), another agency's, off-market, or outside the warning window | Upsert is idempotent; ids are re-checked against the user's own on-market listings inside the window before writing; every other id is ignored (a crafted id cannot pre-suppress a future announcement) |
 | An admin / branch manager / owner opens Properties while only other agents' listings expire | No popup at all |
 | Expiry date extended after being announced | New (user, property, expiry_date) key ⇒ announces again when it re-enters the window |
 
@@ -280,7 +319,17 @@ Single relevant test file during the build: **`tests/Feature/Properties/Property
 - lock: off ⇒ editable; on + draft ⇒ editable; on + live ⇒ 422 with message; on + live + fresh
   extension ⇒ saves and re-locks; stale extension (older than last change) ⇒ 422; cleared date ⇒ 422;
   same date ⇒ ok; first date ⇒ ok; imported stock ⇒ ok; soft-deleted extension ⇒ 422;
-- manual Expired fires `MandateExpired` once with actor and dispatches the de-syndication job;
+- manual Expired fires `MandateExpired` once with actor and dispatches the de-syndication job (event observed
+  with a listener, not faked, so the real `DesyndicateExpiredMandate` listener still runs);
+- audit fixes (2026-10-07): untouched imported stock saves through the controller (takeover, exempt);
+  withdrawing a live imported listing and the midnight sweep stay locked AND stay on the Imported Stock page
+  (a status-only save keeps the date); a bare `expired` status stays locked; a
+  non-Extension (and an untyped) document does not unlock; "expires today" shows in the pop-up and is
+  locked; dismiss ignores another agency's id, off-market, out-of-window and others' ids; a rejected locked
+  save stores no files; the Extension folder cannot be renamed / deactivated / cleared / archived from
+  agency settings (and an ordinary type still can); an unusable folder never locks forever; warn-days
+  clamp; a NULL-agency row never leaks; no advertising query while the lock is off; migration repair of an
+  archived/inactive row and non-destructive `down()` for both data migrations;
 - settings saver: validation bounds, has() guards, 403 on agency 0.
 Plus a wizard-guard case in `AgencySetupWizardSaverGuardTest`.
 
@@ -322,7 +371,9 @@ first proven on Staging after Andre's go.
 - `.ai/CHAT_STARTER.md` — IN FLIGHT entry
 - Demo: `DemoDataSeeder::backfillPropertyStatusItems()` picks up DEFAULT_ROWS (verify, change only if it hard-codes names)
 
-**Not touched (declared):** `ExpireMandates`, `DesyndicatePropertyFromPortalsJob`, portal sync services
+**Audit-fix touch list (2026-10-07):** `app/Observers/PropertyObserver.php` (engage the lock on a live P24-origin listing a user takes off the market), `app/Console/Commands/ExpireMandates.php` (same stamp on the sweep - no other change), `app/Models/Property.php` (`isUntouchedImportedStock()`, column cast/fillable), new migration `2026_10_15_100000_add_expiry_lock_engaged_at_to_properties`, `resources/views/corex/properties/show.blade.php` (engaged imports show the real locked date), `app/Http/Controllers/Admin/SplitterDocTypeController.php` + `app/Http/Controllers/Docuperfect/DocumentTypeController.php` + `resources/views/admin/splitter/doc-types.blade.php` (protect the Extension folder), `app/Models/PerformanceSetting.php` (agency-only keys), `routes/web.php` (dismiss middleware), `app/Services/Properties/MandateExpiryPolicy.php`, `app/Http/Controllers/CoreX/PropertyController.php` (lock check moved up), migrations `..._100000` / `..._100100`, `config/agency-onboarding-copy.php` + `resources/views/corex/settings.blade.php` (portal-neutral copy), `.ai/specs/corex-domain-events-spec.md` (MandateExpired trigger row).
+
+**Not touched (declared):** `DesyndicatePropertyFromPortalsJob`, portal sync services
 (refresh-cost contract untouched — no new portal calls), `ScanPropertyNotifications`, mobile API.
 
 ## 11. Boundaries and follow-ups raised, not built
@@ -352,6 +403,17 @@ first proven on Staging after Andre's go.
   parse error reported is the PRE-EXISTING `view: localStorage.getItem('prop_view')` read in the list's
   root x-data (harness mock gap, Standard −1e — not touched, reported).
 - Full suite NOT run (CLAUDE.md #13). Not deployed to QA2 by this session.
+
+## 11b. Audit-fix record (2026-10-07)
+
+Fixes from the post-merge audit: Imported-Stock exemption keyed on "untouched" via the new `expiry_lock_engaged_at` column (not current
+status, and without moving listings off Imported Stock); Extension folder protected as a global system row; lock check moved straight after `validate()`;
+`mandate_expiry_*` made agency-only; dismiss endpoint gated (`access_properties`, `agency.required`) and
+limited to own on-market in-window listings; MandateExpired catalogue row updated; policy single-sourced
+(dead duplicate removed, clamp, no advertising query while the lock is off); portal-neutral copy; both data
+migrations made safe to repair / roll back. Proven by `PropertyExpiryTest` (41 tests). Business questions answered by Johan 2026-10-07: withdrawn / sold /
+expired P24-origin listings stay on the Imported Stock page; the Extension folder is fixed for all agencies; a
+missing / unusable Extension folder quietly means the lock does not hold.
 
 ## 12. Acceptance criteria
 

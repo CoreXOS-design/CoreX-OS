@@ -870,56 +870,53 @@
             <div style="font-size:0.875rem;line-height:1.65;color:var(--text-primary);margin-bottom:16px;white-space:pre-wrap;">{{ $version->ai_summary_text }}</div>
         @endif
 
+        {{-- Facts the property does not have are LEFT OUT — a seller never sees a
+             row that ends in a dash (Johan, 2026-10-07). Each column only
+             renders when it has at least one known fact. --}}
+        @php
+            $subjectFacts = $analysisData['subject_property'] ?? [];
+            $munVal  = $subjectFacts['municipal_value'] ?? null;
+            $munYear = $subjectFacts['municipal_year'] ?? null;
+
+            $propertyFacts = array_values(array_filter([
+                $presentation->property_type ? ['Type', \Illuminate\Support\Str::humanType($presentation->property_type)] : null,
+                $presentation->bedrooms      ? ['Bedrooms', $presentation->bedrooms] : null,
+                $presentation->bathrooms     ? ['Bathrooms', $presentation->bathrooms] : null,
+                $presentation->floor_area_m2 ? ['Floor area', number_format($presentation->floor_area_m2) . ' m²'] : null,
+                $presentation->erf_size_m2   ? ['Erf size', number_format($presentation->erf_size_m2) . ' m²'] : null,
+            ]));
+
+            $locationFacts = array_values(array_filter([
+                ['Address', $propertyAddress],
+                $suburb ? ['Suburb', $suburb] : null,
+                (!empty($property->latitude) && !empty($property->longitude))
+                    ? ['GPS', number_format($property->latitude, 5) . ', ' . number_format($property->longitude, 5)] : null,
+                $munVal ? ['Municipal value' . ($munYear ? ' (' . $munYear . ')' : ''), 'R ' . number_format($munVal, 0, '.', ' ')] : null,
+            ]));
+        @endphp
         <div class="facts-grid">
+            @if(!empty($propertyFacts))
             <div class="facts-col">
                 <h3>Property</h3>
-                <div class="facts-row">
-                    <span class="lbl">Type</span>
-                    <span class="val {{ $presentation->property_type ? '' : 'missing' }}">{{ $presentation->property_type ? \Illuminate\Support\Str::humanType($presentation->property_type) : '—' }}</span>
-                </div>
-                <div class="facts-row">
-                    <span class="lbl">Bedrooms</span>
-                    <span class="val {{ $presentation->bedrooms ? '' : 'missing' }}">{{ $presentation->bedrooms ?: '—' }}</span>
-                </div>
-                <div class="facts-row">
-                    <span class="lbl">Bathrooms</span>
-                    <span class="val {{ $presentation->bathrooms ? '' : 'missing' }}">{{ $presentation->bathrooms ?: '—' }}</span>
-                </div>
-                <div class="facts-row">
-                    <span class="lbl">Floor area</span>
-                    <span class="val {{ $presentation->floor_area_m2 ? '' : 'missing' }}">{{ $presentation->floor_area_m2 ? number_format($presentation->floor_area_m2) . ' m²' : '—' }}</span>
-                </div>
-                <div class="facts-row">
-                    <span class="lbl">Erf size</span>
-                    <span class="val {{ $presentation->erf_size_m2 ? '' : 'missing' }}">{{ $presentation->erf_size_m2 ? number_format($presentation->erf_size_m2) . ' m²' : '—' }}</span>
-                </div>
+                @foreach($propertyFacts as [$factLabel, $factValue])
+                    <div class="facts-row">
+                        <span class="lbl">{{ $factLabel }}</span>
+                        <span class="val">{{ $factValue }}</span>
+                    </div>
+                @endforeach
             </div>
+            @endif
+            @if(!empty($locationFacts))
             <div class="facts-col">
                 <h3>Location</h3>
-                <div class="facts-row">
-                    <span class="lbl">Address</span>
-                    <span class="val">{{ $propertyAddress }}</span>
-                </div>
-                <div class="facts-row">
-                    <span class="lbl">Suburb</span>
-                    <span class="val {{ $suburb ? '' : 'missing' }}">{{ $suburb ?: '—' }}</span>
-                </div>
-                @if(!empty($property->latitude) && !empty($property->longitude))
+                @foreach($locationFacts as [$factLabel, $factValue])
                     <div class="facts-row">
-                        <span class="lbl">GPS</span>
-                        <span class="val">{{ number_format($property->latitude, 5) }}, {{ number_format($property->longitude, 5) }}</span>
+                        <span class="lbl">{{ $factLabel }}</span>
+                        <span class="val">{{ $factValue }}</span>
                     </div>
-                @endif
-                @php
-                    $subjectFacts = $analysisData['subject_property'] ?? [];
-                    $munVal = $subjectFacts['municipal_value'] ?? null;
-                    $munYear = $subjectFacts['municipal_year'] ?? null;
-                @endphp
-                <div class="facts-row">
-                    <span class="lbl">Municipal value{{ $munYear ? ' (' . e($munYear) . ')' : '' }}</span>
-                    <span class="val {{ $munVal ? '' : 'missing' }}">{{ $munVal ? 'R ' . number_format($munVal, 0, '.', ' ') : '—' }}</span>
-                </div>
+                @endforeach
             </div>
+            @endif
         </div>
     </section>
 

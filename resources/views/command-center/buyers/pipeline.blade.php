@@ -209,11 +209,14 @@
                                 $buyerPrimaryWishlist = $buyer->primaryMatch();
                                 $buyerIsRental = $buyer->primaryMatchIsRental();
                             @endphp
+                            @php $buyerReadOnly = in_array((int) $buyer->id, $readOnlyBuyerIds ?? [], true); @endphp
                             <a href="{{ route('command-center.buyers.show', $buyer) }}"
+                               @unless($buyerReadOnly)
                                draggable="true"
                                @dragstart="startDrag({{ $buyer->id }}, '{{ $stateKey }}', {{ $buyerIsRental ? 'true' : 'false' }})"
                                @dragend="endDrag()"
-                               class="block p-3 rounded-md transition hover:opacity-80 no-underline relative cursor-grab active:cursor-grabbing"
+                               @endunless
+                               class="block p-3 rounded-md transition hover:opacity-80 no-underline relative {{ $buyerReadOnly ? '' : 'cursor-grab active:cursor-grabbing' }}"
                                style="background: var(--surface-2); border: 1px solid var(--border);">
                                 @if($buyerRisk !== null && $buyerRisk > 30)
                                     <span class="absolute top-2 right-2 w-2.5 h-2.5 rounded-full"
@@ -266,6 +269,13 @@
                                     Schedule Viewing
                                 </a>
                             </div>
+                            @if(($canMoveBuyers ?? false) && ! in_array((int) $buyer->id, $readOnlyBuyerIds ?? [], true))
+                            <button type="button" x-data
+                                    @click="$dispatch('open-move-buyer', { name: @js($buyer->full_name), current: @js($buyer->agent?->name), currentId: {{ (int) $buyer->agent_id }}, action: @js(route('corex.core-matches.reassign-buyer', $buyer)) })"
+                                    class="block w-full text-center text-[10px] font-medium py-1 mt-1 rounded-md hover:opacity-80 transition cursor-pointer"
+                                    style="color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border);"
+                                    title="Move this {{ $personNoun }}, and all their saved searches, to another agent">Move to another agent</button>
+                            @endif
                         @empty
                             <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No {{ $personNounPlural }} in this state</div>
                         @endforelse
@@ -364,6 +374,12 @@
                                 @else
                                 <span class="text-xs" style="color: var(--text-muted);">—</span>
                                 @endif
+                                @if(($canMoveBuyers ?? false) && ! in_array((int) $buyer->id, $readOnlyBuyerIds ?? [], true))
+                                <button type="button" x-data
+                                        @click="$dispatch('open-move-buyer', { name: @js($buyer->full_name), current: @js($buyer->agent?->name), currentId: {{ (int) $buyer->agent_id }}, action: @js(route('corex.core-matches.reassign-buyer', $buyer)) })"
+                                        class="corex-btn-outline text-xs ml-1 cursor-pointer"
+                                        title="Move this {{ $personNoun }}, and all their saved searches, to another agent">Move to another agent</button>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -438,9 +454,14 @@ function kanbanDrag() {
                 return;
             }
 
-            // Lost requires reason — redirect to buyer hub Mark Lost
+            // Lost needs a reason — open the shared Mark-Lost dialog (the same partial the buyer page and
+            // Core Matches use) right here, aimed at THIS buyer's mark-lost endpoint. The card has not
+            // moved (a drop only moves a card after the server accepts it), so cancelling the dialog
+            // leaves it exactly where it was; only a saved reason moves the buyer to Lost.
             if (newState === 'lost') {
-                window.location.href = '/corex/command-center/buyers/' + this.draggingId + '?action=mark-lost';
+                const detail = { url: '/corex/command-center/buyers/' + this.draggingId + '/mark-lost', noun: this.draggingIsRental ? 'tenant' : 'buyer' };
+                this.endDrag();
+                window.dispatchEvent(new CustomEvent('open-pipeline-lost', { detail }));
                 return;
             }
 
@@ -471,4 +492,19 @@ function kanbanDrag() {
     };
 }
 </script>
+{{-- Drag-to-Lost: the ONE shared Mark-Lost dialog (reason list required, same endpoint and validation
+     as the buyer page and Core Matches). The drop handler above fills in the buyer's endpoint and opens it. --}}
+<div x-data
+     @open-pipeline-lost.window="
+         const dlg = $refs.pipelineLostModal;
+         dlg.querySelector('[data-mark-lost-form]').action = $event.detail.url;
+         dlg.querySelectorAll('[data-lost-noun]').forEach(el => el.textContent = $event.detail.noun);
+         dlg.querySelector('[data-mark-lost-form]').reset();
+         dlg.showModal();
+     ">
+    @include('command-center.buyers._mark-lost-dialog', ['ref' => 'pipelineLostModal', 'agencyId' => (int) auth()->user()->effectiveAgencyId(), 'noun' => 'buyer', 'action' => null])
+</div>
+@if($canMoveBuyers ?? false)
+    @include('corex.core-matches._move-buyer-modal', ['moveBuyerAgents' => $moveBuyerAgents])
+@endif
 @endsection

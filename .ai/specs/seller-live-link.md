@@ -165,3 +165,8 @@ Unchanged shared partials.
 - **`getFeedbackRollup()`/`getRecentViewings()` cross-property leakage risk** — the eventIds OR-join those two (pre-existing, unmodified) methods use was found to pull a sibling property's own feedback row into this property's numbers, for calendar events linked to more than one candidate property. `getFeedbackThemes()` (new, this build) avoids it by reading `property_id` only. The older methods were NOT changed (out of scope) — worth a look on their own.
 - **The 30D chart default can look empty on an older property** even when the price-change narrative below it references real, older activity — a real consequence of the current-date-relative default toggle plus the system-wide portal-sync staleness already flagged separately (see Staging session notes) meeting a property whose real activity happened weeks/months ago. Not fixed here; the default range was kept at 30D (the buttons themselves were extended 2026-10-07, see "Range buttons" in §4).
 - **Environment:** this spec describes QA1's current state as of 2026-08-25. Confirm before assuming Staging or live match it — see the session's branch/environment report for what has and hasn't travelled.
+
+
+**Buyer notes never reach this page (2026-10-07).** The agent Intelligence tab's Buyer Interest Signals
+rows carry a view-only "Notes (n)" control (contact notes, scoped by the contact's own visibility rules —
+see `core-matches.md`). This page still only receives counts by tier; no note text, count or notes URL.

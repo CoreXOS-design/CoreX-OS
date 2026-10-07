@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Docuperfect;
 
 use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\DocumentType;
+use App\Services\Properties\MandateExpiryPolicy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -55,6 +56,11 @@ class DocumentTypeController extends Controller
 
         $type = DocumentType::findOrFail($id);
 
+        // AT-448 — the Extension folder is a global system row every agency's expiry lock depends on.
+        if (MandateExpiryPolicy::isProtectedDocumentTypeSlug($type->slug)) {
+            return back()->with('error', "\"{$type->name}\" is a system folder used by every agency's expiry lock - it cannot be renamed.");
+        }
+
         $request->validate([
             'name' => 'required|string|max:255',
             'sort_order' => 'nullable|integer|min:0',
@@ -76,6 +82,11 @@ class DocumentTypeController extends Controller
         }
 
         $type = DocumentType::findOrFail($id);
+
+        // AT-448 — archiving the Extension folder would strand every agency's locked expiry dates.
+        if (MandateExpiryPolicy::isProtectedDocumentTypeSlug($type->slug)) {
+            return back()->with('error', "\"{$type->name}\" is a system folder used by every agency's expiry lock - it cannot be archived.");
+        }
 
         if ($type->templates()->count() > 0) {
             return back()->with('error', "Cannot delete \"{$type->name}\" — it has templates assigned.");

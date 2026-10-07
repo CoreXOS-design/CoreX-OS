@@ -341,8 +341,12 @@ class FicaController extends Controller
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
         $tfsScreening = $submission->latestTfsScreening();
+        // Only while there is something to review (or, on a rejected record, to reopen): a finished
+        // or unsent record gets no "your own FICA" notice and no dead button.
+        $ownReviewBlock = $submission->ownReviewNoticeFor(Auth::user());
+        $ownReopenBlock = $submission->ownReopenBlockFor(Auth::user());
 
-        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'tfsScreening'));
+        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'tfsScreening', 'ownReviewBlock', 'ownReopenBlock'));
     }
 
     /**
@@ -396,6 +400,10 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403, 'Only a Compliance Officer may decide a TFS match.');
+
+        if ($block = $this->refuseOwnReview($submission, 'tfs_decision', true)) {
+            return $block;
+        }
 
         $data = $request->validate([
             'screening_id' => 'required|integer',
@@ -475,6 +483,10 @@ class FicaController extends Controller
     {
         $this->authorizeAgency($submission);
 
+        if ($block = $this->refuseOwnReview($submission, 'agent_approve', true)) {
+            return $block;
+        }
+
         // TFS sanctions gate — block an unresolved hit / review / unscreened submission.
         if ($block = $this->tfsApprovalGuard($submission, 'compliance.fica.show')) {
             return $block;
@@ -516,6 +528,10 @@ class FicaController extends Controller
     public function complianceReview(FicaSubmission $submission, FicaReferralService $referrals)
     {
         $this->authorizeAgency($submission);
+
+        if ($block = $this->refuseOwnReview($submission, 'compliance_review', false)) {
+            return $block;
+        }
         abort_unless(Auth::user()->isComplianceOfficer((int) $submission->agency_id), 403, 'Only compliance officers can access this page.');
 
         $submission->load(['contact', 'requestedBy', 'agentVerifiedBy', 'coVerifiedBy', 'documents', 'referredBy', 'linkedDocuments.documentType']);
@@ -539,6 +555,10 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403);
+
+        if ($block = $this->refuseOwnReview($submission, 'compliance_approve', true)) {
+            return $block;
+        }
 
         // TFS sanctions gate — a hit / undecided review / unscreened pack cannot be
         // finally approved. The CO resolves the flag (clear / confirm) first.
@@ -649,6 +669,10 @@ class FicaController extends Controller
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403);
 
+        if ($block = $this->refuseOwnReview($submission, 'compliance_reject', true)) {
+            return $block;
+        }
+
         // AT-269 (P2-49) — station separation, action-enforced (see complianceApprove).
         if ($submission->status === 'referred_to_co' && ! $referrals->isReferralStationOwner($submission, $actor)) {
             abort(403, 'Only the Compliance Officer this pack was referred to may decide it.');
@@ -754,6 +778,10 @@ class FicaController extends Controller
         $this->authorizeAgency($submission);
         $actor = Auth::user();
         abort_unless($actor->isComplianceOfficer((int) $submission->agency_id), 403);
+
+        if ($block = $this->refuseOwnReview($submission, 'return_to_referrer', true)) {
+            return $block;
+        }
         abort_unless($submission->status === 'referred_to_co', 422, 'This FICA is not currently referred.');
 
         // AT-269 (P2-49) — only the recipient / primary CO may return a referred pack.
@@ -776,6 +804,10 @@ class FicaController extends Controller
     public function reject(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        if ($block = $this->refuseOwnReview($submission, 'agent_reject', true)) {
+            return $block;
+        }
 
         $validated = $request->validate([
             'reviewer_notes' => 'required|string|max:2000',
@@ -806,6 +838,10 @@ class FicaController extends Controller
     public function requestCorrections(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        if ($block = $this->refuseOwnReview($submission, 'request_corrections', true)) {
+            return $block;
+        }
 
         $validated = $request->validate([
             'reviewer_notes' => 'required|string|max:2000',
@@ -974,6 +1010,13 @@ class FicaController extends Controller
     public function resubmitCorrections(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        // Resubmitting moves the pack straight to agent_approved (the RO queue) with no stage-1
+        // check, so for an officer's own FICA it would sidestep the blocked stage-1 step.
+        if ($block = $this->refuseOwnReview($submission, 'resubmit_corrections', true)) {
+            return $block;
+        }
+
         abort_unless($submission->status === 'corrections_requested', 400, 'Submission is not in corrections requested state.');
 
         $user = Auth::user();
@@ -1002,6 +1045,10 @@ class FicaController extends Controller
     public function reopenRejected(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        if ($block = $this->refuseOwnReview($submission, 'reopen_rejected', true)) {
+            return $block;
+        }
 
         $user = Auth::user();
         abort_unless(
@@ -1451,6 +1498,55 @@ class FicaController extends Controller
             403,
             'This FICA record is outside your access scope.'
         );
+    }
+
+    /**
+     * Own-FICA separation, enforced at the START of every review / mark-up action —
+     * not only at final approval. An appointed officer (RO/MLRO, not the primary CO)
+     * who requested or stage-1-approved this FICA is turned back to the record page
+     * with the reason; nothing is saved. Attempts on a POST are written to the audit
+     * ledger; a plain page view (GET) is refused silently so a refresh cannot flood it.
+     * The ledger is also not written for a record with nothing to review (approved /
+     * cancelled / draft; rejected only counts for the Reopen action), and the same user
+     * repeating the same blocked action on the same FICA within a minute is one row, not
+     * one per click. See FicaSubmission::ownReviewBlockFor().
+     */
+    private function refuseOwnReview(FicaSubmission $submission, string $attempt, bool $audit = true)
+    {
+        $actor = Auth::user();
+        $reason = $submission->ownReviewBlockFor($actor);
+        if ($reason === null) {
+            return null;
+        }
+
+        $reviewable = $submission->isInOwnReviewState()
+            || ($attempt === 'reopen_rejected' && $submission->status === 'rejected');
+
+        if ($audit && $reviewable && ! $this->recentlyBlocked($submission, $actor, $attempt)) {
+            FicaStatusHistory::record(
+                $submission,
+                'self_approval_blocked',
+                $submission->status,
+                $submission->status,
+                $actor,
+                'Blocked at entry (' . $attempt . '): an officer may not review their own FICA.',
+                ['attempt' => $attempt, 'requested_by' => $submission->requested_by, 'agent_verified_by' => $submission->agent_verified_by],
+            );
+        }
+
+        return redirect()->route('compliance.fica.show', $submission)->withErrors(['own_fica' => $reason]);
+    }
+
+    /** Has this user already been blocked on this FICA for this same action in the last minute? (ledger de-dup) */
+    private function recentlyBlocked(FicaSubmission $submission, User $actor, string $attempt): bool
+    {
+        return FicaStatusHistory::withoutGlobalScopes()
+            ->where('fica_submission_id', $submission->id)
+            ->where('action', 'self_approval_blocked')
+            ->where('actor_user_id', $actor->id)
+            ->where('created_at', '>=', now()->subSeconds(60))
+            ->get(['meta'])
+            ->contains(fn ($row) => ($row->meta['attempt'] ?? null) === $attempt);
     }
 
     /**

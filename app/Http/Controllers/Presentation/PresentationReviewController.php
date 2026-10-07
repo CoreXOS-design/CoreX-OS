@@ -15,7 +15,9 @@ use App\Models\PresentationVersion;
 use App\Models\PropertySettingItem;
 use App\Services\Presentations\AnalysisDataService;
 use App\Services\Presentations\ConditionAdjustmentService;
+use App\Services\Presentations\PresentationPriceReadiness;
 use App\Support\Presentations\CompLabel;
+use App\Support\Presentations\CompSelectionRepair;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -88,12 +90,16 @@ final class PresentationReviewController extends Controller
             ->orderByDesc('sold_date')
             ->get();
 
-        // null = no opinion (all ticked); [] = agent unticked everything.
-        // Must mirror AnalysisDataService's whitelist test exactly — `?:`
-        // here showed every box ticked while the CMA tiles computed from
-        // an empty pool and rendered blank.
-        $includedIds = $version->included_comp_ids_json
-            ?? $allComps->pluck('id')->all();
+        // null = no opinion (all ticked). The ticks come from the SAME resolver
+        // AnalysisDataService uses (CompSelectionRepair), so what is drawn ticked
+        // is exactly what the CMA tiles are calculated from: a stored [] or a
+        // selection that no longer reaches a priced comp reads as "all comps".
+        $selection   = CompSelectionRepair::resolve(
+            (int) $version->presentation_id,
+            $version->included_comp_ids_json,
+            $allComps,
+        );
+        $includedIds = $selection['whitelist'] ?? $allComps->pluck('id')->map(fn ($v) => (int) $v)->all();
 
         // Keystone — title_type now lives on properties.title_type,
         // derived from property_type by TitleTypeClassifier on every save.
@@ -176,6 +182,19 @@ final class PresentationReviewController extends Controller
         $cmaValue        = $analysis['cma_valuation']    ?? [];
         $competitorStock = $analysis['competitor_stock'] ?? ['matches' => [], 'included_ids' => null, 'visible' => [], 'missing_inputs' => [], 'has_low_confidence' => false];
 
+        // "A presentation must always have a price" — the shared check, so the
+        // screen says plainly what is missing instead of showing a bare dash.
+        $priceReadiness = PresentationPriceReadiness::fromAnalysis($presentation, $analysis);
+
+        // Picks a regenerate had to drop because their sale was not in the
+        // fresh pull (written by PresentationCompilerService) — announced, not silent.
+        $regenDropped = AgentOverride::query()
+            ->where('presentation_version_id', $version->id)
+            ->where('override_type', AgentOverride::TYPE_COMP_UNAVAILABLE)
+            ->get(['after_value'])
+            ->filter(fn ($o) => (($o->after_value['reason'] ?? null) === \App\Services\Presentations\PresentationCompilerService::REASON_NOT_IN_REGENERATED_SET))
+            ->count();
+
         // Build 4 — section toggle state for Section 3 of the review.
         $sectionsCatalogue = PresentationVersion::SECTIONS_CATALOGUE;
         $sectionFloor      = PresentationVersion::SECTION_FLOOR;
@@ -219,6 +238,13 @@ final class PresentationReviewController extends Controller
             'isLockedByOther'      => $isLockedByOther,
             'currentReviewer'      => $currentReviewer,
             'unavailableLogged'    => $unavailableLogged,
+            'priceReadiness'       => $priceReadiness,
+            'selectionRepaired'    => $selection['repaired']
+                // reconcile above may already have replaced a selection whose every
+                // pick was retired (it saves null = all comps) — still say so.
+                ?? (($unavailableLogged > 0 && $version->included_comp_ids_json === null)
+                    ? CompSelectionRepair::REPAIRED_RETIRED : null),
+            'regenDropped'         => $regenDropped,
             // Build 3 — condition picker + initial valuation.
             'conditionLevels'      => $conditionLevels,
             'currentConditionId'   => $currentCondId,
@@ -416,10 +442,12 @@ final class PresentationReviewController extends Controller
             return response()->json(['error' => 'comp_not_in_version'], 422);
         }
 
-        $current = $version->included_comp_ids_json ?? PresentationSoldComp::query()
-            ->where('presentation_id', $version->presentation_id)
-            ->whereNull('deleted_at')
-            ->pluck('id')->all();
+        // Start from what the screen shows (the engine's own resolution), so a
+        // stored [] / stale selection toggles from "all comps ticked".
+        $live    = $this->liveComps($version);
+        $current = CompSelectionRepair::resolve(
+            (int) $version->presentation_id, $version->included_comp_ids_json, $live,
+        )['whitelist'] ?? $live->pluck('id')->all();
         $current = array_values(array_unique(array_map('intval', $current)));
 
         $wantIncluded = (bool) $request->boolean('included');
@@ -440,6 +468,12 @@ final class PresentationReviewController extends Controller
             $current[] = (int) $comp->id;
         } else {
             $current = array_values(array_diff($current, [(int) $comp->id]));
+        }
+
+        // A presentation must always have a price: never let the last priced
+        // comp be unticked. Nothing is written; the screen puts the tick back.
+        if (!$this->hasPricedPick($current, $live)) {
+            return $this->refuseEmptySelection();
         }
 
         DB::transaction(function () use ($version, $current, $comp, $request, $wantIncluded, $wasIncluded) {
@@ -597,20 +631,26 @@ final class PresentationReviewController extends Controller
     public function setComps(Request $request, PresentationVersion $version): JsonResponse
     {
         $this->authoriseReviewer($request, $version);
+        // `sometimes`: a browser form with nothing ticked sends no included_ids[]
+        // at all — that is an empty selection to refuse with a plain message,
+        // not a bare validation error.
         $data = $request->validate([
-            'included_ids'   => 'present|array',
+            'included_ids'   => 'sometimes|array',
             'included_ids.*' => 'integer',
         ]);
 
-        $validIds = PresentationSoldComp::query()
-            ->where('presentation_id', $version->presentation_id)
-            ->whereNull('deleted_at')
-            ->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $live     = $this->liveComps($version);
+        $validIds = $live->pluck('id')->map(fn ($v) => (int) $v)->all();
 
         $included = array_values(array_intersect(
-            array_values(array_unique(array_map('intval', $data['included_ids']))),
+            array_values(array_unique(array_map('intval', $data['included_ids'] ?? []))),
             $validIds
         ));
+
+        // A presentation must always have a price — see toggleComp().
+        if (!$this->hasPricedPick($included, $live)) {
+            return $this->refuseEmptySelection();
+        }
 
         DB::transaction(function () use ($version, $included, $request) {
             $version->forceFill(['included_comp_ids_json' => $included])->save();
@@ -756,11 +796,10 @@ final class PresentationReviewController extends Controller
             // Newly-added comps must be INCLUDED. If the version had no explicit
             // set yet (null = "all persisted"), make it explicit so both the
             // existing default pool and the new comps are honoured.
-            $current = $version->included_comp_ids_json ?? PresentationSoldComp::query()
-                ->where('presentation_id', $version->presentation_id)
-                ->whereNull('deleted_at')
-                ->whereNotIn('id', $newIds)
-                ->pluck('id')->map(fn ($v) => (int) $v)->all();
+            $existing = $this->liveComps($version)->reject(fn ($c) => in_array((int) $c->id, $newIds, true));
+            $current  = CompSelectionRepair::resolve(
+                (int) $version->presentation_id, $version->included_comp_ids_json, $existing,
+            )['whitelist'] ?? $existing->pluck('id')->map(fn ($v) => (int) $v)->all();
             $current = array_values(array_unique(array_merge(array_map('intval', $current), $newIds)));
             $version->forceFill(['included_comp_ids_json' => $current])->save();
 
@@ -1207,6 +1246,37 @@ final class PresentationReviewController extends Controller
 
     // ── Internals ───────────────────────────────────────────────────────
 
+    /** The presentation's live (non-deleted) comps — id + sold price is all callers need. */
+    private function liveComps(PresentationVersion $version): \Illuminate\Support\Collection
+    {
+        return PresentationSoldComp::query()
+            ->where('presentation_id', $version->presentation_id)
+            ->whereNull('deleted_at')
+            ->get(['id', 'sold_price_inc']);
+    }
+
+    /** Does this selection include at least one live comp with a sold price? */
+    private function hasPricedPick(array $ids, \Illuminate\Support\Collection $live): bool
+    {
+        $set = array_flip(array_map('intval', $ids));
+        foreach ($live as $c) {
+            if (isset($set[(int) $c->id]) && (int) $c->sold_price_inc > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 422 for an attempt to leave nothing ticked. Nothing was changed. */
+    private function refuseEmptySelection(): JsonResponse
+    {
+        return response()->json([
+            'ok'      => false,
+            'error'   => 'empty_selection',
+            'message' => PresentationPriceReadiness::NOTHING_TICKED_MESSAGE,
+        ], 422);
+    }
+
     /** Permission gate. Throws 403 on mismatch. */
     private function authoriseReviewer(Request $request, PresentationVersion $version): void
     {
@@ -1229,8 +1299,8 @@ final class PresentationReviewController extends Controller
      * is logged for it. A pick with no live counterpart is genuinely gone: it
      * is dropped and a comp_unavailable row is logged so the audit trail
      * captures the implicit change. If every pick is gone the set falls back
-     * to null (all comps), never [] — [] is reserved for an agent who
-     * deliberately unticked everything.
+     * to null (all comps), never [] — an empty selection would leave the
+     * presentation without a price.
      *
      * Returns the number of comps that were auto-dropped, so the Blade
      * can surface a banner.

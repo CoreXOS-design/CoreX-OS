@@ -79,7 +79,7 @@
             <p class="text-xs mb-3" style="color:var(--ds-green,#059669);">Cleared as a false positive by a Compliance Officer{{ $s->decided_at ? ' on '.$s->decided_at->format('Y-m-d H:i') : '' }}.</p>
         @elseif($s->decision === 'confirmed_hit')
             <p class="text-xs mb-3" style="color:#dc2626;">Confirmed as a sanctions match by a Compliance Officer.</p>
-        @elseif($s->isFlagged() && $viewerIsCo)
+        @elseif($s->isFlagged() && $viewerIsCo && ! ($ownReviewBlock ?? null))
             <form method="POST" action="{{ route('compliance.fica.tfs-decision', $submission) }}" class="rounded p-2" style="background:var(--surface-2); border:1px dashed var(--border);">
                 @csrf
                 <input type="hidden" name="screening_id" value="{{ $s->id }}">

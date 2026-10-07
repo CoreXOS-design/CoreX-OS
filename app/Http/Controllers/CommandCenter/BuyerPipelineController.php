@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class BuyerPipelineController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -165,6 +167,14 @@ class BuyerPipelineController extends Controller
             $sortBy = 'last_activity_at';
         }
 
+        // Johan, 2026-10-07 — "Move buyer to another agent" on the card: managers only
+        // (core_matches.reassign). Every buyer on this board already bound under the
+        // viewer's ContactScope + pipeline scope; the route re-checks permission + scope.
+        $canMoveBuyers = $user->hasPermission('core_matches.reassign');
+        $moveBuyerAgents = $canMoveBuyers
+            ? \App\Models\User::agencyMembers()->where('is_active', 1)->orderBy('name')->get(['id', 'name'])
+            : collect();
+
         // Agent filter door — options come from a copy of the SAME scope +
         // lead-type query (before state/agent/search narrow it further), so
         // the dropdown always lists every agent reachable from here rather
@@ -204,6 +214,9 @@ class BuyerPipelineController extends Controller
                 'indexRouteName' => $indexRouteName,
                 'search' => $search,
                 'agentOptions' => $agentOptions,
+                'canMoveBuyers' => $canMoveBuyers,
+                'moveBuyerAgents' => $moveBuyerAgents,
+                'readOnlyBuyerIds' => $this->readOnlyBuyerIds($buyers->getCollection()->merge($wonBuyers)),
                 'agentFilter' => $agentFilter,
                 'stateFilter' => $stateFilter,
                 'enteredFrom' => $request->get('entered_from'),
@@ -276,6 +289,7 @@ class BuyerPipelineController extends Controller
             'counts' => $counts,
             'riskScores' => $riskScores,
             'coreMatchCounts' => $this->coreMatchCounts($shownIds),
+            'readOnlyBuyerIds' => $this->readOnlyBuyerIds(collect($columns)->flatMap(fn ($c) => $c)->merge($wonBuyers)),
             'pipelineScope' => $pipelineScope,
             // Also missing entirely — the Sales/Rentals button never knew
             // which one was active in kanban view (always rendered "All" as
@@ -288,6 +302,8 @@ class BuyerPipelineController extends Controller
             'indexRouteName' => $indexRouteName,
             'search' => $search,
             'agentOptions' => $agentOptions,
+                'canMoveBuyers' => $canMoveBuyers,
+                'moveBuyerAgents' => $moveBuyerAgents,
             'agentFilter' => $agentFilter,
             'stateFilter' => $stateFilter,
             'enteredFrom' => $request->get('entered_from'),
@@ -324,10 +340,34 @@ class BuyerPipelineController extends Controller
             ->pluck('c', 'contact_id');
     }
 
+    /**
+     * Buyers on this board the viewer can SEE but may not move: an assistant looking at a colleague's
+     * buyer (AuthorizesContactAccess — view breadth is wider than edit breadth for assistants only,
+     * so this is empty for everyone else). The board uses it to leave off the drag handle and the
+     * "Move to another agent" button; updateState() / markLost() / reassignBuyer() refuse anyway.
+     *
+     * @return array<int,int>
+     */
+    private function readOnlyBuyerIds($buyers): array
+    {
+        if (! auth()->user()?->is_assistant) {
+            return [];
+        }
+
+        return $buyers->filter(fn ($b) => $b instanceof Contact && ! $this->canMutateContact($b))
+            ->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+    }
+
     public function updateState(Request $request, Contact $contact)
     {
+        // Same rule as every contact write: an assistant may view a colleague's buyer, not move them.
+        $this->authorizeContact($contact);
+
         $request->validate([
-            'state' => 'required|in:new,warm,cold,lost',
+            // Lost is NOT accepted here: a buyer is only ever marked Lost with a captured reason, through
+            // BuyerDetailController::markLost() (the one shared dialog). Drag-to-Lost on the board and the
+            // Core Matches button both open that dialog instead of calling this.
+            'state' => 'required|in:new,warm,cold',
             'reason' => 'nullable|string|max:500',
         ]);
 

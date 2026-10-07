@@ -7,6 +7,29 @@
 # migrate → reference-seed → build → cache+opcache → queue restart → verify →
 # up. Aborts on any failure; the backup taken in step 2 is the rollback source.
 #
+# FAILURE POLICY — what happens to maintenance mode (2026-10-07):
+#   Maintenance is released by an EXIT trap, decided by how far the deploy got
+#   (MAINT_POLICY below) — never by whichever line happened to fail:
+#     steps 1-3   nothing has changed yet      → released automatically.
+#     steps 4-9   code pulled / DB being changed → HELD ON on purpose (a site
+#                 running new code on a half-migrated schema is worse than a
+#                 503); the failure report prints the rollback commands.
+#     step 10+    migrated, built, cached      → the site ALWAYS comes back up.
+#                 A worker or verify problem is reported loudly (exit 3/4)
+#                 instead of locking users out.
+#   Exit codes: 0 clean · 1 hard failure (see on_error) · 2 usage ·
+#               3 deployed + site up, but queue workers NOT confirmed healthy ·
+#               4 deployed + site up, but a post-deploy verification FAILED.
+#   Why workers need care: while the site is in maintenance, every `queue:work
+#   --max-time=N` worker exits 0 about 1.5 s after it starts (Laravel's paused
+#   loop calls stopIfNecessary() without a start time, so the max-time test is
+#   hrtime-since-host-boot ≥ N) and supervisor respawns it, hundreds of times a
+#   minute for the whole window. `supervisorctl restart` racing that storm
+#   intermittently exits 7 ("ERROR (abnormal termination)"). STEP 10 therefore
+#   tolerates that exit code, verifies by polling supervisor with a bounded
+#   retry, and the workers are re-verified as STABLE after the site is up
+#   (no storm then). See docs/DEPLOY.md §4a.
+#
 # Usage:
 #   /corex-staging/scripts/deploy.sh staging
 #   /corex/scripts/deploy.sh production
@@ -83,20 +106,34 @@ fail() { log "  ✗ $*"; return 1; }
 
 CURRENT_STEP="0 / not yet started"
 MAINT_MODE_ON=0
+# What the EXIT trap does with maintenance mode (see FAILURE POLICY in the header):
+#   release            — nothing has changed yet (steps 1-3): lift it.
+#   hold               — code pulled / DB being changed (steps 4-9): leave it ON.
+#   release-with-warning — migrated + built (step 10+): lift it, however we got here.
+MAINT_POLICY="release"
 BACKUP_FILE=""
 PREV_SHA=""
 NEW_SHA=""
+WARNINGS=()            # post-point-of-no-return problems that did NOT stop the deploy
+VERIFY_FAILURES=()     # STEP 11 checks that failed (site is still brought up)
+FAILURE_REPORTED=0     # set by on_error; lets on_exit say so when set -e fired where on_error cannot
 
-on_error() {
-    local exit_code=$1 line=$2
-    echo "" | tee -a "$LOG_FILE"
-    log "════════════════════════════════════════════════════════════"
-    log "❌ DEPLOY FAILED at step '${CURRENT_STEP}'"
-    log "   Script line:  $line"
-    log "   Exit code:    $exit_code"
-    if (( MAINT_MODE_ON )); then
-        log "   Maintenance: STILL ON — users see the 503 page."
+# Lift maintenance mode. Always run from $DIR so it also works from a trap.
+release_maintenance() {
+    if ( cd "$DIR" && php artisan up ); then
+        MAINT_MODE_ON=0
+        return 0
     fi
+    return 1
+}
+
+# Record a problem that must be loud in the final summary but must NOT abort.
+note_problem() {
+    WARNINGS+=("$*")
+    warn "$*"
+}
+
+print_rollback_help() {
     if [[ -n "$BACKUP_FILE" && -s "$BACKUP_FILE" ]]; then
         log ""
         log "🔁 ROLLBACK (database restore from the pre-deploy backup):"
@@ -119,17 +156,80 @@ on_error() {
             log "    ⚠ NO off-server copy (BACKUP_MODE=local). The only backup is the local file above —"
             log "      if the host disk dies, the backup is gone with it."
         fi
-    elif (( MAINT_MODE_ON )); then
-        log ""
-        log "🔁 NO DB backup taken yet — only code/cache changes. Bring up with:"
-        log "    cd $DIR && php artisan up"
     fi
     log ""
     log "See DEPLOY.md §Rollback for the full procedure."
+}
+
+on_error() {
+    local exit_code=$1 line=$2
+    FAILURE_REPORTED=1
+    echo "" | tee -a "$LOG_FILE"
+    log "════════════════════════════════════════════════════════════"
+    log "❌ DEPLOY FAILED at step '${CURRENT_STEP}'"
+    log "   Script line:  $line"
+    log "   Exit code:    $exit_code"
+    if (( MAINT_MODE_ON )); then
+        if [[ "$MAINT_POLICY" == "hold" ]]; then
+            log "   Maintenance: STILL ON (held on purpose — the database and/or code may be half-changed). Users see the 503 page."
+        else
+            log "   Maintenance: will be LIFTED automatically on exit — nothing left to protect users from."
+            log "   ⚠ The site will be UP after this failure. Review '${CURRENT_STEP}' above before trusting this deploy."
+        fi
+    fi
+    if [[ -n "$BACKUP_FILE" && -s "$BACKUP_FILE" ]]; then
+        print_rollback_help
+    else
+        if (( MAINT_MODE_ON )) && [[ "$MAINT_POLICY" == "hold" ]]; then
+            log ""
+            log "🔁 NO DB backup taken yet — only code/cache changes. Bring up with:"
+            log "    cd $DIR && php artisan up"
+        fi
+        log ""
+        log "See DEPLOY.md §Rollback for the full procedure."
+    fi
     log "════════════════════════════════════════════════════════════"
     exit "$exit_code"
 }
+
+# EXIT trap — runs on EVERY way out of the script (success, `exit`, set -e abort,
+# Ctrl-C, SIGTERM, ssh hang-up) and is the ONLY place maintenance is released on
+# failure. Policy, not line number, decides (see MAINT_POLICY / header).
+on_exit() {
+    local rc=$?
+    trap - EXIT ERR
+    set +e
+    # set -e can fire inside a function, where the ERR trap (no `set -E`) does not
+    # run — so on_error never printed. Say so here rather than exit silently.
+    # Exit 3/4 are the deliberate "landed, needs a human" codes, 129/130/143 signals.
+    if (( rc != 0 && rc != 3 && rc != 4 && ! FAILURE_REPORTED )); then
+        log ""
+        log "❌ DEPLOY STOPPED at step '${CURRENT_STEP}' (exit $rc) — no detailed failure report; see the output above."
+    fi
+    if (( MAINT_MODE_ON )); then
+        if [[ "$MAINT_POLICY" == "hold" ]]; then
+            log "⚠ Maintenance mode left ON deliberately (step '${CURRENT_STEP}'): the database/code may be half-changed."
+            log "  Roll back (above) or finish by hand, then: cd $DIR && php artisan up"
+        elif release_maintenance; then
+            if (( rc != 0 )); then
+                log "⚠ Maintenance LIFTED on exit (step '${CURRENT_STEP}', exit $rc). The site is UP — do not assume this deploy is healthy."
+            else
+                log "  ✓ Maintenance lifted on exit"
+            fi
+        else
+            log "❌ COULD NOT LIFT MAINTENANCE MODE — users still see the 503 page. Run NOW: cd $DIR && php artisan up"
+            (( rc != 0 )) || rc=1
+        fi
+    fi
+    exit "$rc"
+}
 trap 'on_error $? $LINENO' ERR
+trap on_exit EXIT
+# Turn signals into a normal exit so on_exit always runs (a dropped ssh session is
+# SIGHUP — it used to leave the site in maintenance with nothing logged).
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Load secrets
 [[ -r "$DEPLOY_ENV_FILE" ]] || { echo "❌ Missing or unreadable $DEPLOY_ENV_FILE — see DEPLOY.md §One-time server setup" >&2; exit 1; }
@@ -343,6 +443,10 @@ ok "Maintenance ON (bypass: https://<host>/$DOWN_SECRET)"
 CURRENT_STEP="4 / pull"
 step 4 "git fetch + fast-forward to origin/$BRANCH"
 
+# From here the code on disk, then the DB, change. A failure in steps 4-9 leaves
+# maintenance ON (see FAILURE POLICY in the header); only step 10+ releases it.
+MAINT_POLICY="hold"
+
 git fetch origin "$BRANCH" --prune
 # --ff-only refuses to merge if the branch has diverged locally; safer than
 # a default pull (which would auto-merge). On a clean prod host this is a
@@ -532,16 +636,105 @@ sudo systemctl reload nginx 2>/dev/null || warn "nginx reload not available (ski
 
 # =============================================================================
 # STEP 10 — QUEUE WORKERS
+#
+# POINT OF NO RETURN: the DB is migrated, the build and caches are done. From
+# here no failure may keep users out (see FAILURE POLICY in the header), and
+# nothing in this step may abort the deploy — a worker problem is recorded with
+# note_problem() and surfaced in the summary / exit code instead.
 # =============================================================================
 CURRENT_STEP="10 / queue workers"
+MAINT_POLICY="release-with-warning"
 step 10 "signal + restart queue workers"
 
-# 9a. Laravel-level signal — workers stop cleanly after their current job.
-# Always safe; works even when no host-level worker manager is installed.
-php artisan queue:restart
-ok "Laravel queue:restart signal sent"
+# --- supervisor helpers ------------------------------------------------------
+# Every call is `sudo -n` (never prompts; same reasoning as STEP 5) and only uses
+# the `status` and `restart` verbs the sudoers grant in DEPLOY.md §2d already
+# covers — a straggler is kicked with `restart <name>`, which also starts a
+# FATAL/BACKOFF/STOPPED process, so no `start` grant is needed.
+# Tunable from /etc/hfc-deploy.env (or the caller's environment); defaults below.
+: "${WORKER_STABLE_SECS:=3}"      # post-up: RUNNING at least this long counts as stable
+: "${WORKER_SETTLE_ATTEMPTS:=4}"  # pre-up (site in maintenance): kept short — every poll extends the outage
+: "${WORKER_WAIT_ATTEMPTS:=8}"    # post-up (site live, no downtime cost): attempts × interval ≈ 40 s
+: "${WORKER_WAIT_INTERVAL:=5}"
+WORKER_EXPECTED_COUNT=0
+WORKERS_LAST_BAD=""
 
-# 9b. Host-level worker manager — auto-detect. AT-357: the box's supervisord
+# Status lines of THIS environment's pool only (AT-357: the supervisord is shared).
+pool_status() {
+    sudo -n supervisorctl status 2>/dev/null \
+        | awk -v p="$WORKER_POOL" '$0 ~ ("^" p "[:-]")' || true
+}
+
+# Print "<name> <state>" for every pool process that is NOT in the wanted state.
+#   settling : RUNNING or STARTING is fine (pre-up: paused workers churn, so a
+#              stable uptime is unprovable while the site is in maintenance).
+#   stable   : must be RUNNING for >= WORKER_STABLE_SECS (site is up, no storm).
+# A pool that lists fewer programs than before the restart is reported too —
+# an empty list must never read as "all healthy".
+workers_not_up() {
+    local mode="$1" listing count
+    listing="$(pool_status)"
+    count=0
+    if [[ -n "$listing" ]]; then count=$(printf '%s\n' "$listing" | wc -l); fi
+    if (( count < WORKER_EXPECTED_COUNT )); then
+        echo "(pool) MISSING — only $count of $WORKER_EXPECTED_COUNT programs listed"
+    fi
+    [[ -z "$listing" ]] && return 0
+    printf '%s\n' "$listing" | awk -v mode="$mode" -v minup="$WORKER_STABLE_SECS" '
+        {
+            name = $1; state = $2; up = -1
+            if (match($0, /uptime [0-9]+:[0-9]+:[0-9]+/)) {
+                split(substr($0, RSTART + 7, RLENGTH - 7), t, ":")
+                up = t[1] * 3600 + t[2] * 60 + t[3]
+            } else if ($0 ~ /uptime [0-9]+ days?,/) {
+                up = 999999
+            }
+            if (mode == "settling") { bad = (state != "RUNNING" && state != "STARTING") }
+            else                    { bad = (state != "RUNNING" || up < minup) }
+            if (bad) print name " " state
+        }'
+}
+
+# Poll until every pool process is up, kicking stragglers, with a bounded retry.
+# Terminal states (FATAL/STOPPED/EXITED/UNKNOWN) are restarted at once; a
+# BACKOFF/STARTING/just-started process is left to supervisor's own autorestart
+# and only kicked on the last attempt. Returns 0 = all up, 1 = gave up
+# (WORKERS_LAST_BAD names what is still down).
+await_workers() {
+    local mode="$1" attempts="$2" i bad name state kick_out kick_rc final=0
+    for (( i = 1; i <= attempts; i++ )); do
+        bad="$(workers_not_up "$mode")"
+        if [[ -z "$bad" ]]; then WORKERS_LAST_BAD=""; return 0; fi
+        (( i == attempts )) && final=1
+        log "  ⋯ workers not up yet (attempt $i/$attempts, $mode):"
+        printf '%s\n' "$bad" | sed 's/^/        /' | tee -a "$LOG_FILE"
+        while IFS=' ' read -r name state _; do
+            [[ -n "$name" && "$name" != "(pool)" ]] || continue
+            case "$state" in
+                FATAL|STOPPED|EXITED|UNKNOWN) ;;
+                *) (( final )) || continue ;;
+            esac
+            kick_rc=0
+            kick_out="$(sudo -n supervisorctl restart "$name" 2>&1)" || kick_rc=$?
+            printf '%s\n' "$kick_out" | tee -a "$LOG_FILE"
+            (( kick_rc == 0 )) || log "        (restart $name exited $kick_rc — re-checked on the next poll)"
+        done <<< "$bad"
+        sleep "$WORKER_WAIT_INTERVAL"
+    done
+    bad="$(workers_not_up "$mode")"
+    WORKERS_LAST_BAD="$bad"
+    [[ -z "$bad" ]]
+}
+
+# 10a. Laravel-level signal — workers stop cleanly after their current job.
+# Always safe; works even when no host-level worker manager is installed.
+if php artisan queue:restart; then
+    ok "Laravel queue:restart signal sent"
+else
+    note_problem "php artisan queue:restart failed — running workers were NOT signalled to reload (host-level restart below still applies)"
+fi
+
+# 10b. Host-level worker manager — auto-detect. AT-357: the box's supervisord
 # is SHARED across environments (corex-worker-live x2, corex-worker-live-mail,
 # corex-worker-live-matching, corex-worker-staging all show up in one
 # `supervisorctl status`), so the old broad "corex-worker" prefix match could
@@ -550,6 +743,7 @@ ok "Laravel queue:restart signal sent"
 # got restarted (mail/matching silently kept running old code). Match ONLY
 # this environment's own pool name(s), and restart every match, not just one.
 WORKER_MECHANISM=""
+WORKERS_HEALTHY=""    # "yes" only once a manager's workers were verified up
 # AT-357 follow-up (env-derive, 2026-08-06): the worker-pool prefix is DERIVED
 # from this deploy's already-computed environment (EXPECT_APP_ENV/BRANCH set at
 # the top), never hardcoded, so one deploy.sh is correct on every environment.
@@ -562,24 +756,48 @@ case "$EXPECT_APP_ENV" in
 esac
 ok "Worker pool (derived from APP_ENV=$EXPECT_APP_ENV): $WORKER_POOL"
 if command -v supervisorctl >/dev/null 2>&1; then
-    SUPER_PROGS=$(sudo supervisorctl status 2>/dev/null \
-        | awk -v p="$WORKER_POOL" '$0 ~ ("^" p "[:-]") {print $1}' \
-        | cut -d: -f1 | sort -u || true)
+    WORKER_LISTING="$(pool_status)"
+    SUPER_PROGS=""
+    if [[ -n "$WORKER_LISTING" ]]; then
+        WORKER_EXPECTED_COUNT=$(printf '%s\n' "$WORKER_LISTING" | wc -l)
+        SUPER_PROGS=$(printf '%s\n' "$WORKER_LISTING" | awk '{print $1}' | cut -d: -f1 | sort -u)
+    fi
     if [[ -n "$SUPER_PROGS" ]]; then
+        # 2026-10-07 — `supervisorctl restart` exits 7 ("ERROR (abnormal
+        # termination)") whenever a worker dies inside supervisor's 1 s start
+        # window, and while the site is in maintenance EVERY worker does (header).
+        # That used to hit `set -e` and abort the deploy here with the site down.
+        # The exit code is now logged, never fatal; the verified state below is
+        # what decides whether the workers are OK.
         while IFS= read -r prog; do
-            sudo supervisorctl restart "${prog}:*" | tee -a "$LOG_FILE"
+            restart_rc=0
+            restart_out="$(sudo -n supervisorctl restart "${prog}:*" 2>&1)" || restart_rc=$?
+            printf '%s\n' "$restart_out" | tee -a "$LOG_FILE"
+            if (( restart_rc != 0 )); then
+                warn "supervisorctl restart ${prog}:* exited $restart_rc — expected while workers churn in maintenance; verifying below"
+            fi
         done <<< "$SUPER_PROGS"
-        WORKER_MECHANISM="supervisord programs: $(echo "$SUPER_PROGS" | tr '\n' ' ')"
+        WORKER_MECHANISM="supervisord programs: $(printf '%s' "$SUPER_PROGS" | tr '\n' ' ')"
+        if await_workers settling "$WORKER_SETTLE_ATTEMPTS"; then
+            WORKERS_HEALTHY="yes"
+            ok "All $WORKER_EXPECTED_COUNT worker processes accepted by supervisor (final stability re-checked after the site is up)"
+        else
+            note_problem "Queue workers not confirmed after restart (pre-up): $(printf '%s' "$WORKERS_LAST_BAD" | tr '\n' ';')"
+        fi
     fi
 fi
 if [[ -z "$WORKER_MECHANISM" ]] && command -v systemctl >/dev/null 2>&1; then
-    SYSTEMD_UNIT=$(sudo systemctl list-units --type=service --no-pager --plain 2>/dev/null \
+    SYSTEMD_UNIT=$(sudo -n systemctl list-units --type=service --no-pager --plain 2>/dev/null \
         | awk '{print $1}' \
         | grep -E "^${WORKER_POOL}[a-z0-9.-]*\.service$" \
         | head -1 || true)
     if [[ -n "$SYSTEMD_UNIT" ]]; then
-        sudo systemctl restart "$SYSTEMD_UNIT"
         WORKER_MECHANISM="systemd unit $SYSTEMD_UNIT"
+        if sudo -n systemctl restart "$SYSTEMD_UNIT"; then
+            WORKERS_HEALTHY="yes"   # re-verified (is-active) after the site is up
+        else
+            note_problem "systemctl restart $SYSTEMD_UNIT failed — workers may still be running old code"
+        fi
     fi
 fi
 if [[ -z "$WORKER_MECHANISM" ]]; then
@@ -589,39 +807,77 @@ fi
 ok "Worker mechanism: $WORKER_MECHANISM"
 
 # =============================================================================
-# STEP 11 — VERIFY (any failure here triggers the failure trap → rollback)
+# STEP 11 — VERIFY
+#
+# Every check runs even if an earlier one failed, and a failure is recorded, not
+# fatal: by now the DB is migrated, so locking users out does not undo anything.
+# A failed check turns the final result into exit 4 + a loud banner naming it.
 # =============================================================================
 CURRENT_STEP="11 / verify"
 step 11 "verify deployment"
 
-# 10a. HEAD pinned.
-CHECK_SHA=$(git rev-parse HEAD)
-[[ "$CHECK_SHA" == "$EXPECTED_SHA" ]] || fail "Post-deploy HEAD drifted: $CHECK_SHA != $EXPECTED_SHA"
-ok "HEAD = $CHECK_SHA (matches origin/$BRANCH)"
+# 11a. HEAD pinned.
+CHECK_SHA=$(git rev-parse HEAD) || CHECK_SHA="(unreadable)"
+if [[ "$CHECK_SHA" == "$EXPECTED_SHA" ]]; then
+    ok "HEAD = $CHECK_SHA (matches origin/$BRANCH)"
+else
+    VERIFY_FAILURES+=("HEAD drifted after deploy: $CHECK_SHA != $EXPECTED_SHA")
+    log "  ✗ HEAD drifted: $CHECK_SHA != $EXPECTED_SHA"
+fi
 
-# 10b. Reference tables non-empty. Per DEPLOY-1 decision 5, if any reference
-# table is empty after this deploy, we FAIL and the failure trap rolls back.
-# Implementation is a small helper PHP that bootstraps Laravel and exits
-# non-zero on any empty table.
-php "$DIR/scripts/deploy-verify-reference-tables.php" | tee -a "$LOG_FILE"
+# 11b. Reference tables non-empty. Per DEPLOY-1 decision 5 an empty reference
+# table is a failed deploy. Implementation is a small helper PHP that
+# bootstraps Laravel and exits non-zero on any empty table.
+if php "$DIR/scripts/deploy-verify-reference-tables.php" | tee -a "$LOG_FILE"; then
+    ok "Reference tables non-empty"
+else
+    VERIFY_FAILURES+=("Reference-table check failed (an empty reference table — see the VERIFY output above)")
+    log "  ✗ Reference-table check failed"
+fi
 
-# 10c. Compiled-view spot check — view:cache in step 8b would have aborted
-# on any Blade syntax error, but render one canonical view to be doubly
-# sure the new code paths compile against the live data layer.
-php artisan view:cache >/dev/null 2>&1 || fail "view:cache re-compile failed — compiled views broken"
-ok "Compiled views fresh"
+# 11c. Compiled-view spot check — view:cache in step 9 would have aborted on any
+# Blade syntax error, but re-compile once more to be sure the new code paths
+# compile against the live data layer.
+if php artisan view:cache >/dev/null 2>&1; then
+    ok "Compiled views fresh"
+else
+    VERIFY_FAILURES+=("view:cache re-compile failed — compiled views are broken")
+    log "  ✗ view:cache re-compile failed"
+fi
 
 # =============================================================================
 # STEP 12 — END MAINTENANCE
 # =============================================================================
 CURRENT_STEP="12 / up"
 step 12 "exit maintenance mode"
-php artisan up
-MAINT_MODE_ON=0
-ok "Site is live"
+if release_maintenance; then
+    ok "Site is live"
+else
+    # on_exit retries once more; if that fails too it prints the manual command.
+    fail "php artisan up failed"
+fi
+
+# 12b. Workers, second look — the site is up now, so paused-worker churn has
+# stopped and a RUNNING worker means a genuinely stable one. This is the check
+# that actually proves the restart: bounded retry, stragglers kicked, never fatal.
+if [[ "$WORKER_MECHANISM" == supervisord* ]]; then
+    if await_workers stable "$WORKER_WAIT_ATTEMPTS"; then
+        ok "Workers stable after go-live: $WORKER_EXPECTED_COUNT/$WORKER_EXPECTED_COUNT RUNNING (>= ${WORKER_STABLE_SECS}s)"
+    else
+        WORKERS_HEALTHY=""
+        note_problem "Queue workers NOT stable after go-live: $(printf '%s' "$WORKERS_LAST_BAD" | tr '\n' ';') — run: sudo supervisorctl restart <name>"
+    fi
+elif [[ "$WORKER_MECHANISM" == systemd* ]]; then
+    if systemctl is-active --quiet "${WORKER_MECHANISM#systemd unit }"; then
+        ok "Worker unit active after go-live"
+    else
+        WORKERS_HEALTHY=""
+        note_problem "Worker unit ${WORKER_MECHANISM#systemd unit } is NOT active after go-live — run: sudo systemctl restart ${WORKER_MECHANISM#systemd unit }"
+    fi
+fi
 
 # =============================================================================
-# STEP 13 — SUCCESS SUMMARY
+# STEP 13 — SUMMARY
 # =============================================================================
 CURRENT_STEP="13 / summary"
 DURATION=$SECONDS
@@ -630,7 +886,15 @@ git tag -a "$TAG" -m "Deploy $NEW_SHA to $ENV_NAME" 2>/dev/null || true
 
 echo "" | tee -a "$LOG_FILE"
 log "════════════════════════════════════════════════════════════"
-log "✅ DEPLOY OK — $ENV_NAME"
+if (( ${#VERIFY_FAILURES[@]} )); then
+    log "🚨 DEPLOYED, BUT VERIFICATION FAILED — $ENV_NAME — THE SITE IS UP"
+    for f in "${VERIFY_FAILURES[@]}"; do log "   ✗ VERIFY: $f"; done
+elif (( ${#WARNINGS[@]} )); then
+    log "⚠️  DEPLOY COMPLETED WITH WARNINGS — $ENV_NAME — the site is up"
+else
+    log "✅ DEPLOY OK — $ENV_NAME"
+fi
+for w in "${WARNINGS[@]+"${WARNINGS[@]}"}"; do log "   ⚠ WARNING: $w"; done
 log "   Commit:          $PREV_SHA → $NEW_SHA"
 log "   Tag:             $TAG (local; push manually if desired)"
 log "   Backup (local):  $BACKUP_FILE"
@@ -640,7 +904,7 @@ else
     log "   Backup (remote): (none — BACKUP_MODE=local)"
 fi
 log "   Backup user:     $BACKUP_USER (DB=$DB_NAME)"
-log "   Workers:         $WORKER_MECHANISM"
+log "   Workers:         $WORKER_MECHANISM${WORKERS_HEALTHY:+ — verified healthy}"
 log "   Duration:        ${DURATION}s"
 log "   Timestamp:       $(date -Iseconds)"
 log "════════════════════════════════════════════════════════════"
@@ -649,4 +913,15 @@ if [[ "$BACKUP_MODE" == "local" ]]; then
     log "⚠ LOCAL-ONLY BACKUP — no off-server copy. NOT permitted for production."
     log "   Provision a Hetzner Storage Box and switch /etc/hfc-deploy.env"
     log "   to BACKUP_MODE=offsite (see DEPLOY.md §2c) before the next prod deploy."
+fi
+if (( ${#VERIFY_FAILURES[@]} )); then
+    log ""
+    log "🚨 DECIDE NOW: the site is serving traffic on a deploy whose verification failed."
+    print_rollback_help
+    exit 4
+fi
+if (( ${#WARNINGS[@]} )); then
+    log ""
+    log "⚠ Exit code 3: deploy landed and the site is up, but the warnings above need a human."
+    exit 3
 fi

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\SplitterDocType;
 use App\Services\Compliance\AgencyComplianceDocTypeService;
+use App\Services\Properties\MandateExpiryPolicy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -102,6 +103,11 @@ class SplitterDocTypeController extends Controller
 
     public function update(Request $request, SplitterDocType $doc_type)
     {
+        // AT-448 — the Extension folder is a global system row every agency's expiry lock depends on.
+        if (MandateExpiryPolicy::isProtectedDocumentTypeSlug($doc_type->slug)) {
+            return back()->withErrors(['label' => "'{$doc_type->label}' is a system folder used by every agency's expiry lock - it cannot be renamed, deactivated or reordered."]);
+        }
+
         $request->validate([
             'label'      => 'required|string|max:100',
             'sort_order' => 'required|integer|min:0',
@@ -119,6 +125,11 @@ class SplitterDocTypeController extends Controller
 
     public function destroy(SplitterDocType $doc_type)
     {
+        // AT-448 — same protection: archiving it would leave every agency's locked dates with no way out.
+        if (MandateExpiryPolicy::isProtectedDocumentTypeSlug($doc_type->slug)) {
+            return back()->withErrors(['label' => "'{$doc_type->label}' is a system folder used by every agency's expiry lock - it cannot be archived."]);
+        }
+
         $label = $doc_type->label;
         $doc_type->delete();
 
@@ -157,15 +168,21 @@ class SplitterDocTypeController extends Controller
 
             $listingTypes = array_values(array_filter($data['listing_types'] ?? []));
 
-            $docType->update([
-                'label'         => $data['label'],
-                'sort_order'    => $data['sort_order'],
-                'is_active'     => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
-                'listing_types' => !empty($listingTypes) ? $listingTypes : null,
-                // Viewing Pack — catalogue default. Unchecked box is absent from
-                // the payload, so set explicitly true/false every save.
-                'buyer_pack_eligible' => filter_var($data['buyer_pack_eligible'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            ]);
+            // AT-448 — the Extension folder is ONE global row shared by every agency (their expiry
+            // lock, banner wording and Drive picker all read it). Its global columns (label, order,
+            // active, listing types, buyer-pack default) are system-owned and are never written from
+            // an agency's settings screen; the per-agency options below still save per agency.
+            if (! MandateExpiryPolicy::isProtectedDocumentTypeSlug($docType->slug)) {
+                $docType->update([
+                    'label'         => $data['label'],
+                    'sort_order'    => $data['sort_order'],
+                    'is_active'     => filter_var($data['is_active'], FILTER_VALIDATE_BOOLEAN),
+                    'listing_types' => !empty($listingTypes) ? $listingTypes : null,
+                    // Viewing Pack — catalogue default. Unchecked box is absent from
+                    // the payload, so set explicitly true/false every save.
+                    'buyer_pack_eligible' => filter_var($data['buyer_pack_eligible'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                ]);
+            }
 
             if ($agencyId) {
                 $required = filter_var($data['compliance_required'] ?? false, FILTER_VALIDATE_BOOLEAN);

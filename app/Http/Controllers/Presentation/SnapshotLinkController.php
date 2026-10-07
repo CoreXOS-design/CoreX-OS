@@ -47,6 +47,10 @@ final class SnapshotLinkController extends Controller
                 'expires_at'           => $expiresAt,
                 'created_by_user_id'   => (int) $request->user()->id,
             ]);
+        } catch (\App\Services\Presentations\PresentationPriceMissingException $e) {
+            // No price → no share link. Flashed as 'error' so the global toast
+            // actually shows it (the validation bag is not displayed on this screen).
+            return back()->with('error', $e->getMessage());
         } catch (\Throwable $e) {
             return back()->withErrors(['snapshot_link' => $e->getMessage()]);
         }
