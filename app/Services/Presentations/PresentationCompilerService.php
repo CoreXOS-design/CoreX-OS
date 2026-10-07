@@ -162,7 +162,13 @@ class PresentationCompilerService
 
         if ($latestVersion) {
             $createPayload['included_competitor_ids_json'] = $latestVersion->included_competitor_ids_json;
-            $createPayload['included_comp_ids_json']        = $latestVersion->included_comp_ids_json;
+            // The comps were usually just re-hydrated (fresh rows, new ids)
+            // before this compile — carry each pick onto the fresh copy of the
+            // same sale instead of copying ids that now point at retired rows.
+            $createPayload['included_comp_ids_json']        = \App\Support\Presentations\CompSelectionCarryForward::remap(
+                $presentation->id,
+                $latestVersion->included_comp_ids_json,
+            )['ids'];
         }
 
         return PresentationVersion::create($createPayload);
