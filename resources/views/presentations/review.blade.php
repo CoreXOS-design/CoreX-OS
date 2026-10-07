@@ -128,6 +128,38 @@
         </div>
     @endif
 
+    {{-- "A presentation must always have a price" — name exactly what is missing
+         and what to do, instead of leaving three dashes on the tiles. --}}
+    @if(isset($priceReadiness) && !$priceReadiness['ready'])
+        <div id="price-missing-banner" class="review-warn-banner" role="alert"
+             style="border-left:4px solid var(--ds-red,#dc2626); background:color-mix(in srgb, var(--ds-red,#dc2626) 8%, transparent); color:var(--text-primary);">
+            <strong>No price yet.</strong> {{ $priceReadiness['message'] }}
+        </div>
+    @endif
+
+    {{-- The stored selection could not produce a price, so the calculation (and the
+         ticks below) use all comparable sales instead — said out loud. --}}
+    @if(!empty($selectionRepaired))
+        <div id="selection-repaired-banner" class="review-warn-banner" role="status">
+            @if($selectionRepaired === 'empty')
+                <strong>Nothing was ticked, so all comparable sales are being used.</strong>
+                Untick the ones you do not want — at least one sale must stay ticked so a price can be calculated.
+            @else
+                <strong>Your earlier picks are no longer available, so all comparable sales are being used.</strong>
+                The comparable sales were refreshed and none of the sales you had ticked is still there. Untick the ones you do not want.
+            @endif
+        </div>
+    @endif
+
+    {{-- A regenerate dropped picks whose sale was not found again. --}}
+    @if(!empty($regenDropped))
+        <div id="regen-dropped-banner" class="review-warn-banner" role="status">
+            <strong>{{ $regenDropped }} of your earlier {{ $regenDropped === 1 ? 'pick is' : 'picks are' }} no longer in the refreshed comparable sales</strong>
+            (the sale was not found again), so {{ $regenDropped === 1 ? 'it was' : 'they were' }} removed from your selection and the price was calculated from the rest.
+            Check the ticks below. Logged for audit.
+        </div>
+    @endif
+
     {{-- Header — branded Pattern A (UI_DESIGN_SYSTEM.md §2.4). --}}
     <div class="rounded-md px-6 py-5 corex-page-banner mb-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -826,11 +858,11 @@
     const SUBJECT_HAS_GPS = SUBJECT_LAT !== null && SUBJECT_LNG !== null;
 
     const toastEl = document.getElementById('review-toast');
-    function toast(msg) {
+    function toast(msg, ms) {
         toastEl.textContent = msg;
         toastEl.classList.add('show');
         clearTimeout(toastEl._t);
-        toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
+        toastEl._t = setTimeout(() => toastEl.classList.remove('show'), ms || 2200);
     }
 
     // ── Map init with bucket palette (Build 1) ────────────────────────
@@ -1037,9 +1069,10 @@
             credentials: 'same-origin',
         }).then(r => r.json()).then(d => {
             if (!d?.ok) {
-                // Optimistic rollback.
+                // Optimistic rollback. A refusal carries the plain reason
+                // (e.g. the last comp cannot be unticked) — show it as-is.
                 pending.rollback();
-                toast('Could not save toggle — please retry');
+                toast(d?.message || 'Could not save toggle — please retry', d?.message ? 6000 : 2200);
                 return;
             }
             // Tick-wire build — server returns recomputed bands; patch
@@ -1121,7 +1154,13 @@
                 body.append('_token', csrf);
                 ids.forEach(id => body.append('included_ids[]', id));
                 fetch(setUrl, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body, credentials: 'same-origin' })
-                    .then(r => r.json()).then(d => { if (d && d.ok) applyCmaUpdate(d); else toast('Could not save selection'); })
+                    .then(r => r.json()).then(d => {
+                        if (d && d.ok) { applyCmaUpdate(d); return; }
+                        // Refused (e.g. nothing ticked): say why, then reload so the
+                        // ticks on screen go back to what is actually saved.
+                        toast((d && d.message) || 'Could not save selection', (d && d.message) ? 6000 : 2200);
+                        if (d && d.message) setTimeout(() => window.location.reload(), 2500);
+                    })
                     .catch(() => toast('Network error saving selection'));
             }, 350);
         }

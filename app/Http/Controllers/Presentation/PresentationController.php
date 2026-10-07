@@ -24,6 +24,7 @@ use App\Services\Presentations\Evidence\UrlIngestionService;
 use App\Services\Presentations\PresentationBlueprintService;
 use App\Services\Presentations\PresentationCompilerService;
 use App\Services\Presentations\PresentationNarrativeService;
+use App\Services\Presentations\PresentationPriceReadiness;
 use App\Services\Presentations\PresentationReadinessService;
 use App\Services\Presentations\AnalysisDataService;
 use App\Services\Presentations\ConditionAdjustmentService;
@@ -360,9 +361,14 @@ class PresentationController extends Controller
         $recommendedPrice = app(\App\Services\Presentations\PresentationRecommendedPrice::class)
             ->forPresentationId($presentation->id);
 
+        // "Always a price" — the Overview says so plainly when the latest version has none.
+        $priceReadiness = $latestVersion
+            ? PresentationPriceReadiness::forDocument($presentation, $latestVersion)
+            : null;
+
         return view('presentations.show', compact(
             'presentation', 'latestSnapshot', 'snapshotCount', 'links', 'powerPanel',
-            'linkViews', 'isAdmin', 'latestVersion', 'recommendedPrice',
+            'linkViews', 'isAdmin', 'latestVersion', 'recommendedPrice', 'priceReadiness',
             'maxCaptureId', 'maxCaptureUpdatedAt', 'maxLinkUpdatedAt',
             'addedArticles', 'suggestedArticles', 'buyerDemand'
         ));
@@ -408,6 +414,12 @@ class PresentationController extends Controller
 
         $readiness     = (new PresentationReadinessService())->evaluate($presentation);
 
+        // "Always a price": what the agent is told when there is none. A confirmed
+        // version is judged on its frozen figure, a draft on this very compile.
+        $priceReadiness = ($latestVersion && $latestVersion->review_status === PresentationVersion::REVIEW_PUBLISHED)
+            ? PresentationPriceReadiness::forDocument($presentation, $latestVersion)
+            : PresentationPriceReadiness::fromAnalysis($presentation, $analysisData);
+
         // AT-27 Phase B.3 — the "What's in your presentation" section toggles
         // live HERE now (inclusion decisions belong where the numbers are
         // visible). Same data the review screen used; persisted per version via
@@ -424,7 +436,7 @@ class PresentationController extends Controller
         }
 
         return view('presentations.analysis', compact(
-            'presentation', 'analysisData', 'latestSnapshot', 'latestVersion', 'readiness',
+            'presentation', 'analysisData', 'latestSnapshot', 'latestVersion', 'readiness', 'priceReadiness',
             'sectionsCatalogue', 'sectionFloor', 'sectionDeps', 'sectionSnapshot'
         ));
     }
@@ -497,10 +509,21 @@ class PresentationController extends Controller
         // underlying property / comps / suburb stats shift later.
         $resolver = app(ConditionAdjustmentService::class);
         $resolved = $resolver->resolveLive($version, $presentation);
-        $resolver->snapshotOnVersion($version, $resolved['level']);
 
         $presentation->load(['property', 'fields', 'soldComps', 'activeListings']);
         $payload = (new AnalysisDataService())->compile($presentation, $version);
+
+        // A presentation must ALWAYS have a price (Johan, 2026-10-07). Judged on
+        // the very payload about to be frozen, BEFORE anything is written, so a
+        // refusal leaves the version exactly as it was. Server-side: the hidden
+        // button is not the gate, this is.
+        $price = PresentationPriceReadiness::fromAnalysis($presentation, $payload);
+        if (!$price['ready']) {
+            return redirect()->route('presentations.analysis', $presentation)
+                ->with('error', $price['message']);
+        }
+
+        $resolver->snapshotOnVersion($version, $resolved['level']);
 
         $version->forceFill([
             'review_status'     => PresentationVersion::REVIEW_PUBLISHED,
@@ -1712,7 +1735,17 @@ class PresentationController extends Controller
         $analysisService  = new AnalysisDataService();
         $simulatorService = new PricingSimulatorService();
 
-        $analysisData = $analysisService->compile($presentation);
+        // Compile against the latest version so Seller Live shows the SAME
+        // price as Review / the PDF (the agent's picks and condition), not a
+        // number from all comps. No price → stop with the plain message.
+        $latestVersion = $presentation->versions()->latest('compiled_at')->first();
+        $analysisData  = $analysisService->compile($presentation, $latestVersion);
+
+        $price = PresentationPriceReadiness::fromAnalysis($presentation, $analysisData);
+        if (!$price['ready']) {
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', $price['message']);
+        }
 
         // Config — same defaults as pricing simulator
         $savedConfig = $presentation->simulator_config_json;

@@ -243,11 +243,11 @@ agency, so the visible count is ≤ 13.
 | 3 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`, `ncc_registration_number` — AT-234, added 2026-08-04) |
 | 4 | `branches` | Branches / offices | `branches` (the `split_branches_enabled` master moved to step 2) |
 | 5 | `commission` | Commission & revenue share | `commission_settings` |
-| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04) |
+| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04); `agencies.other_agency_stock_visible_roles` + `other_agency_stock_consent_wording` (Other Agency Stock — 2026-10-07, new `role_multiselect` control type, `other_agency_stock` source, saver `SettingsController@updateOtherAgencyStock`) |
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) and `agency_contact_settings.core_matches_excluded_buyer_states` (Won/Lost buyers — 2026-10-07, new `multiselect` control type + `_present` marker, `core_matches` source) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
 | 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude) |
+| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude); `agencies.ppra_employment_letter_address_block` (PPRA employment letter addressee — 2026-10-07, saver `SettingsController@savePpraEmploymentLetterSettings`) |
 | 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
 | 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
 | 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
@@ -283,6 +283,29 @@ by oversight — do not reinstate them without asking:
   omission sits in this central list rather than only in the module spec. Configured on
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
+
+- **PPRA employment letter + Other Agency Stock — IN the wizard (2026-10-07).** Both were shipped
+  with a recorded "not in the wizard" omission (their own specs, written by the lane, not by Johan —
+  §10a makes that call his) and a staging-plan audit (`/tmp/staging-plan-noteonly-ppra-oas-2026-10-07.md`)
+  found neither reached onboarding. Now surfaced, no new settings, no behaviour change, same saver as the
+  settings page (one source of truth):
+  - **Compliance step:** `agencies.ppra_employment_letter_address_block` — textarea, blank = the PPRA's own
+    published address (`PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK`, shown as the greyed placeholder,
+    never pre-filled as a value so a save cannot freeze the default into the agency). Saver
+    `SettingsController@savePpraEmploymentLetterSettings`, now `$request->has()`-guarded (§6.1). The
+    reminder cadence setting no longer exists (removed 6 Oct, wet-ink flow) so it is not here. The
+    agency's PPRA registration number and trading name the letter prints are already controls on the
+    Identity step; the Role-Manager "can receive a letter" permission is a role setting, not an agency
+    control (Role Manager screen; the Roles explainer step already points there).
+  - **Properties step:** `agencies.other_agency_stock_visible_roles` (a tick-list of THIS agency's own
+    roles — new `role_multiselect` control type; every role ticked = stored NULL = visible to everyone,
+    the default) and `agencies.other_agency_stock_consent_wording` (textarea, blank = the standard
+    wording as placeholder). Saver `SettingsController@updateOtherAgencyStock` (already guarded: roles by
+    their `_submitted` marker, wording by `has()`); the roles list is the same `Role::allRoles()` list
+    Company Settings offers.
+  - New generic view features on `text`/`textarea` controls: optional `placeholder`, and `rows` for
+    textarea. Current-value source `other_agency_stock` is an explicit per-key match (§6.2).
+  Tests: `tests/Feature/Onboarding/AgencySetupWizardPpraOasTest.php`.
 
 - **Portal-listing stale window — IN the wizard (2026-10-07).** `suggested_action_thresholds.listing_off_market_days`
   (days a portal listing may go un-sighted before it is presumed off the market; default 90, Johan: "a
@@ -551,7 +574,7 @@ landing under that same source later.
 1. **Generic** — resolves any key via a real column/method-name lookup (`perf`, `deal_sync`,
    `proforma`, `mailbox`, `rental_application`, and the bare `agency` default). A new control here
    just works, provided its key matches a real column/resolver name — no match-arm edit needed.
-2. **Explicit per-key** (`leases`, `rental_work_orders`, `rental_inspections`, `rental_inventories`) —
+2. **Explicit per-key** (`leases`, `rental_work_orders`, `rental_inspections`, `rental_inventories`, `rental_portal`, `other_agency_stock`) —
    an inner `match ($key) { ... }` naming every control under that source individually. **Adding a
    new control under one of these sources MUST add its key to that same inner match** — the exact
    step this bug skipped, twice. Never write a source's arm as a single hardcoded call regardless of

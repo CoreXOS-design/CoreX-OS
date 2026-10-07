@@ -180,20 +180,21 @@ Agency Settings → "PPRA FFC Employment Letter" section
   agency while remaining editable.
 - **Remind the principal every N days** — integer, default 2, 0 = off.
 
-### Deliberately NOT in the Setup Wizard
+### In the Setup Wizard (changed 2026-10-07)
 
-Per CLAUDE.md Non-negotiable #10a, every new setting is either surfaced in
-the Agency Onboarding Setup Wizard or explicitly recorded here as a deliberate
-omission. These two settings are **not** in the wizard:
-
-- They are compliance-tier settings an agency configures once it is already
-  running (and has at least one agent due for FFC renewal), not something
-  relevant during initial onboarding.
-- The sensible default (PPRA's real address, a 2-day reminder) works
-  correctly for every agency, including a brand-new one, with zero setup —
-  nothing ships inert by being left out of the wizard.
-- This mirrors the judgement already made for the PPRA Inspection Pack's own
-  settings section, which is also not in the wizard for the same reason.
+> This section used to record the addressee block as "deliberately NOT in the wizard" (a lane's
+> judgement, not Johan's — CLAUDE.md #10a makes that call his). The staging-plan audit found it never
+> reached onboarding, so it is now a control on the wizard's **Compliance** step: a textarea whose blank
+> value means "use the PPRA's own address" (shown as the greyed placeholder, never pre-filled), saved by
+> the SAME `savePpraEmploymentLetterSettings` the settings page uses — now `$request->has()`-guarded so a
+> wizard post that never rendered the field cannot clear it (`agency-onboarding-setup.md` §5.1/§6.1).
+> The reminder-days setting listed in the original version of this section was removed on 6 Oct (§18) and
+> is not in the wizard. Test: `tests/Feature/Onboarding/AgencySetupWizardPpraOasTest.php`.
+>
+> **Bug found and fixed while doing this (2026-10-07):** `ppra_employment_letter_address_block` was never
+> in `Agency::$fillable`, so the settings page's `update()` silently discarded every address an agency typed
+> and every letter printed PPRA's default. It is mass-assignable now (one line in `Agency.php`). Letters
+> printed before this keep what they were printed with.
 
 ## 12. Audit trail
 
@@ -433,7 +434,7 @@ already has a letter. Global template rows get only agent/branch_manager/admin (
 agencies). `role_defaults` (agent, branch_manager; admin via all-minus-exclude) updated so provisioned
 agencies inherit it.
 
-**Not in the Setup Wizard (rule 10a):** the defaults already work for any new agency; whether it should be
+**Not in the Setup Wizard (rule 10a) — a Role Manager permission, not an agency control:** the defaults already work for any new agency; whether it should be
 walked through there is Johan's call (raised in the lane report, same as the roster key).
 
 ## 18. PDF reproduces HFC's Word "letter of employment" (2026-10-05, Johan)
@@ -578,7 +579,7 @@ still streams its stored PDF unchanged.
 `notifyAgentSigned`; the principal + signed emails; the daily reminder job (`ppra-employment-letters:send-reminders`) and its
 schedule line; the "Remind the principal every N days" setting (control + saver removed). Columns kept, unused:
 `agent_/principal_signature_image`, `*_signed_at`, `*_signed_ip`, `signed_pdf_path` (legacy signed only), `reminder_last_sent_at`,
-`agencies.ppra_employment_letter_reminder_days`. No Setup Wizard change (the removed setting was never in it; §11 omission stands).
+`agencies.ppra_employment_letter_reminder_days`. No Setup Wizard change for the removal (the removed setting was never in it); the addressee block IS in the wizard now (§11).
 
 **Acceptance (20).**
 - [ ] Upload on admin shows in the agent's My Portal (same file id + status); upload on My Portal shows on admin.

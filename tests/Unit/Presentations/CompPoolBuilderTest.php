@@ -231,6 +231,37 @@ class CompPoolBuilderTest extends TestCase
         $this->assertGreaterThan(300, $res['radius_used'], 'Ladder must widen past 300m — cheap nearby exempt comps must not halt it');
     }
 
+    /** "A presentation must always have a price" (2026-10-07) — an asking price far from every sale must not empty the pool. */
+    public function test_price_band_re_centres_on_the_type_gated_median_when_the_asking_excludes_every_sale(): void
+    {
+        $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null, 'anchor_price' => 100_000];
+        $candidates = [
+            $this->cand(2_000_000, 'House', key: 'a'),
+            $this->cand(2_200_000, 'House', key: 'b'),
+            $this->cand(2_400_000, 'House', key: 'c'),
+            $this->cand(2_600_000, 'House', key: 'd'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+
+        $this->assertNotEmpty($res['selected_keys'], 'a hopeless asking price must not leave the presentation with no comps');
+        $this->assertTrue($res['diagnostics']['price_band_fallback']);
+        $this->assertSame(2_300_000, $res['diagnostics']['anchor_used']);
+    }
+
+    public function test_price_band_does_not_fall_back_when_the_asking_band_finds_sales(): void
+    {
+        $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null, 'anchor_price' => 2_300_000];
+        $candidates = [
+            $this->cand(2_000_000, 'House', key: 'a'),
+            $this->cand(2_400_000, 'House', key: 'c'),
+            $this->cand(900_000,   'House', key: 'too_low'),
+        ];
+        $res = $this->builder()->select($subject, $candidates, $this->config());
+
+        $this->assertFalse($res['diagnostics']['price_band_fallback']);
+        $this->assertNotContains('too_low', $res['selected_keys']);
+    }
+
     public function test_empty_when_no_usable_candidates(): void
     {
         $subject = ['title_type' => null, 'property_type' => 'House', 'lat' => null, 'lng' => null, 'erf_m2' => null];

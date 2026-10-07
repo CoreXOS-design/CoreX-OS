@@ -307,7 +307,7 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         // proforma/mailbox/rental_application) can't have this exact defect
         // (a control name typo there is a different failure mode, already
         // checked by hand in this test class's own docblock).
-        $explicitPerKeySources = ['leases', 'rental_work_orders', 'rental_inspections', 'rental_inventories', 'rental_portal'];
+        $explicitPerKeySources = ['leases', 'rental_work_orders', 'rental_inspections', 'rental_inventories', 'rental_portal', 'other_agency_stock'];
         foreach ($explicitPerKeySources as $source) {
             if (! isset($keysBySource[$source])) {
                 continue;
