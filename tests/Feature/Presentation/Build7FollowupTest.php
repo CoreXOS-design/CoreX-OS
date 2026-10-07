@@ -353,6 +353,16 @@ final class Build7FollowupTest extends TestCase
             'status'             => 'draft',
             'currency'           => 'ZAR',
         ], $overrides));
+        // The comps are already hydrated from the current property record (AT-27 C1a
+        // freshness marker is later than the property's updated_at), so opening the
+        // review screen renders it instead of re-hydrating and redirecting once.
+        \App\Models\PresentationSnapshot::create([
+            'agency_id'            => $agencyId,
+            'presentation_id'      => $presentation->id,
+            'generated_by_user_id' => $userId,
+            'snapshot_json'        => '{}',
+            'generated_at'         => now()->addMinute(),
+        ]);
         return PresentationVersion::create([
             'agency_id'         => $agencyId,
             'presentation_id'   => $presentation->id,

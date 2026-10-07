@@ -34,6 +34,7 @@ class TrajectorySimulationServiceTest extends TestCase
         ]);
 
         $this->presentation = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $branch->id,
             'created_by_user_id' => $user->id,
             'title'              => 'Trajectory Unit Test',

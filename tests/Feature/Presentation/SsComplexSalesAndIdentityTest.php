@@ -41,7 +41,11 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'Brock Manor', 'unit_number' => '17']);
         $presentation = $this->seedPresentation($agencyId, $propertyId);
 
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+        // The vicinity comp is a sectional sale from ANOTHER scheme: a freehold ('House') comp
+        // is never shown against a sectional subject any more (cross-type hard gate).
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', '10 Beach Road', 2_000_000, 100, '2025-06-01', [
+            'scheme_name' => 'Beach Court',
+        ]);
         $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', [
             'scheme_name' => 'Brock Manor',
         ]);
@@ -49,7 +53,7 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $data  = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']));
         $comps = $data['comparable_sales'];
 
-        $this->assertCount(1, $comps['vicinity']['rows'], 'full-title sale stays in vicinity');
+        $this->assertCount(1, $comps['vicinity']['rows'], 'other-scheme sectional sale stays in vicinity');
         $this->assertSame('10 Beach Road', $comps['vicinity']['rows'][0]['address']);
 
         $this->assertCount(1, $comps['complex']['rows'], 'same-scheme sale lands in its own complex group');
@@ -77,7 +81,8 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', 'Suntide Cabanas, Section 13', 1_300_000, 75, '2025-03-01', [
             'scheme_name' => 'Suntide Cabanas', 'section_number' => '13',
         ]);
-        // Freehold area sale → vicinity.
+        // Freehold area sale → a freehold comp never reaches a sectional subject (cross-type hard
+        // gate in compileComparableSales), so it appears in NEITHER group.
         $this->seedComp($agencyId, $presentation->id, 'mic_snapshot', '10 Beach Road', 2_000_000, 100, '2025-06-01');
 
         $comps = (new AnalysisDataService())->compile($presentation->fresh(['fields', 'property']))['comparable_sales'];
@@ -85,11 +90,11 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $this->assertCount(1, $comps['complex']['rows'], 'ONLY the Pumula-scheme comp is in the complex group');
         $this->assertSame('Unit 9, Pumula', $comps['complex']['rows'][0]['address']);
 
-        $this->assertCount(3, $comps['vicinity']['rows'], 'Loscona + Suntide + freehold are all vicinity');
+        $this->assertCount(2, $comps['vicinity']['rows'], 'Loscona + Suntide are vicinity; the freehold sale is gated out');
         $vicAddresses = array_column($comps['vicinity']['rows'], 'address');
         $this->assertContains('Unit 12, Loscona', $vicAddresses);
         $this->assertContains('Unit 13, Suntide Cabanas', $vicAddresses);
-        $this->assertContains('10 Beach Road', $vicAddresses);
+        $this->assertNotContains('10 Beach Road', $vicAddresses, 'a freehold comp must not reach a sectional subject');
     }
 
     public function test_scheme_match_is_case_insensitive_and_trimmed(): void
@@ -117,7 +122,11 @@ class SsComplexSalesAndIdentityTest extends TestCase
         $propertyId = $this->seedProperty($agencyId, ['complex_name' => 'Brock Manor', 'unit_number' => '17']);
         $presentation = $this->seedPresentation($agencyId, $propertyId);
 
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+        // The vicinity comp is a sectional sale from ANOTHER scheme: a freehold ('House') comp
+        // is never shown against a sectional subject any more (cross-type hard gate).
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', '10 Beach Road', 2_000_000, 100, '2025-06-01', [
+            'scheme_name' => 'Beach Court',
+        ]);
         $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', [
             'scheme_name' => 'Brock Manor',
         ]);
@@ -268,7 +277,8 @@ class SsComplexSalesAndIdentityTest extends TestCase
         ]);
         $presentation = $this->seedPresentation($agencyId, $propertyId, '17 Marine Drive, Margate');
 
-        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales', '10 Beach Road', 2_000_000, 100, '2025-06-01');
+        // Vicinity comp = a sectional sale from another scheme (a freehold comp never reaches a sectional subject).
+        $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', '10 Beach Road', 2_000_000, 100, '2025-06-01', ['scheme_name' => 'Beach Court']);
         $this->seedComp($agencyId, $presentation->id, 'vicinity_sales_sectional', 'Brock Manor (Unit 5)', 1_500_000, 80, '2025-05-01', ['scheme_name' => 'Brock Manor']);
 
         $html = $this->renderPdfFor($presentation);

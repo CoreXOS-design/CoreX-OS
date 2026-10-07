@@ -56,10 +56,12 @@ final class CmaTickWiringTest extends TestCase
         $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
         $cma      = $analysis['cma_valuation'];
 
-        // Tile values = CoreX-computed (NOT 500/700/900 from CMA Info).
-        $this->assertSame(800_000,  $cma['cma_lower']);
+        // Tile values = CoreX-computed (NOT 500/700/900 from CMA Info): the
+        // comp median is the middle; lower/upper are the middle ∓ the agency
+        // band % (PRES-CMA-REALFIX — default 10 / 13), not the raw p25/p75.
         $this->assertSame(1_000_000, $cma['cma_middle']);
-        $this->assertSame(1_200_000, $cma['cma_upper']);
+        $this->assertSame((int) round(1_000_000 * (1 - \App\Services\Presentations\CompPoolBuilder::DEF_BAND_LOWER_PCT / 100)), $cma['cma_lower']);
+        $this->assertSame((int) round(1_000_000 * (1 + \App\Services\Presentations\CompPoolBuilder::DEF_BAND_UPPER_PCT / 100)), $cma['cma_upper']);
 
         // CMA Info benchmark preserved under cma_info_benchmark.
         $this->assertSame(500_000, $cma['cma_info_benchmark']['lower']);

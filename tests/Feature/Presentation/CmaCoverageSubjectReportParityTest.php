@@ -81,7 +81,7 @@ class CmaCoverageSubjectReportParityTest extends TestCase
             'recent in-window suburb comps still count (regression guard)');
     }
 
-    public function test_subject_report_resolver_matches_by_address_and_suburb(): void
+    public function test_subject_report_resolver_matches_by_address_and_never_by_suburb_alone(): void
     {
         [$property, $agencyId, $userId] = $this->seedSubject();
 
@@ -92,7 +92,9 @@ class CmaCoverageSubjectReportParityTest extends TestCase
         $ids = SubjectReportResolver::resolveReportIds($agencyId, '1 Subject Way', 'Testville');
 
         $this->assertContains($byAddress, $ids);
-        $this->assertContains($bySuburb, $ids);
+        // AT-78: a street (address) match is REQUIRED — a report that only shares the
+        // suburb is another property's report and must never be borrowed as the subject's.
+        $this->assertNotContains($bySuburb, $ids);
         $this->assertNotContains($unrelated, $ids);
     }
 

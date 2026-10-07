@@ -276,12 +276,17 @@ class TitleTypeAndFallbacksTest extends TestCase
         $data = (new AnalysisDataService())->compile($presentation->fresh(['fields']));
         $cma  = $data['cma_valuation'] ?? [];
 
-        $this->assertSame(1_580_000, $cma['cma_lower'],   'lower extracted unchanged');
-        $this->assertSame(2_220_000, $cma['cma_upper'],   'upper extracted unchanged');
-        $this->assertSame(1_900_000, $cma['cma_middle'],
+        // The BUG-1 midpoint fallback now lives on the CMA Info benchmark line
+        // (the tiles are CoreX-computed from the comp pool — Phase B — and
+        // with no comps they are null, never the PDF's stated numbers).
+        $bench = $cma['cma_info_benchmark'] ?? [];
+        $this->assertSame(1_580_000, $bench['lower'],   'lower extracted unchanged');
+        $this->assertSame(2_220_000, $bench['upper'],   'upper extracted unchanged');
+        $this->assertSame(1_900_000, $bench['middle'],
             'middle synthesised as (lower+upper)/2 — BUG-1 fix');
-        $this->assertTrue($cma['cma_middle_from_fallback'] ?? false,
-            'cma_middle_from_fallback flag exposed for downstream display');
+        $this->assertTrue($bench['from_fallback'] ?? false,
+            'from_fallback flag exposed for the review-screen benchmark display');
+        $this->assertNull($cma['cma_middle'], 'no comps → no CoreX-computed tile value');
     }
 
     public function test_cma_middle_fallback_DOES_NOT_overwrite_extracted_middle(): void
@@ -305,9 +310,10 @@ class TitleTypeAndFallbacksTest extends TestCase
         $data = (new AnalysisDataService())->compile($presentation->fresh(['fields']));
         $cma  = $data['cma_valuation'] ?? [];
 
-        $this->assertSame(1_300_000, $cma['cma_middle'],
+        $bench = $cma['cma_info_benchmark'] ?? [];
+        $this->assertSame(1_300_000, $bench['middle'],
             'extracted middle is the source of truth — fallback must not run');
-        $this->assertFalse($cma['cma_middle_from_fallback'] ?? false);
+        $this->assertFalse($bench['from_fallback'] ?? false);
     }
 
     public function test_str_human_type_macro_humanises_property_type_strings(): void
