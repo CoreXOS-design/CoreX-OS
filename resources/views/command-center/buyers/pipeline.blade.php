@@ -266,6 +266,13 @@
                                     Schedule Viewing
                                 </a>
                             </div>
+                            @if($canMoveBuyers ?? false)
+                            <button type="button" x-data
+                                    @click="$dispatch('open-move-buyer', { name: @js($buyer->full_name), current: @js($buyer->agent?->name), currentId: {{ (int) $buyer->agent_id }}, action: @js(route('corex.core-matches.reassign-buyer', $buyer)) })"
+                                    class="block w-full text-center text-[10px] font-medium py-1 mt-1 rounded-md hover:opacity-80 transition cursor-pointer"
+                                    style="color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border);"
+                                    title="Move this {{ $personNoun }}, and all their saved searches, to another agent">Move to another agent</button>
+                            @endif
                         @empty
                             <div class="py-6 text-center text-xs" style="color: var(--text-muted);">No {{ $personNounPlural }} in this state</div>
                         @endforelse
@@ -363,6 +370,12 @@
                                 </a>
                                 @else
                                 <span class="text-xs" style="color: var(--text-muted);">—</span>
+                                @endif
+                                @if($canMoveBuyers ?? false)
+                                <button type="button" x-data
+                                        @click="$dispatch('open-move-buyer', { name: @js($buyer->full_name), current: @js($buyer->agent?->name), currentId: {{ (int) $buyer->agent_id }}, action: @js(route('corex.core-matches.reassign-buyer', $buyer)) })"
+                                        class="corex-btn-outline text-xs ml-1 cursor-pointer"
+                                        title="Move this {{ $personNoun }}, and all their saved searches, to another agent">Move to another agent</button>
                                 @endif
                             </td>
                         </tr>
@@ -471,4 +484,7 @@ function kanbanDrag() {
     };
 }
 </script>
+@if($canMoveBuyers ?? false)
+    @include('corex.core-matches._move-buyer-modal', ['moveBuyerAgents' => $moveBuyerAgents])
+@endif
 @endsection

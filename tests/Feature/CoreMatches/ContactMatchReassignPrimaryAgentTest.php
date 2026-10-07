@@ -196,13 +196,14 @@ final class ContactMatchReassignPrimaryAgentTest extends TestCase
             ->assertSee('to Barbara Jackson', false);
     }
 
-    public function test_a_search_created_by_another_agent_says_search_created_by_never_reassigned(): void
+    public function test_a_search_created_by_another_agent_shows_no_moved_or_created_by_flag(): void
     {
         // Primary agent Kym, but Barbara created the search — NO reassignment record.
+        // Ruling A/C (2026-10-07): no inferred flag of any kind.
         $this->makeMatch($this->kym, $this->barbara);
 
         $this->board($this->manager)->assertOk()
-            ->assertSee('Search created by Barbara Jackson', false)
+            ->assertDontSee('Search created by', false)
             ->assertDontSee('Reassigned', false);
     }
 

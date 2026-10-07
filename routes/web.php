@@ -5588,6 +5588,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.reassign')
         ->name('corex.core-matches.reassign');
 
+    // Johan, 2026-10-07 — "Move buyer to another agent": the buyer-level action on the
+    // Core Matches board and the Buyer Pipeline card (the search-level route above had
+    // no button). Same permission as above (branch manager / admin only), same
+    // reassignTo() semantics (primary agent + every saved search, one transaction).
+    // {contact} binds through ContactScope + AgencyScope exactly as the Buyer Pipeline's
+    // own endpoints do, so a manager can only move buyers they can already reach.
+    Route::post('/core-matches/buyers/{contact}/reassign', [\App\Http\Controllers\CoreX\ContactMatchReassignmentController::class, 'reassignBuyer'])
+        ->middleware('permission:core_matches.reassign')
+        ->name('corex.core-matches.reassign-buyer');
+
     // AT-Core-Matches, Johan's dated-link ruling — confirms a share that was
     // already MINTED server-side when the composer rendered (see
     // ContactMatch::mintShareLink()); this is the actual send click, and is

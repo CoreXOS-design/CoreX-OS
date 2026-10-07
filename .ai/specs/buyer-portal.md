@@ -138,3 +138,11 @@ nothing duplicate — integrate at the merge gate):
 - [x] Only this buyer's matches shown.
 - [ ] Mobile 390px + desktop headless proof (see §7 in ticket close).
 - [ ] Johan phone QA on QA1.
+
+## Which agent the buyer sees (2026-10-07, Johan — ruling D)
+The agent card on the buyer portal, its unavailable page and the shared match
+(wishlist) link is the buyer's CURRENT primary agent (`contacts.agent_id`),
+read live on every open — not the agent who generated the link or created the
+wishlist. After a manager moves a buyer from Maggie to Retha, the buyer's
+existing link shows Retha (name, photo, phone, email) with no new link issued.
+Fallbacks apply only to a contact with no primary agent. See `core-matches.md`.

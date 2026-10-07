@@ -324,7 +324,7 @@ class P24LeadService
         }
 
         if ($existing) {
-            return [$existing, true, $existing->created_by_user_id];
+            return [$existing, true, $existing->agent_id ?? $existing->created_by_user_id];
         }
 
         // Create new contact assigned to the listing agent. Type follows the

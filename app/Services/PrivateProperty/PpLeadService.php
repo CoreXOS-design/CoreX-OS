@@ -359,7 +359,7 @@ class PpLeadService
         }
 
         if ($existing) {
-            return [$existing, true, $existing->created_by_user_id];
+            return [$existing, true, $existing->agent_id ?? $existing->created_by_user_id];
         }
 
         // Type follows the enquired listing's market (2026-08-18) — a rental

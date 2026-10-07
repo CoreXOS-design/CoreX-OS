@@ -53,6 +53,15 @@ final class BuyerLeadCascadeService
     ): ?ContactMatch {
         $agencyId = (int) $contact->agency_id;
 
+        // Johan, 2026-10-07 (ruling A + C): the FIRST agent to receive a buyer's lead is
+        // the buyer's primary agent, and the primary agent works the buyer's searches. A
+        // later enquiry to ANOTHER agent's listing seeds its search under the primary
+        // agent, never the second listing agent (which showed as a false "moved" flag).
+        // A brand-new contact's primary IS the listing agent (ContactObserver::creating),
+        // so first leads are unchanged; a contact with no primary falls back to the owner
+        // the caller passed.
+        $ownerAgentId = (int) ($contact->agent_id ?: $ownerAgentId);
+
         // 1. Flag + source-tag the buyer and carry the enquiry context (single save).
         $this->prepareBuyerContact($contact, $source, $enquiryMessage, $listing);
 

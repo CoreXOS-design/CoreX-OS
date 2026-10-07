@@ -112,7 +112,14 @@ class ViewingPackBuyerPdfService
     /** Buyer-pack cover data — the only segment unique to the buyer pack. */
     private function coverData(ViewingPack $pack): array
     {
-        $agent  = $pack->agent;
+        // Ruling D (2026-10-07): the cover shows the buyer's CURRENT primary agent, read
+        // when the PDF is built — not the pack's stored agent_id (the agent it was
+        // prepared by), which kept printing the old agent after a manager moved the
+        // buyer. The pack's own agent remains the fallback when the buyer has none.
+        $primaryAgentId = $pack->contact_id
+            ? \App\Models\Contact::withoutGlobalScopes()->where('id', $pack->contact_id)->value('agent_id')
+            : null;
+        $agent  = ($primaryAgentId ? \App\Models\User::withoutGlobalScopes()->find($primaryAgentId) : null) ?? $pack->agent;
         $agency = $pack->agency;
 
         return [
