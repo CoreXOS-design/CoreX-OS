@@ -1067,10 +1067,19 @@ final class TrackedPropertyMatchOrCreateService
      */
     private function numbersConflict(array $facts, TrackedProperty $candidate): bool
     {
-        // (1) Structured street number — the primary discriminator.
-        $factStreet = $this->numberKey($facts['street_number'] ?? null);
-        $candStreet = $this->numberKey($candidate->street_number);
-        if ($factStreet !== null && $candStreet !== null && $factStreet !== $candStreet) {
+        // (1) Street number — the primary discriminator. 2026-10-07 (Johan's
+        // first extension pre-check test: a click on "19 Grindewald Drive"
+        // came back as "29 Grindewald Drive — close text match"): this used to
+        // compare ONLY the structured street_number column, but old cmainfo /
+        // portal rows were stored with street_number NULL and the number
+        // inside street_name ("29 Grindewald Drive"). With the column NULL the
+        // veto never fired and the token strategy (which drops 1-2 char tokens
+        // such as "19") matched the two on "grindewald drive" alone. Both
+        // sides now fall back to the number(s) written in the street/address
+        // text — see streetNumberSet().
+        $factNumbers = $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null);
+        $candNumbers = $this->streetNumberSet($candidate->street_number, $candidate->street_name);
+        if ($factNumbers !== [] && $candNumbers !== [] && array_intersect($factNumbers, $candNumbers) === []) {
             return true;
         }
 
@@ -1149,6 +1158,275 @@ final class TrackedPropertyMatchOrCreateService
         $v = strtolower(trim((string) ($value ?? '')));
 
         return $v === '' ? null : $v;
+    }
+
+    /** Trailing street-type words ("Grindewald Drive" → core "grindewald", type "drive"). */
+    private const STREET_TYPES = [
+        'street', 'road', 'avenue', 'drive', 'lane', 'close', 'crescent', 'boulevard', 'place', 'way',
+        'terrace', 'walk', 'circle', 'court', 'rise', 'view', 'parade', 'path', 'row', 'mews',
+    ];
+
+    /**
+     * The street number(s) a record states, as a set of lowercase keys.
+     *
+     * An explicit structured number wins and is the whole set. Only when it is
+     * blank do we read the number(s) written in the street / address text: the
+     * leading number of each line / comma / double-space segment ("29 Grindewald
+     * Drive" → 29; "4 Villa-Del-Mei\n35 Grindewald Drive" → 4 and 35). A set, not
+     * a single value, because those old rows put a unit number first and the
+     * street number last — a conflict is only declared when NO number on one
+     * side appears on the other. Empty = "no number on file", never a veto.
+     *
+     * @return array<int,string>
+     */
+    private function streetNumberSet($explicit, ?string ...$textParts): array
+    {
+        $key = $this->numberKey($explicit);
+        if ($key !== null) {
+            return [$key];
+        }
+
+        $nums = [];
+        foreach ($textParts as $text) {
+            if (! filled($text)) {
+                continue;
+            }
+            foreach (preg_split('/[\r\n,]+|\s{2,}/u', (string) $text) ?: [] as $segment) {
+                if (preg_match('/^\s*(\d+[A-Za-z]?)(?=\s|$)/u', $segment, $m)) {
+                    $nums[strtolower($m[1])] = true;
+                }
+            }
+        }
+
+        // numeric-string array keys come back as ints — keep them strings
+        return array_map('strval', array_keys($nums));
+    }
+
+    /**
+     * [core, type] of a street line, number and unit prefix removed:
+     * "29 Grindewald Drive" → ['grindewald', 'drive']; "Grindewald" →
+     * ['grindewald', null]; "Von Baumbach Ave" → ['von baumbach', 'avenue'].
+     * Used only to compare streets whose TYPE word may be missing on one side
+     * (CoreX property 19 "Grindewald" vs CMA Info "19 Grindewald Drive").
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function streetParts(?string $name): array
+    {
+        if (! filled($name)) {
+            return [null, null];
+        }
+
+        // Last meaningful segment: polluted cmainfo rows append "Cadastral Extent 1 375 M²".
+        $segments = array_values(array_filter(
+            array_map('trim', preg_split('/[\r\n,]+|\s{2,}/u', (string) $name) ?: []),
+            fn ($s) => $s !== '' && ! preg_match('/extent|m²|\bm2\b/iu', $s)
+        ));
+        $line = $segments !== [] ? end($segments) : (string) $name;
+        $line = preg_replace('/^\d+[A-Za-z]?\s+/u', '', $line);
+
+        $norm = TrackedPropertyAddress::normaliseStreet($line);
+        if ($norm === null) {
+            return [null, null];
+        }
+        $words = explode(' ', mb_strtolower($norm));
+        $type = null;
+        if (count($words) > 1 && in_array(end($words), self::STREET_TYPES, true)) {
+            $type = array_pop($words);
+        }
+
+        return [implode(' ', $words), $type];
+    }
+
+    /** Street types are compatible when either side has none or both are the same word. */
+    private function streetTypesCompatible(?string $a, ?string $b): bool
+    {
+        return $a === null || $b === null || $a === $b;
+    }
+
+    /**
+     * True when BOTH sides carry a street number and at least one agrees — i.e.
+     * the match is a statement about the same street number, not just the same
+     * street. The pre-check uses it to decide whether a loose (strategy 5) hit
+     * may be reported as "this property" or only as "another property on this
+     * street".
+     */
+    public function streetNumberConfirmed(array $facts, TrackedProperty $tp): bool
+    {
+        $f = $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null);
+        $c = $this->streetNumberSet($tp->street_number, $tp->street_name);
+
+        return $f !== [] && $c !== [] && array_intersect($f, $c) !== [];
+    }
+
+    /** True when the facts state a street number (structured, or written in the street/address text). */
+    public function factsHaveStreetNumber(array $facts): bool
+    {
+        return $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null) !== [];
+    }
+
+    /**
+     * Deeds-capture pre-check, second source (2026-10-07): the AGENCY STOCK
+     * table. The pre-check used to read tracked_properties only, so a property
+     * an agent had created directly (CoreX property 6113 "19 Grindewald") was
+     * invisible to it. Read-only, agency-scoped, never fuzzy on the number:
+     *
+     *   - sectional: same complex + same section/unit number          → confident
+     *   - freehold:  same erf + suburb (and no street-number conflict) → confident
+     *   - address:   same street NUMBER + same street name + same suburb
+     *                (street type may be missing on one side: "Grindewald" ==
+     *                "Grindewald Drive") → confident; both sides name a
+     *                different street type → possible only. A unit number the
+     *                capture carries but the property lacks → possible only.
+     *
+     * A different street number NEVER matches here. More than one candidate
+     * for an identity key → each returned as possible (never silently one).
+     *
+     * @return array<int, array{property: Property, confident: bool, reason: string, matched_fields: array<int,string>}>
+     */
+    public function findExistingStock(int $agencyId, array $facts): array
+    {
+        $suburb = TrackedPropertyAddress::normaliseSuburb($facts['suburb'] ?? null);
+        $found = []; // property id => hit
+
+        $base = fn () => Property::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at');
+        $add = function (Property $p, bool $confident, string $reason, array $fields) use (&$found) {
+            if (! isset($found[$p->id]) || ($confident && ! $found[$p->id]['confident'])) {
+                $found[$p->id] = ['property' => $p, 'confident' => $confident, 'reason' => $reason, 'matched_fields' => $fields];
+            }
+        };
+
+        $factNumbers = $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null);
+        $factUnit    = $this->numberKey($facts['section_number'] ?? $facts['unit_number'] ?? null);
+
+        // A. Sectional identity: complex + section/unit.
+        $complex = mb_strtolower(trim((string) ($facts['complex_name'] ?? $facts['scheme_name'] ?? '')));
+        if ($complex !== '' && $factUnit !== null) {
+            $unitKey = TrackedPropertyAddress::normaliseNumericIdentifier($factUnit);
+            $hits = $base()->whereRaw('LOWER(TRIM(complex_name)) = ?', [$complex])->get()
+                ->filter(fn (Property $p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->unit_number) === $unitKey)
+                ->values();
+            foreach ($hits as $p) {
+                $add($p, $hits->count() === 1, 'Same sectional scheme and section/unit number (' . $factUnit . ').', ['scheme', 'section']);
+            }
+        } elseif (filled($facts['erf_number'] ?? null) && $suburb !== null) {
+            // B. Freehold erf + suburb (a sectional scheme's erf is shared, so never used there).
+            $erfKey = TrackedPropertyAddress::normaliseNumericIdentifier($facts['erf_number']);
+            $hits = $base()->whereNotNull('erf_number')->where('suburb_normalised', $suburb)->get()
+                ->filter(fn (Property $p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->erf_number) === $erfKey)
+                ->reject(function (Property $p) use ($factNumbers) {
+                    $theirs = $this->streetNumberSet($p->street_number, $p->street_name);
+
+                    return $factNumbers !== [] && $theirs !== [] && array_intersect($factNumbers, $theirs) === [];
+                })
+                ->values();
+            foreach ($hits as $p) {
+                $add($p, $hits->count() === 1, 'Same erf number (' . trim((string) $facts['erf_number']) . ') and suburb.', ['erf', 'suburb']);
+            }
+        }
+
+        // C. Street number + street + suburb.
+        [$factCore, $factType] = $this->streetParts($facts['street_name'] ?? $facts['address'] ?? null);
+        if ($suburb !== null && $factNumbers !== [] && $factCore !== null) {
+            $candidates = $base()->where('suburb_normalised', $suburb)
+                ->where(function ($q) use ($factNumbers) {
+                    $q->whereIn('street_number', $factNumbers)->orWhereNull('street_number');
+                })
+                ->get();
+            foreach ($candidates as $p) {
+                $theirs = $this->streetNumberSet($p->street_number, $p->street_name);
+                if ($theirs === [] || array_intersect($factNumbers, $theirs) === []) {
+                    continue; // a different (or unknown) number is NEVER the same property
+                }
+                [$core, $type] = $this->streetParts($p->street_name);
+                if ($core === null || $core !== $factCore) {
+                    continue;
+                }
+                $theirUnit = $this->numberKey($p->unit_number);
+                if ($factUnit !== null && $theirUnit !== null && $factUnit !== $theirUnit) {
+                    continue; // another unit at the same address
+                }
+                $confident = $this->streetTypesCompatible($factType, $type) && ($factUnit === null || $theirUnit !== null);
+                $add(
+                    $p,
+                    $confident,
+                    $confident
+                        ? 'Street number, street name and suburb all match.'
+                        : ($factUnit !== null && $theirUnit === null
+                            ? 'Same street number, street and suburb, but this record has no unit number — it may be a different unit.'
+                            : 'Same street number and suburb; the street type differs (' . $factType . ' / ' . $type . ').'),
+                    ['street_number', 'street_name', 'suburb'],
+                );
+            }
+        }
+
+        return array_values($found);
+    }
+
+    /**
+     * Other properties on the SAME street with a DIFFERENT street number (or no
+     * number recorded) — information for the agent, never a duplicate verdict:
+     * "29 Grindewald Drive" when the click was "19 Grindewald Drive".
+     * Tracked properties and agency stock, agency-scoped, at most $limit rows.
+     *
+     * @param  array<int,int>  $excludeTrackedIds
+     * @param  array<int,int>  $excludePropertyIds
+     * @return array<int, array{source: string, id: int, address: string, number_known: bool}>
+     */
+    public function findSameStreetOthers(int $agencyId, array $facts, array $excludeTrackedIds = [], array $excludePropertyIds = [], int $limit = 5): array
+    {
+        $suburb = TrackedPropertyAddress::normaliseSuburb($facts['suburb'] ?? null);
+        [$factCore] = $this->streetParts($facts['street_name'] ?? $facts['address'] ?? null);
+        if ($suburb === null || $factCore === null || mb_strlen($factCore) < 3) {
+            return [];
+        }
+        $factNumbers = $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null);
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $factCore) . '%';
+        $out = [];
+
+        $consider = function (string $source, int $id, ?string $number, ?string $name, ?string $suburbLabel) use (&$out, $factNumbers, $factCore) {
+            [$core] = $this->streetParts($name);
+            if ($core !== $factCore) {
+                return;
+            }
+            $theirs = $this->streetNumberSet($number, $name);
+            if ($factNumbers !== [] && $theirs !== [] && array_intersect($factNumbers, $theirs) !== []) {
+                return; // the same number is not "another property"
+            }
+            $line = trim(($number !== null && $number !== '' ? $number . ' ' : '') . (string) $name);
+            $out[] = [
+                'source'       => $source,
+                'id'           => $id,
+                'address'      => trim($line . ($suburbLabel ? ', ' . $suburbLabel : '')),
+                'number_known' => $theirs !== [],
+                '_sort'        => $theirs[0] ?? '',
+            ];
+        };
+
+        TrackedProperty::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->where('suburb_normalised', $suburb)
+            ->whereNotIn('id', $excludeTrackedIds)
+            ->where('street_name', 'like', $like)
+            ->limit(60)->get(['id', 'street_number', 'street_name', 'suburb'])
+            ->each(fn ($t) => $consider('tracked_property', (int) $t->id, $t->street_number, $t->street_name, $t->suburb));
+
+        Property::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->where('suburb_normalised', $suburb)
+            ->whereNotIn('id', $excludePropertyIds)
+            ->where('street_name', 'like', $like)
+            ->limit(60)->get(['id', 'street_number', 'street_name', 'suburb'])
+            ->each(fn ($p) => $consider('property', (int) $p->id, $p->street_number, $p->street_name, $p->suburb));
+
+        usort($out, fn ($a, $b) => strnatcasecmp($a['_sort'], $b['_sort']));
+
+        return array_map(
+            fn ($r) => array_diff_key($r, ['_sort' => true]),
+            array_slice($out, 0, $limit)
+        );
     }
 
     /**

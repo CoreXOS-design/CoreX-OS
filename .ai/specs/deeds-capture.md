@@ -825,6 +825,75 @@ this build):
    immediate update — an agent on the old 3.7.7 build keeps the unconditional reveal
    until Chrome updates them.
 
+### 9.10 Street-number correctness and the second source (2026-10-07, extension 3.8.1)
+
+**Trigger.** Johan's first test of 3.8.0 on QA1: a click on **19 Grindewald Drive**, Uvongo
+came back *"29 Grindewald Drive … Address is a close text match on this street and suburb —
+no other property on this street was a candidate"*, while CoreX already held that exact
+property (QA1 property 6113, "19 Grindewald"). Wrong twice.
+
+**Root causes (QA1 rows read, not guessed).**
+1. **Only `tracked_properties` was searched.** Property 6113 is agency stock created directly;
+   no earlier capture of it exists, so the pre-check could not see it. (Its one linked tracked
+   record, 373, is itself corrupt — see "Not fixed here".)
+2. **The street-number veto read the structured column only.** Tracked property 392 is stored
+   `street_number = NULL`, `street_name = "29 Grindewald Drive"` (old cmainfo import: number
+   inside the name). `numbersConflict()` saw a NULL column, did not veto, and strategy 5 (token
+   overlap, which drops tokens under 3 characters — i.e. every street number) matched on
+   "grindewald drive" alone. 111 tracked properties on QA1 are stored that way. The real capture
+   path (`matchOrCreate`) shares `resolveMatch()`, so a real capture of 19 would have been
+   merged into the record for 29.
+3. **"Grindewald" ≠ "Grindewald Drive"** to the address normaliser (no street-type handling),
+   so even a properties search by normalised street would have missed 6113.
+
+**Rules (BINDING).**
+- An exact **street number + street + suburb** (or **erf + suburb** for freehold, or **scheme +
+  section** for sectional) always wins and is searched in **both** places CoreX holds a property:
+  agency stock (`properties`) and earlier captures (`tracked_properties`).
+- A **different street number is never the same property.** The number is read from the
+  structured column, or — when that is blank — from the numbers written in the street/address text
+  (`streetNumberSet()`: leading number of each line/comma segment, so "4 Villa-Del-Mei⏎35
+  Grindewald Drive" states 4 and 35). A conflict is declared only when both sides state numbers
+  and none agree. This fixes the class for every caller of `resolveMatch()` (pre-check and
+  real captures), not just this address.
+- A **loose street-text (strategy 5) hit** is reported as a duplicate only if the street number
+  is confirmed equal on both sides. When the click carries a number and the hit's number is
+  different or unknown it is **not a duplicate**: it is returned in `same_street`.
+- **Street type may be missing on one side** ("Grindewald" vs "Grindewald Drive", "Dr" vs "Drive"):
+  still confident. If both sides name a *different* type (Road vs Drive) → `possible_match` only. A
+  unit/section the capture carries but the property lacks → `possible_match` only; a differing unit
+  is a different property.
+
+**Endpoint contract change** (`POST /api/v1/deeds-capture/check-duplicate`, additive):
+- `matches[]` now also holds `source: "property"` rows (`property_id`, `address`, `summary`,
+  `confident`, `deeplink` → `corex.properties.show`); every row has a `source`
+  (`tracked_property` | `property`). Confident rows sort first (the banner shows `matches[0]`).
+- **`same_street[]`** (new, informational): other properties on the same street with a different
+  or unrecorded number — `{source, id, address, number_known}`, max 5. Never part of `status`,
+  never blocks.
+- **Scope:** a property the caller cannot open (own/branch/agency data scope + the Other Agency
+  Stock role gate) is still reported — a duplicate must not be silently missed — but as "A property
+  already held in your agency", no address, no deep link. Other agencies' rows are never read.
+- `agent_activity_events` payload gains `same_street_count` and `loose_hit_ignored`.
+
+**Extension 3.8.1** (`manifest.json` 3.8.0 → 3.8.1; no permission or host change, so the same
+abbreviated store review as 3.8.0): the banner uses the server's `summary` for property matches;
+a `same_street` answer on a `not_found` shows a non-blocking note next to "Captured ✓"
+(*"Other property on this street in CoreX (different number): 29 Grindewald Drive, UVONGO"*) and the
+capture proceeds exactly as before — it never opens the duplicate banner and never skips.
+
+**Not fixed here (reported).**
+- QA1 tracked property **373** is a "Frankenstein" record: four different cmainfo reports
+  (1 Como Drive, 4 Garden Place, 15 Meriel Road, 36 Grindewald Drive) collapsed into one, and it is
+  promoted to property 6113 (19 Grindewald). Data repair is a separate, deliberate job.
+- `resolvePropertyMatch()` (promote-to-stock) still compares `street_name_normalised` exactly, so a
+  promotion of a capture "19 Grindewald Drive" would not link to property "19 Grindewald" and would
+  create a second property. Same street-type tolerance should be applied there in its own change.
+- Suburb differences ("Uvongo" vs "Uvongo Beach") are not bridged.
+
+**Tests.** `tests/Feature/Prospecting/DeedsCapturePrecheckStreetNumberTest.php` (18 cases incl. both
+Grindewald rows as they exist on QA1); `deeds-cleanslate.test.cjs` (+9 checks).
+
 ### 9.7 Deliberately unchanged
 `extractDeed()`, `extractSaleInformation()`, `revealOwnerIdIfNeeded()`,
 `buildDeedsCapturePayload()`, `DeedsCaptureController::store()`/`ingestOne()` — all
@@ -840,7 +909,7 @@ byte-for-byte unchanged. The gate sits entirely in front of them in
 | `resources/views/corex/deeds-capture/index.blade.php` | `init()` reads `?open=` (§9.4) |
 | `public/chrome-extension/portal-capture/content-cmainfo.js` | `onCaptureClick()` restructured; + `extractFreeSaleFields()`, `buildPreCheckPayload()`, banner functions, `logPrecheckDecision()` |
 | `public/chrome-extension/portal-capture/background.js` | + `handleCheckDeedsDuplicate()`, `handleLogDeedsPrecheckDecision()`, message routing |
-| `public/chrome-extension/portal-capture/manifest.json` | version 3.7.7 → 3.8.0 |
+| `public/chrome-extension/portal-capture/manifest.json` | version 3.7.7 → 3.8.0 (→ 3.8.1, §9.10) |
 | `tests/Feature/Prospecting/DeedsCapturePrecheckTest.php` | new |
 | `public/chrome-extension/portal-capture/tests/deeds-cleanslate.test.cjs` | + pre-check gate test section |
 

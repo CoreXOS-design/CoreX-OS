@@ -219,16 +219,39 @@ final class DeedsCaptureController extends Controller
 
         $matches = [];
         $structural = $matcher->findExistingMatch($agencyId, $facts, $source);
+        $looseHitExcluded = null;
         if ($structural !== null) {
             $desc = $matcher->describeLastMatch($facts, $structural);
-            $matches[] = $this->formatMatch(
-                $structural,
-                $desc['label'] ?? null,
-                $desc['reason'] ?? 'Matched automatically.',
-                'structural',
-                $desc['confident'] ?? true,
-                ['structural'],
-            );
+            $loose = str_starts_with((string) ($desc['strategy'] ?? ''), '5_');
+
+            if ($loose && $matcher->factsHaveStreetNumber($facts) && ! $matcher->streetNumberConfirmed($facts, $structural)) {
+                // 2026-10-07 (Johan's first pre-check test): a loose street-text hit whose
+                // street NUMBER is not confirmed — a different number, or none on file —
+                // is NOT the property that was clicked. It is reported only as "other
+                // property on this street" (same_street, below) and never as a duplicate.
+                $looseHitExcluded = $structural;
+                $structural = null;
+            } else {
+                $matches[] = $this->formatMatch(
+                    $structural,
+                    $desc['label'] ?? null,
+                    $desc['reason'] ?? 'Matched automatically.',
+                    'structural',
+                    // a loose street-text hit that DOES agree on the street number is as good as
+                    // the exact-address strategy; only an untiebroken tie stays unconfident.
+                    ($desc['confident'] ?? true),
+                    ['structural'],
+                );
+            }
+        }
+
+        // Second source — agency stock (properties), which the tracked-property
+        // matcher never reads. A property the viewer's data scope hides is still
+        // reported (so a duplicate is never silently missed) but without its address.
+        $stockIds = [];
+        foreach ($matcher->findExistingStock($agencyId, $facts) as $hit) {
+            $stockIds[] = (int) $hit['property']->id;
+            $matches[] = $this->formatStockMatch($hit['property'], $hit['reason'], $hit['confident'], $hit['matched_fields'], $user);
         }
 
         foreach (($validated['owners'] ?? []) as $owner) {
@@ -245,21 +268,38 @@ final class DeedsCaptureController extends Controller
             }
         }
 
-        $confidentHit = collect($matches)->contains(fn ($m) => $m['match_type'] === 'structural' && $m['confident']);
+        // Confident matches first — the extension's banner shows matches[0].
+        usort($matches, fn ($a, $b) => ((int) $b['confident'] <=> (int) $a['confident']));
+
+        $confidentHit = collect($matches)->contains(fn ($m) => $m['match_type'] !== 'owner_name' && $m['confident']);
         $status = $confidentHit ? 'exists' : (count($matches) > 0 ? 'possible_match' : 'not_found');
 
+        // Informational only — never part of $status, never blocks or skips a capture.
+        $sameStreet = $matcher->findSameStreetOthers(
+            $agencyId,
+            $facts,
+            array_values(array_filter([$structural?->id])) ,
+            $stockIds,
+        );
+
+        $firstStock = $stockIds[0] ?? null;
         AgentActivityEvent::create([
             'agency_id'   => $agencyId,
             'user_id'     => $user?->id,
             'event_type'  => 'deeds_capture.precheck.' . $status,
-            'subject_type' => $structural ? TrackedProperty::class : null,
-            'subject_id'  => $structural?->id,
-            'payload'     => ['source_ref' => $source['ref'], 'match_count' => count($matches)],
+            'subject_type' => $structural ? TrackedProperty::class : ($firstStock ? \App\Models\Property::class : null),
+            'subject_id'  => $structural?->id ?? $firstStock,
+            'payload'     => [
+                'source_ref'        => $source['ref'],
+                'match_count'       => count($matches),
+                'same_street_count' => count($sameStreet),
+                'loose_hit_ignored' => $looseHitExcluded?->id,
+            ],
             'occurred_at' => now(),
             'created_at'  => now(),
         ]);
 
-        return response()->json(['status' => $status, 'matches' => $matches]);
+        return response()->json(['status' => $status, 'matches' => $matches, 'same_street' => $sameStreet]);
     }
 
     /**
@@ -328,9 +368,44 @@ final class DeedsCaptureController extends Controller
         ], static fn ($v) => $v !== null && $v !== '');
     }
 
+    /**
+     * A pre-check hit on the agency-stock `properties` table. The address and the
+     * deep link are only given to a viewer whose own/branch/agency data scope (and
+     * the Other Agency Stock role gate) lets them open that property — otherwise the
+     * duplicate is still reported, without leaking whose it is.
+     */
+    private function formatStockMatch(\App\Models\Property $p, string $reason, bool $confident, array $matchedFields, $viewer): array
+    {
+        $visible = $viewer !== null
+            && \App\Models\Property::query()->visibleTo($viewer)->visibleOtherAgencyStock($viewer)->whereKey($p->id)->exists();
+
+        $address = trim(implode(' ', array_filter([$p->street_number, $p->street_name])))
+            . ($p->suburb ? ', ' . $p->suburb : '');
+        $status = $p->status_label ?: $p->status;
+
+        return [
+            'source'               => 'property',
+            'property_id'          => $p->id,
+            'tracked_property_id'  => null,
+            'address'              => $visible ? $address : 'A property already held in your agency',
+            'summary'              => $visible
+                ? 'On CoreX as a property' . ($status ? ' (' . $status . ')' : '') . '. ' . $reason
+                : 'This property is already held in your agency by another agent. ' . $reason,
+            'captured_by'          => null,
+            'captured_at'          => null,
+            'captured_at_human'    => null,
+            'reason'               => $reason,
+            'match_type'           => 'property',
+            'confident'            => $confident,
+            'matched_fields'       => $matchedFields,
+            'deeplink'             => $visible ? route('corex.properties.show', $p->id) : null,
+        ];
+    }
+
     private function formatMatch(TrackedProperty $tp, ?string $label, string $reason, string $matchType, bool $confident, array $matchedFields): array
     {
         return [
+            'source'               => 'tracked_property',
             'tracked_property_id' => $tp->id,
             'address'              => $label ?? trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')) . ($tp->suburb ? ', ' . $tp->suburb : ''),
             'captured_by'          => $tp->deedsCapturedBy?->name,
