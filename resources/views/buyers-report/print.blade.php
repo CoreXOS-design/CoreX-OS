@@ -118,6 +118,43 @@
     @endforeach
 </div>
 
+@isset($leadResponse)
+{{-- Lead response — summary only (drill-down lists are omitted from print, like every other section). --}}
+@php
+    $lrSvc = app(\App\Services\LeadResponse\LeadResponseService::class);
+    $lrc = $leadResponse['company'];
+    $fmtMin = fn ($v) => $v === null ? '—' : $lrSvc->formatMinutes((int) $v);
+@endphp
+<h2 class="section">Lead response</h2>
+<p class="caveat">Target: first contact within {{ $leadResponse['target'] }} min, counting {{ $lrSvc->hoursSummary($leadResponse['hours']) }}. Contact = the "Contacted" action, a message sent, a link shared, or feedback on an appointment; a note alone does not count.@if(($lrc['not_measured'] ?? 0) > 0) {{ number_format($lrc['not_measured']) }} earlier enquiries (before response tracking began) are not measured.@endif</p>
+<div class="cards">
+    @foreach([['Leads received', $lrc['received']], ['Responded in target', $lrc['in_target']], ['Responded late', $lrc['late']], ['Not yet contacted', $lrc['waiting']], ['Average response', $fmtMin($lrc['avg'])], ['Median response', $fmtMin($lrc['median'])]] as [$label, $val])
+        <div class="card"><div class="v">{{ is_int($val) ? number_format($val) : $val }}</div><div class="k">{{ $label }}</div></div>
+    @endforeach
+</div>
+<table>
+    <thead><tr><th class="l">Agent</th><th>Received</th><th>In target</th><th>Late</th><th>Not yet</th><th>Average</th><th>Median</th></tr></thead>
+    <tbody>
+        @forelse(collect($report['agents'])->filter(fn ($a) => ($leadResponse['agents'][(int) $a['user_id']]['received'] ?? 0) > 0) as $a)
+            @php $s = $leadResponse['agents'][(int) $a['user_id']]; @endphp
+            <tr><td class="l">{{ $a['name'] }}</td><td>{{ $s['received'] }}</td><td>{{ $s['in_target'] }}</td><td>{{ $s['late'] }}</td><td>{{ $s['waiting'] }}</td><td>{{ $fmtMin($s['avg']) }}</td><td>{{ $fmtMin($s['median']) }}</td></tr>
+        @empty
+            <tr><td colspan="7" class="l">No measured enquiries for these agents in this period.</td></tr>
+        @endforelse
+    </tbody>
+</table>
+<table>
+    <thead><tr><th class="l">Source</th><th>Received</th><th>In target</th><th>Late</th><th>Not yet</th><th>Average</th><th>Median</th></tr></thead>
+    <tbody>
+        @forelse(collect($leadResponse['sources'])->filter(fn ($s) => $s['received'] > 0) as $s)
+            <tr><td class="l">{{ $s['label'] }}</td><td>{{ $s['received'] }}</td><td>{{ $s['in_target'] }}</td><td>{{ $s['late'] }}</td><td>{{ $s['waiting'] }}</td><td>{{ $fmtMin($s['avg']) }}</td><td>{{ $fmtMin($s['median']) }}</td></tr>
+        @empty
+            <tr><td colspan="7" class="l">No measured enquiries in this period.</td></tr>
+        @endforelse
+    </tbody>
+</table>
+@endisset
+
 <h2 class="section">Needs attention (top 10 per group)</h2>
 @foreach([
     ['attention', 'Cold & lost buyers — longest-stuck first'],

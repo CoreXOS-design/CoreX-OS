@@ -1126,14 +1126,24 @@ return [
                 . 'eventually asks: which of our marketing is actually producing business? Add the channels you '
                 . 'genuinely use; a short honest list beats a long aspirational one.',
         ],
+        // Lead response time (Johan, 2026-10-07; .ai/specs/lead-response-time.md) — the counting hours per
+        // weekday render through this partial (a repeating 7-row control the generic loop cannot express); the
+        // target is the generic number control below. Both post `lead_response_present` and save through the
+        // one narrow, has()-guarded saver (spec §6.1) — the same saver Settings → Lead response uses.
+        'partial' => 'agency-setup.steps.lead-response-hours',
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateContactsPerPage'],
+            ['controller' => \App\Http\Controllers\CommandCenter\ContactGovernanceController::class, 'method' => 'updateLeadResponse'],
         ],
         'controls' => [
             ['key' => 'contacts_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Contacts per page',
              'explain' => 'How many contacts load at a time on the Contacts page.',
              'affects' => 'How far an agent scrolls before paging to the next set of contacts.'],
+            ['key' => 'lead_response_target_minutes', 'source' => 'lead_response', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 10080,
+             'label' => 'Respond to a new enquiry within (minutes)',
+             'explain' => 'The time your agency aims to make first contact with someone who enquires through a portal, your website or a shared link. Only the hours chosen above count towards it.',
+             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Buyers Report and the Performance Report, and when a waiting enquiry is flagged as past target.'],
         ],
         'aux_partial' => 'agency-setup.steps.contacts-collections',
     ],

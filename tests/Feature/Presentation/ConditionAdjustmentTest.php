@@ -25,11 +25,12 @@ use Tests\TestCase;
  *   1. Seeded 7 defaults visible on freshly-migrated agency.
  *   2. Edit a condition level → adjustment_pct updates persist.
  *   3. Property edit form / model accepts condition_level_id.
- *   4. Generated review screen → band is the RAW comp distribution; the
- *      property's condition is recorded but NOT applied to the band
- *      (PRES-CMA-REALFIX — re-scaling double-counted condition).
- *   5. Override on review screen → condition recorded + override row logged;
- *      the band stays raw (condition no longer scales it).
+ *   4. Generated review screen → the evaluated value (middle) is the comp
+ *      median with the property's condition applied ONCE; the recommended
+ *      band is that middle ∓ the agency band % (PRES-CMA-REALFIX, Johan
+ *      2026-06-16 — supersedes the 2026-06-15 "raw quartiles" rule).
+ *   5. Override on review screen → condition applied once to the middle +
+ *      override row logged; the band is re-derived from the new middle.
  *   6. Publish → version snapshot frozen (condition_adjustment_pct).
  *   7. Property pointing at deleted condition → graceful fallback.
  *   8. Multi-tenancy: agency A's condition levels invisible to agency B.
@@ -177,35 +178,38 @@ final class ConditionAdjustmentTest extends TestCase
         );
         $cma = $analysis['cma_valuation'];
 
-        // The band is the RAW comp distribution — NO ×1.12 condition factor
-        // on ANY tile. A scaled band would read 1_680_000 / 2_049_600 /
-        // 2_419_200; that double-count is exactly what this fix removes.
-        $this->assertSame(1_500_000, $cma['cma_lower']);   // raw p25
-        $this->assertSame(1_830_000, $cma['cma_middle']);  // raw median
-        $this->assertSame(2_160_000, $cma['cma_upper']);   // raw p75
-        // Ordered invariant holds naturally on a sorted distribution.
+        // PRES-CMA-REALFIX (2026-06-16): the evaluated value (middle) is the
+        // comp median 1_830_000 with +12% applied ONCE = 2_049_600; the band
+        // is that middle ∓ the agency band % (default 10 / 13), NOT raw P25/P75.
+        [$lower, $middle, $upper] = $this->expectedBand(1_830_000, 12.0);
+        $this->assertSame(2_049_600, $middle);
+        $this->assertSame($lower,  $cma['cma_lower']);
+        $this->assertSame($middle, $cma['cma_middle']);
+        $this->assertSame($upper,  $cma['cma_upper']);
+        // Ordered invariant.
         $this->assertLessThan($cma['cma_middle'], $cma['cma_lower']);
         $this->assertLessThan($cma['cma_upper'],  $cma['cma_middle']);
+        // The un-adjusted comp median stays available as the baseline.
         $this->assertSame(1_830_000, $cma['cma_middle_baseline']);
-        // condition_applied is ALWAYS false now — the band is never scaled.
-        $this->assertFalse($cma['condition_applied']);
+        // Condition is applied exactly once, to the middle.
+        $this->assertTrue($cma['condition_applied']);
         // pct/label/source still surface as informational metadata.
         $this->assertEqualsWithDelta(12.0, $cma['condition_pct'], 0.01);
         $this->assertSame('Very Good', $cma['condition_label']);
         $this->assertSame('property_default', $cma['condition_source']);
 
         // Price Position "vs CMA Evaluation (middle)" reads the SAME middle
-        // the tiles render — now the raw median, not a scaled value.
+        // the tiles render — the condition-adjusted middle.
         $cmaComparison = collect($analysis['key_insights']['comparisons'])
-            ->firstWhere('label', 'vs CMA Evaluation (middle)');
+            ->firstWhere('label', 'vs evaluated value (middle)');
         $this->assertNotNull($cmaComparison);
-        $this->assertSame(1_830_000, $cmaComparison['benchmark']);
+        $this->assertSame($middle, $cmaComparison['benchmark']);
     }
 
-    public function test_negative_condition_does_not_deduct_the_band(): void
+    public function test_negative_condition_is_applied_once_to_the_middle(): void
     {
-        // Bad-condition direction: a "To Renovate" (-15%) property must NOT
-        // have its band deducted. The band stays the raw comp distribution.
+        // Bad-condition direction: a "To Renovate" (-15%) property has the
+        // deduction applied ONCE, to the middle; the band is derived from it.
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $toRenovate = PropertySettingItem::withoutGlobalScopes()
             ->where('agency_id', $agencyId)->where('name', 'To Renovate')->first(); // -15%
@@ -224,12 +228,14 @@ final class ConditionAdjustmentTest extends TestCase
             $version,
         )['cma_valuation'];
 
-        // A -15% deduction would read 1_275_000 / 1_555_500 / 1_836_000.
-        // The band must stay RAW — not deducted once, not twice.
-        $this->assertSame(1_500_000, $cma['cma_lower']);
-        $this->assertSame(1_830_000, $cma['cma_middle']);
-        $this->assertSame(2_160_000, $cma['cma_upper']);
-        $this->assertFalse($cma['condition_applied']);
+        // 1_830_000 × 0.85 = 1_555_500 once (not twice, which would be 1_322_175);
+        // lower/upper are that middle ∓ the agency band %.
+        [$lower, $middle, $upper] = $this->expectedBand(1_830_000, -15.0);
+        $this->assertSame(1_555_500, $middle);
+        $this->assertSame($lower,  $cma['cma_lower']);
+        $this->assertSame($middle, $cma['cma_middle']);
+        $this->assertSame($upper,  $cma['cma_upper']);
+        $this->assertTrue($cma['condition_applied']);
         $this->assertEqualsWithDelta(-15.0, $cma['condition_pct'], 0.01);
     }
 
@@ -257,7 +263,7 @@ final class ConditionAdjustmentTest extends TestCase
 
     // ── 5 — review screen override + override log ─────────────────────
 
-    public function test_set_condition_writes_override_and_records_condition_without_scaling_band(): void
+    public function test_set_condition_writes_override_and_applies_condition_once_to_the_middle(): void
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $excellent = PropertySettingItem::withoutGlobalScopes()
@@ -281,12 +287,14 @@ final class ConditionAdjustmentTest extends TestCase
         $this->assertSame($excellent->id, $json['condition']['level_id']);
         // The recorded condition pct is surfaced for the picker display…
         $this->assertEqualsWithDelta(20.0, $json['condition']['pct'], 0.01);
-        // …but it is NOT applied to the band, and the recompute says so.
-        $this->assertFalse($json['condition']['applied']);
-        // The band is the RAW median — a +20% scale would read 2_196_000.
-        $this->assertSame(1_830_000, $json['cma']['middle']);
-        $this->assertSame(1_500_000, $json['cma']['lower']);
-        $this->assertSame(2_160_000, $json['cma']['upper']);
+        // …and the recompute says it was applied (once, to the middle).
+        $this->assertTrue($json['condition']['applied']);
+        // +20% on the 1_830_000 median = 2_196_000; the band is re-derived from it.
+        [$lower, $middle, $upper] = $this->expectedBand(1_830_000, 20.0);
+        $this->assertSame(2_196_000, $middle);
+        $this->assertSame($middle, $json['cma']['middle']);
+        $this->assertSame($lower,  $json['cma']['lower']);
+        $this->assertSame($upper,  $json['cma']['upper']);
 
         $this->assertSame($excellent->id, $version->fresh()->condition_level_id);
         $this->assertDatabaseHas('agent_overrides', [
@@ -340,7 +348,7 @@ final class ConditionAdjustmentTest extends TestCase
         $this->assertSame('Good', $fresh->condition_label);
     }
 
-    public function test_published_snapshot_freezes_informational_pct_and_band_stays_raw(): void
+    public function test_published_snapshot_freezes_the_condition_pct_applied_to_the_middle(): void
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $good = PropertySettingItem::withoutGlobalScopes()
@@ -373,10 +381,10 @@ final class ConditionAdjustmentTest extends TestCase
 
         $this->assertEqualsWithDelta(3.0, $cma['condition_pct'], 0.01);
         $this->assertSame('version_snapshot', $cma['condition_source']);
-        // …but the band itself is the RAW median — unaffected by the pct in
-        // EITHER direction (neither 3% nor 50% scales it).
-        $this->assertFalse($cma['condition_applied']);
-        $this->assertSame(1_000_000, $cma['cma_middle']);
+        // …and the middle is the median with the FROZEN 3% applied once
+        // (1_030_000) — had the later 50% leaked in it would read 1_500_000.
+        $this->assertTrue($cma['condition_applied']);
+        $this->assertSame(1_030_000, $cma['cma_middle']);
     }
 
     // ── 7 — graceful fallback for deleted condition ───────────────────
@@ -551,5 +559,22 @@ final class ConditionAdjustmentTest extends TestCase
                 'parser_version'  => 'test',
             ]);
         }
+    }
+
+    /**
+     * The recommended band the product derives (PRES-CMA-REALFIX): the comp
+     * median with condition applied once = middle; lower/upper = middle ∓ the
+     * band % (CompPoolBuilder defaults — these tests set no agency override).
+     *
+     * @return array{0:int,1:int,2:int} [lower, middle, upper]
+     */
+    private function expectedBand(int $medianBaseline, float $conditionPct): array
+    {
+        $middle = (int) round($medianBaseline * (1 + $conditionPct / 100));
+        return [
+            (int) round($middle * (1 - \App\Services\Presentations\CompPoolBuilder::DEF_BAND_LOWER_PCT / 100)),
+            $middle,
+            (int) round($middle * (1 + \App\Services\Presentations\CompPoolBuilder::DEF_BAND_UPPER_PCT / 100)),
+        ];
     }
 }

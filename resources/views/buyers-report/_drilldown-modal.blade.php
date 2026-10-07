@@ -41,7 +41,14 @@
                             @mouseover="rowClickable(row) && ($event.currentTarget.style.background = 'var(--surface-2)')"
                             @mouseout="rowClickable(row) && ($event.currentTarget.style.background = '')">
                             <template x-for="c in drillColumns" :key="c.key">
-                                <td class="px-3 py-2" :class="c.align === 'right' ? 'text-right' : 'text-left'" style="color:var(--text-primary);" x-text="cell(row, c)"></td>
+                                <td class="px-3 py-2" :class="c.align === 'right' ? 'text-right' : 'text-left'" style="color:var(--text-primary);">
+                                    <template x-if="c.key === drillColumns[0].key && row.href">
+                                        <a :href="row.href" class="underline" style="color:var(--brand-icon, #0ea5e9);" x-text="cell(row, c)"></a>
+                                    </template>
+                                    <template x-if="!(c.key === drillColumns[0].key && row.href)">
+                                        <span x-text="cell(row, c)"></span>
+                                    </template>
+                                </td>
                             </template>
                             <td class="px-2 py-2 text-right text-[11px]" style="color: var(--brand-icon, #0ea5e9);" x-text="rowClickable(row) ? 'view →' : ''"></td>
                         </tr>
@@ -64,7 +71,7 @@ function buyersReport(cfg) {
         // per-metric label vocabulary (real/auto losses vs a state name) --
         // the server always returns the authoritative title on every call.
         drillMetric: '', drillSubtype: null, drillLevel: null, drillBack: false, drillSummaryTitle: '',
-        drill(metric, title, agentId, subtype, level) {
+        drill(metric, title, agentId, subtype, level, source) {
             this.drillOpen = true; this.drillLoading = true; this.drillError = '';
             this.drillTitle = title || metric; this.drillColumns = []; this.drillRows = []; this.drillTruncated = false;
             this.drillMetric = metric;
@@ -73,6 +80,7 @@ function buyersReport(cfg) {
             if (agentId !== null && agentId !== undefined && agentId !== '') url += '&agent_id=' + encodeURIComponent(agentId);
             if (subtype) url += '&subtype=' + encodeURIComponent(subtype);
             if (level) url += '&level=' + encodeURIComponent(level);
+            if (source) url += '&source=' + encodeURIComponent(source);
             fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(r => { if (!r.ok) throw new Error('Could not load the detail (' + r.status + ').'); return r.json(); })
                 .then(d => {

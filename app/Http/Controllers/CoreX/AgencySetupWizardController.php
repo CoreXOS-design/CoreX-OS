@@ -596,6 +596,11 @@ class AgencySetupWizardController extends Controller
                 // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // Lead response time — explicit per-key arm (spec §6.2), never an Agency column fall-through.
+                'lead_response' => match ($key) {
+                    'lead_response_target_minutes' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->leadResponseTargetMinutes(),
+                    default => $control['default'] ?? null,
+                },
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Explicit per-key match
                 // (spec §6.2). Visible roles: stored NULL/empty means "visible to everyone", which the

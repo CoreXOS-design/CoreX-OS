@@ -181,6 +181,34 @@ class ContactGovernanceController extends Controller
         return back();
     }
 
+    /**
+     * Lead response time (Johan, 2026-10-07; .ai/specs/lead-response-time.md) — "respond within N minutes" and the
+     * per-weekday counting hours. ONE saver for the Settings page AND the Setup Wizard step (spec §6.1: it only
+     * writes what was actually posted — the `lead_response_present` marker says the form rendered these controls,
+     * and each field is written only if present, so a step that posts a subset never wipes the rest).
+     */
+    public function updateLeadResponse(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('command_center.settings'), 403);
+
+        if (! $request->has('lead_response_present')) {
+            return back();
+        }
+
+        $data = $request->validate([
+            'lead_response_target_minutes' => 'nullable|integer|min:1|max:10080',
+            'lead_response_hours' => 'nullable|array',
+        ]);
+
+        $service = app(\App\Services\LeadResponse\LeadResponseSettingsService::class);
+        $hours = $request->has('lead_response_hours') ? $service->validateHours((array) $request->input('lead_response_hours')) : null;
+        $target = $request->filled('lead_response_target_minutes') ? (int) $data['lead_response_target_minutes'] : null;
+
+        $changed = $service->save($this->resolveAgencyId(), $target, $hours, auth()->id());
+
+        return back()->with('success', $changed ? 'Lead response settings saved.' : 'Lead response settings unchanged.');
+    }
+
     private function saveExcludedBuyerStates(Request $request, int $agencyId): void
     {
         $request->validate([

@@ -66,6 +66,28 @@
         </tbody>
     </table>
 
+    @isset($leadResponse)
+    @php
+        $lrSvc = app(\App\Services\LeadResponse\LeadResponseService::class);
+        $lrc = $leadResponse['company'];
+        $fmtMin = fn ($v) => $v === null ? '—' : $lrSvc->formatMinutes((int) $v);
+    @endphp
+    <h2 class="section">Lead response</h2>
+    <table>
+        <thead><tr><th class="l">Target {{ $leadResponse['target'] }} min · {{ $lrSvc->hoursSummary($leadResponse['hours']) }}</th><th>Received</th><th>In target</th><th>Late</th><th>Not yet</th><th>Average</th><th>Median</th></tr></thead>
+        <tbody>
+            <tr><td class="l"><strong>Company</strong></td><td>{{ $lrc['received'] }}</td><td>{{ $lrc['in_target'] }}</td><td>{{ $lrc['late'] }}</td><td>{{ $lrc['waiting'] }}</td><td>{{ $fmtMin($lrc['avg']) }}</td><td>{{ $fmtMin($lrc['median']) }}</td></tr>
+            @foreach(collect($report['agents'])->filter(fn ($a) => ($leadResponse['agents'][(int) $a['user_id']]['received'] ?? 0) > 0) as $a)
+                @php $s = $leadResponse['agents'][(int) $a['user_id']]; @endphp
+                <tr><td class="l">{{ $a['name'] }}</td><td>{{ $s['received'] }}</td><td>{{ $s['in_target'] }}</td><td>{{ $s['late'] }}</td><td>{{ $s['waiting'] }}</td><td>{{ $fmtMin($s['avg']) }}</td><td>{{ $fmtMin($s['median']) }}</td></tr>
+            @endforeach
+            @foreach(collect($leadResponse['sources'])->filter(fn ($s) => $s['received'] > 0) as $s)
+                <tr><td class="l">Source: {{ $s['label'] }}</td><td>{{ $s['received'] }}</td><td>{{ $s['in_target'] }}</td><td>{{ $s['late'] }}</td><td>{{ $s['waiting'] }}</td><td>{{ $fmtMin($s['avg']) }}</td><td>{{ $fmtMin($s['median']) }}</td></tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endisset
+
     <p class="foot">Agency Performance &amp; ROI · {{ count($report['metrics']) }} metrics · agent → branch → company · point-in-time branch attribution.</p>
 </body>
 </html>

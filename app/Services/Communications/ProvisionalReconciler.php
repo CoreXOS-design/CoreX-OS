@@ -126,6 +126,8 @@ class ProvisionalReconciler
             ->update(['confirmed_at' => now()]);
 
         $contact->touchLastContacted($occurredAt);
+        // Lead response time: the agent's provisional send was confirmed as really sent.
+        $contact->recordAgentContact('message', $occurredAt, $hit->owner_user_id);
 
         return $hit;
     }

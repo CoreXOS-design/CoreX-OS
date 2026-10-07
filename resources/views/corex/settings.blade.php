@@ -170,6 +170,9 @@
                     $can('command_center.settings')
                         ? ['key'=>'core-matches', 'label'=>'Core Matches', 'type'=>'section', 'keywords'=>'core match core matches statuses status allow-list allowlist which statuses shown included working window gone quiet on show on auction']
                         : null,
+                    $can('command_center.settings')
+                        ? ['key'=>'lead-response', 'label'=>'Lead response', 'type'=>'section', 'keywords'=>'lead response time respond within minutes enquiry portal first contact counting hours business hours days of the week target speed']
+                        : null,
                     $can('prospecting_setup.manage')
                         ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'section', 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting buyer match tiers']
                         : null,
@@ -1160,6 +1163,42 @@
                         </div>
                     </div>
 
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                    </div>
+                </form>
+            @endif
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             LEAD RESPONSE — target minutes + per-weekday counting hours
+             (Johan, 2026-10-07; .ai/specs/lead-response-time.md). Same
+             stored setting + same saver as the Setup Wizard's Contacts step.
+             ============================================================ --}}
+        @permission('command_center.settings')
+        <div x-show="activeSection === 'lead-response'" x-cloak class="p-6 space-y-5">
+            @if(isset($coreMatchesSettings) && $coreMatchesSettings)
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium" style="background:rgba(16,185,129,0.1); color:#059669;">{{ session('success') }}</div>
+                @endif
+                <div>
+                    <h2 class="text-base font-semibold" style="color:var(--text-primary);">Lead response</h2>
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">Every enquiry from a portal, your website or a shared link starts a clock. It stops when an agent genuinely contacts the person: the "Contacted" action, a message sent, a link shared, or feedback on an appointment with them. A note on its own never counts.</p>
+                </div>
+                <form method="POST" action="{{ route('command-center.settings.lead-response.update') }}"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf @method('PUT')
+                    <div class="max-w-xs">
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Respond to a new enquiry within (minutes)</label>
+                        <input type="number" name="lead_response_target_minutes" min="1" max="10080"
+                               value="{{ old('lead_response_target_minutes', $coreMatchesSettings->leadResponseTargetMinutes()) }}"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface); color:var(--text-primary); border:1px solid var(--border);">
+                        @error('lead_response_target_minutes')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
+                    </div>
+                    <div class="pt-3 border-t" style="border-color:var(--border);">
+                        @include('partials.lead-response-hours', ['hours' => $coreMatchesSettings->leadResponseHours()])
+                    </div>
                     <div class="flex justify-end pt-2">
                         <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                     </div>
