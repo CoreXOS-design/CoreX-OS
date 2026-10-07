@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Properties;
 
 use App\Events\Mandate\MandateExpired;
+use App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\DocumentType;
@@ -17,8 +18,12 @@ use App\Services\Properties\MandateExpiryPolicy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -504,6 +509,404 @@ final class PropertyExpiryTest extends TestCase
         $this->assertSame(0, DB::table('performance_settings')->count(), 'reads must never write');
     }
 
+
+    // ── Audit fixes (2026-10-07) ────────────────────────────────────────────
+
+    /** Genuinely imported, never-touched Imported Stock through the REAL controller: exempt + takeover, as AT-422. */
+    public function test_untouched_imported_stock_saves_a_new_date_through_the_controller_despite_the_lock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $this->provisionExtensionFolder();
+
+        $imported = $this->importedListing($agencyId, $admin, 'Withdrawn');
+        $this->assertTrue($imported->isImportedStock());
+        $this->assertTrue($imported->isUntouchedImportedStock());
+        $this->assertNull($imported->expiry_lock_engaged_at);
+        $this->assertFalse(MandateExpiryPolicy::lockState($imported)['locked'], 'untouched imported stock is exempt');
+
+        $newDate = today()->addDays(45)->toDateString();
+        $this->saveEdit($admin, $imported, ['expiry_date' => $newDate])->assertSessionHasNoErrors();
+
+        $fresh = $imported->fresh();
+        $this->assertSame($newDate, $fresh->expiry_date->toDateString(), 'the typed date is the takeover date');
+        $this->assertNotNull($fresh->imported_released_at, 'the AT-422 takeover happened');
+        $this->assertFalse($fresh->isImportedStock());
+        // From now on it is an ordinary live-lifecycle property: the lock is in force.
+        $this->assertSame('withdrawn', strtolower($fresh->status));
+    }
+
+    /** The hole: a LIVE imported listing withdrawn by a user must not become exempt. */
+    public function test_withdrawing_a_live_imported_listing_does_not_open_the_lock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $this->provisionExtensionFolder();
+
+        $live = $this->importedListing($agencyId, $admin, 'active', today()->addDays(30));
+        $this->assertFalse($live->isImportedStock(), 'on the market it is not Imported Stock');
+        $this->assertTrue(MandateExpiryPolicy::lockState($live)['locked']);
+
+        // Save 1: the user withdraws it (no date change, so the lock does not fire).
+        $this->saveEdit($admin, $live, ['status' => 'withdrawn'])->assertSessionHasNoErrors();
+        $afterWithdraw = $live->fresh();
+        $this->assertSame('withdrawn', strtolower($afterWithdraw->status));
+        $this->assertNotNull($afterWithdraw->expiry_lock_engaged_at, 'it lived in CoreX: the lock is engaged');
+        // Johan's ruling: it STAYS on the Imported Stock page - membership is untouched.
+        $this->assertNull($afterWithdraw->imported_released_at);
+        $this->assertTrue($afterWithdraw->isImportedStock());
+        $this->assertTrue(Property::query()->importedOffMarket()->whereKey($live->id)->exists());
+        $this->assertFalse($afterWithdraw->isUntouchedImportedStock());
+        $this->assertSame(today()->addDays(30)->toDateString(), $afterWithdraw->expiry_date->toDateString());
+        $this->assertTrue(MandateExpiryPolicy::lockState($afterWithdraw)['locked']);
+
+        // A status-only save (even to another off-market status) never resets or clears the date.
+        $this->saveEdit($admin, $afterWithdraw, ['status' => 'sold'])->assertSessionHasNoErrors();
+        $this->assertSame(today()->addDays(30)->toDateString(), $live->fresh()->expiry_date->toDateString());
+        $this->assertNull($live->fresh()->imported_released_at, 'no takeover for an engaged listing');
+
+        // Save 2: a new date is still refused - and nothing was written.
+        $this->saveEdit($admin, $live->fresh(), ['expiry_date' => today()->addDays(200)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date']);
+        $this->assertSame(today()->addDays(30)->toDateString(), $live->fresh()->expiry_date->toDateString());
+
+        // The property page shows the real locked date, not "Imported".
+        $this->actingAs($admin)->get(route('corex.properties.show', $live))->assertOk()
+            ->assertSee('Expiry date locked', false);
+    }
+
+    /** Spec D4: the midnight sweep must not turn a locked live listing into exempt Imported Stock. */
+    public function test_a_swept_expired_imported_listing_stays_locked(): void
+    {
+        Queue::fake();
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $this->provisionExtensionFolder();
+
+        $live = $this->importedListing($agencyId, $admin, 'active', today()->subDay());
+
+        Artisan::call('mandates:expire');
+
+        $swept = $live->fresh();
+        $this->assertSame('expired', strtolower($swept->status));
+        $this->assertNotNull($swept->expiry_lock_engaged_at);
+        $this->assertNull($swept->imported_released_at, 'it stays on the Imported Stock page');
+        $this->assertTrue($swept->isImportedStock());
+        $this->assertTrue(MandateExpiryPolicy::lockState($swept)['locked']);
+        $this->saveEdit($admin, $swept, ['expiry_date' => today()->addDays(90)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date']);
+    }
+
+    public function test_an_expired_status_alone_never_unlocks_a_live_listing(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $admin, today()->subDays(3));
+        $p->update(['status' => 'expired']);
+
+        $this->assertTrue(MandateExpiryPolicy::lockState($p->fresh())['locked']);
+        $this->saveEdit($admin, $p->fresh(), ['expiry_date' => today()->addDays(60)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date']);
+    }
+
+    public function test_a_non_extension_document_does_not_unlock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $admin, today()->addDays(30));
+
+        $other = DocumentType::query()->create([
+            'slug' => 'title_deed_zzz', 'label' => 'Title Deed', 'grouping' => 'property',
+            'listing_types' => ['sale'], 'is_active' => true, 'sort_order' => 5,
+        ]);
+        $this->travel(1)->minutes();
+        $doc = Document::create([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId, 'original_name' => 'deed.pdf',
+            'storage_path' => "properties/{$p->id}/files/deed.pdf", 'disk' => 'local', 'mime_type' => 'application/pdf',
+            'size' => 100, 'document_type_id' => $other->id, 'source_type' => 'upload', 'uploaded_by' => $admin->id,
+        ]);
+        $doc->properties()->attach($p->id);
+        // …and an untyped document too.
+        $untyped = Document::create([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId, 'original_name' => 'misc.pdf',
+            'storage_path' => "properties/{$p->id}/files/misc.pdf", 'disk' => 'local', 'mime_type' => 'application/pdf',
+            'size' => 100, 'document_type_id' => null, 'source_type' => 'upload', 'uploaded_by' => $admin->id,
+        ]);
+        $untyped->properties()->attach($p->id);
+
+        $this->assertTrue(MandateExpiryPolicy::lockState($p->fresh())['locked']);
+        $this->saveEdit($admin, $p->fresh(), ['expiry_date' => today()->addDays(90)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date']);
+        $this->travelBack();
+    }
+
+    /** "Expires today" is inside the pop-up window AND is still a locked change (the sweep expires only < today). */
+    public function test_a_mandate_expiring_today_shows_in_the_popup_and_is_locked(): void
+    {
+        [$agencyId, $agent] = $this->agencyWithUser('agent');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $agent, today());
+
+        $this->actingAs($agent)->get(route('corex.properties.index'))->assertOk()
+            ->assertSee(self::POPUP_HEADING)->assertSee('Expires today');
+
+        $state = MandateExpiryPolicy::lockState($p);
+        $this->assertTrue($state['locked']);
+        $this->assertSame(0, $state['days_left']);
+        $this->assertFalse($state['expired'], 'it is still live today - the sweep takes it at midnight');
+        $this->saveEdit($agent, $p, ['expiry_date' => today()->addDays(30)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date']);
+    }
+
+    /** IDOR: another AGENCY's listing id is ignored by the dismiss endpoint. */
+    public function test_dismiss_ignores_another_agencys_listing(): void
+    {
+        [$agencyA, $agentA] = $this->agencyWithUser('agent');
+        [$agencyB, $agentB] = $this->agencyWithUser('agent');
+        $foreign = $this->property($agencyB, $agentB, 'ZZZ-Foreign', ['expiry_date' => today()->addDays(2)]);
+        $mine    = $this->property($agencyA, $agentA, 'ZZZ-Mine-A', ['expiry_date' => today()->addDays(2)]);
+
+        $this->actingAs($agentA)
+            ->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [$foreign->id, $mine->id]])
+            ->assertOk()->assertJson(['recorded' => 1]);
+
+        $this->assertDatabaseMissing('property_expiry_popup_views', ['property_id' => $foreign->id]);
+        $this->assertDatabaseHas('property_expiry_popup_views', ['property_id' => $mine->id, 'user_id' => $agentA->id]);
+    }
+
+    /** Only listings the pop-up could have shown (own, on market, in the window) can be marked as seen. */
+    public function test_dismiss_records_only_own_on_market_listings_inside_the_window(): void
+    {
+        [$agencyId, $agent] = $this->agencyWithUser('agent');
+        $inWindow = $this->property($agencyId, $agent, 'ZZZ-In', ['expiry_date' => today()->addDays(3)]);
+        $farAway  = $this->property($agencyId, $agent, 'ZZZ-Far', ['expiry_date' => today()->addDays(200)]);
+        $withdrawn = $this->property($agencyId, $agent, 'ZZZ-Wd', ['expiry_date' => today()->addDays(3), 'status' => 'withdrawn']);
+
+        $this->actingAs($agent)
+            ->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [$inWindow->id, $farAway->id, $withdrawn->id]])
+            ->assertOk()->assertJson(['recorded' => 1]);
+
+        $this->assertSame([$inWindow->id], PropertyExpiryPopupView::query()->pluck('property_id')->all());
+
+        // Once that far-away listing really enters the window, it still announces (it was never pre-suppressed).
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_WARN_DAYS, 90, $agencyId);
+        $farAway->update(['expiry_date' => today()->addDays(60)]);
+        $this->get(route('corex.properties.index'))->assertOk()
+            ->assertSee(self::POPUP_HEADING)
+            ->assertSee("JSON.parse('[{$farAway->id}]')", false);
+    }
+
+    public function test_the_dismiss_route_is_permission_and_agency_gated(): void
+    {
+        $route = app('router')->getRoutes()->getByName('api.v1.properties.expiry-popup.dismiss');
+        $this->assertNotNull($route);
+        $this->assertContains('permission:access_properties', $route->gatherMiddleware());
+        $this->assertContains('agency.required', $route->gatherMiddleware());
+
+        // An owner with no agency in scope gets a 422 and nothing is written.
+        $nobody = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'admin']);
+        $status = $this->actingAs($nobody)->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [1]])->getStatusCode();
+        $this->assertContains($status, [403, 422], 'refused before anything is written');
+        $this->assertSame(0, PropertyExpiryPopupView::query()->count());
+    }
+
+    /** Manual Expired: the event fires once AND the real listener still runs and dispatches the de-listing job. */
+    public function test_manual_expired_dispatches_the_desyndication_job(): void
+    {
+        Queue::fake();
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        $p = $this->property($agencyId, $admin, 'ZZZ-Manual-Desyn');
+        $this->actingAs($admin);
+
+        $fired = 0;
+        Event::listen(MandateExpired::class, function () use (&$fired) { $fired++; });   // observe; do NOT fake
+
+        $p->update(['status' => 'expired']);
+
+        $this->assertSame(1, $fired, 'MandateExpired fires once for a manual Expired');
+        Queue::assertPushed(DesyndicatePropertyFromPortalsJob::class, fn ($job) => $job->property->is($p));
+    }
+
+    /** A rejected locked save leaves no orphan files behind (the lock runs before any storing). */
+    public function test_a_rejected_locked_save_stores_no_files(): void
+    {
+        Storage::fake('public');
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $admin, today()->addDays(30));
+
+        $this->saveEditWithFile($admin, $p, ['expiry_date' => today()->addDays(90)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date']);
+        $this->assertSame([], Storage::disk('public')->allFiles(), 'a refused save must not leave uploads on disk');
+
+        // Control: the same upload on a save that is allowed DOES store it (the harness is real).
+        $this->saveEditWithFile($admin, $p, [])->assertSessionHasNoErrors();
+        $this->assertNotEmpty(Storage::disk('public')->allFiles());
+    }
+
+    public function test_the_extension_folder_cannot_be_renamed_deactivated_or_cleared_from_agency_settings(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        $type = $this->provisionExtensionFolder();
+        $before = DocumentType::query()->find($type->id)->only(['label', 'sort_order', 'is_active', 'listing_types']);
+
+        $this->actingAs($admin)->post(route('admin.settings.document-types.bulk-save'), [
+            'types' => [[
+                'id' => $type->id, 'label' => 'Hijacked', 'sort_order' => 3, 'is_active' => '0',
+                'listing_types' => [],
+            ]],
+        ])->assertSessionHasNoErrors();
+
+        $after = DocumentType::query()->find($type->id);
+        $this->assertSame($before, $after->only(['label', 'sort_order', 'is_active', 'listing_types']));
+
+        // Single-row update and archive are refused too.
+        $this->actingAs($admin)->put(route('admin.splitter.doc-types.update', $type->id), [
+            'label' => 'Hijacked', 'sort_order' => 1, 'is_active' => 0,
+        ])->assertSessionHasErrors(['label']);
+        $this->actingAs($admin)->delete(route('admin.splitter.doc-types.destroy', $type->id))->assertSessionHasErrors(['label']);
+        $this->assertNull(DocumentType::withTrashed()->find($type->id)->deleted_at);
+        $this->assertSame('Extension', DocumentType::query()->find($type->id)->label);
+
+        // An ordinary type still saves normally.
+        $ordinary = DocumentType::query()->create([
+            'slug' => 'ordinary_zzz', 'label' => 'Ordinary', 'grouping' => 'property',
+            'listing_types' => ['sale'], 'is_active' => true, 'sort_order' => 7,
+        ]);
+        $this->actingAs($admin)->post(route('admin.settings.document-types.bulk-save'), [
+            'types' => [['id' => $ordinary->id, 'label' => 'Renamed', 'sort_order' => 7, 'is_active' => '1', 'listing_types' => ['sale']]],
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('Renamed', $ordinary->fresh()->label);
+    }
+
+    /** Never "locked forever": with no usable way out the lock cannot hold. */
+    public function test_the_lock_does_not_hold_when_the_extension_folder_is_unusable(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $admin, today()->addDays(30));
+        $type = $this->provisionExtensionFolder();
+        $this->assertTrue(MandateExpiryPolicy::lockState($p)['locked']);
+
+        $type->update(['is_active' => false]);
+        $this->assertFalse(MandateExpiryPolicy::lockState($p->fresh())['locked'], 'inactive folder');
+        $type->update(['is_active' => true, 'listing_types' => null]);
+        $this->assertFalse(MandateExpiryPolicy::lockState($p->fresh())['locked'], 'folder with no listing types');
+        $type->update(['listing_types' => ['sale', 'rental']]);
+        $type->delete();
+        $this->assertFalse(MandateExpiryPolicy::lockState($p->fresh())['locked'], 'archived folder');
+        $type->restore();
+        $this->assertTrue(MandateExpiryPolicy::lockState($p->fresh())['locked']);
+    }
+
+    public function test_warn_days_clamp_to_the_nearest_bound_and_garbage_falls_back_to_the_default(): void
+    {
+        [$agencyId] = $this->agencyWithUser('admin');
+
+        foreach ([['500', 90], ['91', 90], ['0', 1], ['-4', 1], ['45', 45], ['abc', MandateExpiryPolicy::DEFAULT_WARN_DAYS]] as [$stored, $expected]) {
+            PerformanceSetting::set(MandateExpiryPolicy::SETTING_WARN_DAYS, $stored, $agencyId);
+            $this->assertSame($expected, MandateExpiryPolicy::warnDaysFor($agencyId), "stored '{$stored}'");
+        }
+    }
+
+    /** A stray NULL-agency row (script / tinker) must never configure any agency. */
+    public function test_a_global_null_agency_row_never_leaks_into_an_agency(): void
+    {
+        [$agencyId] = $this->agencyWithUser('admin');
+        DB::table('performance_settings')->insert([
+            ['agency_id' => null, 'key' => MandateExpiryPolicy::SETTING_LOCK, 'value' => '1', 'created_at' => now(), 'updated_at' => now()],
+            ['agency_id' => null, 'key' => MandateExpiryPolicy::SETTING_WARN_DAYS, 'value' => '30', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->assertFalse(MandateExpiryPolicy::lockEnabledFor($agencyId));
+        $this->assertSame(MandateExpiryPolicy::DEFAULT_WARN_DAYS, MandateExpiryPolicy::warnDaysFor($agencyId));
+        $this->assertNull(PerformanceSetting::get(MandateExpiryPolicy::SETTING_LOCK, null, $agencyId));
+    }
+
+    public function test_lock_state_does_no_advertising_lookup_while_the_lock_is_off(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        $p = $this->liveListing($agencyId, $admin, today()->addDays(30));
+
+        DB::enableQueryLog();
+        $state = MandateExpiryPolicy::lockState($p);
+        $queries = collect(DB::getQueryLog())->pluck('query')->implode("\n");
+        DB::disableQueryLog();
+
+        $this->assertFalse($state['locked']);
+        $this->assertStringNotContainsString('property_website_syndication', $queries);
+    }
+
+    public function test_has_fresh_extension_document_and_lock_state_share_one_rule(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $admin, today()->addDays(30));
+        $this->assertFalse(MandateExpiryPolicy::hasFreshExtensionDocument($p));
+
+        $this->travel(1)->minutes();
+        $this->extensionDocument($agencyId, $admin, $p);
+        $this->assertTrue(MandateExpiryPolicy::hasFreshExtensionDocument($p->fresh()));
+        $this->assertFalse(MandateExpiryPolicy::lockState($p->fresh())['locked']);
+        $this->travelBack();
+    }
+
+    // ── Migration safety ────────────────────────────────────────────────────
+
+    public function test_extension_migration_repairs_an_archived_or_inactive_row_and_down_never_hard_deletes(): void
+    {
+        $type = DocumentType::withTrashed()->firstOrCreate(
+            ['slug' => MandateExpiryPolicy::EXTENSION_SLUG],
+            ['label' => 'Mandate Extension', 'grouping' => 'property', 'listing_types' => null, 'is_active' => false, 'sort_order' => 4]
+        );
+        $type->update(['is_active' => false, 'listing_types' => null]);
+        $type->delete();   // archived AND inactive AND no listing types - the worst case
+
+        $migration = require database_path('migrations/2026_10_13_100100_add_mandate_extension_document_type.php');
+        $migration->up();
+
+        $fixed = DocumentType::query()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->first();
+        $this->assertNotNull($fixed, 'restored from the archive');
+        $this->assertTrue($fixed->is_active);
+        $this->assertTrue($fixed->appliesToListingType('sale'));
+        $this->assertTrue($fixed->appliesToListingType('rental'));
+        $this->assertSame('Mandate Extension', $fixed->label, 'the label an install already had is kept');
+        $this->assertSame(1, DocumentType::withTrashed()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->count());
+
+        // down() archives - it never removes a row (documents keep their type).
+        $migration->down();
+        $this->assertSame(1, DocumentType::withTrashed()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->count());
+        $this->assertNotNull(DocumentType::withTrashed()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->value('deleted_at'));
+
+        // …and up() brings it straight back.
+        $migration->up();
+        $this->assertNotNull(DocumentType::query()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->first());
+    }
+
+    public function test_status_item_migration_down_soft_deletes_defaults_and_leaves_customised_rows(): void
+    {
+        $agencyA = $this->makeAgency();
+        $agencyB = $this->makeAgency();
+        $this->seedStatusItems($agencyA);
+        $this->seedStatusItems($agencyB);
+
+        $migration = require database_path('migrations/2026_10_13_100000_add_expired_property_status_item.php');
+        $migration->up();
+
+        // Agency B deactivated its Expired item - a customisation that must survive a rollback.
+        DB::table('property_setting_items')->where('agency_id', $agencyB)->where('name', 'Expired')
+            ->update(['active' => 0, 'updated_at' => now()->addMinute()]);
+
+        $migration->down();
+
+        $a = DB::table('property_setting_items')->where('agency_id', $agencyA)->where('name', 'Expired')->first();
+        $b = DB::table('property_setting_items')->where('agency_id', $agencyB)->where('name', 'Expired')->first();
+        $this->assertNotNull($a, 'never hard-deleted');
+        $this->assertNotNull($a->deleted_at, 'the untouched default is archived');
+        $this->assertNotNull($b);
+        $this->assertNull($b->deleted_at, 'the customised row is left alone');
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */
@@ -544,6 +947,10 @@ final class PropertyExpiryTest extends TestCase
     /** A completed listing that has gone live (Go Live pressed), with a linked contact so it can be saved. */
     private function liveListing(int $agencyId, User $agent, ?Carbon $expiry): Property
     {
+        // The lock only holds while its way out exists (a usable Extension folder), exactly as on a
+        // deployed install where the data migration provisioned it.
+        $this->provisionExtensionFolder();
+
         $p = $this->property($agencyId, $agent, 'ZZZ-Live-' . Str::random(4), [
             'expiry_date'            => $expiry,
             'compliance_snapshot_at' => now()->subDay(),
@@ -584,12 +991,49 @@ final class PropertyExpiryTest extends TestCase
         return $this->actingAs($user)->put(route('corex.properties.update', $p->id), $payload);
     }
 
-    private function extensionDocument(int $agencyId, User $uploader, Property $p): Document
+    /** A P24-origin listing (p24_imported_at set, never taken over) in the given status. */
+    private function importedListing(int $agencyId, User $agent, string $status, ?Carbon $expiry = null): Property
     {
-        $type = DocumentType::withTrashed()->firstOrCreate(
+        $p = $this->property($agencyId, $agent, 'ZZZ-Imp-' . Str::random(4), [
+            'status' => $status, 'p24_imported_at' => now()->subDays(40), 'p24_ref' => '123456789',
+            'beds' => 3, 'baths' => 2, 'garages' => 1,
+        ]);
+        DB::table('properties')->where('id', $p->id)->update([
+            'expiry_date' => ($expiry ?? Carbon::parse('2025-09-30'))->toDateString(),
+            'listed_date' => null,
+        ]);
+        $this->linkContact($agencyId, $agent, $p);
+
+        return $p->fresh();
+    }
+
+    /** saveEdit() plus an agent-photo upload (stored before the save when the save is allowed). */
+    private function saveEditWithFile(User $user, Property $p, array $overrides = []): \Illuminate\Testing\TestResponse
+    {
+        $payload = array_merge([
+            'title' => $p->title, 'price' => 1_950_000, 'suburb' => 'Uvongo', 'city' => 'Margate',
+            'province' => 'KwaZulu-Natal', 'beds' => 3, 'baths' => 2, 'garages' => 1,
+            'agent_id' => $p->agent_id, 'status' => $p->status, 'expiry_date' => $p->expiry_date?->toDateString(),
+        ], $overrides);
+
+        $this->actingAs($user);
+
+        return $this->call('PUT', route('corex.properties.update', $p->id), $payload, [], [
+            'pp_agent_image' => UploadedFile::fake()->image('agent.jpg', 40, 40),
+        ]);
+    }
+
+    private function provisionExtensionFolder(): DocumentType
+    {
+        return DocumentType::withTrashed()->firstOrCreate(
             ['slug' => MandateExpiryPolicy::EXTENSION_SLUG],
             ['label' => 'Extension', 'grouping' => 'property', 'listing_types' => ['sale', 'rental'], 'is_active' => true, 'sort_order' => 99]
         );
+    }
+
+    private function extensionDocument(int $agencyId, User $uploader, Property $p): Document
+    {
+        $type = $this->provisionExtensionFolder();
 
         $doc = Document::create([
             'agency_id'        => $agencyId,

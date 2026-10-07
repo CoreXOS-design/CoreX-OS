@@ -45,10 +45,39 @@ final class MandateExpiryPolicy
     public const EXTENSION_FOLDER_FALLBACK_LABEL = 'Extension';
 
     /**
-     * The Drive folder's real name. The document type is a global, renameable
-     * row (Settings → Document Types) and an install may carry an older row
-     * with a different label ("Mandate Extension"), so every screen that tells
-     * an agent where to upload reads the label from here, never hardcodes it.
+     * The Extension folder is ONE global `document_types` row that EVERY agency's
+     * expiry lock and banner depend on. Its name, order, active state, listing types
+     * and archive are therefore system-owned: the Document Types settings screens
+     * (SplitterDocTypeController, Docuperfect DocumentTypeController) refuse to
+     * change or remove it. No per-agency label override exists in the codebase, so
+     * label edits to this slug are ignored rather than a new mechanism invented.
+     */
+    public static function isProtectedDocumentTypeSlug(?string $slug): bool
+    {
+        return $slug === self::EXTENSION_SLUG;
+    }
+
+    /**
+     * The Extension folder as an agent can actually USE it: present (not archived),
+     * active and assigned to at least one listing type (otherwise it never appears
+     * in the Drive upload picker). Null when it is not usable.
+     */
+    private static function usableExtensionType(): ?DocumentType
+    {
+        $type = DocumentType::query()->where('slug', self::EXTENSION_SLUG)->first();
+
+        if ($type === null || ! $type->is_active || empty($type->listing_types)) {
+            return null;
+        }
+
+        return $type;
+    }
+
+    /**
+     * The Drive folder's real name. The document type is a global row and an
+     * install may carry an older row with a different label ("Mandate
+     * Extension"), so every screen that tells an agent where to upload reads the
+     * label from here, never hardcodes it.
      */
     public static function extensionFolderLabel(): string
     {
@@ -72,12 +101,13 @@ final class MandateExpiryPolicy
         }
 
         $raw = PerformanceSetting::get(self::SETTING_WARN_DAYS, self::DEFAULT_WARN_DAYS, $agencyId);
-        $days = (int) $raw;
-        if ($days < self::MIN_WARN_DAYS || $days > self::MAX_WARN_DAYS) {
+        if (! is_numeric($raw)) {
             return self::DEFAULT_WARN_DAYS;
         }
 
-        return $days;
+        // Spec §5.2 — clamp an out-of-range value to the nearest bound (the saver
+        // validates 1–90, so this only matters for a hand-edited row).
+        return max(self::MIN_WARN_DAYS, min(self::MAX_WARN_DAYS, (int) $raw));
     }
 
     public static function lockEnabledFor(?int $agencyId): bool
@@ -121,14 +151,16 @@ final class MandateExpiryPolicy
     }
 
     /**
-     * An Extension document uploaded AFTER the last expiry-date change (or any
-     * Extension document when the date has never changed) unlocks the date.
+     * The upload time of the Extension document that currently unlocks the date —
+     * uploaded AFTER the last expiry-date change (or any Extension document when
+     * the date has never changed) — or null when nothing unlocks it. The ONE copy
+     * of the unlock rule: lockState() and hasFreshExtensionDocument() both use it.
      */
-    public static function hasFreshExtensionDocument(Property $property): bool
+    private static function freshExtensionAt(Property $property): ?Carbon
     {
         $uploadedAt = self::latestExtensionDocumentAt($property);
         if ($uploadedAt === null) {
-            return false;
+            return null;
         }
 
         $changedAt = $property->expiry_date_changed_at;
@@ -136,7 +168,12 @@ final class MandateExpiryPolicy
         // Strictly AFTER: the lock must re-engage the instant a new date is saved,
         // and no real user can upload and save within the same second. (Tests
         // separate the two with travel().)
-        return $changedAt === null || $uploadedAt->gt($changedAt);
+        return ($changedAt === null || $uploadedAt->gt($changedAt)) ? $uploadedAt : null;
+    }
+
+    public static function hasFreshExtensionDocument(Property $property): bool
+    {
+        return self::freshExtensionAt($property) !== null;
     }
 
     /**
@@ -148,15 +185,20 @@ final class MandateExpiryPolicy
     public static function lockState(Property $property): array
     {
         $enabled  = self::lockEnabledFor((int) ($property->agency_id ?? 0));
-        $goneLive = $property->exists && $property->hasGoneLive();
-        $imported = $property->exists && $property->isImportedStock();
+        // Exempt only while genuinely untouched Imported Stock (not engaged by a live life in CoreX).
+        $imported = $property->exists && $property->isUntouchedImportedStock();
         $hasDate  = $property->expiry_date !== null;
 
-        $extensionAt = ($enabled && $goneLive && ! $imported) ? self::latestExtensionDocumentAt($property) : null;
-        $fresh       = $extensionAt !== null
-            && ($property->expiry_date_changed_at === null || $extensionAt->gt($property->expiry_date_changed_at));
+        // wasEverAdvertised() is a DB query — only pay for it when the lock is on.
+        $goneLive = $enabled && $property->exists && $property->hasGoneLive();
 
-        $locked = $enabled && $goneLive && $hasDate && ! $imported && ! $fresh;
+        // Never "locked forever": if the Extension folder is not usable (archived,
+        // inactive or not assigned to a listing type) nothing could ever unlock the
+        // date, so the lock cannot hold.
+        $canUnlock = $enabled && $goneLive && $hasDate && ! $imported && self::usableExtensionType() !== null;
+
+        $freshAt = $canUnlock ? self::freshExtensionAt($property) : null;
+        $locked  = $canUnlock && $freshAt === null;
 
         $daysLeft = null;
         $expired  = false;
@@ -170,7 +212,7 @@ final class MandateExpiryPolicy
             'warn_days'                => self::warnDaysFor((int) ($property->agency_id ?? 0)),
             'gone_live'                => $goneLive,
             'locked'                   => $locked,
-            'unlocked_by_extension_at' => ($enabled && $goneLive && $hasDate && ! $imported && $fresh) ? $extensionAt : null,
+            'unlocked_by_extension_at' => $freshAt,
             'days_left'                => $daysLeft,
             'expired'                  => $expired,
         ];
@@ -233,8 +275,9 @@ final class MandateExpiryPolicy
     }
 
     /**
-     * Record "shown" for the given property ids — ONLY the user's own listings,
-     * re-checked here, never trusted from the request. Idempotent.
+     * Record "shown" for the given property ids — ONLY the user's own on-market
+     * listings inside the warning window, re-checked here, never trusted from the
+     * request. Idempotent.
      *
      * @param  list<int>  $propertyIds
      * @return int rows recorded (new or already present)
@@ -246,9 +289,15 @@ final class MandateExpiryPolicy
             return 0;
         }
 
+        // Only what the pop-up could actually have listed: the user's OWN, on-market
+        // listings whose expiry falls inside the agency's warning window. Anything
+        // else (far-future, off-market, someone else's) is ignored, so a crafted id
+        // can never pre-suppress a future announcement.
+        [$from, $to] = self::expiringWindow($agencyId);
+
         $rows = Property::query()
             ->whereIn('id', $ids)
-            ->whereNotNull('expiry_date')
+            ->expiringSoon($from, $to)
             ->ownListingsFor($user)
             ->get(['id', 'expiry_date']);
 

@@ -1500,7 +1500,7 @@
                 // / Loaded are import artefacts), so each of those three reads "Imported".
                 // The moment a user changes status / expiry / listed date the listing stops
                 // being imported and these show real dates again (see PropertyController::update).
-                $isImportedRow = ! $isNew && $property->isImportedStock();
+                $isImportedRow = ! $isNew && $property->isUntouchedImportedStock();
                 $keyDates = array_filter([
                     $isImportedRow ? ['Listed',  'Imported'] : ($property->listed_date ? ['Listed',   $property->listed_date->format('d M Y')] : null),
                     $isImportedRow ? ['Expires', 'Imported'] : ($property->expiry_date ? ['Expires',  $property->expiry_date->format('d M Y')] : null),
@@ -3258,7 +3258,7 @@
                                     // Loaded. The dates it carries are import artefacts, not real listing
                                     // dates. Changing the status or picking an expiry date takes it over as a
                                     // normal listing, with today's dates (PropertyController::update).
-                                    $importedFields = ! $isNew && $property->isImportedStock();
+                                    $importedFields = ! $isNew && $property->isUntouchedImportedStock();
                                     $listedDateValue = $importedFields
                                         ? now()->format('Y-m-d')   // what a takeover will set; also the earliest expiry
                                         : ($property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'));

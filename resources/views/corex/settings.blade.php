@@ -2817,7 +2817,7 @@
                 <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="settings-mandate-expiry">
                     <div class="mb-3">
                         <div class="text-sm font-semibold" style="color:var(--text-primary);">Mandate Expiry</div>
-                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When a listing's mandate expiry date passes, CoreX marks it Expired at midnight and takes it off Property24, Private Property and your website. Here you choose how far ahead your agents are warned, and whether a live listing's expiry date is locked until the signed extension is on file in Drive.</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When a listing's mandate expiry date passes, CoreX marks it Expired at midnight and takes it off any portal or website it was being advertised on. Here you choose how far ahead your agents are warned, and whether a live listing's expiry date is locked until the signed extension is on file in Drive.</div>
                     </div>
 
                     <form method="POST" action="{{ route('corex.settings.mandate-expiry') }}" class="space-y-2"
@@ -2845,7 +2845,7 @@
                         <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
                             <div>
                                 <div class="text-sm font-medium" style="color:var(--text-primary);">Expiry lock</div>
-                                <div class="text-xs" style="color:var(--text-muted);">What this changes: once a listing has gone live, its expiry date can only be changed after the signed extension is uploaded to the Extension folder in the property's Drive. Each upload unlocks one change; saving the new date locks it again. Drafts that never went live are not affected.</div>
+                                <div class="text-xs" style="color:var(--text-muted);">What this changes: once a listing has gone live, its expiry date can only be changed after the signed extension is uploaded to the {{ \App\Services\Properties\MandateExpiryPolicy::extensionFolderLabel() }} folder in the property's Drive. Each upload unlocks one change; saving the new date locks it again. Drafts that never went live are not affected.</div>
                             </div>
                             <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
                                 <input type="checkbox" class="sr-only" x-model="lockOn">

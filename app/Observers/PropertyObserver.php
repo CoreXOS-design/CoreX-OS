@@ -201,6 +201,31 @@ class PropertyObserver
             self::$manualExpiries[$property->id] = (int) auth()->id();
         }
 
+        // AT-448 (audit fix) — the expiry lock's Imported-Stock exemption is keyed on "still
+        // genuinely untouched" (Property::isUntouchedImportedStock(): expiry_lock_engaged_at
+        // IS NULL), NOT on the current status. A P24-origin listing that was ON the market and
+        // that a USER now moves off it (Withdrawn, Expired, Sold…) has lived in CoreX, so its
+        // date is real: stamp expiry_lock_engaged_at so the lock applies (spec D4: expired
+        // stays locked). Imported Stock MEMBERSHIP (imported_released_at, the scopes, the
+        // Imported Stock page) is deliberately NOT touched - such listings stay listed there.
+        // Only a signed-in user triggers this; the P24 importer runs on the queue (no auth) and
+        // genuinely-imported, already-off-market stock is never on-market here, so it stays
+        // exactly as it was. The midnight sweep stamps explicitly (ExpireMandates).
+        if ($property->exists
+            && $property->isDirty('status')
+            && $property->p24_imported_at !== null
+            && $property->imported_released_at === null
+            && $property->expiry_lock_engaged_at === null
+            && auth()->check()
+        ) {
+            $norm = static fn ($v): string => strtolower(str_replace(' ', '_', trim((string) $v)));
+            $wasOnMarket  = ! in_array($norm($property->getOriginal('status')), Property::OFF_MARKET_STATUSES, true);
+            $nowImported  = in_array($norm($property->status), Property::importedStockStatuses(), true);
+            if ($wasOnMarket && $nowImported) {
+                $property->expiry_lock_engaged_at = now();
+            }
+        }
+
         // AT-266 — ONE TRUTH for the address.
         //
         // `address` is DERIVED from the structured address columns, exactly as

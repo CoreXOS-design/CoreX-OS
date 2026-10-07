@@ -494,7 +494,10 @@ Route::middleware('auth')->group(function () {
         // Same shape as system-updates/dismiss (self-scoped, idempotent, no GET
         // — the popup is server-rendered by the Properties page).
         // Spec: .ai/specs/at448-property-expiry.md §7 flow A.
+        // Gated like the Properties page that renders the popup (spec §6): access_properties +
+        // an agency context (a JSON caller without one gets a 422, never a NULL-agency row).
         Route::post('/properties/expiry-popup/dismiss', \App\Http\Controllers\Api\V1\PropertyExpiryPopupDismissController::class)
+            ->middleware(['permission:access_properties', 'agency.required'])
             ->name('properties.expiry-popup.dismiss');
     });
 
