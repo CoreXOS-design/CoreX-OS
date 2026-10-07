@@ -52,6 +52,8 @@ final class TrackedPropertyAddress extends Model
         'street_number', 'street_name', 'unit_number', 'complex_name',
         'suburb', 'suburb_normalised', 'town', 'province', 'postal_code',
         'latitude', 'longitude',
+        // Structured address layer (.ai/specs/structured-address-matching.md §3).
+        'p24_suburb_id', 'street_core', 'street_type', 'address_raw',
         'source_type', 'source_ref',
         'confidence', 'is_primary',
         'verified_by_user_id', 'verified_at',
@@ -83,6 +85,8 @@ final class TrackedPropertyAddress extends Model
             if (empty($row->last_seen_at)) {
                 $row->last_seen_at = now();
             }
+            // Structured address layer (.ai/specs/structured-address-matching.md §5).
+            app(\App\Services\Address\AddressStructurer::class)->apply($row);
         });
 
         static::updating(function (TrackedPropertyAddress $row) {
@@ -208,6 +212,17 @@ final class TrackedPropertyAddress extends Model
                 $keys = array_merge($keys, (array) $group);
             }
         }
+        // …and the suburb_aliases table: every alias of the same canonical suburb, plus the canonical itself.
+        $canonical = self::canonicaliseSuburbAlias($n);
+        $map = \App\Models\SuburbAlias::lookupMap();
+        if (isset($map[$n]) || in_array($canonical, $map, true)) {
+            $keys[] = $canonical;
+            foreach ($map as $alias => $canon) {
+                if ($canon === $canonical) {
+                    $keys[] = (string) $alias;
+                }
+            }
+        }
 
         return array_values(array_unique($keys));
     }
@@ -273,7 +288,8 @@ final class TrackedPropertyAddress extends Model
             }
         }
 
-        return $lookup[$normalisedSuburb] ?? $normalisedSuburb;
+        // The suburb_aliases reference table (spec structured-address-matching.md §3) adds to the config groups.
+        return $lookup[$normalisedSuburb] ?? (\App\Models\SuburbAlias::lookupMap()[$normalisedSuburb] ?? $normalisedSuburb);
     }
 
     /**

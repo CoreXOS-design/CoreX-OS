@@ -307,7 +307,10 @@ final class DeedsCapturePrecheckStreetNumberTest extends TestCase
         ], ['type' => 'deeds_capture', 'ref' => 'cmainfo:n0et03630000132900000', 'payload' => ['source' => 'cmainfo']]);
 
         $this->assertNotSame($tp29->id, $tp19->id, 'capturing 19 must create its own record, not enrich 29');
-        $this->assertNull($tp29->fresh()->street_number, 'the record for 29 is untouched');
+        // 2026-10-07 (structured address matching): a record created from "29 Grindewald Drive" now has its number lifted into
+        // the empty street_number column by the one address reader — so "untouched" means the capture of 19 changed nothing on it.
+        $this->assertSame('29', $tp29->fresh()->street_number, 'the record for 29 still says 29');
+        $this->assertSame('29 Grindewald Drive', $tp29->fresh()->street_name, 'and its street text is exactly as it was');
     }
 
     public function test_multiline_legacy_street_name_matches_on_any_number_it_states(): void

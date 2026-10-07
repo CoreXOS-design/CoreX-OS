@@ -433,7 +433,7 @@
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['Owner differs', 'amber', 'look'];
                     } elseif ($stockStatus['property'] ?? null) {
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['Same property?', 'amber', 'match'];
-                    } elseif (!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates'])) {
+                    } elseif (!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates']) || !empty($stockStatus['possibleMatches'])) {
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['Possible match', 'amber', 'match'];
                     } elseif ($tpPredatesThisCapture) {
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['On file', 'crimson', 'look'];
@@ -651,6 +651,11 @@
                                         @endif
                                     </div>
                                 @endif
+                                @if(!empty($stockStatus['possibleMatches']))
+                                    {{-- Decision 2 (structured address matching): a property that is only a POSSIBLE match
+                                         exists — never "Add as a new property" silently; the agent answers same / different. --}}
+                                    @include('corex.deeds-capture._possible-matches', ['tp' => $tp, 'possible' => $stockStatus['possibleMatches']])
+                                @else
                                 <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
                                       onsubmit="return confirm('Add this as a new property and link the owner? Any ticked contact numbers below will be added too.');">
                                     @csrf
@@ -658,6 +663,7 @@
                                         Add as a new property
                                     </button>
                                 </form>
+                                @endif
                             @endif
                             {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
                             <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"

@@ -123,6 +123,9 @@ class PropertyObserver
         'pp_last_submitted_at', 'pp_activated_at', 'pp_images_last_synced_at',
         'pp_listing_last_synced_at', 'pp_last_error', 'pp_listing_feed_ref', 'pp_syndication_status',
         'slug', 'suburb_normalised', 'street_name_normalised', 'geo_source', 'geo_confidence',
+        // Structured address layer — derived by the parser (spec structured-address-matching.md §3), not an edit.
+        'street_core', 'street_type', 'scheme_number', 'township', 'lpi_code',
+        'address_raw', 'address_parse_status', 'address_parse_note',
     ];
 
     /**
