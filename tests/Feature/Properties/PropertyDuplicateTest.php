@@ -124,6 +124,8 @@ final class PropertyDuplicateTest extends TestCase
 
         $contact = Contact::create([
             'agency_id'  => $this->agency->id,
+            // the acting agent's OWN contact — an agent only sees contacts they own (own/branch/agency scope)
+            'agent_id' => $this->user->id, 'created_by_user_id' => $this->user->id,
             'first_name' => 'Retha',
             'last_name'  => 'Kelly',
         ]);
@@ -192,6 +194,8 @@ final class PropertyDuplicateTest extends TestCase
 
         $contact = Contact::create([
             'agency_id'  => $this->agency->id,
+            // the acting agent's OWN contact — an agent only sees contacts they own (own/branch/agency scope)
+            'agent_id' => $this->user->id, 'created_by_user_id' => $this->user->id,
             'first_name' => 'Premilla',
             'last_name'  => 'Swepath',
         ]);
@@ -219,6 +223,8 @@ final class PropertyDuplicateTest extends TestCase
 
         $contact = Contact::create([
             'agency_id'  => $this->agency->id,
+            // the acting agent's OWN contact — an agent only sees contacts they own (own/branch/agency scope)
+            'agent_id' => $this->user->id, 'created_by_user_id' => $this->user->id,
             'first_name' => 'Owen',
             'last_name'  => 'Ridge',
         ]);
@@ -327,6 +333,8 @@ final class PropertyDuplicateTest extends TestCase
         // ContactScope data-scope (own/branch/all) when the update guard counts it.
         $contact = Contact::create([
             'agency_id'           => $this->agency->id,
+            // the acting agent's OWN contact — an agent only sees contacts they own (own/branch/agency scope)
+            'agent_id' => $this->user->id, 'created_by_user_id' => $this->user->id,
             'branch_id'           => $this->branch->id,
             'created_by_user_id'  => $this->user->id,
             'first_name'          => 'Seller',
@@ -355,6 +363,8 @@ final class PropertyDuplicateTest extends TestCase
     {
         $contact = Contact::create([
             'agency_id'          => $this->agency->id,
+            // the acting agent's OWN contact — an agent only sees contacts they own (own/branch/agency scope)
+            'agent_id' => $this->user->id, 'created_by_user_id' => $this->user->id,
             'branch_id'          => $this->branch->id,
             'created_by_user_id' => $this->user->id,
             'first_name'         => 'Seller',

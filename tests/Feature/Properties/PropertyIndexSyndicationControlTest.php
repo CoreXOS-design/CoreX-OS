@@ -133,8 +133,10 @@ final class PropertyIndexSyndicationControlTest extends TestCase
 
         // Both live-preview variants — each row owns its own copy state, so one
         // tick cannot light up the other.
-        $preview = route('corex.properties.preview', [$p, Str::slug($p->title)]);
-        $this->assertStringContainsString("copyLink('{$preview}?agent=me')", $html);
+        // The preview URL carries no title slug, and "Show my info" bakes the sharing agent's own id into it
+        // (`?agent=me` only resolved against the viewer's session, so a shared link fell back to the listing agent).
+        $preview = route('corex.properties.preview', $p);
+        $this->assertStringContainsString("copyLink('{$preview}?agent={$admin->id}')", $html);
         $this->assertStringContainsString("copyLink('{$preview}?agent=listing')", $html);
         $this->assertSame(2, substr_count($html, 'x-data="corexCopyLinkMixin()"'));
     }
@@ -312,11 +314,12 @@ final class PropertyIndexSyndicationControlTest extends TestCase
 
         $res = $this->get(route('corex.properties.index'))->assertOk();
 
-        $res->assertSee('P24: 117369247');
-        $res->assertSee('PP: PP-998877');
-        $res->assertSee('P24: 556677889');
-        // A property with no PP reference must not sprout an empty PP pill.
-        $res->assertDontSee('PP: </span>', false);
+        // The grid card renders each reference as its own chip (a "P24"/"PP" tag + the number).
+        $res->assertSee('117369247');
+        $res->assertSee('PP-998877');
+        $res->assertSee('556677889');
+        // Only the property that HAS a PP reference gets a Private Property chip — never an empty one.
+        $this->assertSame(1, substr_count($res->getContent(), 'title="Private Property listing number"'));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
