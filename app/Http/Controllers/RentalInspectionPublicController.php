@@ -59,7 +59,9 @@ class RentalInspectionPublicController extends Controller
             'observations' => $unscoped,
             'observations.item' => $unscoped,
             'observations.item.room' => $unscoped,
-            'observations.photos' => $unscoped,
+            // Only the AGENCY scope is lifted on the item photos too — an archived (soft-deleted) item photo
+            // must never reach the tenant/landlord link (it used to, because $unscoped also lifts SoftDeletes).
+            'observations.photos' => $agencyOnly,
             'signatures' => $unscoped,
             'signatures.partyContact' => $unscoped,
             'roomNotes' => $unscoped,
@@ -79,7 +81,7 @@ class RentalInspectionPublicController extends Controller
         $conditionStates = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->keyBy('key');
 
         $items = RentalInspectionItem::withoutGlobalScopes()->where('property_id', $inspection->property_id)
-            ->where('is_retired', false)
+            ->listedOnReportOf($inspection->id)
             ->with(['room' => $unscoped])
             ->get();
 

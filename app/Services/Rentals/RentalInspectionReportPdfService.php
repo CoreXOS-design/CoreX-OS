@@ -74,7 +74,7 @@ class RentalInspectionReportPdfService
             ->map(fn ($notes) => $notes->sortByDesc('created_at')->first());
 
         $items = RentalInspectionItem::where('property_id', $inspection->property_id)
-            ->where('is_retired', false)
+            ->listedOnReportOf($inspection->id)
             ->with('room')
             ->get();
 
