@@ -501,3 +501,65 @@ person on two roles = one mail listing both; two tenants one address = one mail;
 email = no mail, no claim; one portal off = copy without link; automatic access off = copy without link and no login; same screen twice; retry and
 a replaced copy; all-fail releases the claim and a later run sends; one failing address does not stop the rest; a renewal from a paper copy mails the
 renewal term's parties only; a photo upload keeps its own type; lease-only capture sends nothing.
+
+
+---
+
+## 19. The portal Documents area — signed lease agreement and distributed inspection reports (7 Oct 2026, QA1)
+**Trigger.** Johan, after retesting the portal links: *"We are a bit shy on data on these links? We have documents — so we can put the lease
+agreement here, we can put the inspection report here."* The Documents tab already existed for the tenant (names only, nothing openable, and
+only documents flagged by hand); the owner had no Documents tab in the web portal at all.
+
+**What each person sees — one list, built by `RentalPortalDocumentService` for both audiences, newest first, one row per document:**
+1. **Lease agreements** — the SIGNED agreement of every live lease the person is a party to (tenant: their `lease_tenants` rows; owner: every
+   lease on a property they own, earlier tenancies included — the owner already sees the occupancy history). "Signed" = signed and accepted
+   (`signed_at`), `signed` / `signed_on_paper`, or created from a completed signed agreement (`source` `esign_document` /
+   `uploaded_signed_copy`) **and** a filed document exists: the filed e-sign copy of the lease's envelope, else the attached wet-ink copy — the
+   same document `Lease::signedDocument()` names, read scope-free and agency-pinned. **A lease that is not signed is never shown** (a draft,
+   out for signing, awaiting the agent's approval, declined, voided, expired envelope). A signed renewal is **its own row** ("Lease renewal").
+2. **Inspection reports** — only reports that have been **distributed**, using cc6's definition (rental-inspections.md §47,
+   `RentalInspection::isDistributed()` = Completed, or an email copy logged as sent to a tenant/landlord): never a draft, one in progress, one
+   still in signing, or a cancelled one. Tenant: reports on their own lease(s); owner: reports on leases of their own properties. The row is the
+   signed PDF the completion step filed (`source_type` `rental_inspection_report`). **Hook for cc6:** `isDistributed()` is not on QA1 yet (it is
+   uncommitted in their lane), so the portal asks the model when the method exists and otherwise applies the identical rule in
+   `RentalPortalDocumentService::inspectionIsShareable()` — when cc6 lands the method, the fallback can be deleted; no inspection code was
+   touched. (`rental_inspections.lease_id` is required, so there is no lease-less inspection.)
+3. **Documents the agency shared on purpose** — the pre-existing `tenant_portal_visible` / `landlord_portal_visible` flag + contact attachment,
+   unchanged; merged into the same list (a document that is both a filed lease copy and flagged appears once, as the lease agreement).
+
+**What I chose where the spec was silent (reported to Johan).**
+- **Archived** lease → its documents AND its inspection reports are not shown: the standing rule (§6, 6 Oct) is that archived records are
+  invisible to the portal; the owner's reports follow their lease too. **Cancelled / ended / renewed** (not archived) → stay visible as history.
+- **Co-tenants** on one lease see the same lease documents (the list is per lease, not per contact record; one login across several contact
+  records unions them, §16).
+- **Owner** sees every signed lease and distributed report on their own properties, including earlier tenants' — the occupancy history they
+  already see; a tenant never sees another tenancy's documents or the owner's.
+- Soft-deleted documents never show; a document whose file is missing from disk stays listed but opening it is a clean 404.
+
+**Each row:** name (e.g. "Lease agreement — <address>", "Move-in inspection report — <address>"), type (+ subtype: Renewal / Move-in /
+Move-out / Interim / Ad hoc), date (signing date for a lease, completion date for a report), the property and the lease period it belongs to,
+**View** and **Download**. API `GET /api/v1/client/rentals/documents` and `…/landlord/documents` (existing keys `id, name, type, uploaded_at`
+kept for the mobile app; additive `kind, subtype, date, mime, size, belongs_to, view_url, download_url` + `meta`). Search (document name, type,
+property address, lease period), sort (newest first by default; name; type), filter (type, date range), pagination (25, max 100), real empty
+state (nothing yet) and a separate "no match — clear filters" state. The web portal shows one shared panel (`rentals/portal/_documents`) in the
+tenant's Documents tab and a new Documents tab for the owner.
+
+**Authorised downloads.** `GET /api/v1/client/rentals/documents/{document}/file` (and `…/landlord/documents/{document}/file`, `?download=1` to
+force a download): behind `client.auth` + `client.ability` + the audience's portal switch, and the id is looked up **in the caller's own list**
+(`findFor()` — the list and the file route share it), so an id that is not theirs — another party's, a draft, an archived lease's, a deleted
+document, another agency's, or one that does not exist — is a 404 with nothing leaked. No public URL, no storage path in any response. PDF and
+images open inline; anything else is always an attachment; `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. Every
+open/download writes `client_access_logs` (`document_viewed` / `document_downloaded`, document id, kind, role).
+
+**Reported, not changed:** the existing tenant/landlord API lists `ClientTenantRentalsController::inspections` / `ClientLandlordRentalsController::inspections` (via `RentalPortalScopeService::tenantInspections()` / `landlordInspections()`) return every non-archived inspection of the party's lease(s), drafts and ones still in signing included — the status filter §45.8 planned is not there. Outside this task, so unchanged; the Documents area does not use their output.
+
+**Not built (reported):** inventories, deposit/settlement schedules, notices, lease addenda that are not a separate lease, rent statements.
+
+**Tests — `tests/Feature/RentalPortalAccess/PortalDocumentsTest.php` (17):** a tenant sees exactly their signed leases (paper, e-signed renewal,
+cancelled-as-history), distributed reports on their leases and the shared document — and never a draft / out-for-signing lease, an archived
+lease, a deleted or unshared document, a previous tenant's or another property's lease or report, an in-progress / in-signing / draft /
+cancelled inspection or an archived lease's report; co-tenants see the same; "distributed" = completed or a sent copy; an owner sees their
+property's signed leases and reports (earlier tenancies included, archived excluded) and another owner only theirs; a party opens their own file
+(headers, bytes, audit rows); every cross-party / not-ready id is a 404 on both file routes (tenant↔owner, tenant↔tenant, owner↔owner,
+cross-agency, unknown id); no session or a staff session alone is 401; missing file = 404; image inline / Word as download; the portal switch
+closes the audience; search / sort / type / date / pagination / invalid filter; empty list; mobile keys kept; the page carries the panel for both audiences.

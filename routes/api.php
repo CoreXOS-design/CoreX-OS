@@ -216,6 +216,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/leases', [ClientTenantRentalsController::class, 'leases'])->name('leases.index');
             Route::get('/leases/{lease}', [ClientTenantRentalsController::class, 'leaseShow'])->name('leases.show');
             Route::get('/documents', [ClientTenantRentalsController::class, 'documents'])->name('documents.index');
+            // §19 — the one authorised way to open a document: only if it is in the tenant's OWN list.
+            Route::get('/documents/{document}/file', [ClientTenantRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');
             Route::get('/inspections', [ClientTenantRentalsController::class, 'inspections'])->name('inspections.index');
             Route::get('/inventories', [ClientTenantRentalsController::class, 'inventories'])->name('inventories.index');
             Route::get('/properties/{property}/fault-types', [ClientTenantRentalsController::class, 'faultTypes'])->name('fault-types.index');
@@ -251,6 +253,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');
             Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
             Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');
+            Route::get('/documents/{document}/file', [ClientLandlordRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');
             Route::get('/decisions', [ClientLandlordRentalsController::class, 'decisions'])->name('decisions.index');
             // §17.21.1 — Build 2 (variation decision, decisions list) and Build 3 (work-orders/{id}) add routes only between their own markers.
             // BUILD 2 BEGIN — landlord variation decision (.ai/specs/rental-work-orders.md §17.21.5)

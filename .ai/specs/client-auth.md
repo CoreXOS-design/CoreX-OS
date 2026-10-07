@@ -458,3 +458,7 @@ All client-portal routes use `client.auth` (`AuthenticateClientPortal`) instead 
 session guard, then the bearer token, for these requests. A staff `web` session in the same browser used to answer first and make the
 set-password call fail with "Unauthorized". Portal sign-out/account deletion remove only the portal login from the session. Details and
 tests: `.ai/specs/rental-portal-access.md` §17. A new portal route must use `client.auth`, never a bare `auth:sanctum`.
+
+## Addendum 7 Oct 2026 (3) — the portal Documents area
+Tenant and owner Documents list (signed lease agreements, distributed inspection reports, agency-shared documents) and the authorised
+`…/documents/{document}/file` routes: `.ai/specs/rental-portal-access.md` §19.
