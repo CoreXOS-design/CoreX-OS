@@ -46,9 +46,18 @@ class RenewalDraftService
 
         $newTerm = app(LeaseRenewalService::class)->createRenewalTerm($current, $terms, $user);
 
-        $flow = $this->buildDraftFlow($newTerm, (int) $document->template_id, $user);
+        $flow = app(LeaseSigningLauncher::class)->buildFlow($newTerm, (int) $document->template_id, $user);
 
-        $newTerm->update(['renewal_draft_flow_id' => $flow->id, 'source' => 'esign_document']);
+        // LEASE-AGREEMENT (leases.md §15.10 M2 — Build L1): renewal_draft_flow_id is kept and mirrored
+        // into signing_flow_id; the lease now carries the same "agreement prepared" state M5 gives an
+        // existing renewal draft.
+        $newTerm->update([
+            'renewal_draft_flow_id' => $flow->id,
+            'signing_flow_id' => $flow->id,
+            'signing_status' => Lease::SIGNING_PREPARED,
+            'agreement_template_id' => (int) $document->template_id,
+            'source' => 'esign_document',
+        ]);
 
         return ['lease' => $newTerm->fresh(), 'flow' => $flow];
     }
@@ -72,7 +81,7 @@ class RenewalDraftService
             return ['Template could not be found.'];
         }
 
-        $stepData = $this->buildStepData($lease, $terms, $user);
+        $stepData = app(LeaseSigningLauncher::class)->buildStepData($lease, $terms, $user);
         // WebTemplateDataService::resolve() itself branches to
         // resolveCdsTemplate() internally when template_type === 'cds' —
         // one call site here covers both template shapes.
@@ -125,118 +134,16 @@ class RenewalDraftService
 
         $newTerm = app(LeaseRenewalService::class)->createRenewalTerm($current, $terms, $user);
 
-        $flow = $this->buildDraftFlow($newTerm, (int) $rentalLeaseTemplate->docuperfect_template_id, $user);
+        $flow = app(LeaseSigningLauncher::class)->buildFlow($newTerm, (int) $rentalLeaseTemplate->docuperfect_template_id, $user);
 
-        $newTerm->update(['renewal_draft_flow_id' => $flow->id]);
+        // LEASE-AGREEMENT (leases.md §15.10 M2 — Build L1): mirrored, see copyForward().
+        $newTerm->update([
+            'renewal_draft_flow_id' => $flow->id,
+            'signing_flow_id' => $flow->id,
+            'signing_status' => Lease::SIGNING_PREPARED,
+            'agreement_template_id' => (int) $rentalLeaseTemplate->docuperfect_template_id,
+        ]);
 
         return ['lease' => $newTerm->fresh(), 'flow' => $flow];
-    }
-
-    /**
-     * Shared by missingRequiredFields() (checks BEFORE a draft term exists —
-     * $terms is the proposed new rent/dates, not yet persisted) and
-     * buildDraftFlow() (reads the same shape off an already-created Lease).
-     * Kept as a tiny array merge rather than a bigger refactor of
-     * buildDraftFlow() itself, since that method's `property`/`recipients`
-     * construction reads relations off a real Lease row this method does
-     * not have yet.
-     */
-    private function buildStepData(Lease $lease, array $terms, User $user): array
-    {
-        $property = $lease->property;
-        $landlords = $lease->landlordContacts();
-        $tenants = $lease->tenants()->with('contact')->get();
-
-        $recipients = [];
-        $recipients[] = ['role' => 'agent', 'name' => $user->name, 'email' => $user->email ?? ''];
-        foreach ($landlords as $landlord) {
-            $recipients[] = ['role' => 'landlord', 'name' => $landlord->full_name ?? '', '_contact_id' => $landlord->id];
-        }
-        foreach ($tenants as $tenant) {
-            $contact = $tenant->contact;
-            if (!$contact) {
-                continue;
-            }
-            $recipients[] = ['role' => 'tenant', 'name' => $contact->full_name ?? '', '_contact_id' => $contact->id];
-        }
-
-        return [
-            'property' => [
-                'property_id' => $property?->id,
-                '_property_source' => 'properties',
-                'title' => $property?->title,
-                'suburb' => $property?->suburb,
-            ],
-            'recipients' => ['recipients' => $recipients],
-            'details' => [
-                'lease_start' => $terms['start_date'] ?? optional($lease->start_date)->toDateString(),
-                'lease_end' => $terms['end_date'] ?? optional($lease->end_date)->toDateString(),
-                'monthly_rental' => (string) ($terms['rental_amount'] ?? $lease->rental_amount),
-                'deposit' => (string) ($terms['deposit_amount'] ?? $lease->deposit_amount),
-                'lease_type' => $lease->lease_type,
-            ],
-        ];
-    }
-
-    private function buildDraftFlow(Lease $newTerm, int $templateId, User $user): Flow
-    {
-        $property = $newTerm->property;
-        $landlords = $newTerm->landlordContacts();
-        $tenants = $newTerm->tenants()->with('contact')->get();
-
-        $recipients = [];
-        $recipients[] = ['role' => 'agent', 'name' => $user->name, 'email' => $user->email ?? ''];
-
-        foreach ($landlords as $landlord) {
-            $recipients[] = [
-                'role' => 'landlord',
-                'name' => $landlord->full_name ?? trim(($landlord->first_name ?? '') . ' ' . ($landlord->last_name ?? '')),
-                '_contact_id' => $landlord->id,
-            ];
-        }
-
-        foreach ($tenants as $tenant) {
-            $contact = $tenant->contact;
-            if (!$contact) {
-                continue;
-            }
-            $recipients[] = [
-                'role' => 'tenant',
-                'name' => $contact->full_name ?? trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
-                '_contact_id' => $contact->id,
-            ];
-        }
-
-        $template = \App\Models\Docuperfect\Template::findOrFail($templateId);
-
-        $stepData = [
-            'template' => ['template_id' => $templateId],
-            'fields' => $template->fields_json ?? [],
-            'property' => [
-                'property_id' => $property?->id,
-                '_property_source' => 'properties',
-                'title' => $property?->title,
-                'suburb' => $property?->suburb,
-            ],
-            'recipients' => ['recipients' => $recipients],
-            'details' => [
-                'lease_start' => optional($newTerm->start_date)->toDateString(),
-                'lease_end' => optional($newTerm->end_date)->toDateString(),
-                'monthly_rental' => (string) $newTerm->rental_amount,
-                'deposit' => (string) $newTerm->deposit_amount,
-                'lease_type' => $newTerm->lease_type,
-            ],
-        ];
-
-        return Flow::create([
-            'type' => 'esign',
-            'template_id' => $templateId,
-            'user_id' => $user->id,
-            'property_id' => $property?->id,
-            'contact_id' => $tenants->first()?->contact_id,
-            'current_step' => 2,
-            'step_data' => $stepData,
-            'status' => 'active',
-        ]);
     }
 }

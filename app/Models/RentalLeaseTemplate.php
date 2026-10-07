@@ -33,16 +33,44 @@ class RentalLeaseTemplate extends Model
         'docuperfect_template_id',
         'category',
         'is_active',
+        // LEASE-AGREEMENT BEGIN (leases.md §15.10 M4 — Build L1)
+        'field_map',
+        'is_default',
+        'validated_at',
+        'validation_problems',
+        // LEASE-AGREEMENT END
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        // LEASE-AGREEMENT BEGIN (leases.md §15.10 M4 — Build L1)
+        'field_map' => 'array',
+        'is_default' => 'boolean',
+        'validated_at' => 'datetime',
+        'validation_problems' => 'array',
+        // LEASE-AGREEMENT END
     ];
 
     public function template(): BelongsTo
     {
         return $this->belongsTo(Template::class, 'docuperfect_template_id');
     }
+
+    // LEASE-AGREEMENT BEGIN (leases.md §15.10 — Build L1)
+    /**
+     * Whether this row may be used by $agencyId for the lease process (§15.12.4): an agency only ever
+     * uses a row it owns, and the template and its field map must pass the guard
+     * (see LeaseAgreementTemplateGuard).
+     */
+    public function isUsableBy(int $agencyId): bool
+    {
+        return $this->is_active
+            && (int) $this->agency_id === $agencyId
+            && $this->template !== null
+            && app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)
+                ->problemsFor($this->template, $agencyId, (array) ($this->field_map ?? [])) === [];
+    }
+    // LEASE-AGREEMENT END
 
     public function scopeActive($query)
     {

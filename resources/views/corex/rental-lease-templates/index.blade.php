@@ -22,10 +22,10 @@
     @endif
 
     <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental Lease Templates</h1>
+        <h1 class="text-lg font-semibold">Rental Lease Agreements</h1>
         <a href="{{ route('corex.rental-lease-templates.create') }}" class="corex-btn-primary text-xs">New Template</a>
     </div>
-    <p class="text-sm" style="color: var(--text-muted);">Mark which of your agency's imported e-sign documents are used for rental leases, renewals, or addenda.</p>
+    <p class="text-sm" style="color: var(--text-muted);">Link your agency's own lease agreement here. Until one is linked and ready, "Create lease &amp; prepare for signing" stays unavailable.</p>
 
     <form method="GET" class="flex flex-wrap gap-2 items-end">
         <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search by name…" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
@@ -58,17 +58,30 @@
                         <th class="text-left px-3 py-2"><a href="{{ $sortLink('category') }}">Category{{ $sortIndicator('category') }}</a></th>
                         <th class="text-left px-3 py-2">Source document</th>
                         <th class="text-left px-3 py-2"><a href="{{ $sortLink('is_active') }}">Active{{ $sortIndicator('is_active') }}</a></th>
+                        <th class="text-left px-3 py-2">Lease signing</th>
                         <th class="text-right px-3 py-2">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($templates as $t)
                         <tr style="border-top: 1px solid var(--border);">
-                            <td class="px-3 py-2">{{ $t->name }}</td>
+                            <td class="px-3 py-2">{{ $t->name }}@if($t->is_default) <span class="ds-badge ds-badge-info">Default</span>@endif</td>
                             <td class="px-3 py-2">{{ ucfirst(str_replace('_', ' ', $t->category)) }}</td>
                             <td class="px-3 py-2">{{ $t->template?->name ?? '(deleted)' }}</td>
                             <td class="px-3 py-2">
                                 <span class="ds-badge {{ $t->is_active ? 'ds-badge-success' : 'ds-badge-muted' }}">{{ $t->is_active ? 'Active' : 'Inactive' }}</span>
+                            </td>
+                            <td class="px-3 py-2">
+                                @php $st = $statuses[$t->id] ?? null; @endphp
+                                @if($st === null)
+                                    <span class="text-xs" style="color: var(--text-muted);">—</span>
+                                @elseif($st['state'] === 'ready')
+                                    <span class="ds-badge ds-badge-success">Ready</span>
+                                @elseif($st['state'] === 'needs_map')
+                                    <span class="ds-badge ds-badge-warning">Needs field map</span>
+                                @else
+                                    <span class="ds-badge ds-badge-danger">Not usable: {{ $st['problems'][0] ?? '' }}</span>
+                                @endif
                             </td>
                             <td class="px-3 py-2 text-right space-x-2">
                                 @if($showArchived)
@@ -78,6 +91,9 @@
                                     </form>
                                 @else
                                     <a href="{{ route('corex.rental-lease-templates.edit', $t) }}" class="text-xs">Edit</a>
+                                    @if($t->category === 'residential')
+                                        <a href="{{ route('corex.rental-lease-templates.edit', $t) }}#field-map" class="text-xs">Map fields</a>
+                                    @endif
                                     <form method="POST" action="{{ route('corex.rental-lease-templates.destroy', $t) }}" class="inline" onsubmit="return confirm('Archive this template?');">
                                         @csrf
                                         @method('DELETE')

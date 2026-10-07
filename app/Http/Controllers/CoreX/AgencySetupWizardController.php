@@ -199,6 +199,9 @@ class AgencySetupWizardController extends Controller
                 'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
+                // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
+                'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
+                // LEASE-AGREEMENT END
             ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.

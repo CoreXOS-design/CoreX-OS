@@ -7,6 +7,14 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 use App\Models\Concerns\BelongsToAgency;
+
+/**
+ * A note NEVER moves the contact's Last Contacted marker, from any screen, the API, an
+ * import or a system-generated note (Johan, 2026-10-07: "Only 'Contacted and note' moves
+ * it. 'Note only' could be anything and does not mean the contact was contacted").
+ * The one place the marker moves for a note is the explicit "Contacted and note" action:
+ * ContactNoteController::store() → Contact::markContacted(). Do not add a created-hook here.
+ */
 class ContactNote extends Model
 {
     use BelongsToAgency, SoftDeletes;
