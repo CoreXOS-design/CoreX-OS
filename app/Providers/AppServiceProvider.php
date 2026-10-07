@@ -265,6 +265,9 @@ class AppServiceProvider extends ServiceProvider
         // RentalInspectionController is cc1's file (off limits); an
         // observer reacts to the state change itself, no controller edit.
         \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionCompletionObserver::class);
+        // INSPECTIONS I-5 BEGIN — a loaded interim date follows the inspection booked from it (§45.7).
+        \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionPlannedDateObserver::class);
+        // INSPECTIONS I-5 END
         CommandTask::observe(CommandTaskObserver::class);
         CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
 

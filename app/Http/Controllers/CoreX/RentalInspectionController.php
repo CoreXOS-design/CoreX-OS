@@ -103,7 +103,7 @@ class RentalInspectionController extends Controller
     {
         $validated = $request->validate([
             'property_id' => ['required', 'integer', 'exists:properties,id'],
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM, RentalInspection::TYPE_AD_HOC])],
         ]);
 
         // §45.8 H3 — resolved through the same scopes the picker offers from (AgencyScope +
@@ -128,6 +128,7 @@ class RentalInspectionController extends Controller
         } catch (\LogicException $e) {
             return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
         }
+        $this->linkPlannedDate($request, $inspection);
 
         // Recording (observations/photos/signatures) only happens on the
         // property's Inspections tab (§1/§4, renamed 2026-09-22 — label-
@@ -151,6 +152,28 @@ class RentalInspectionController extends Controller
         return Rule::exists('users', 'id')->where('agency_id', $agencyId);
     }
 
+    /**
+     * §45.7 (Build I-5) — "Book from this date": when the form was opened from a loaded interim date, attach the new
+     * inspection to it (planned -> booked). Re-checked here, never trusted as posted: the date must be one this user can see,
+     * still be a plain 'planned' date, and match the inspection's lease and type — anything else is ignored, the inspection
+     * is created exactly as it would have been without it.
+     */
+    private function linkPlannedDate(Request $request, RentalInspection $inspection): void
+    {
+        $id = $request->input('planned_date_id');
+        if (! $id) {
+            return;
+        }
+
+        $date = \App\Models\RentalInspectionPlannedDate::query()->visibleTo($request->user())->find($id);
+        if ($date
+            && $date->status === \App\Models\RentalInspectionPlannedDate::STATUS_PLANNED
+            && (int) $date->lease_id === (int) $inspection->lease_id
+            && $date->type === $inspection->type) {
+            $date->update(['status' => \App\Models\RentalInspectionPlannedDate::STATUS_BOOKED, 'rental_inspection_id' => $inspection->id]);
+        }
+    }
+
     private function storeScheduled(Request $request, Property $property, string $type): RedirectResponse
     {
         $validated = $request->validate([
@@ -166,6 +189,7 @@ class RentalInspectionController extends Controller
         } catch (\LogicException|\InvalidArgumentException $e) {
             return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
         }
+        $this->linkPlannedDate($request, $inspection);
 
         $warning = null;
         $minimumNoticeDays = RentalInspectionSetting::minimumNoticeDaysFor($property->agency_id);
@@ -688,7 +712,7 @@ class RentalInspectionController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM, RentalInspection::TYPE_AD_HOC])],
         ]);
 
         try {

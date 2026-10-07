@@ -3132,6 +3132,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-inspections/custom-room-types', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateCustomRoomTypes'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.custom-room-types');
     // INSPECTIONS I-2 END
+    // INSPECTIONS I-5 BEGIN — §45.7 due-date settings (one narrow saver; the wizard posts to it too).
+    Route::post('/settings/rental-inspections/due-dates', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateDueDates'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.due-dates');
+    // INSPECTIONS I-5 END
     Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
     // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 — its own narrow
@@ -3650,6 +3654,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // same greedy-binding reason /create is.
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printList'])->name('corex.rental-inspections.print-list');
         Route::get('/export', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'export'])->name('corex.rental-inspections.export');
+        // INSPECTIONS I-5 BEGIN — §45.7 the "Due" tab (In/Out due + the interim dates the agency loads) and CRUD on the loaded dates.
+        // Static paths, so they sit ahead of the /{rentalInspection} wildcard below.
+        Route::get('/due', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'index'])->name('corex.rental-inspections.due');
+        Route::get('/due/print', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'printList'])->name('corex.rental-inspections.due.print');
+        Route::get('/due/export', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'export'])->name('corex.rental-inspections.due.export');
+        Route::middleware('permission:rental_inspections.manage_planned_dates')->prefix('planned-dates')->name('corex.rental-inspections.planned-dates.')->group(function () {
+            Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'store'])->name('store');
+            Route::post('/{plannedDate}', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'update'])->name('update');
+            Route::post('/{plannedDate}/skip', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'skip'])->name('skip');
+            Route::post('/{plannedDate}/reopen', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'reopen'])->name('reopen');
+            Route::post('/{plannedDate}/archive', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'archive'])->name('archive');
+            Route::post('/{plannedDate}/restore', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'restore'])->name('restore');
+        });
+        // INSPECTIONS I-5 END
         Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
         // Printable tick-box form — same .view gate as show() itself, same
         // scoping precedent as RentalWorkOrderController::pdf().

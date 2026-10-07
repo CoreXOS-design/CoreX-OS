@@ -102,6 +102,10 @@ class RentalInspectionSettingsController extends Controller
             'notifyViaWhatsappEnabled' => RentalInspectionSetting::notifyViaWhatsappFor($agencyId),
             'minimumNoticeDays' => RentalInspectionSetting::minimumNoticeDaysFor($agencyId),
             'reminderDaysBefore' => RentalInspectionSetting::reminderDaysBeforeFor($agencyId),
+            // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+            'plannedDateLeadDays' => RentalInspectionSetting::plannedDateLeadDaysFor($agencyId),
+            'outDueLeadDays' => RentalInspectionSetting::outDueLeadDaysFor($agencyId),
+            'raiseDueInspectionsEnabled' => RentalInspectionSetting::raiseDueInspectionsEnabledFor($agencyId),
         ]);
     }
 
@@ -544,5 +548,41 @@ class RentalInspectionSettingsController extends Controller
         RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Notification settings saved.');
+    }
+
+    /**
+     * §45.7 item 6 (Build I-5) — the three due-date settings, one narrow saver. Registered on the Setup Wizard step as
+     * well, which posts whatever subset of these controls it renders: every field is written only if it is PRESENT
+     * (booleans through has() — a toggle always posts its hidden 0 — numbers through filled()), so a wizard save can
+     * never reset a value it did not show (agency-onboarding-setup.md §6.1).
+     */
+    public function updateDueDates(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'planned_date_lead_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'out_due_lead_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'raise_due_inspections_enabled' => ['nullable', 'boolean'],
+        ]);
+
+        $attributes = [];
+        foreach (['planned_date_lead_days', 'out_due_lead_days'] as $field) {
+            if ($request->filled($field)) {
+                $attributes[$field] = (int) $validated[$field];
+            }
+        }
+        if ($request->has('raise_due_inspections_enabled')) {
+            $attributes['raise_due_inspections_enabled'] = $request->boolean('raise_due_inspections_enabled');
+        }
+
+        if ($attributes === []) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['due_dates' => 'That did not save — please try again.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Due-date settings saved.');
     }
 }
