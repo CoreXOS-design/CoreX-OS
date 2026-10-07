@@ -3,12 +3,8 @@
 namespace App\Services\PlatformEsign\Agreement;
 
 use App\Models\PlatformEsign\WordingVersion;
+use App\Support\Platform\SafeHtml;
 use Carbon\Carbon;
-use League\CommonMark\Environment\Environment;
-use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
-use League\CommonMark\Extension\GithubFlavoredMarkdownExtension;
-use League\CommonMark\Parser\MarkdownParser;
-use League\CommonMark\Renderer\HtmlRenderer;
 
 /**
  * Turns a wording version's tokenised markdown into HTML blocks (spec §11.4/§11.6).
@@ -21,6 +17,8 @@ use League\CommonMark\Renderer\HtmlRenderer;
 class AgreementRenderer
 {
     private const TOKEN = '/\{\{(f|o|q|rate|amt|rr|sig|ini|ref|auto|ctl|co)(?::([a-z0-9_]+))?(?::([a-z0-9_]+))?\}\}/';
+    /** Bump when the wording sanitiser's rules change (part of the public page's ETag, so a deploy refreshes cached pages). */
+    public const SANITISER_REV = 2;
     /** Screen-only helper text beside the dates RR sets (never in a PDF; a declared addition of the proof). */
     public const TAKE_ON_TIP = 'Set by CoreX as agreed for your take-on month.';
     public const AMOUNT_TIP = 'Fills in automatically from your monthly fee in section 3.';
@@ -54,20 +52,30 @@ class AgreementRenderer
         return $blocks;
     }
 
-    /** @return string[] */
+    /** Sanitised blocks already computed this request (layout calibration renders the same wording dozens of times). @var array<string,string> */
+    private static array $cleanCache = [];
+
+    /**
+     * The wording's top-level HTML blocks. EVERY block is passed through the allow-list sanitiser here — the single choke point for the
+     * public /legal page, the recipient signing page, the owner screens, the editor's live preview and both PDFs — BEFORE any field
+     * marker is turned into form markup, so the renderer's own inputs are never mistaken for hostile markup and wording can never
+     * smuggle script, event handlers, remote images, scripted URLs or layout-breaking style into any of them (E1).
+     *
+     * @return string[]
+     */
     public function markdownBlocks(string $md): array
     {
-        $env = new Environment(['html_input' => 'allow', 'allow_unsafe_links' => false]);
-        $env->addExtension(new CommonMarkCoreExtension());
-        $env->addExtension(new GithubFlavoredMarkdownExtension());
-        $doc = (new MarkdownParser($env))->parse($md);
-        $renderer = new HtmlRenderer($env);
-        $out = [];
-        foreach ($doc->children() as $child) {
-            $out[] = trim((string) $renderer->renderNodes([$child]));
-        }
+        return array_map(function (string $raw): string {
+            $k = md5($raw);
+            if (!isset(self::$cleanCache[$k])) {
+                if (count(self::$cleanCache) > 3000) {
+                    self::$cleanCache = [];
+                }
+                self::$cleanCache[$k] = SafeHtml::cleanWording($raw);
+            }
 
-        return $out;
+            return self::$cleanCache[$k];
+        }, AgreementBlocks::rawHtmlBlocks($md));
     }
 
     private function finish(string $html): string

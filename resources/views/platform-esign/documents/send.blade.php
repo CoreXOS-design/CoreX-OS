@@ -22,6 +22,8 @@
     <form method="POST" action="{{ route('platform-esign.documents.store') }}" enctype="multipart/form-data" class="rounded-md p-6 space-y-5 max-w-4xl" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         <input type="hidden" name="template_id" value="{{ $tpl->id }}">
+        {{-- One-off token: a double click or a resubmit never sends the contract twice. --}}
+        <input type="hidden" name="submission_token" value="{{ old('submission_token', (string) \Illuminate\Support\Str::uuid()) }}">
 
         <div class="grid sm:grid-cols-2 gap-4">
             <div>
@@ -72,5 +74,6 @@
         </div>
     </form>
     @endif
+    @include('platform-esign._end')
 </div>
 @endsection

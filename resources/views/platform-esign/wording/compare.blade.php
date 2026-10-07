@@ -22,7 +22,7 @@
         @media (max-width: 760px) { .cmp-row { grid-template-columns: 1fr; } .cmp-cell + .cmp-cell { border-left:0; border-top:1px dashed var(--border); } }
     </style>
 
-    <form method="GET" class="rounded-md p-3 flex flex-col lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="GET" class="rounded-md p-3 flex flex-col flex-wrap lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
         <label class="flex items-center gap-2 text-xs" style="color: var(--text-muted);">Older <select name="a" class="list-header-filter">@foreach($all as $x)<option value="{{ $x->id }}" @selected($a && $a->id === $x->id)>{{ $name($x) }}</option>@endforeach</select></label>
         <label class="flex items-center gap-2 text-xs" style="color: var(--text-muted);">Newer <select name="b" class="list-header-filter">@foreach($all as $x)<option value="{{ $x->id }}" @selected($b && $b->id === $x->id)>{{ $name($x) }}</option>@endforeach</select></label>
         <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);"><input type="checkbox" name="only" value="changes" @checked($onlyChanges)> Only show what changed</label>
@@ -71,5 +71,6 @@
             @endif
         @endforeach
     @endif
+    @include('platform-esign._end')
 </div>
 @endsection

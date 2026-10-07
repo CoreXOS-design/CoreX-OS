@@ -88,6 +88,8 @@ class RentalInspectionSettingsController extends Controller
             // AT-433 Part C — the photo note's classification vocabulary
             // (Defect/Wear and tear/Reference by default).
             'photoNoteClassifications' => RentalInspectionSetting::photoNoteClassificationsFor($agencyId),
+            // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
+            'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
             // §41, 2026-09-28, Johan's ruling — auto-send the signed report
             // on completion, defaults ON.
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
@@ -102,6 +104,10 @@ class RentalInspectionSettingsController extends Controller
             'notifyViaWhatsappEnabled' => RentalInspectionSetting::notifyViaWhatsappFor($agencyId),
             'minimumNoticeDays' => RentalInspectionSetting::minimumNoticeDaysFor($agencyId),
             'reminderDaysBefore' => RentalInspectionSetting::reminderDaysBeforeFor($agencyId),
+            // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+            'plannedDateLeadDays' => RentalInspectionSetting::plannedDateLeadDaysFor($agencyId),
+            'outDueLeadDays' => RentalInspectionSetting::outDueLeadDaysFor($agencyId),
+            'raiseDueInspectionsEnabled' => RentalInspectionSetting::raiseDueInspectionsEnabledFor($agencyId),
         ]);
     }
 
@@ -448,6 +454,38 @@ class RentalInspectionSettingsController extends Controller
     }
 
     /**
+     * §45.5 (Build I-3) — the agency's own words for HOW someone attended an inspection. The four keys
+     * (in person / on behalf of the party / co-occupant / other) are fixed by the attendance record; only
+     * the labels are the agency's. Same `_submitted`-marker discipline as the other list savers, so a
+     * wizard post that never rendered this list cannot wipe it; a blank label simply keeps its default.
+     */
+    public function updateAttendedAsLabels(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('attended_as_labels_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['attended_as_labels' => 'That did not save — please try again.']);
+        }
+
+        $submitted = (array) $request->input('attended_as_labels', []);
+        $labels = [];
+        foreach (array_keys(RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS) as $key) {
+            $label = trim((string) ($submitted[$key] ?? ''));
+            if ($label !== '') {
+                $labels[$key] = mb_substr($label, 0, 60);
+            }
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['attended_as_labels' => $labels === [] ? null : $labels],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Attendance wording saved.');
+    }
+
+    /**
      * AT-433 Part C, .ai/specs/rental-inspections.md §25 — which
      * classifications a photo note can carry (Defect/Wear and tear/
      * Reference by default). Own narrow saver, same discipline as
@@ -544,5 +582,41 @@ class RentalInspectionSettingsController extends Controller
         RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Notification settings saved.');
+    }
+
+    /**
+     * §45.7 item 6 (Build I-5) — the three due-date settings, one narrow saver. Registered on the Setup Wizard step as
+     * well, which posts whatever subset of these controls it renders: every field is written only if it is PRESENT
+     * (booleans through has() — a toggle always posts its hidden 0 — numbers through filled()), so a wizard save can
+     * never reset a value it did not show (agency-onboarding-setup.md §6.1).
+     */
+    public function updateDueDates(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'planned_date_lead_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'out_due_lead_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'raise_due_inspections_enabled' => ['nullable', 'boolean'],
+        ]);
+
+        $attributes = [];
+        foreach (['planned_date_lead_days', 'out_due_lead_days'] as $field) {
+            if ($request->filled($field)) {
+                $attributes[$field] = (int) $validated[$field];
+            }
+        }
+        if ($request->has('raise_due_inspections_enabled')) {
+            $attributes['raise_due_inspections_enabled'] = $request->boolean('raise_due_inspections_enabled');
+        }
+
+        if ($attributes === []) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['due_dates' => 'That did not save — please try again.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Due-date settings saved.');
     }
 }

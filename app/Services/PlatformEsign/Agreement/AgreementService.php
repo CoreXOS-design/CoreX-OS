@@ -34,6 +34,9 @@ class AgreementService
     public const REMINDER_KEY = 'platform_esign.agreement_reminder_days';
     public const ACCESS_KEY = 'platform_esign.agreement_access_months';
 
+    /** Audit events that belong in the signed record the agency receives. Internal events (bank_revealed, email_failed, plan_forced, take_on_set, …) never print. */
+    public const SEALED_EVENTS = ['created', 'invited', 'viewed', 'page_initialled', 'signed', 'countersigned', 'wetink_uploaded'];
+
     public function __construct(
         private AgreementContent $content,
         private AgreementLayout $layout,
@@ -184,7 +187,7 @@ class AgreementService
             throw new \DomainException('Only a fully signed agreement has an access link to re-issue.');
         }
         $signer = $this->agencySigner($doc);
-        $signer->update(['token' => Str::random(48), 'invited_at' => now()]);
+        $signer->update(['token' => Str::random(48), 'previous_token_hash' => null, 'invited_at' => now()]);
         $doc->update(['expires_at' => now()->addMonths(self::accessMonths())->endOfDay()]);
         $this->esign->log($doc, 'access_reissued', 'New link issued to ' . $signer->name . ' <' . $signer->email . '>, valid for ' . self::accessMonths() . ' months', $signer, $userId);
         $this->esign->mailAgreementCompleted($doc->fresh(['signers', 'agency']), 'agency');
@@ -385,8 +388,114 @@ class AgreementService
             'declined' => 'This agreement was declined.',
             'awaiting_countersign' => 'You have signed this agreement. ' . AgreementCompany::for($doc)->legalName() . ' will countersign it and email you the signed copy.',
             'wetink_received' => 'We have received your hand-signed copy. ' . AgreementCompany::for($doc)->legalName() . ' will countersign it and email you the signed copy. You can replace the copy below until then.',
-            default => null,
+            // Still open for the agency, but the start month RR set has since passed: nothing signed now could be collected as written.
+            default => AgreementTakeOn::lapsed(((array) $doc->rr_data)['take_on_month'] ?? null) ? $this->takeOnLapsedAgencyMessage($doc) : null,
         };
+    }
+
+    // ── Take-on month: lapse check and the owner's re-set (spec §11.19) ────
+
+    /**
+     * The owner-facing warning for an agreement whose take-on month has passed, or null. 'can_reset' is true only while the agency has
+     * not signed: once it has, its signature covers the dates it saw, so they are never changed under it (cancel and re-send instead).
+     *
+     * @return array{month:string,label:string,billing:string,can_reset:bool}|null
+     */
+    public function takeOnLapse(Document $doc): ?array
+    {
+        $m = (string) (((array) $doc->rr_data)['take_on_month'] ?? '');
+        if ($doc->trashed() || in_array($doc->status, ['completed', 'voided', 'declined'], true) || !AgreementTakeOn::lapsed($m)) {
+            return null;
+        }
+
+        return [
+            'month' => $m, 'label' => AgreementTakeOn::label($m),
+            'billing' => Carbon::parse(AgreementTakeOn::derive($m)['billing_start'])->format('j F Y'),
+            'can_reset' => in_array($doc->status, ['sent', 'in_progress', 'expired'], true),
+        ];
+    }
+
+    /** Shown to the agency when the start month on its agreement has passed — it is never asked to fix that itself. Names the party the document was sent by. */
+    public function takeOnLapsedAgencyMessage(Document $doc): string
+    {
+        return 'The start month on this agreement has passed. Please contact ' . AgreementCompany::for($doc)->legalName() . ' so a corrected agreement can be sent to you.';
+    }
+
+    /** The owner's refusal text when countersigning an agreement whose take-on month has passed. */
+    public function takeOnLapsedOwnerMessage(Document $doc): string
+    {
+        $l = $this->takeOnLapse($doc) ?? ['label' => '', 'billing' => '', 'can_reset' => false];
+        $head = 'The take-on month on this agreement (' . $l['label'] . ') has passed — its first debit date (' . $l['billing'] . ') can no longer be collected as written, so it cannot be countersigned. ';
+
+        return $head . ($l['can_reset']
+            ? 'Set a new take-on month first.'
+            : 'The agency has already signed these dates, so they cannot be changed under it: cancel this agreement from the document page and send a corrected one.');
+    }
+
+    /**
+     * The owner sets a new take-on month on an agreement the agency has NOT signed yet (the existing send-time rules apply: this month or
+     * later). The agency's link, entries and signing progress are kept; only the dates derived from the month change.
+     *
+     * @throws \DomainException
+     */
+    public function setTakeOn(Document $doc, string $month, int $userId): void
+    {
+        if (!AgreementTakeOn::valid($month)) {
+            throw new \DomainException('Choose a take-on month that is this month or later.');
+        }
+        DB::transaction(function () use ($doc, $month, $userId) {
+            $locked = Document::whereKey($doc->id)->lockForUpdate()->firstOrFail();
+            if (!in_array($locked->status, ['sent', 'in_progress', 'expired'], true)) {
+                throw new \DomainException('The take-on month can only be changed before the agency has signed. Cancel this agreement and send a corrected one.');
+            }
+            $rr = (array) $locked->rr_data;
+            if (empty($rr['take_on_month'])) {
+                throw new \DomainException('This agreement was sent without a take-on month.');
+            }
+            $old = (string) $rr['take_on_month'];
+            $rr['take_on_month'] = $month;
+            $locked->rr_data = $rr;
+            $locked->form_data = array_merge((array) $locked->form_data, AgreementTakeOn::values($month), ['m_day' => AgreementTakeOn::COLLECTION_DAY]);
+            $locked->form_rev = (int) $locked->form_rev + 1; // an open agency page then picks the new dates up instead of overwriting them
+            $locked->save();
+            $d = AgreementTakeOn::derive($month);
+            $by = User::withoutGlobalScopes()->where('id', $userId)->value('name') ?: 'the owner';
+            $this->esign->log($locked, 'take_on_set', 'Take-on month changed from ' . AgreementTakeOn::label($old) . ' to ' . AgreementTakeOn::label($month) . ' by ' . $by . ' — agreement starts ' . Carbon::parse($d['start_date'])->format('j F Y') . ', billing starts ' . Carbon::parse($d['billing_start'])->format('j F Y'), null, $userId);
+        });
+    }
+
+    // ── Signed-record helpers ──────────────────────────────────────────────
+
+    /** The audit events printed into the signed PDF / attestation: only those audience-appropriate for the agency, "viewed" once. */
+    public static function sealedEvents(Document $doc)
+    {
+        $seenViewed = false;
+
+        return $doc->events->filter(function ($e) use (&$seenViewed) {
+            if (!in_array($e->event, self::SEALED_EVENTS, true)) {
+                return false;
+            }
+            if ($e->event === 'viewed') {
+                if ($seenViewed) {
+                    return false;
+                }
+                $seenViewed = true;
+            }
+
+            return true;
+        })->values();
+    }
+
+    /** A safe display name for an uploaded file: no path, backslash, control characters or '%' (they make the download header throw). */
+    public static function safeFileName(?string $name, string $ext = 'pdf'): string
+    {
+        $name = (string) $name;
+        $name = (string) @iconv('UTF-8', 'UTF-8//IGNORE', $name);
+        $name = basename(str_replace('\\', '_', $name));
+        $name = (string) preg_replace('/[^\p{L}\p{N} ._()\-]+/u', '_', $name);
+        $name = trim(mb_substr(trim($name), 0, 200), " .");
+
+        return ($name === '' || trim($name, '_ ') === '') ? 'signed-copy.' . $ext : $name;
     }
 
     /**
@@ -427,6 +536,9 @@ class AgreementService
 
     public function setInitials(Document $doc, Signer $signer, string $initials): string
     {
+        if ($reason = $this->blockedReason($doc, $signer)) {
+            throw new \DomainException($reason); // not after submit / completion / void / expiry — the initials are part of the signed record
+        }
         $clean = mb_strtoupper(preg_replace('/[^\p{L}]/u', '', $initials));
         $clean = mb_substr($clean, 0, 5);
         if ($clean === '') {
@@ -501,6 +613,7 @@ class AgreementService
             }
             if ($errors) {
                 $locked->form_data = $data;
+                $locked->form_rev = (int) $locked->form_rev + 1; // the stored entries changed: a second tab holding the old revision must conflict, not overwrite
                 $locked->save();
 
                 return;
@@ -550,6 +663,9 @@ class AgreementService
             if ($locked->status !== 'awaiting_countersign') {
                 throw new \DomainException('This agreement is not waiting for a countersignature on the electronic copy.');
             }
+            if (AgreementTakeOn::lapsed(((array) $locked->rr_data)['take_on_month'] ?? null)) {
+                throw new \DomainException($this->takeOnLapsedOwnerMessage($locked));
+            }
             // RR can only write RR-side fields, and never the variation fields (set at send, spec §11.7).
             $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount']));
             $rr = array_merge((array) $locked->rr_data, $clean);
@@ -586,6 +702,7 @@ class AgreementService
                 Initial::firstOrCreate(['signer_id' => $sg->id, 'page_no' => $p], ['document_id' => $locked->id, 'initials' => $ini, 'ip' => $ip, 'created_at' => now()]);
             }
             $this->esign->log($locked, 'countersigned', AgreementCompany::for($locked)->legalName() . ' countersigned by ' . $rr['rr_name'] . ' — all ' . $total . ' pages initialled', $sg, $user->id, $ip);
+            $this->retireAgencyLink($locked);
         });
         if ($errors) {
             return $errors;
@@ -594,6 +711,19 @@ class AgreementService
         $this->esign->complete($doc->fresh());
 
         return [];
+    }
+
+    /**
+     * At completion the agency's invite link stops working for the signed agreement: its token is replaced, and the completion email
+     * (sent right after, from the fresh token) carries the new link for the access window. The old token is remembered only as a SHA-256
+     * so that link can say "this agreement is complete — use the link in your completion email" instead of a bare 404.
+     * Tokens themselves stay readable on purpose (reminders and re-sends must be able to put the link in an email).
+     */
+    private function retireAgencyLink(Document $locked): void
+    {
+        $a = Signer::where('document_id', $locked->id)->where('role_key', 'r1')->lockForUpdate()->firstOrFail();
+        $a->forceFill(['previous_token_hash' => hash('sha256', (string) $a->token), 'token' => Str::random(48)])->save();
+        $this->esign->log($locked, 'access_link_replaced', 'The agency’s signing link was replaced by a new link for the signed agreement', $a);
     }
 
     // ── Sealing ────────────────────────────────────────────────────────────
@@ -682,7 +812,14 @@ class AgreementService
 
         DB::transaction(function () use ($doc, $signer, $checked, $ip) {
             $locked = Document::whereKey($doc->id)->lockForUpdate()->firstOrFail();
-            if ($locked->wetinkFiles()->count() + count($checked) > 60) {
+            // The state check at the top ran on a stale copy: re-check against the locked row so an upload can never push a
+            // completed / sealed / voided agreement back to "received" (RR may have countersigned a moment ago).
+            if (!in_array($locked->status, ['sent', 'in_progress', 'wetink_received'], true)) {
+                throw new \DomainException($this->blockedReason($locked, $signer) ?? 'This agreement can no longer receive an uploaded copy.');
+            }
+            $this->wetGuard($locked, $signer);
+            // Only the current (non-superseded) files count towards the cap — earlier batches are history, not storage the agency can exhaust.
+            if ($locked->wetinkFiles()->whereNull('superseded_at')->count() + count($checked) > 60) {
                 throw new \DomainException('Too many files have been uploaded for this agreement. Ask the sender for help.');
             }
             $batch = (int) $locked->wetinkFiles()->max('batch') + 1;
@@ -696,7 +833,7 @@ class AgreementService
             $bytes = 0;
             foreach ($checked as [$f, $mime]) {
                 $path = $f->storeAs('platform-esign/documents/' . $locked->id . '/wetink', Str::random(24) . '.' . self::WET_MIMES[$mime], EsignService::DISK);
-                WetinkFile::create(['document_id' => $locked->id, 'batch' => $batch, 'original_name' => Str::limit(basename($f->getClientOriginalName()), 200, ''),
+                WetinkFile::create(['document_id' => $locked->id, 'batch' => $batch, 'original_name' => self::safeFileName($f->getClientOriginalName(), self::WET_MIMES[$mime]),
                     'stored_path' => $path, 'mime' => $mime, 'size' => (int) $f->getSize(), 'sha256' => hash_file('sha256', $f->getRealPath()), 'uploaded_ip' => $ip]);
                 $bytes += (int) $f->getSize();
             }
@@ -732,6 +869,9 @@ class AgreementService
             if ($locked->status !== 'wetink_received' || !$locked->wetinkFiles()->whereNull('superseded_at')->exists()) {
                 throw new \DomainException('This agreement is not waiting for a countersignature on a hand-signed copy.');
             }
+            if (AgreementTakeOn::lapsed(((array) $locked->rr_data)['take_on_month'] ?? null)) {
+                throw new \DomainException($this->takeOnLapsedOwnerMessage($locked));
+            }
             $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount']));
             $rr = array_merge((array) $locked->rr_data, $clean);
             foreach (['rr_name' => 'Name', 'rr_capacity' => 'Capacity', 'rr_place' => 'Place', 'rr_date' => 'Date', 'sigR' => 'Signature'] as $k => $label) {
@@ -752,6 +892,7 @@ class AgreementService
                 'signed_ip' => $ip, 'signed_user_agent' => Str::limit((string) $ua, 480, ''), 'consent_text_snapshot' => EsignService::CONSENT,
                 'email' => strtolower((string) ($user->email ?: $sg->email))])->save();
             $this->esign->log($locked, 'countersigned', AgreementCompany::for($locked)->legalName() . ' countersigned the hand-signed copy by ' . $rr['rr_name'], $sg, $user->id, $ip);
+            $this->retireAgencyLink($locked);
         });
         if ($errors) {
             return $errors;
@@ -784,7 +925,11 @@ class AgreementService
         if (!in_array($key, AgreementFields::SENSITIVE, true)) {
             throw new \DomainException('That value cannot be revealed.');
         }
-        $this->esign->log($doc, 'bank_revealed', 'Revealed ' . (AgreementFields::schema()[$key]['label'] ?? $key), null, $user->id, $ip);
+        if ($doc->trashed()) {
+            throw new \DomainException('This agreement has been archived — restore it before revealing its details.');
+        }
+        // The field KEY (never the value) is audited: both bank accounts carry the label "Account number", the key tells them apart.
+        $this->esign->log($doc, 'bank_revealed', 'Revealed ' . $key . ' (' . (AgreementFields::schema()[$key]['label'] ?? $key) . ')', null, $user->id, $ip);
 
         return (string) (((array) $doc->form_data)[$key] ?? '');
     }

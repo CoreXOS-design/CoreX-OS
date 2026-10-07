@@ -88,8 +88,12 @@ final class PresentationReviewController extends Controller
             ->orderByDesc('sold_date')
             ->get();
 
+        // null = no opinion (all ticked); [] = agent unticked everything.
+        // Must mirror AnalysisDataService's whitelist test exactly — `?:`
+        // here showed every box ticked while the CMA tiles computed from
+        // an empty pool and rendered blank.
         $includedIds = $version->included_comp_ids_json
-            ?: $allComps->pluck('id')->all();
+            ?? $allComps->pluck('id')->all();
 
         // Keystone — title_type now lives on properties.title_type,
         // derived from property_type by TitleTypeClassifier on every save.
@@ -1219,9 +1223,14 @@ final class PresentationReviewController extends Controller
     }
 
     /**
-     * Drop soft-deleted comps from the included set if any were removed
-     * between compile and review. Log a comp_unavailable row per dropped
-     * comp so the audit trail captures the implicit change.
+     * Re-validate the included set against soft-deleted comps. A pick whose
+     * row was retired by a re-hydration is carried onto the fresh copy of the
+     * SAME sale (CompSelectionCarryForward) — that is not a change, so nothing
+     * is logged for it. A pick with no live counterpart is genuinely gone: it
+     * is dropped and a comp_unavailable row is logged so the audit trail
+     * captures the implicit change. If every pick is gone the set falls back
+     * to null (all comps), never [] — [] is reserved for an agent who
+     * deliberately unticked everything.
      *
      * Returns the number of comps that were auto-dropped, so the Blade
      * can surface a banner.
@@ -1231,16 +1240,15 @@ final class PresentationReviewController extends Controller
         $included = $version->included_comp_ids_json;
         if (empty($included)) return 0;
 
-        $existing = PresentationSoldComp::query()
-            ->whereIn('id', $included)
-            ->whereNull('deleted_at')
-            ->pluck('id')->all();
-        $missing = array_diff($included, array_map('intval', $existing));
-        if (empty($missing)) return 0;
+        $result = \App\Support\Presentations\CompSelectionCarryForward::remap(
+            (int) $version->presentation_id,
+            $included,
+        );
+        if ($result['remapped'] === [] && $result['dropped'] === []) return 0;
 
-        $surviving = array_values(array_diff($included, $missing));
-        DB::transaction(function () use ($version, $missing, $surviving, $request) {
-            $version->forceFill(['included_comp_ids_json' => $surviving])->save();
+        $missing = $result['dropped'];
+        DB::transaction(function () use ($version, $missing, $result, $request) {
+            $version->forceFill(['included_comp_ids_json' => $result['ids']])->save();
             foreach ($missing as $compId) {
                 AgentOverride::create([
                     'agency_id'               => $version->agency_id,

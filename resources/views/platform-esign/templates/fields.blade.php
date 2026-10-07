@@ -83,6 +83,7 @@
             <p class="text-xs mt-4" style="color: var(--text-muted);">Every signer needs at least one <strong>Signature</strong> field before the template can be sent. Date fields fill themselves with the signing date if left empty.</p>
         </div>
     </div>
+    @include('platform-esign._end')
 </div>
 
 <script>

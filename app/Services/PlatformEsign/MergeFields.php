@@ -44,19 +44,22 @@ class MergeFields
         ];
     }
 
-    /** Fields a body uses (unique, in order). */
+    /** Anything written between double braces counts as a merge field — a typo or a different case must be caught, never shipped as literal text. */
+    private const ANY = '/\{\{(.*?)\}\}/s';
+
+    /** Fields a body uses (unique, in order) — EVERY {{ … }} in it, known or not, so unknown / mis-cased names can be refused. */
     public function used(string $body): array
     {
-        preg_match_all('/\{\{\s*([a-z_]+)\s*\}\}/', $body, $m);
+        preg_match_all(self::ANY, $body, $m);
 
-        return array_values(array_unique($m[1]));
+        return array_values(array_unique(array_map('trim', $m[1])));
     }
 
     /** @throws \DomainException */
     public function render(string $body, array $values): string
     {
-        $merged = preg_replace_callback('/\{\{\s*([a-z_]+)\s*\}\}/', function ($m) use ($values) {
-            $key = $m[1];
+        $merged = preg_replace_callback(self::ANY, function ($m) use ($values) {
+            $key = trim($m[1]);
             if (!in_array($key, self::FIELDS, true)) {
                 throw new \DomainException("The template uses an unknown field {{{$key}}}.");
             }

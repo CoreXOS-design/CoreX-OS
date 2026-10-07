@@ -22,6 +22,11 @@
 
     <form method="POST" action="{{ route('corex.rental-inspections.store') }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
+        {{-- §45.7 (Build I-5) — set when this form was opened from "Book from this date" on a loaded interim date; the
+             server re-checks it (same agency/lease/type, still planned) before linking — never trusted as posted. --}}
+        @if(old('planned_date_id', request()->query('planned_date_id')))
+            <input type="hidden" name="planned_date_id" value="{{ old('planned_date_id', request()->query('planned_date_id')) }}">
+        @endif
 
         @if ($errors->any())
             <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
@@ -60,7 +65,8 @@
             <select name="type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 <option value="{{ \App\Models\RentalInspection::TYPE_IN }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_IN)>In-inspection — move-in condition</option>
                 <option value="{{ \App\Models\RentalInspection::TYPE_OUT }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_OUT)>Out-inspection — move-out condition</option>
-                <option value="{{ \App\Models\RentalInspection::TYPE_AD_HOC }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_AD_HOC)>Ad-hoc — a mid-tenancy check</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_INTERIM }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_INTERIM)>Interim — a planned mid-tenancy inspection</option>
+                <option value="{{ \App\Models\RentalInspection::TYPE_AD_HOC }}" @selected($preselectedType === \App\Models\RentalInspection::TYPE_AD_HOC)>Ad-hoc — an unplanned mid-tenancy check</option>
             </select>
         </div>
 
@@ -74,7 +80,7 @@
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="text-xs font-medium">Date</label>
-                    <input type="date" name="scheduled_for" value="{{ old('scheduled_for') }}" min="{{ now()->toDateString() }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <input type="date" name="scheduled_for" value="{{ old('scheduled_for', request()->query('scheduled_for')) }}" @unless(request()->query('planned_date_id')) min="{{ now()->toDateString() }}" @endunless" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
                 <div>
                     <label class="text-xs font-medium">Time</label>

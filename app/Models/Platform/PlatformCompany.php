@@ -107,6 +107,20 @@ class PlatformCompany extends Model
 
     // ── Logo ───────────────────────────────────────────────────────────────
 
+    /**
+     * May this logo version be streamed from the PUBLIC logo URL? Only the built-in logo (0), the current logo, and a version a
+     * Platform E-Sign document was sent with (its pinned snapshot — old emails keep rendering). Any other uploaded version — a
+     * superseded or mistaken upload — is not reachable by guessing sequential ids (A-F3).
+     */
+    public static function logoIsPublic(int $logoId): bool
+    {
+        if ($logoId <= 0 || (int) static::current()->logo_id === $logoId) {
+            return true;
+        }
+
+        return \App\Models\PlatformEsign\Document::withTrashed()->where('company_snapshot->logo_id', $logoId)->exists();
+    }
+
     /** @return array{bytes:string, mime:string} the current logo, falling back to the built-in asset. */
     public function logoFile(): array
     {
@@ -200,22 +214,55 @@ class PlatformCompany extends Model
         return route('platform-company.logo', ['l' => $this->logo_id ?: 0]);
     }
 
-    /** Self-contained logo for PDFs — the renderer never has to fetch anything over the network. */
+    /** Longest side (px) a raster logo is embedded at in a PDF. The letterhead shows it at 45pt high, so this is still crisp. */
+    public const PDF_LOGO_MAX_SIDE_PX = 1000;
+
+    /**
+     * Self-contained logo for PDFs — the renderer never has to fetch anything over the network.
+     * A raster logo larger than PDF_LOGO_MAX_SIDE_PX is downscaled first, so DomPDF never decodes a huge bitmap (A-F5).
+     */
     public function logoDataUri(): string
     {
         $f = $this->logoFile();
+        $bytes = $f['bytes'];
 
-        return 'data:' . $f['mime'] . ';base64,' . base64_encode($f['bytes']);
+        if (! str_contains($f['mime'], 'svg') && function_exists('imagecreatefromstring')) {
+            $info = @getimagesizefromstring($bytes);
+            $max = self::PDF_LOGO_MAX_SIDE_PX;
+            if ($info && max($info[0], $info[1]) > $max) {
+                $src = @imagecreatefromstring($bytes);
+                if ($src !== false) {
+                    $scale = $max / max($info[0], $info[1]);
+                    $dst = imagescale($src, max(1, (int) round($info[0] * $scale)), max(1, (int) round($info[1] * $scale)));
+                    if ($dst !== false) {
+                        imagealphablending($dst, false);
+                        imagesavealpha($dst, true);
+                        ob_start();
+                        $ok = str_contains($f['mime'], 'png') ? imagepng($dst) : imagejpeg($dst, null, 90);
+                        $small = (string) ob_get_clean();
+                        if ($ok && $small !== '') {
+                            $bytes = $small;
+                        }
+                    }
+                }
+            }
+        }
+
+        return 'data:' . $f['mime'] . ';base64,' . base64_encode($bytes);
     }
 
     // ── Rendering ──────────────────────────────────────────────────────────
 
-    /** Header block. $context: 'web' (responsive, logo by URL) | 'pdf' (print layout, logo embedded). */
-    public function letterheadHtml(string $context = 'web'): string
+    /**
+     * Header block. $context: 'web' (responsive, logo by URL) | 'pdf' (print layout, logo embedded).
+     * $embedLogo = false keeps the 'pdf' layout but references the logo by URL — for on-screen previews, which must not
+     * carry the logo bytes inside the HTML.
+     */
+    public function letterheadHtml(string $context = 'web', bool $embedLogo = true): string
     {
         $context = $context === 'pdf' ? 'pdf' : 'web';
 
-        return trim(view('platform-company.letterhead', ['c' => $this, 'context' => $context])->render());
+        return trim(view('platform-company.letterhead', ['c' => $this, 'context' => $context, 'inline' => $embedLogo])->render());
     }
 
     public function letterheadFooterHtml(string $context = 'web'): string

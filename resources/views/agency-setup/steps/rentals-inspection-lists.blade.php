@@ -20,9 +20,10 @@
      can never wipe or fail anything (agency-onboarding-setup.md §6.1).
 
      Vars: $wzRefusalPresets, $wzConditionStates, $wzBaselineConditionKey,
-           $wzPhotoClassifications, $wzInventoryConditionStates, $wzCustomRoomTypes. --}}
+           $wzPhotoClassifications, $wzInventoryConditionStates, $wzCustomRoomTypes, $wzAttendedAsLabels (Build I-3). --}}
 
 @php
+    $wzAttendedAsLabels = $wzAttendedAsLabels ?? \App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS;
     $wzBox = 'background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); border-radius:6px;';
     $wzInput = 'border:1px solid var(--border,#e5e7eb);';
 @endphp
@@ -101,6 +102,25 @@
                 </template>
             </select>
         </div>
+    </div>
+
+    {{-- How someone attended an inspection (Build I-3) --}}
+    <div class="p-4 space-y-2" style="{{ $wzBox }}">
+        <input type="hidden" name="attended_as_labels_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">How someone attended an inspection</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: the words used when an agent records who was at an inspection &mdash; in person, someone attending on a party's behalf, a co-occupant, or anyone else. The four ways are fixed; reword each to match your own paperwork. A blank box keeps the default.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> The attendance wording on the inspection screen, the signed report and the report link tenants and landlords open.
+        </p>
+        @foreach(\App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS as $wzAttendedKey => $wzAttendedDefault)
+            <div class="flex items-center gap-2">
+                <span class="text-xs w-40" style="color:var(--text-muted);">{{ $wzAttendedDefault }} (default)</span>
+                <input type="text" name="attended_as_labels[{{ $wzAttendedKey }}]" maxlength="60" value="{{ $wzAttendedAsLabels[$wzAttendedKey] }}"
+                       class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+            </div>
+        @endforeach
     </div>
 
     {{-- Photo-note classifications --}}

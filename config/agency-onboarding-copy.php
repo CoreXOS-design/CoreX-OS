@@ -440,6 +440,8 @@ return [
             // offset. Own narrow saver, same _submitted-marker discipline
             // as updateAutoSendReportEnabled above.
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateScheduleNotifications'],
+            // §45.7 (Build I-5) — due-date settings; one narrow, has()/filled()-guarded saver (see its own docblock).
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateDueDates'],
             // §41-follow-up (Job 3, 2026-09-28) — the same toggle, mirrored
             // onto Inventory's own signed-report distribution. Its own
             // narrow saver, same discipline as the Inspections one directly
@@ -490,6 +492,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionPhotoNoteClassifications'],
             // §45.4 item 3 (Build I-2) — the agency's own room types; no-op unless this step's marker was posted.
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionCustomRoomTypes'],
+            // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection; no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionAttendedAsLabels'],
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inventoryConditionStates'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateCreditBureau'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantedLabel'],
@@ -604,6 +608,20 @@ return [
              'label' => 'Send a reminder this many days before a scheduled inspection',
              'explain' => 'A reminder notification, sent through the same parties/channels configured above, this many days before the booked date.',
              'affects' => 'Whether anyone is reminded ahead of the inspection, and how far ahead. 0 turns the reminder off entirely. 1 day suits most agencies.'],
+            // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates. All three on ONE narrow saver
+            // (RentalInspectionSettingsController::updateDueDates, registered above) — every field has()/filled()-guarded.
+            ['key' => 'raise_due_inspections_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Remind the agent when a move-in or move-out inspection is due',
+             'explain' => 'CoreX works out from each active lease when its move-in inspection (the lease start, if none has been completed) and its move-out inspection (the move-out date, or the end of a fixed term) fall due, and reminds the agent responsible for the property.',
+             'affects' => 'Whether that agent gets an in-CoreX reminder and an email for a due or overdue move-in/move-out inspection. The Due tab and the Command Centre show them either way; tenants and landlords are never contacted by these reminders. On by default.'],
+            ['key' => 'planned_date_lead_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 14, 'min' => 0, 'max' => 90,
+             'label' => 'Remind the agent this many days before an interim inspection date',
+             'explain' => 'CoreX never schedules interim inspections for you — your agency loads the dates it wants on the Due tab. This is how early the responsible agent is first reminded about a date you loaded (they are reminded again on the day and the day after).',
+             'affects' => 'How far ahead an agent is warned about a loaded interim date. 0 reminds on the day only. 14 days suits most agencies. Agencies that do no interim inspections never see a reminder.'],
+            ['key' => 'out_due_lead_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 0, 'max' => 90,
+             'label' => 'Show a move-out inspection as due this many days before the tenant leaves',
+             'explain' => 'How long before the move-out date (or the end of a fixed term) the move-out inspection starts showing as due and the agent is first reminded.',
+             'affects' => 'When a move-out inspection moves from "upcoming" to "due" on the Due tab and the Command Centre, and when its first reminder goes out. 0 means only from the day itself. 7 days suits most agencies.'],
             // §41-follow-up (Job 3, 2026-09-28) — same ruling, mirrored onto
             // Inventory's own signed report. Key deliberately distinct from
             // 'auto_send_report_enabled' above — see

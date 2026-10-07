@@ -27,6 +27,20 @@ class AgreementTakeOn
         return self::first($month)->gte(($now ?? now())->copy()->startOfMonth()); // the current month is allowed, a past month is not
     }
 
+    /**
+     * True once the first collection date (the 1st of the month AFTER the take-on month) is today or already behind us — a document
+     * signed now would carry a first debit that can no longer be collected as written. The current month is still fine until it ends
+     * (send accepts it); on the 1st of the following month the take-on month has lapsed. Uses the app timezone (Africa/Johannesburg).
+     */
+    public static function lapsed(?string $month, ?Carbon $now = null): bool
+    {
+        if (!is_string($month) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
+            return false; // no take-on month on this document: nothing to lapse
+        }
+
+        return self::derive($month)['billing_start'] <= ($now ?? now())->copy()->toDateString();
+    }
+
     /** @return array{month:string,start_date:string,billing_start:string} ISO dates */
     public static function derive(string $month): array
     {

@@ -12,5 +12,6 @@
             <div class="mt-8 pt-3" style="border-top: 1px solid var(--border);"><strong>{{ $r['label'] }}</strong><div class="text-xs" style="color: var(--text-muted);">Signature block</div></div>
         @endforeach
     </div>
+    @include('platform-esign._end')
 </div>
 @endsection

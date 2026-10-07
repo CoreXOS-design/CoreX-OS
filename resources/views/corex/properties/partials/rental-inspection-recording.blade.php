@@ -1413,6 +1413,104 @@
             </template>
         </div>
 
+        {{-- §45.5 (Build I-3) — who attended, in what capacity, and what the invitation trail says about each
+             party. Facts only: the screen never says what attendance means for anyone's rights (§45.11). Each
+             expected party (every lease tenant, each invited landlord, the inspector) needs an outcome before
+             the inspection can complete; anyone else who was in the room is added underneath. A correction
+             writes a new record and keeps the old one; Withdraw keeps it on file marked withdrawn. --}}
+        <div id="attendance-panel" data-qa="attendance-panel" class="space-y-2 pt-2 rounded-md"
+             x-show="currentInspection({{ $sectionJs }}).status !== 'cancelled'"
+             x-init="ensureAttendanceBoard({{ $sectionJs }})"
+             :style="attendanceAttention ? 'outline:2px solid #ef4444; outline-offset:4px;' : ''"
+             style="border-top:1px solid var(--border);">
+            <div class="flex items-center justify-between gap-2">
+                <label class="block text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);">Attendance</label>
+                <span class="text-xs" style="color:var(--text-muted);" x-text="attendanceSummary({{ $sectionJs }})"></span>
+            </div>
+            <div x-show="attendanceError" x-cloak class="text-xs" style="color:#ef4444;" x-text="attendanceError"></div>
+            <div x-show="!attendanceBoard({{ $sectionJs }})" class="text-xs" style="color:var(--text-muted);">Loading attendance…</div>
+
+            <template x-for="row in attendanceRows({{ $sectionJs }})" :key="row.key">
+                <div class="py-1.5" style="border-bottom:1px solid var(--border);">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                        <span class="text-sm" style="color:var(--text-primary);">
+                            <span x-text="row.name || 'Unnamed'"></span>
+                            <span class="text-xs" style="color:var(--text-muted);" x-text="'(' + attendanceRoleLabel(row.party_role) + ')'"></span>
+                        </span>
+                        <span class="flex items-center gap-2 flex-wrap">
+                            <template x-if="row.attendance">
+                                <span class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="attendanceOutcomeText(row.attendance)"></span>
+                                    <button type="button" class="text-xs underline" style="color:var(--text-secondary);" x-show="attendanceEditable({{ $sectionJs }})"
+                                            @click="attFormFor(row.key).open = !attFormFor(row.key).open">Change</button>
+                                    <button type="button" class="text-xs underline" style="color:var(--text-secondary);" x-show="attendanceEditable({{ $sectionJs }})"
+                                            @click="withdrawAttendance({{ $sectionJs }}, row.attendance.id)">Withdraw</button>
+                                </span>
+                            </template>
+                            <template x-if="!row.attendance && attendanceEditable({{ $sectionJs }})">
+                                <span class="flex items-center gap-2">
+                                    <button type="button" :disabled="attendanceBusy" @click="recordAttendance({{ $sectionJs }}, row, 'attended', false)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Attended</button>
+                                    <button type="button" :disabled="attendanceBusy" @click="recordAttendance({{ $sectionJs }}, row, 'did_not_attend', false)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Did not attend</button>
+                                    <button type="button" @click="attFormFor(row.key).open = !attFormFor(row.key).open"
+                                            class="text-xs underline" style="color:var(--text-secondary);">Someone attended on their behalf</button>
+                                </span>
+                            </template>
+                        </span>
+                    </div>
+                    <div x-show="attFormFor(row.key).open && attendanceEditable({{ $sectionJs }})" x-cloak class="flex flex-wrap items-end gap-2 mt-1.5">
+                        <input type="text" x-model="attFormFor(row.key).name" maxlength="191" placeholder="Name of the person who attended on their behalf"
+                               class="prop-input text-xs" style="min-width:16rem;">
+                        <input type="time" x-model="attFormFor(row.key).arrived" class="prop-input text-xs" title="Arrival time (optional)">
+                        <button type="button" :disabled="attendanceBusy || !attFormFor(row.key).name.trim()" @click="recordAttendance({{ $sectionJs }}, row, 'attended', true)"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;">Save</button>
+                        <button type="button" :disabled="attendanceBusy" @click="recordAttendance({{ $sectionJs }}, row, 'attended', false)"
+                                class="text-xs underline" style="color:var(--text-secondary);">They attended themselves</button>
+                    </div>
+                    <div class="text-xs mt-1" style="color:var(--text-muted);" data-qa="attendance-invitation"
+                         x-text="row.invitation.lines.map(l => l.text).join(' · ')"></div>
+                    <div class="mt-1" x-show="attendanceEditable({{ $sectionJs }})">
+                        <button type="button" class="text-xs underline" style="color:var(--text-secondary);"
+                                @click="invFormFor(row.key).open = !invFormFor(row.key).open">Record an invitation given</button>
+                    </div>
+                    <div x-show="invFormFor(row.key).open && attendanceEditable({{ $sectionJs }})" x-cloak class="flex flex-wrap items-end gap-2 mt-1.5">
+                        <input type="text" x-model="invFormFor(row.key).method" maxlength="60" list="attendance-invitation-methods" placeholder="How (for example a phone call)"
+                               class="prop-input text-xs" style="min-width:14rem;">
+                        <input type="datetime-local" x-model="invFormFor(row.key).at" class="prop-input text-xs" title="When it was given (leave empty for now)">
+                        <button type="button" :disabled="attendanceBusy || !invFormFor(row.key).method.trim()" @click="recordInvitationGiven({{ $sectionJs }}, row)"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;">Save</button>
+                    </div>
+                </div>
+            </template>
+            <datalist id="attendance-invitation-methods">
+                <template x-for="m in invitationMethods" :key="m"><option :value="m"></option></template>
+            </datalist>
+
+            <template x-for="other in attendanceOthers({{ $sectionJs }})" :key="other.id">
+                <div class="flex items-center justify-between gap-2 py-1" style="border-bottom:1px solid var(--border);">
+                    <span class="text-sm" style="color:var(--text-primary);">
+                        <span x-text="other.attendee_name || 'Unnamed'"></span>
+                        <span class="text-xs" style="color:var(--text-muted);" x-text="'(' + (attendedAsLabels[other.attended_as] || other.attended_as) + ')'"></span>
+                    </span>
+                    <button type="button" class="text-xs underline" style="color:var(--text-secondary);" x-show="attendanceEditable({{ $sectionJs }})" @click="withdrawAttendance({{ $sectionJs }}, other.id)">Withdraw</button>
+                </div>
+            </template>
+            <div x-show="attendanceEditable({{ $sectionJs }})">
+                <button type="button" class="text-xs underline" style="color:var(--text-secondary);" @click="otherForm.open = !otherForm.open">Add someone else who attended</button>
+            </div>
+            <div x-show="otherForm.open && attendanceEditable({{ $sectionJs }})" x-cloak class="flex flex-wrap items-end gap-2">
+                <input type="text" x-model="otherForm.name" maxlength="191" placeholder="Name" class="prop-input text-xs" style="min-width:12rem;">
+                <select x-model="otherForm.as" class="prop-input text-xs">
+                    <option value="co_occupant" x-text="attendedAsLabels.co_occupant"></option>
+                    <option value="other" x-text="attendedAsLabels.other"></option>
+                </select>
+                <input type="time" x-model="otherForm.arrived" class="prop-input text-xs" title="Arrival time (optional)">
+                <button type="button" :disabled="attendanceBusy || !otherForm.name.trim()" @click="addOtherAttendee({{ $sectionJs }})"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;">Add</button>
+            </div>
+        </div>
+
         {{-- Conductor brief 2026-09-29 — "print for signature": the same
              report, plus blank signature blocks for every outstanding
              party, to print and send/hand for a wet-ink signature. Not
@@ -1460,7 +1558,7 @@
                             <template x-if="tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
                                 <span class="flex items-center gap-2">
                                     <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
-                                          x-text="dispositionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id))"></span>
+                                          x-text="dispositionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id), {{ $sectionJs }})"></span>
                                     <button type="button" x-show="canActOnWetInk({{ $sectionJs }}, tenantDisposition({{ $sectionJs }}, tenant.contact_id))"
                                             @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-medium underline" style="color:var(--text-secondary);"
@@ -1508,7 +1606,7 @@
                                 <template x-if="landlordDisposition({{ $sectionJs }})">
                                     <span class="flex items-center gap-2">
                                         <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
-                                              x-text="dispositionLabel(landlordDisposition({{ $sectionJs }}))"></span>
+                                              x-text="dispositionLabel(landlordDisposition({{ $sectionJs }}), {{ $sectionJs }})"></span>
                                         <button type="button" x-show="canActOnWetInk({{ $sectionJs }}, landlordDisposition({{ $sectionJs }}))"
                                                 @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-medium underline" style="color:var(--text-secondary);"

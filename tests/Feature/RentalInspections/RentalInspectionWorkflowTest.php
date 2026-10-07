@@ -27,6 +27,7 @@ use Tests\TestCase;
 final class RentalInspectionWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
 
     private Agency $agency;
     private Branch $branch;
@@ -113,6 +114,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/agent.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->status);
@@ -134,6 +136,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/agent.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
 
         $this->assertEqualsWithDelta(
@@ -236,6 +239,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/agent.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->status);
@@ -285,6 +289,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/test.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($outIns);
         $outIns->markCompleted();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $outIns->status);
@@ -320,6 +325,7 @@ final class RentalInspectionWorkflowTest extends TestCase
         RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
             'party_signature_path' => 'signatures/agent.png',
         ]);
+        $this->recordAttendanceForEveryParty($outIns);
         $outIns->markCompleted();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $outIns->status);
     }

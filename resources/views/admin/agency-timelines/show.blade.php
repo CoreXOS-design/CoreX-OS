@@ -44,7 +44,7 @@
                     @if($timeline->status === 'live')
                         <input type="hidden" name="action" value="resume"><button type="submit" class="corex-btn-outline text-xs">Re-open timeline</button>
                     @else
-                        <input type="hidden" name="action" value="live"><button type="submit" class="corex-btn-primary text-xs" onclick="return confirm('Mark {{ e($agency->name) }} as live? This is a record only — it does not switch anything on or change billing.')">Mark agency live</button>
+                        <input type="hidden" name="action" value="live"><button type="submit" class="corex-btn-primary text-xs" onclick="return confirm(@js('Mark ' . $agency->name . ' as live? This is a record only — it does not switch anything on or change billing.'))">Mark agency live</button>
                     @endif
                 </form>
             </div>
@@ -80,6 +80,7 @@
                     <input type="date" name="start_date" value="{{ $timeline->start_date->toDateString() }}" class="ds-field" aria-label="Start date">
                     <button type="submit" class="corex-btn-outline text-xs">Change</button>
                 </div>
+                <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);"><input type="checkbox" name="confirm_past" value="1"> This date is in the past on purpose (more than a day back needs this tick)</label>
                 <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);"><input type="checkbox" name="shift" value="1" checked> Move every step that isn't done yet by the same number of days</label>
             </form>
             <form method="POST" action="{{ $routeFor('reset-dates') }}" onsubmit="return confirm('Put every default step back to its default date from the start date? Dates you moved by hand will be overwritten.');">@csrf
@@ -150,7 +151,13 @@
                     <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                 </tr></thead>
                 @forelse($milestones as $m)
-                    @php $state = $svc->state($m, $today); [$sl, $sc] = $stateBadge[$state]; $late = $svc->daysOverdue($m, $today); @endphp
+                    @php
+                        $state = $svc->state($m, $today); [$sl, $sc] = $stateBadge[$state]; $late = $svc->daysOverdue($m, $today);
+                        // Steps are shown by date, so the arrows only reorder steps that share a date (B-L2).
+                        $sameDay = fn ($o) => $o && ($o->due_date?->toDateString()) === ($m->due_date?->toDateString());
+                        $canUp = $sameDay($milestones[$loop->index - 1] ?? null) && $loop->index > 0;
+                        $canDown = $sameDay($milestones[$loop->index + 1] ?? null);
+                    @endphp
                     <tbody x-data="{ edit: false }">
                         <tr>
                             <td class="px-4 py-3 whitespace-nowrap tabular-nums align-top" style="color: var(--text-secondary);">{{ $m->due_date?->format('D j M Y') ?? 'No date' }}</td>
@@ -179,8 +186,8 @@
                                         <form method="POST" action="{{ $routeFor('items.status', $m) }}">@csrf<input type="hidden" name="status" value="pending"><button type="submit" class="corex-btn-outline corex-btn-xs">Reopen</button></form>
                                     @endif
                                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="edit = !edit" x-text="edit ? 'Close' : 'Edit'">Edit</button>
-                                    <form method="POST" action="{{ $routeFor('items.move', $m) }}">@csrf<input type="hidden" name="direction" value="up"><button type="submit" class="corex-btn-outline corex-btn-xs" title="Move up (same-day order)" aria-label="Move up">▲</button></form>
-                                    <form method="POST" action="{{ $routeFor('items.move', $m) }}">@csrf<input type="hidden" name="direction" value="down"><button type="submit" class="corex-btn-outline corex-btn-xs" title="Move down (same-day order)" aria-label="Move down">▼</button></form>
+                                    <form method="POST" action="{{ $routeFor('items.move', $m) }}">@csrf<input type="hidden" name="direction" value="up"><button type="submit" class="corex-btn-outline corex-btn-xs" title="{{ $canUp ? 'Move up (same-day order)' : 'Steps are listed by date — change the date to move this step' }}" aria-label="Move up" @disabled(!$canUp) style="{{ $canUp ? '' : 'opacity:.4;cursor:not-allowed;' }}">▲</button></form>
+                                    <form method="POST" action="{{ $routeFor('items.move', $m) }}">@csrf<input type="hidden" name="direction" value="down"><button type="submit" class="corex-btn-outline corex-btn-xs" title="{{ $canDown ? 'Move down (same-day order)' : 'Steps are listed by date — change the date to move this step' }}" aria-label="Move down" @disabled(!$canDown) style="{{ $canDown ? '' : 'opacity:.4;cursor:not-allowed;' }}">▼</button></form>
                                     <form method="POST" action="{{ $routeFor('items.archive', $m) }}" onsubmit="return confirm('Archive this step? You can restore it.');">@csrf @method('DELETE')<button type="submit" class="corex-btn-outline corex-btn-xs" style="color: var(--ds-crimson);">Archive</button></form>
                                 </div>
                             </td>

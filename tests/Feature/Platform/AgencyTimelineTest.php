@@ -248,10 +248,12 @@ class AgencyTimelineTest extends TestCase
 
     // ── Platform e-sign link (CoreX's own e-sign — see PlatformEsignTest) ──
 
-    private function platformDocument(?int $agencyId, int $userId, string $status): \App\Models\PlatformEsign\Document
+    private function platformDocument(?int $agencyId, int $userId, string $status, string $kind = 'subscription_agreement'): \App\Models\PlatformEsign\Document
     {
+        $tpl = \App\Models\PlatformEsign\Template::create(['name' => 'Template ' . $kind, 'kind' => $kind, 'source' => 'web', 'body' => 'x', 'roles_json' => [], 'is_active' => 1, 'created_by' => $userId]);
+
         return \App\Models\PlatformEsign\Document::create([
-            'agency_id' => $agencyId, 'title' => 'Subscription Agreement', 'status' => $status, 'source' => 'web',
+            'template_id' => $tpl->id, 'agency_id' => $agencyId, 'title' => 'Subscription Agreement', 'status' => $status, 'source' => 'webdoc',
             'body_html_snapshot' => '<p>x</p>', 'created_by' => $userId,
         ]);
     }
@@ -269,7 +271,9 @@ class AgencyTimelineTest extends TestCase
         $this->post(route('admin.agency-timelines.agreement', $tl), ['document_id' => $doc->id])->assertRedirect();
         $this->assertSame('pending', $step->fresh()->status, 'not signed yet');
 
+        // The e-sign completion hook (EsignService) calls syncAgreement at the moment the document completes.
         $doc->update(['status' => 'completed', 'completed_at' => now()]);
+        $this->svc()->syncAgreement($tl->fresh());
         $this->get(route('admin.agency-timelines.show', $tl))->assertOk()->assertSee('Subscription Agreement');
         $this->assertSame('done', $step->fresh()->status);
     }
@@ -383,9 +387,10 @@ class AgencyTimelineTest extends TestCase
         [$tl, $step] = $this->timelineWithAgencySteps();
         $url = '/agency-timeline/' . $tl->token . '/steps/' . $step->id;
 
-        $this->post($url, ['status' => 'pending'])->assertForbidden();                    // nothing to undo yet
+        $this->post($url, ['status' => 'pending'])->assertRedirect();                     // nothing to undo: idempotent success, nothing written
+        $this->assertSame('pending', $step->fresh()->status);
         $this->post($url, ['status' => 'done'])->assertRedirect();
-        $this->post($url, ['status' => 'done'])->assertForbidden();                       // already done
+        $this->post($url, ['status' => 'done'])->assertRedirect();                        // double-click: same success, not a 403 (one history line — see AgencyTimelineAuditFixesTest)
         $this->post($url, ['status' => 'pending'])->assertRedirect();                     // agency undoes its own tick
         $this->assertSame('pending', $step->fresh()->status);
 
@@ -465,28 +470,16 @@ class AgencyTimelineTest extends TestCase
         $this->svc()->start($this->agency('Early Agency'), now()->addDays(1), null);
         $this->svc()->start($this->agency('Late Agency'), now()->addDays(40), null);
 
-        // Assert against the timeline list table only, not the whole page: the app layout prints every
-        // agency name for an owner (agency-switcher JSON + a debug comment), so a page-wide assertDontSee
-        // would trip on the layout even when the filter works.
-        $list = fn (array $query): string => $this->listRegion(
-            $this->get(route('admin.agency-timelines.index', $query))->assertOk()->getContent()
-        );
+        // The layout's brand comment names the owner's first agency, so look at the table's agency cells, not the whole page.
+        $rowOf = fn (string $html, string $name) => (bool) preg_match('/font-medium[^>]*>\s*' . preg_quote($name, '/') . '\b/', $html);
 
-        $from = $list(['start_from' => now()->addDays(30)->toDateString()]);
-        $this->assertStringContainsString('Late Agency', $from);
-        $this->assertStringNotContainsString('Early Agency', $from);
+        $html = $this->get(route('admin.agency-timelines.index', ['start_from' => now()->addDays(30)->toDateString()]))->assertOk()->getContent();
+        $this->assertTrue($rowOf($html, 'Late Agency'));
+        $this->assertFalse($rowOf($html, 'Early Agency'));
 
-        $to = $list(['start_to' => now()->addDays(10)->toDateString()]);
-        $this->assertStringContainsString('Early Agency', $to);
-        $this->assertStringNotContainsString('Late Agency', $to);
-    }
-
-    /** The timeline list table (the only <table> on the page when archived rows are not requested). */
-    private function listRegion(string $html): string
-    {
-        $this->assertSame(1, preg_match('~<table\b.*?</table>~s', $html, $m), 'timeline list table not found on the page');
-
-        return $m[0];
+        $html = $this->get(route('admin.agency-timelines.index', ['start_to' => now()->addDays(10)->toDateString()]))->assertOk()->getContent();
+        $this->assertTrue($rowOf($html, 'Early Agency'));
+        $this->assertFalse($rowOf($html, 'Late Agency'));
     }
 
     public function test_owner_edits_defaults_with_single_go_live_enforced(): void
@@ -502,10 +495,16 @@ class AgencyTimelineTest extends TestCase
 
         $this->put(route('admin.timeline-defaults.update', $q->id), ['title' => 'Questionnaire', 'is_public' => 1])->assertSessionHasErrors('offset_days');
 
-        $this->delete(route('admin.timeline-defaults.destroy', $q->id))->assertRedirect();
-        $this->assertSoftDeleted('agency_timeline_default_items', ['id' => $q->id]);
-        $this->post(route('admin.timeline-defaults.restore', $q->id))->assertRedirect();
+        // The only go-live default cannot be archived (it gives every new timeline its go-live date).
+        $this->delete(route('admin.timeline-defaults.destroy', $q->id))->assertRedirect()->assertSessionHas('warning');
         $this->assertNull($q->fresh()->deleted_at);
+
+        // Any other default archives and restores.
+        $w = AgencyTimelineDefaultItem::where('title', 'Wizard')->first();
+        $this->delete(route('admin.timeline-defaults.destroy', $w->id))->assertRedirect();
+        $this->assertSoftDeleted('agency_timeline_default_items', ['id' => $w->id]);
+        $this->post(route('admin.timeline-defaults.restore', $w->id))->assertRedirect();
+        $this->assertNull($w->fresh()->deleted_at);
     }
 
     // ── Public page ─────────────────────────────────────────────────────

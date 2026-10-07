@@ -382,6 +382,7 @@ class RentalInspectionSetting extends Model
         'baseline_condition_key',
         'require_notes_blocks_progression',
         'all_items_required_to_complete',
+        'attended_as_labels',
         'omr_mark_threshold',
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
@@ -394,6 +395,10 @@ class RentalInspectionSetting extends Model
         'notify_via_whatsapp_enabled',
         'minimum_notice_days',
         'reminder_days_before',
+        // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+        'planned_date_lead_days',
+        'out_due_lead_days',
+        'raise_due_inspections_enabled',
     ];
 
     protected $casts = [
@@ -408,6 +413,7 @@ class RentalInspectionSetting extends Model
         'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
         'all_items_required_to_complete' => 'boolean',
+        'attended_as_labels' => 'array',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
@@ -419,7 +425,52 @@ class RentalInspectionSetting extends Model
         'notify_via_whatsapp_enabled' => 'boolean',
         'minimum_notice_days' => 'integer',
         'reminder_days_before' => 'integer',
+        'planned_date_lead_days' => 'integer',
+        'out_due_lead_days' => 'integer',
+        'raise_due_inspections_enabled' => 'boolean',
     ];
+
+    /**
+     * §45.7 item 6 (Build I-5) — the due-date settings. Read-time defaults like every resolver here: nothing saved reads as
+     * the default, nothing is written on read. There is deliberately NO interim interval setting (Johan, 6 Oct, Q6 — nothing
+     * in CoreX computes an interim date; the agency loads its own).
+     */
+    public const DEFAULT_PLANNED_DATE_LEAD_DAYS = 14;
+    public const DEFAULT_OUT_DUE_LEAD_DAYS = 7;
+    public const DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED = true;
+
+    /** Days before a LOADED interim date that the agent is first reminded (0 = remind on the day only). */
+    public static function plannedDateLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_PLANNED_DATE_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('planned_date_lead_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_PLANNED_DATE_LEAD_DAYS;
+    }
+
+    /** Days before a lease's out-inspection is due that it starts showing as due (0 = only from the day itself). */
+    public static function outDueLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_OUT_DUE_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('out_due_lead_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_OUT_DUE_LEAD_DAYS;
+    }
+
+    /** Whether the daily scan reminds the agent about In/Out inspections that are due. On the Due tab and Command Centre regardless. */
+    public static function raiseDueInspectionsEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('raise_due_inspections_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED;
+    }
 
     /**
      * Property 5792, Johan: "whether the requirement BLOCKS progression or
@@ -456,6 +507,40 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('all_items_required_to_complete');
 
         return $value !== null ? (bool) $value : self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
+    }
+
+    /**
+     * §45.5 (Build I-3) — the words for HOW someone attended an inspection. The four keys are fixed
+     * (RentalInspectionAttendance::attendedAsKeys()); only the labels are the agency's own. These
+     * defaults are neutral placeholders — the printed wording is Johan's call (§45.11).
+     */
+    public const DEFAULT_ATTENDED_AS_LABELS = [
+        'self' => 'In person',
+        'representative' => 'On behalf of the party',
+        'co_occupant' => 'Co-occupant',
+        'other' => 'Other',
+    ];
+
+    /** @return array<string, string> key => label, always all four keys */
+    public static function attendedAsLabelsFor(?int $agencyId): array
+    {
+        $stored = null;
+        if ($agencyId) {
+            $stored = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('attended_as_labels');
+            $stored = is_string($stored) ? json_decode($stored, true) : $stored;
+        }
+
+        $labels = self::DEFAULT_ATTENDED_AS_LABELS;
+        if (is_array($stored)) {
+            foreach ($labels as $key => $default) {
+                $candidate = isset($stored[$key]) && is_string($stored[$key]) ? trim($stored[$key]) : '';
+                if ($candidate !== '') {
+                    $labels[$key] = $candidate;
+                }
+            }
+        }
+
+        return $labels;
     }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int

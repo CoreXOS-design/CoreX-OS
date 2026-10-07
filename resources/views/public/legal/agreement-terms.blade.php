@@ -1,4 +1,4 @@
-{{-- Public, logged-out: CoreX OS Subscription Agreement Parts B, C, D (spec §11.14). $v, $isCurrent, $current, $published, $parts, $letterhead, $logoUrl, $brand. --}}
+{{-- Public, logged-out: CoreX OS Subscription Agreement Parts B, C, D (spec §11.14). $v, $isCurrent, $current, $published, $parts, $letterhead, $logoUrl, $brand, $printJs (the one inline script; the CSP allows exactly its hash). --}}
 <!DOCTYPE html>
 <html lang="en-ZA">
 <head>
@@ -67,7 +67,7 @@
         <div class="vline">
             <span>{{ $v->label() }}</span>
             <span class="badge {{ $isCurrent ? '' : 'old' }}">{{ $isCurrent ? 'Current version' : 'Earlier version' }}</span>
-            <button type="button" class="printbtn" onclick="window.print()">Print or save as PDF</button>
+            <button type="button" class="printbtn">Print or save as PDF</button>
         </div>
 
         @unless($isCurrent)
@@ -98,5 +98,6 @@
         <div class="foot"><span>{{ $letterhead['name'] }} · {{ $letterhead['contact'] }}</span><span>{{ $v->label() }}</span></div>
     </main>
 </div>
+<script>{!! $printJs !!}</script>
 </body>
 </html>

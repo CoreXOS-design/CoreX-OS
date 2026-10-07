@@ -114,7 +114,7 @@ class PlatformCompanyInterfaceTest extends TestCase
         $this->assertStringNotContainsString('iframe', $out);
         $this->assertStringNotContainsString('<form', $out);
         $this->assertStringNotContainsString('<svg', $out);
-        $this->assertStringContainsString('<img src="https://a/b.png">', $out);
+        $this->assertStringNotContainsString('a/b.png', $out, 'a remote image is a tracking pixel: only the CoreX logo route or a small inline image survives (audit F2/E4)');
         $this->assertStringContainsString('<b>keep</b>', $out);
         $this->assertSame('', SafeHtml::clean("  \n "));
     }
