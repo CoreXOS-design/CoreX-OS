@@ -372,6 +372,9 @@ final class LeaseCreatePropertySearchTest extends TestCase
 
     public function test_every_field_comes_back_after_a_validation_error(): void
     {
+        // leases.md §15.3 (Build L2): the lease type follows the agency's own setting, hidden by default,
+        // exactly like the lease edit panel — so this agency has switched it on.
+        \App\Models\LeaseSetting::updateOrCreate(['agency_id' => $this->agency->id], ['show_lease_type_field' => true]);
         $thandi = $this->makeContact('Thandi', 'Nkosi');
         $sipho = $this->makeContact('Sipho', 'Dlamini');
         $leaseType = \App\Models\PropertySettingItem::create([

@@ -196,22 +196,28 @@ class LeaseAgreementTemplateGuard
      */
     public function linkedFor(int $agencyId, string $category = RentalLeaseTemplate::CATEGORY_RESIDENTIAL): ?RentalLeaseTemplate
     {
-        $rows = RentalLeaseTemplate::query()
+        return $this->readyAgreementsFor($agencyId, $category)->first();
+    }
+
+    /**
+     * Every one of the agency's lease agreements that is ready for the lease process, the default first
+     * (Build L2 — the capture screen's agreement picker; linkedFor() is its first row). Checked live;
+     * the stored result on a row is only for display.
+     *
+     * @return \Illuminate\Support\Collection<int, RentalLeaseTemplate>
+     */
+    public function readyAgreementsFor(int $agencyId, string $category = RentalLeaseTemplate::CATEGORY_RESIDENTIAL): \Illuminate\Support\Collection
+    {
+        return RentalLeaseTemplate::query()
             ->where('agency_id', $agencyId)
             ->where('category', $category)
             ->where('is_active', true)
             ->with('template')
             ->orderByDesc('is_default')
             ->orderBy('id')
-            ->get();
-
-        foreach ($rows as $row) {
-            if ($this->statusFor($row, $agencyId)['state'] === self::STATE_READY) {
-                return $row;
-            }
-        }
-
-        return null;
+            ->get()
+            ->filter(fn (RentalLeaseTemplate $row) => $this->statusFor($row, $agencyId)['state'] === self::STATE_READY)
+            ->values();
     }
 
     // ── Reading a template (read-only; none of the pipeline-gated files is touched) ──────

@@ -5,16 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Http\Controllers\Controller;
-use App\Models\Document;
-use App\Models\DocumentType;
 use App\Models\Lease;
 use App\Models\RentalLeaseTemplate;
+use App\Services\Rentals\LeaseCaptureService;
 use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RenewalDraftService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -70,35 +67,13 @@ class LeaseRenewalApiController extends Controller
         $terms = $this->validateTerms($request);
         $request->validate(['signed_document' => $this->documentUploadRule(20480)]);
 
-        $user = $request->user();
+        // Build L2 (leases.md §15.6.5): the capture service's signed-paper-copy path — the same code the capture
+        // screen uses. Older callers never sent a deposit; the previous term's is carried forward as before.
+        $terms['deposit_amount'] = $terms['deposit_amount'] ?? $lease->deposit_amount;
+        $terms['signed_document'] = $request->file('signed_document');
 
         try {
-            $activated = DB::transaction(function () use ($lease, $terms, $request, $user) {
-                $newTerm = app(LeaseRenewalService::class)->createRenewalTerm($lease, $terms, $user);
-
-                $file = $request->file('signed_document');
-                $ext = $file->getClientOriginalExtension();
-                $path = $file->storeAs('lease-renewals/' . $newTerm->id, Str::uuid() . ($ext ? ".{$ext}" : ''), 'local');
-
-                $document = Document::create([
-                    'original_name' => $file->getClientOriginalName(),
-                    'storage_path' => $path,
-                    'disk' => 'local',
-                    'mime_type' => $file->getMimeType(),
-                    'size' => $file->getSize(),
-                    'document_type_id' => DocumentType::where('slug', 'lease_agreement')->value('id'),
-                    'source_type' => 'lease',
-                    'source_id' => $newTerm->id,
-                    'uploaded_by' => $user->id,
-                ]);
-                if ($newTerm->property_id) {
-                    $document->properties()->attach($newTerm->property_id);
-                }
-
-                event(new \App\Events\Document\DocumentUploaded(document: $document, owner: $newTerm, actorUserId: $user->id));
-
-                return app(LeaseRenewalService::class)->activateRenewalTerm($newTerm, $user);
-            });
+            $activated = app(LeaseCaptureService::class)->capture($terms, LeaseCaptureService::INTENT_PAPER_COPY, $request->user(), $lease);
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         }

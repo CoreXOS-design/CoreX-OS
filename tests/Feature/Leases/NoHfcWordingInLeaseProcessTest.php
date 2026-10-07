@@ -44,6 +44,8 @@ final class NoHfcWordingInLeaseProcessTest extends TestCase
             'app/Console/Commands/AssignTemplateToAgency.php',
             'app/Console/Commands/ReconcileLeaseSigning.php',
             'app/Http/Requests/CoreX/LeaseCaptureRequest.php',
+            'app/Http/Controllers/Concerns/HandlesLeaseCapture.php',
+            'app/Exceptions/Rentals/*.php',
             'app/Http/Middleware/EnsureLeaseAgreementConfirmed.php',
             'app/Http/Controllers/CoreX/LeaseAgreementConfirmController.php',
             'app/Http/Controllers/Api/V1/LeaseCaptureApiController.php',
