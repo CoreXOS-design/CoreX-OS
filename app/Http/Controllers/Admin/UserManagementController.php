@@ -552,6 +552,11 @@ class UserManagementController extends Controller
             'password'        => array_merge(['nullable', 'string', 'min:8'], $subUserPasswordRules),
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
+            // Admin Multi-Branch Manager — branches this user manages + the one
+            // they log in as (default). Only honoured for admin roles below.
+            'managed_branches'   => ['nullable', 'array'],
+            'managed_branches.*' => ['integer'],
+            'default_branch_id'  => ['nullable', 'integer'],
         ], $asSubUser ? $this->subUserMessages($request->input('email')) + [
             'password.min'       => 'The temporary password must be at least 8 characters.',
             'password.confirmed' => 'The two temporary passwords do not match.',
@@ -657,6 +662,22 @@ class UserManagementController extends Controller
             return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
                 ? 'That username was just taken by someone else — please choose another.'
                 : 'That email address was just taken by someone else.']);
+        }
+
+        // ── Admin Multi-Branch Manager ───────────────────────────────────────
+        // Only admins can manage multiple branches and act as their manager.
+        // Resolve the EDITED user's real agency (never the editor's session)
+        // so foreign branches are rejected correctly.
+        if (in_array($data['role'], ['admin', 'super_admin'], true)) {
+            $editedAgencyId = $user->agency_id ?: optional(Branch::find($user->branch_id))->agency_id;
+            $user->syncManagedBranches(
+                $data['managed_branches'] ?? [],
+                $data['default_branch_id'] ?? null,
+                $editedAgencyId ? (int) $editedAgencyId : null
+            );
+        } else {
+            // Demoted out of an admin role → drop any managed-branch assignments.
+            DB::table('user_managed_branches')->where('user_id', $user->id)->delete();
         }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────

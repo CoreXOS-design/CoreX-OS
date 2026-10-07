@@ -612,6 +612,16 @@ return [
         'route_names' => ['corex.deeds-capture.*'],
         'view_dirs' => ['corex/deeds-capture/'],
     ],
+    'address-review' => [
+        'label' => 'Address Review', 'category' => 'Prospecting & Outreach',
+        'explain' => 'The list of property and prospect addresses CoreX could not read confidently, where an administrator corrects or dismisses each one.',
+        'affects' => 'Whether Address Review appears in the Real Estate menu. Off hides the screen; the addresses and any corrections already made are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['address_review.manage'], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => ['corex/address-review'], 'global_flag' => null,
+        'route_names' => ['corex.address-review.*'],
+        'view_dirs' => ['corex/address-review/'],
+    ],
     'imported-stock' => [
         'label' => 'Imported Stock (other agency stock)', 'category' => 'Listings & Marketing',
         'explain' => 'The list of properties brought in from other agencies\' portal stock, kept apart from your own listings.',

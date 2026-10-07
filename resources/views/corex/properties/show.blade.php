@@ -10602,8 +10602,10 @@
                         foreach ($sellers as $seller) {
                             \App\Models\PropertySellerLink::ensureExists($property->id, $seller->id);
                         }
+                        // Only links still in force: not revoked AND whose seller is still on the property
+                        // (a removed seller's link is switched off — spec seller-live-link.md).
                         $sellerLinks = \App\Models\PropertySellerLink::where('property_id', $property->id)
-                            ->whereNull('revoked_at')
+                            ->stillHeld()
                             ->get();
                     @endphp
                     <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Seller Live Links</h3>

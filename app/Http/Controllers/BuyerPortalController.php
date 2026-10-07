@@ -87,7 +87,18 @@ class BuyerPortalController extends Controller
         $service = app(PropertyMatchScoringService::class);
         $matches = $service->getMatchesForBuyer($contact->id);
         $propertyIds = $matches->pluck('property_id')->toArray();
-        $properties = Property::withoutGlobalScopes()->whereIn('id', $propertyIds)->get()->keyBy('id');
+        // withoutGlobalScopes() lifts the agency/branch scopes (this page has no signed-in
+        // user) but ALSO the soft-delete scope, which let an archived listing keep showing
+        // on a buyer's public page. Put the "never show an archived listing" rule back
+        // explicitly: neither a trashed row nor one whose status is 'archived' is ever served.
+        $properties = Property::withoutGlobalScopes()
+            ->whereIn('id', $propertyIds)
+            ->whereNull('deleted_at')
+            ->where(fn ($q) => $q->whereNull('status')->orWhereRaw('LOWER(status) <> ?', ['archived']))
+            ->get()->keyBy('id');
+        // A cached match whose listing is no longer shown is dropped here, so the tier
+        // lists and the "N properties we think you'll like" count agree with what is on screen.
+        $matches = $matches->filter(fn ($m) => $properties->has($m->property_id))->values();
 
         // Get existing responses (latest wins if any legacy duplicate rows exist).
         $responses = DB::table('buyer_property_responses')

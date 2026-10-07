@@ -517,6 +517,7 @@ links and public application forms are never affected by an agency switching a m
 | Rentals | `rental-catalogue` | Parts & Labour Catalogue | rentals |
 | Rentals | `rental-crews` | Rental Crews | rentals |
 | Prospecting & Outreach | `deeds-capture` | Deeds Capture | — |
+| Prospecting & Outreach | `address-review` | Address Review (unreadable addresses; admin) | — |
 | Listings & Marketing | `imported-stock` | Imported Stock (other agency stock) | — |
 | Buyers & Matching | `buyer-pipeline` | Buyer Pipeline, Rental Pipeline, the Core Matches "Update buyer pipeline" button | — |
 | Reports & Performance | `performance-roi-report` | Performance & ROI Report | — |
