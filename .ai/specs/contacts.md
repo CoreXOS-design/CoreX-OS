@@ -330,3 +330,10 @@ links-on-store / store-links-without-detaching-existing.
 ---
 
 *Full spec to be completed during Phase 1 consolidation sprint.*
+
+
+## Agent offboarding — the buyers' saved searches follow (2026-10-07, Johan)
+
+Deleting an agent moves their contacts' primary agent to the successor; the saved searches of those
+buyers now move with it, in the same transaction and logged per search. See `core-matches.md`
+("Agent offboarding moves the buyers' saved searches too"). No clean-up of existing mismatched searches.
