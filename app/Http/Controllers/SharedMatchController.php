@@ -127,9 +127,35 @@ class SharedMatchController extends Controller
         $agency = $match->agency_id
             ? Agency::withoutGlobalScope(AgencyScope::class)->find($match->agency_id)
             : null;
-        $agent = $this->resolveDisplayAgent($request, $match->createdBy, (int) $match->agency_id);
+        $agent = $this->resolveDisplayAgent($request, $this->currentPrimaryAgent($contact, $match), (int) $match->agency_id);
 
         return view('shared.match', compact('match', 'contact', 'matchGroups', 'token', 'agency', 'agent'));
+    }
+
+    /**
+     * Johan, 2026-10-07 (ruling D) — the agent a buyer sees on their existing
+     * link is the buyer's CURRENT primary agent (contacts.agent_id), read live
+     * on every open — never the wishlist's creator (a stored copy that kept
+     * showing the old agent after a manager moved the buyer). Falls back to the
+     * search's current owner, then its creator, only when the contact has no
+     * primary agent at all. Same-agency by construction (the contact's own
+     * agent); inactive/deleted users are skipped so the card never shows a
+     * departed agent.
+     */
+    private function currentPrimaryAgent(?Contact $contact, ContactMatch $match): ?User
+    {
+        $candidates = [
+            $contact?->agent_id ? User::withoutGlobalScopes()->find($contact->agent_id) : null,
+            $match->agent_id ? User::withoutGlobalScopes()->find($match->agent_id) : null,
+            $match->createdBy,
+        ];
+        foreach ($candidates as $user) {
+            if ($user && $user->is_active && $user->deleted_at === null) {
+                return $user;
+            }
+        }
+
+        return $contact?->agent_id ? User::withoutGlobalScopes()->find($contact->agent_id) : $match->createdBy;
     }
 
     /**
@@ -227,7 +253,7 @@ class SharedMatchController extends Controller
             ? Agency::withoutGlobalScope(AgencyScope::class)->find($buyerLink->agency_id)
             : null;
         $token = $buyerLink->slug;
-        $agent = $this->resolveDisplayAgent($request, $anchor->createdBy, (int) $buyerLink->agency_id);
+        $agent = $this->resolveDisplayAgent($request, $this->currentPrimaryAgent($contact, $anchor), (int) $buyerLink->agency_id);
 
         return view('shared.match', ['match' => $anchor, 'agent' => $agent] + compact('contact', 'matchGroups', 'token', 'agency'));
     }

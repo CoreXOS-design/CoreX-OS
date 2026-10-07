@@ -41,6 +41,14 @@ class RentalListsWizardSaver extends Controller
         }
     }
 
+    /** §45.14 — the agency's words for the three move-out classifications; same no-op-unless-marker discipline. */
+    public function inspectionMoveOutClassificationLabels(Request $request): void
+    {
+        if ($request->has('move_out_classification_labels_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateMoveOutClassificationLabels($request);
+        }
+    }
+
     /** §45.4 item 3 (Build I-2) — the agency's own room types; same no-op-unless-marker discipline as the lists above. */
     public function inspectionCustomRoomTypes(Request $request): void
     {

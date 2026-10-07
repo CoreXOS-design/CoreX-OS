@@ -51,7 +51,7 @@ class CommandTaskPortalLeadObserver
                     ->first();
                 if ($earlier) {
                     $exists = true;
-                    $existingAgentId = $earlier->created_by_user_id;
+                    $existingAgentId = $earlier->agent_id ?? $earlier->created_by_user_id;
                 }
             }
 

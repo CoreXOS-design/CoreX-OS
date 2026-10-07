@@ -512,6 +512,7 @@
                         listedPrice: {{ $property->price ? (int) $property->price : 'null' }},
                     })"
                     x-init="loadCoverage()"
+                    @corex:generate-presentation.window="onClickGenerate()"
                     class="space-y-2">
 
                     {{-- Generate button + comp-coverage status dot. The coverage sentence
@@ -5240,7 +5241,7 @@
                                      as the pre-chain version (2026-09-22) — a
                                      ternary that returns a real empty string. --}}
                                 <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                      x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
+                                      x-text="chainTail ? (inspectionTypeLabel(chainTail.type) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
                             </h3>
                             <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                         </button>
@@ -6651,7 +6652,7 @@
                 compareViewerInspectionTypeName(side) {
                     const insp = this.compareViewerInspectionFor(side);
                     if (!insp) return 'Nothing yet';
-                    const typeLabel = insp.type === 'out' ? 'Out' : (insp.type === 'in' ? 'In' : 'Routine');
+                    const typeLabel = this.inspectionTypeLabel(insp.type);
                     return typeLabel + '-inspection';
                 },
                 compareViewerInspectionDate(side) {
@@ -7468,6 +7469,11 @@
                 // whole rule — works for any chain length without special-
                 // casing a third slot. Returns null for any other value,
                 // same as the old ternary did for an unrecognised section.
+                // One name per inspection type for every header on this tab. An interim inspection must read
+                // "Interim" (as on the list, create and due screens), never fall through to "Routine".
+                inspectionTypeLabel(type) {
+                    return type === 'out' ? 'Out' : (type === 'in' ? 'In' : (type === 'interim' ? 'Interim' : 'Routine'));
+                },
                 currentInspection(section) { return (this.chainTail && this.chainTail.type === section) ? this.chainTail : null; },
                 // The read-only left panel — always this inspection's own
                 // predecessor, never resolved by type. Null for the first
@@ -10184,6 +10190,11 @@
                     $recommendations = $intel->getAgentRecommendations($property->id);
                     $comparables = $intel->getComparableListings($property->id);
                     $buyerSignals = $intel->getBuyerInterestSignals($property->id);
+                    // View-only "Notes (n)" per signal buyer — only for buyers whose contact this user may
+                    // see (ContactScope) and only if they may open contacts at all (route needs access_contacts).
+                    $buyerNoteCounts = auth()->user()?->hasPermission('access_contacts')
+                        ? $intel->getBuyerNoteCounts($buyerSignals)
+                        : [];
                 @endphp
 
                 {{-- Controls row: Preview toggle + Log Marketing Action + Mark as Sold --}}
@@ -10558,25 +10569,60 @@
                 <div>
                     <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Presentations & Market Positioning</h3>
 
-                    {{-- Market Position card (if snapshot exists) --}}
-                    @if($marketPosition)
-                        <div class="rounded-md p-3 mb-3 grid grid-cols-3 gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
-                            <div>
-                                @if(!empty($marketPosition['recommended_price']))
-                                    <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['recommended_price']) }}</div>
+                    {{-- Market Position card. The RECOMMENDED PRICE is the latest presentation's
+                         price (the same figure the presentation screen and the seller PDF show) —
+                         never a separate calculation. No presentation → "No presentation done yet"
+                         + Generate (agent screen only; Preview-as-Seller simply omits the price).
+                         Rentals have no presentations, so no card. --}}
+                    @php
+                        $recPrice = $property->isRental() ? null : $intel->getRecommendedPrice($property->id);
+                        $canGeneratePresentation = auth()->user()->hasPermission('create_presentations');
+                        $canOpenPresentation = auth()->user()->hasPermission('access_presentations') && \Illuminate\Support\Facades\Route::has('presentations.show');
+                    @endphp
+                    @if($recPrice)
+                        <div class="rounded-md p-3 mb-3 grid {{ $marketPosition ? 'grid-cols-3' : 'grid-cols-1' }} gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);" data-recommended-price-card>
+                            <div x-show="{{ $recPrice['state'] === 'price' ? 'true' : '!sellerPreview' }}">
+                                @if($recPrice['state'] === 'price')
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);" data-recommended-price>R {{ number_format($recPrice['price']) }}</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);" x-show="!sellerPreview">
+                                        From the presentation{{ $recPrice['as_of'] ? ' of ' . $recPrice['as_of']->format('d M Y') : '' }}
+                                        @if($canOpenPresentation)
+                                            · <a href="{{ route('presentations.show', $recPrice['presentation_id']) }}" target="_blank" class="no-underline" style="color: var(--brand-icon);">Open</a>
+                                        @endif
+                                    </div>
+                                @elseif($recPrice['state'] === 'no_price')
+                                    <div class="text-sm font-bold" style="color: var(--text-muted);">&mdash;</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);" data-no-presentation-price>
+                                        The presentation has no price yet
+                                        @if($canOpenPresentation)
+                                            · <a href="{{ route('presentations.show', $recPrice['presentation_id']) }}" target="_blank" class="no-underline" style="color: var(--brand-icon);">Open it</a>
+                                        @endif
+                                    </div>
                                 @else
-                                    <div class="text-sm font-bold" style="color: var(--text-muted);" title="No profile-matched comparable sales in this suburb yet — showing a price would be misleading.">—</div>
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);" data-no-presentation>No presentation done yet</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                                    @if($canGeneratePresentation)
+                                        <button type="button" data-generate-presentation
+                                                @click="$dispatch('corex:generate-presentation')"
+                                                class="mt-1 text-[10px] font-semibold px-2 py-1 rounded"
+                                                style="background: color-mix(in srgb, #00d4aa 15%, transparent); color: #00d4aa; border: 1px solid #00d4aa;">
+                                            Generate presentation
+                                        </button>
+                                    @endif
                                 @endif
-                                <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
                             </div>
-                            <div>
-                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
-                                <div class="text-[10px]" style="color: var(--text-muted);">Area Average</div>
-                            </div>
-                            <div>
-                                <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $marketPosition['comparable_sales_count'] ?? 0 }}</div>
-                                <div class="text-[10px]" style="color: var(--text-muted);">Recent Comps</div>
-                            </div>
+                            @if($marketPosition)
+                                <div>
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Area Average</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $marketPosition['comparable_sales_count'] ?? 0 }}</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recent Comps</div>
+                                </div>
+                            @endif
                         </div>
                     @endif
 
@@ -10635,8 +10681,27 @@
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $buyer['name'] }}</span>
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background: {{ $statePill }}20; color: {{ $statePill }};">{{ $buyer['state'] ?? 'new' }}</span>
+                                    {{-- The buyer's PRIMARY agent — who the listing agent should talk to. Agent-facing
+                                         row only (this block is x-show="!sellerPreview"); the seller live link never
+                                         receives it (it only counts signals). --}}
+                                    <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-agent>
+                                        Agent: {{ $buyer['agent_name'] ?? 'Unassigned' }}
+                                    </span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    {{-- Notes recorded on this buyer's contact — VIEW ONLY (newest first, author + date).
+                                         Same read-only fragment the Core Matches board uses; it is bound through
+                                         ContactScope, so a buyer this user cannot see has no control here and a hand-typed
+                                         address 404s. Agent-facing only — never on the seller live link. --}}
+                                    @if(array_key_exists($buyer['id'], $buyerNoteCounts))
+                                        @if($buyerNoteCounts[$buyer['id']] > 0)
+                                            <button type="button" data-buyer-notes
+                                                    @click="$dispatch('open-signal-notes', { url: '{{ route('corex.contacts.notes.quick-view', $buyer['id']) }}' })"
+                                                    class="text-[10px] font-medium" style="color: var(--brand-icon, #0ea5e9);">Notes ({{ $buyerNoteCounts[$buyer['id']] }})</button>
+                                        @else
+                                            <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-notes>Notes (0)</span>
+                                        @endif
+                                    @endif
                                     <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" title="Match strength: {{ $tierLabel }} ({{ $buyer['match_score'] }}% fit to this property)" style="background: {{ $tierColour }}20; color: {{ $tierColour }};">{{ $buyer['match_score'] }}% · {{ $tierLabel }}</span>
                                     {{-- AT-74 — pass THIS property so the viewing links to both buyer AND property
                                          (prefill_properties → handlePrefill → subject_property link → feedback.property_id). --}}
@@ -10646,6 +10711,31 @@
                             </div>
                         @endforeach
                     </div>
+
+                    @if(count($buyerNoteCounts))
+                    {{-- One read-only modal shell for the whole list; the notes are fetched on demand for whichever
+                         buyer was clicked (never pre-loaded). No add / edit / delete here. --}}
+                    <div x-show="!sellerPreview"
+                         x-data="{ loading: false, html: '' }"
+                         @open-signal-notes.window="
+                             loading = true; html = '';
+                             $dispatch('open-modal', 'signal-notes-view');
+                             fetch($event.detail.url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                 .then(r => r.ok ? r.text() : Promise.reject())
+                                 .then(t => { html = t; loading = false; })
+                                 .catch(() => { html = '<p class=&quot;text-sm&quot; style=&quot;color:var(--ds-crimson);&quot;>Could not load notes.</p>'; loading = false; })
+                         ">
+                        <x-modal name="signal-notes-view" max-width="lg">
+                            <div class="p-6">
+                                <div x-show="loading" class="text-sm" style="color:var(--text-muted);">Loading…</div>
+                                <div x-show="!loading" x-html="html"></div>
+                                <div class="mt-5 text-right">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="$dispatch('close-modal', 'signal-notes-view')">Close</button>
+                                </div>
+                            </div>
+                        </x-modal>
+                    </div>
+                    @endif
                 </div>
                 @endif
 

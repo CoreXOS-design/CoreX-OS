@@ -69,7 +69,7 @@ class RentalInspectionComparisonController extends Controller
             'inventory' => \App\Models\RentalInventory::where('lease_id', $rentalInspection->lease_id)
                 ->where('status', \App\Models\RentalInventory::STATUS_COMPLETED)->latest('id')->first(),
             'differenceLabels' => RentalInspectionComparisonService::DIFFERENCE_LABELS,
-            'dispositionLabels' => \App\Models\RentalInspectionItemFinding::DISPOSITION_LABELS,
+            'dispositionLabels' => \App\Models\RentalInspectionSetting::dispositionLabelsFor($rentalInspection->agency_id),
             'roomOptions' => collect($unfiltered['rooms'])->map(fn ($r) => ['id' => $r['room_id'] ?? 'general', 'label' => $r['label']])->values(),
         ]);
     }

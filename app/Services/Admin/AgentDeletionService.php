@@ -5,6 +5,7 @@ namespace App\Services\Admin;
 use App\Models\Communications\CommsAccessAuditLog;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Buyers\BuyerReassignmentService;
 use App\Services\DealMoneyLineRebuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -272,7 +273,7 @@ class AgentDeletionService
             return ['skipped_same_user' => 1];
         }
 
-        $counts = DB::transaction(function () use ($source, $target, $secondaryHandling, $transferHistoricStock) {
+        $counts = DB::transaction(function () use ($source, $target, $secondaryHandling, $actorId, $transferHistoricStock) {
             $now      = now();
             $offMkt   = Property::OFF_MARKET_STATUSES;
 
@@ -322,8 +323,18 @@ class AgentDeletionService
                 ->count();
 
             // ── Contacts — current operational agent + capture fields → successor ──
+            // The ids first: the buyers whose primary agent is moving also have their saved
+            // searches follow (Johan, 2026-10-07), in this same transaction, each logged.
+            $movedContactIds = DB::table('contacts')->whereNull('deleted_at')
+                ->where('agent_id', $source->id)->pluck('id')->all();
             $contactsPrimary = DB::table('contacts')->whereNull('deleted_at')
                 ->where('agent_id', $source->id)->update(['agent_id' => $target->id, 'updated_at' => $now]);
+            $searchesMoved = app(BuyerReassignmentService::class)->moveSearchesOfContacts(
+                $movedContactIds,
+                (int) $target->id,
+                $actorId,
+                "Agent offboarded: {$source->name} → {$target->name}.",
+            );
             $contactsSecond = DB::table('contacts')->whereNull('deleted_at')
                 ->where('second_agent_id', $source->id)->update(['second_agent_id' => $target->id, 'updated_at' => $now]);
             $contactsCreated = DB::table('contacts')->whereNull('deleted_at')
@@ -357,6 +368,7 @@ class AgentDeletionService
                 'properties_historic_left' => $historicLeft,
                 'historic_stock_transferred' => $transferHistoricStock,
                 'contacts_agent'        => $contactsPrimary,
+                'contact_searches'      => $searchesMoved,
                 'contacts_second_agent' => $contactsSecond,
                 'contacts_created_by'   => $contactsCreated,
                 'fica_requested_by'     => $ficaRequested,

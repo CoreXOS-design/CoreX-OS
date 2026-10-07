@@ -3,6 +3,7 @@
 namespace App\Console\Commands\Prospecting;
 
 use App\Models\ProspectingListing;
+use App\Services\Prospecting\ProspectingConfigurationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,41 +21,65 @@ use Illuminate\Support\Facades\Log;
  * within the window is presumed off-market. Self-healing — the next capture
  * that re-surfaces it resets is_active=true (ProspectingApiController::import).
  *
- * Default window: 30 days. Chosen because re-capture cadence is agent-driven
- * (Chrome extension, not a scheduled crawl) so a shorter window would false-
- * positive a genuinely-live listing an agent simply hasn't re-searched
- * recently; 30 days is long enough to absorb irregular capture cadence while
- * short enough that a delisted property doesn't rank at the top of MIC for
- * months. Configurable via --days for a manual override.
+ * Window: PER AGENCY, default 90 days (suggested_action_thresholds.listing_off_market_days,
+ * Settings → Prospecting Setup → Stale-claim rules, and the Setup Wizard's Market
+ * Intelligence step). Johan 2026-10-07: "a mandate normally runs 90 days" — the
+ * original hard-coded 30 days switched a whole suburb's competition off between
+ * agent searches (Uvongo, 26 Sep: 1,321 listings), emptying the presentation's
+ * Active Competition section. Re-capture cadence is agent-driven (Chrome
+ * extension, not a scheduled crawl), so the window must outlast irregular
+ * cadence. --days overrides the window for every agency (manual/targeted run).
  */
 class FlagStaleProspectingListings extends Command
 {
     protected $signature = 'prospecting:flag-stale-listings
-                            {--days=30 : Days since last_seen_at (or first_seen_at if never re-sighted) before a listing is presumed off-market}
+                            {--days= : Override the window (days since last_seen_at, or first_seen_at if never re-sighted) for ALL agencies. Default: each agency own listing_off_market_days setting (90)}
                             {--listing=* : Restrict to specific prospecting_listings ids (targeted run)}
                             {--dry-run : Report what would be flagged without writing}';
 
     protected $description = 'Flag prospecting listings not re-confirmed within the window as inactive, and purge their stale buyer-match cache rows';
 
-    public function handle(): int
+    public function handle(ProspectingConfigurationService $config): int
     {
-        $days = max(1, (int) $this->option('days'));
-        $cutoff = now()->subDays($days);
+        $override   = $this->option('days') !== null && $this->option('days') !== '' ? max(1, (int) $this->option('days')) : null;
         $listingIds = array_map('intval', $this->option('listing'));
+
+        // One window per agency: its own setting (default 90) unless --days overrides.
+        $agencyIds = ProspectingListing::withoutGlobalScopes()
+            ->where('is_active', true)->whereNull('deleted_at')
+            ->when(!empty($listingIds), fn ($q) => $q->whereIn('id', $listingIds))
+            ->distinct()->pluck('agency_id');
+
+        $windows = [];
+        foreach ($agencyIds as $agencyId) {
+            $windows[(int) $agencyId] = $override
+                ?? max(1, (int) $config->getSuggestedActionThresholds((int) $agencyId)->listing_off_market_days);
+        }
+        $days = $override ?? (count($windows) ? min($windows) : 90); // for the log line only
 
         $query = ProspectingListing::withoutGlobalScopes()
             ->where('is_active', true)
             ->whereNull('deleted_at')
-            ->where(function ($q) use ($cutoff) {
-                // Signal A — absence: not re-confirmed within the window (presumed off-market).
-                $q->where('last_seen_at', '<', $cutoff)
-                    ->orWhere(function ($q2) use ($cutoff) {
-                        $q2->whereNull('last_seen_at')->where('first_seen_at', '<', $cutoff);
-                    })
-                    // Signal B — explicit portal status: the P24 card reported it
-                    // sold/under-offer/withdrawn but the row is still is_active=true
-                    // (captured before this shipped, or a purge that didn't land).
-                    ->orWhereIn('portal_status', ProspectingListing::OFF_MARKET_STATUSES);
+            ->where(function ($outer) use ($windows) {
+                foreach ($windows as $agencyId => $agencyDays) {
+                    $cutoff = now()->subDays($agencyDays);
+                    $outer->orWhere(function ($q) use ($agencyId, $cutoff) {
+                        $q->where('agency_id', $agencyId)->where(function ($q) use ($cutoff) {
+                            // Signal A — absence: not re-confirmed within the agency's window (presumed off-market).
+                            $q->where('last_seen_at', '<', $cutoff)
+                                ->orWhere(function ($q2) use ($cutoff) {
+                                    $q2->whereNull('last_seen_at')->where('first_seen_at', '<', $cutoff);
+                                })
+                                // Signal B — explicit portal status: the P24 card reported it
+                                // sold/under-offer/withdrawn but the row is still is_active=true
+                                // (captured before this shipped, or a purge that didn't land).
+                                ->orWhereIn('portal_status', ProspectingListing::OFF_MARKET_STATUSES);
+                        });
+                    });
+                }
+                if (empty($windows)) {
+                    $outer->whereRaw('1 = 0');
+                }
             });
 
         if (!empty($listingIds)) {
@@ -68,7 +93,7 @@ class FlagStaleProspectingListings extends Command
             return self::SUCCESS;
         }
 
-        $this->info("Found {$stale->count()} listing(s) not re-confirmed in {$days}+ days:");
+        $this->info("Found {$stale->count()} listing(s) not re-confirmed within their agency's window (" . ($override ? "{$override} days, --days override" : 'per-agency setting, default 90') . '):');
         foreach ($stale as $l) {
             $this->line("  #{$l->id} {$l->address}, {$l->suburb} — last seen: " . ($l->last_seen_at ?? 'never'));
         }

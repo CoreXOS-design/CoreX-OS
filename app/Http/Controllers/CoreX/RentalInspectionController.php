@@ -702,7 +702,7 @@ class RentalInspectionController extends Controller
         }
 
         $items = RentalInspectionItem::where('property_id', $rentalInspection->property_id)
-            ->where('is_retired', false)
+            ->listedOnReportOf($rentalInspection->id)
             ->with('room')
             ->get();
 

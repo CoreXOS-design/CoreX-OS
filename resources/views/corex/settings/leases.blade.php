@@ -112,6 +112,25 @@
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Automatic month-to-month</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days after a lease's end date before it goes month-to-month</label>
+                    <input type="number" name="month_to_month_after_end_days" value="{{ old('month_to_month_after_end_days', $monthToMonthAfterEndDays) }}"
+                           min="0" max="365" required
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $monthToMonthAfterEndDaysDefault }} day (the day after the end date). When a lease has reached its end date and there is
+                        no notice to vacate and no renewal on record, CoreX switches it to month-to-month on its own, adds a line to the
+                        tenancy log and tells the agent. A notice or a renewal (including one out for signing) always stops it.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Active rental stock (Command Centre)</h3>
             </div>
             <div class="p-5 space-y-3">

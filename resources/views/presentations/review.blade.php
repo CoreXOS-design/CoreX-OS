@@ -615,6 +615,17 @@
         $totalScored   = count($competitorMatches);
         $visibleCount  = count($competitorVisible);
     @endphp
+    @if($totalScored === 0)
+    {{-- Johan 2026-10-07 — never vanish silently: say so, and say how to fix it. Agent screen only;
+         the seller PDF / public page omit the section when empty. --}}
+    <div class="review-card" id="competitor-stock-empty">
+        <div class="review-section-header" style="display:flex;align-items:center;gap:8px;">
+            <div class="review-section-tag" style="background:#7c3aed;"></div>
+            <h2 class="review-section-title" style="margin:0;">2b · Active Competition</h2>
+        </div>
+        @include('presentations.partials._no-active-competition')
+    </div>
+    @endif
     @if($totalScored > 0)
     {{-- Shared listing-card builder. Defines window.CoreXBuildListingCard. --}}
     @include('partials._listing-card-helper')

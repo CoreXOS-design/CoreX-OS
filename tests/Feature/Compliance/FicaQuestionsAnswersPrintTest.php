@@ -271,11 +271,34 @@ final class FicaQuestionsAnswersPrintTest extends TestCase
         $review = $this->actingAs($this->primaryCo)->get(route('compliance.fica.compliance-review', $s))->assertOk()->getContent();
 
         foreach ([$show, $review] as $html) {
-            self::assertStringContainsString('data-fica-qa-actions', $html);
-            self::assertStringContainsString($pdf, $html);
-            self::assertStringContainsString($print, $html);
-            self::assertStringContainsString('Download PDF', $html);
+            // ONE group of actions per screen, in the page header action area (inside the banner), never repeated in the Q&A panel.
+            self::assertSame(1, substr_count($html, 'data-fica-qa-actions'), 'the Q&A actions must appear exactly once per screen');
+            self::assertSame(1, substr_count($html, $pdf), 'one PDF link');
+            self::assertSame(1, substr_count($html, $print), 'one print link');
+            self::assertLessThan(strpos($html, 'data-fica-qa>'), strpos($html, 'data-fica-qa-actions'), 'the actions sit in the page header, above the Q&A panel');
+            self::assertLessThan(strpos($html, 'data-fica-qa>'), strpos($html, 'corex-page-banner'));
+            self::assertStringContainsString('Download questions &amp; answers (PDF)', $html);
+            self::assertStringContainsString('Print questions &amp; answers', $html);
+            // The old, ambiguous names are gone.
+            self::assertStringNotContainsString('Download PDF', $html);
         }
+    }
+
+    /**
+     * On an APPROVED online record the header also carries the FICA Compliance Certificate — a different document
+     * (frozen completion report) — and it must be named so it can't be mistaken for the questions & answers form.
+     */
+    public function test_approved_record_header_names_the_certificate_and_the_questions_answers_form_distinctly(): void
+    {
+        $s = $this->submission($this->naturalAnswers(), 'natural', ['status' => 'approved']);
+
+        $html = $this->actingAs($this->primaryCo)->get(route('compliance.fica.show', $s))->assertOk()->getContent();
+
+        self::assertSame(1, substr_count($html, route('compliance.fica.pdf', $s)), 'one certificate link');
+        self::assertStringContainsString('Download FICA certificate (PDF)', $html);
+        self::assertStringContainsString('Download questions &amp; answers (PDF)', $html);
+        self::assertStringContainsString('Print questions &amp; answers', $html);
+        self::assertSame(1, substr_count($html, route('compliance.fica.questions-answers.pdf', $s)));
     }
 
     // ── paper intake, uncompleted form ───────────────────────────────────

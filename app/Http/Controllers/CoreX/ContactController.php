@@ -1698,8 +1698,21 @@ class ContactController extends Controller
         // the whole save back cleanly — no half-written record. The picker's
         // type/tag selections are applied via the shared helper, which keeps the
         // multi-parent pivot, sub-tag pivot and primary-type mirror consistent.
-        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails, $noContactDetails) {
+        \DB::transaction(function () use ($contact, $data, $request, $hasIdentifierInput, $phones, $emails, $noContactDetails, $changingPrimary) {
             $contact->update($data);
+
+            // Johan, 2026-10-07 (ruling C): the primary agent is the one who works the
+            // buyer's saved searches, so a manager changing the primary agent here moves
+            // ALL of that buyer's searches to the new agent in this same transaction
+            // (one reassignment record per search, reason + who logged).
+            if ($changingPrimary && ! empty($data['agent_id'])) {
+                app(\App\Services\Buyers\BuyerReassignmentService::class)->moveSearches(
+                    $contact,
+                    (int) $data['agent_id'],
+                    $request->user(),
+                    \App\Services\Buyers\BuyerReassignmentService::REASON_CONTACT_SCREEN,
+                );
+            }
             if ($hasIdentifierInput) {
                 app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers($contact, $phones, $emails);
             }

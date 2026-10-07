@@ -1756,6 +1756,21 @@
    * (popup.js, Confirm/Cancel around startCapture()) — same decision shape,
    * applied here because this flow has no popup to put it in.
    */
+  /**
+   * v3.8.1 — "other property on this street" note. The pre-check answers
+   * `same_street` with properties on the clicked street that carry a DIFFERENT
+   * street number (or none on file). It is information only: it never opens the
+   * duplicate banner, never blocks and never skips the capture — a different
+   * number is a different property. Returns '' when there is nothing to say.
+   */
+  function describeSameStreet(precheck) {
+    const list = precheck && Array.isArray(precheck.same_street) ? precheck.same_street : [];
+    if (list.length === 0) return '';
+    const names = list.slice(0, 3).map((o) => o.address).filter(Boolean);
+    if (names.length === 0) return '';
+    return 'Other property on this street in CoreX (different number): ' + names.join('; ');
+  }
+
   function showDuplicateBanner(precheck) {
     return new Promise((resolve) => {
       injectStyles();
@@ -1774,7 +1789,11 @@
 
       const body = document.createElement('span');
       body.className = 'corex-deeds-banner-body';
-      if (match) {
+      if (match && match.summary) {
+        // v3.8.1 — the server words matches that are not earlier deeds captures
+        // (a property already on CoreX's books): "On CoreX as a property (Active). ..."
+        body.textContent = (match.address || 'This property') + '. ' + match.summary;
+      } else if (match) {
         const who = match.captured_by ? ('Captured by ' + match.captured_by) : 'Captured earlier';
         const when = match.captured_at_human ? (' ' + match.captured_at_human) : '';
         body.textContent = (match.address || 'This property') + '. ' + who + when + '. ' + (match.reason || '');
@@ -1930,6 +1949,7 @@
     const preCheckPayload = buildPreCheckPayload(property, freeSale);
 
     let proceed = false;
+    let sameStreetNote = '';
     for (;;) {
       let precheck = null;
       let checkFailed = false;
@@ -1954,6 +1974,7 @@
         logPrecheckDecision(preCheckPayload.source_ref, precheck, proceed ? 'pulled_anyway' : 'cancelled');
       } else {
         proceed = true; // not_found — already logged server-side in checkDuplicate(); nothing to confirm
+        sameStreetNote = describeSameStreet(precheck);
       }
       break;
     }
@@ -2008,8 +2029,8 @@
           if (row.blocked_companies && row.blocked_companies.length > 0) {
             window.alert('Company scraping is not allowed at this time — coming soon.\n\nSkipped: ' + row.blocked_companies.join(', '));
           }
-          setStatus((row.created ? 'Captured ✓ (new)' : 'Captured ✓ (enriched existing)'), false);
-          setTimeout(() => setStatus(null), 4000);
+          setStatus((row.created ? 'Captured ✓ (new)' : 'Captured ✓ (enriched existing)') + (sameStreetNote ? ' — ' + sameStreetNote : ''), false);
+          setTimeout(() => setStatus(null), sameStreetNote ? 9000 : 4000);
         } else {
           // Unexpected shape — surface it rather than claim silent success.
           setStatus('Sent, but response shape was unexpected — check CoreX.', true);

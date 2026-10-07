@@ -552,8 +552,11 @@ final class LeaseHubTest extends TestCase
 
     // ═══ leases.md §15.13 (Build L3a) — the agreement on the hub ═══
 
-    /** The "Record outcome" step used to open a renewal form that no longer carries the outcomes (cc5 L2 finding). */
-    public function test_record_outcome_lands_on_the_hub_with_the_month_to_month_dialog_open(): void
+    /**
+     * The "Record outcome" step used to open a renewal form that no longer carried the outcomes (cc5 L2 finding), then the
+     * month-to-month box alone (L3a). Johan, 7 Oct 2026: it opens the Lease actions menu itself, showing every outcome.
+     */
+    public function test_record_outcome_lands_on_the_hub_with_the_lease_actions_menu_open_showing_every_outcome(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
         $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
@@ -568,13 +571,21 @@ final class LeaseHubTest extends TestCase
 
         self::assertSame('Record outcome', $nextStep['label']);
         self::assertSame('corex.leases.show', $nextStep['route_name']);
-        self::assertSame(['lease' => $lease->id, 'action' => 'month-to-month'], $nextStep['route_param']);
+        self::assertSame(['lease' => $lease->id, 'action' => 'outcomes'], $nextStep['route_param']);
+        self::assertSame('outcomes', \App\Services\Rentals\LeaseActionDialogResolver::resolve($lease->fresh(), 'outcomes', false, null));
 
-        // The page that link opens really does open the month-to-month dialog for this lease (not a no-op ?action).
-        self::assertSame('month-to-month', \App\Services\Rentals\LeaseActionDialogResolver::resolve($lease->fresh(), 'month-to-month', false, null));
-
+        // The page that link opens has the menu open, with renewed / month-to-month / ended all in it — and no dialog forced open.
         $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
-        $this->actingAs($user)->get(route($nextStep['route_name'], $nextStep['route_param']))->assertOk();
+        $html = $this->actingAs($user)->get(route($nextStep['route_name'], $nextStep['route_param']))->assertOk()->getContent();
+        self::assertStringContainsString('x-data="{ open: true }" class="relative" data-qa="lease-actions-menu"', $html);
+        foreach (['Renew lease', 'Goes month-to-month', 'Tenant gave notice', 'Landlord not renewing'] as $outcome) {
+            self::assertStringContainsString($outcome, $html);
+        }
+        self::assertDoesNotMatchRegularExpression('/name="lease-dialog-[a-z0-9-]+"[^>]*:show="true"/', $html);
+
+        // Without the link, the menu stays closed as before.
+        $closed = $this->actingAs($user)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
+        self::assertStringContainsString('x-data="{ open: false }" class="relative" data-qa="lease-actions-menu"', $closed);
     }
 
     public function test_the_next_step_for_each_signing_state_of_a_draft_lease(): void

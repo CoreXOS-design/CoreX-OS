@@ -114,6 +114,24 @@ lives in two new nullable columns mirroring `Property.agent_id` /
 - `contacts.second_agent_id` — optional co-agent. `different:agent_id`; collapses
   to null if the primary is cleared.
 
+**Who the primary agent is (rulings A–D, Johan, 2026-10-07).**
+- The FIRST agent to receive a buyer's lead is the primary agent
+  (`contacts.agent_id`, set once at creation). A later lead to another agent
+  never changes it. Lead intake services read an existing contact's agent from
+  `agent_id` (not the capturer, `created_by_user_id`).
+- Only a user changes it afterwards, by hand: a manager moving the buyer from
+  Core Matches / the Buyer Pipeline (`core_matches.reassign`), or editing the
+  primary agent on the contact (`contacts.reassign_agent`). Both go through
+  `BuyerReassignmentService`: the primary agent AND all of the buyer's saved
+  searches move in ONE transaction; the contact history gets an `agent_assigned`
+  row (who / when / from / to — shown as "{manager} moved this contact from X to
+  Y") and each moved search gets a reassignment record with the reason.
+- Buyer-facing pages read the primary agent live, never a stored copy: the
+  shared match / wishlist link (name, photo, phone, email), the buyer portal,
+  its unavailable page and the viewing pack cover. Existing links keep working —
+  tokens are never reissued.
+- Existing contacts are never bulk-changed by this rule.
+
 Both `nullOnDelete` (non-negotiable #1 — deactivating a user never deletes a
 contact). Migration: `2026_06_17_120000_add_agent_assignment_to_contacts_table.php`.
 Relationships: `Contact::agent()`, `Contact::secondAgent()`.
@@ -312,3 +330,10 @@ links-on-store / store-links-without-detaching-existing.
 ---
 
 *Full spec to be completed during Phase 1 consolidation sprint.*
+
+
+## Agent offboarding — the buyers' saved searches follow (2026-10-07, Johan)
+
+Deleting an agent moves their contacts' primary agent to the successor; the saved searches of those
+buyers now move with it, in the same transaction and logged per search. See `core-matches.md`
+("Agent offboarding moves the buyers' saved searches too"). No clean-up of existing mismatched searches.

@@ -392,22 +392,46 @@ class ContactMatchController extends Controller
             $assignedAgentNames = User::whereIn('id', $agentIds)->pluck('name', 'id');
         }
 
-        // Deliberately does NOT depend on a relation name on PortalLead —
-        // only the column's existence, batch-resolving the user name
-        // separately below. Avoids guessing a method name cc4 hasn't
-        // published yet.
-        $hasFirstReceivedColumn = \Schema::hasTable('portal_leads') && \Schema::hasColumn('portal_leads', 'received_by_user_id');
-        $firstReceivedByContact = collect();
-        $firstReceivedNames = collect();
-        if ($hasFirstReceivedColumn) {
-            $firstReceivedByContact = \App\Models\PortalLead::whereIn('contact_id', $pageContactIds)
-                ->whereNotNull('received_by_user_id')
-                ->orderBy('received_at')
-                ->get(['contact_id', 'received_by_user_id', 'received_at'])
-                ->unique('contact_id')
-                ->keyBy('contact_id');
-            $firstReceivedNames = User::whereIn('id', $firstReceivedByContact->pluck('received_by_user_id')->filter()->unique())
+        // Johan, 2026-10-07 — "Reassigned from X to Y" is shown ONLY when a real
+        // reassignment record exists for the search (contact_match_reassignments,
+        // written when a user moves the buyer by hand). Never inferred from a portal
+        // lead or from who owns / created the search. Latest record per search wins.
+        $reassignmentByMatch = \App\Models\ContactMatchReassignment::whereIn('contact_match_id', $allMatches->pluck('id'))
+            ->orderByDesc('id')
+            ->get(['id', 'contact_match_id', 'from_agent_id', 'to_agent_id', 'created_at'])
+            ->unique('contact_match_id')
+            ->keyBy('contact_match_id');
+        $flagAgentNames = User::whereIn('id', $reassignmentByMatch->pluck('from_agent_id')
+                ->merge($reassignmentByMatch->pluck('to_agent_id'))
+                ->filter()->unique())
+            ->pluck('name', 'id');
+
+        // Johan, 2026-10-07 (ruling A) — the FIRST agent to receive a buyer's lead is
+        // their primary agent. When the same buyer also sent leads to OTHER agents'
+        // listings, the board says so as information only: "Also enquired with X, Y".
+        // Read from the portal leads' listings (the agent each enquiry went to); the
+        // primary agent is excluded. It is never a "moved" / "reassigned" signal.
+        $alsoEnquiredByContact = collect();
+        if ($pageContactIds->isNotEmpty() && \Schema::hasTable('portal_leads')) {
+            $enquiryAgents = \App\Models\PortalLead::query()
+                ->whereIn('portal_leads.contact_id', $pageContactIds)
+                ->whereNotNull('portal_leads.listing_id')
+                ->join('properties', 'properties.id', '=', 'portal_leads.listing_id')
+                ->whereNotNull('properties.agent_id')
+                ->get(['portal_leads.contact_id', 'properties.agent_id as enquired_agent_id']);
+            $enquiryAgentNames = User::withoutGlobalScopes()
+                ->whereIn('id', $enquiryAgents->pluck('enquired_agent_id')->unique())
                 ->pluck('name', 'id');
+            $primaryByContact = collect($contacts->items())->pluck('agent_id', 'id');
+            foreach ($enquiryAgents->groupBy('contact_id') as $contactId => $leadRows) {
+                $names = $leadRows->pluck('enquired_agent_id')->unique()
+                    ->reject(fn ($id) => (int) $id === (int) ($primaryByContact[$contactId] ?? 0))
+                    ->map(fn ($id) => $enquiryAgentNames[$id] ?? null)
+                    ->filter()->sort()->values();
+                if ($names->isNotEmpty()) {
+                    $alsoEnquiredByContact->put((int) $contactId, $names);
+                }
+            }
         }
 
         // Johan's own addition, not gated on cc4 at all — the properties a
@@ -466,21 +490,48 @@ class ContactMatchController extends Controller
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
         }
 
+        // Who the viewer may move on the Buyer Pipeline from this board ("Update buyer pipeline").
+        // The move itself is the pipeline board's own endpoints (command-center.buyers.update-state /
+        // .mark-lost), which bind the contact under its normal ContactScope — so the button is shown
+        // for exactly the contacts that bind there (NOT the oversight bypass this board uses to LIST),
+        // and nothing broader: the server stays the authority, this only avoids a button that 404s.
+        // The Rental Pipeline board is gated on buyer_pipeline.view, so the rentals lens requires it too.
+        $pipelineMovableContactIds = [];
+        if ($pageContactIds->isNotEmpty() && (! $isRentalEntry || $user->hasPermission('buyer_pipeline.view'))) {
+            $pipelineMovableContactIds = Contact::query()->whereIn('id', $pageContactIds)
+                ->whereIn('buyer_state', \App\Services\BuyerStateService::PIPELINE_STATES)
+                ->pluck('id')->map(fn ($id) => (int) $id)->all();
+        }
+
+        // Johan, 2026-10-07 — "Move buyer to another agent": manager permission only
+        // (core_matches.reassign), offered only for contacts that bind under the viewer's
+        // normal ContactScope (own / branch / agency) — the same rule the pipeline button
+        // uses; the route re-checks both. Candidates = active agents in the agency.
+        $reassignableContactIds = [];
+        $moveBuyerAgents = collect();
+        if ($user->hasPermission('core_matches.reassign') && $pageContactIds->isNotEmpty()) {
+            $reassignableContactIds = Contact::query()->whereIn('id', $pageContactIds)
+                ->pluck('id')->map(fn ($id) => (int) $id)->all();
+            if ($reassignableContactIds) {
+                $moveBuyerAgents = User::agencyMembers()->where('is_active', 1)->orderBy('name')->get(['id', 'name']);
+            }
+        }
+
         $rows = collect($contacts->items())->map(fn ($c) => [
             'contact' => $c,
             'matches' => $matchesByContact->get($c->id, collect()),
-            'firstReceived' => $firstReceivedByContact->get($c->id),
             'leadProperties' => $leadPropertiesByContact->get($c->id, collect()),
         ]);
 
         $totalMatches = $allMatches->count();
 
         return view('corex.core-matches.index', compact(
-            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds',
+            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'pipelineMovableContactIds',
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
             'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',
-            'hasAgentColumn', 'assignedAgentNames', 'hasFirstReceivedColumn', 'firstReceivedNames',
+            'hasAgentColumn', 'assignedAgentNames', 'reassignmentByMatch', 'flagAgentNames',
+            'alsoEnquiredByContact', 'reassignableContactIds', 'moveBuyerAgents',
             'hasWorkingWindowSetting', 'workingWindowDays',
         ));
     }

@@ -208,11 +208,35 @@ constant-state badge:** "Assigned to" is suppressed entirely on the
 `own` scope — on that scope it's always the viewer, on every row, which
 is Johan's exact "badge that's always lit carries no information" case.
 It only earns space once Branch/Agency scope is selected, where it
-genuinely varies row to row. "Who received it first" (once cc4's column
-exists) is shown ONLY when it differs from who the match is currently
-assigned to — i.e., only when a reassignment has actually happened.
-When they're the same person, showing both is the same fact twice with
-extra steps.
+genuinely varies row to row.
+
+**The primary agent, reassignment and "Also enquired with" (rulings A–D,
+Johan, 2026-10-07; supersedes the earlier "Search created by" wording).**
+- **A — first lead wins.** The FIRST agent to receive a buyer's lead is the
+  primary agent (`contacts.agent_id`, set once when the contact is created —
+  `ContactObserver::creating`). A later lead to another agent's listing never
+  changes it, and `BuyerLeadCascadeService::seedFromListing()` seeds that
+  enquiry's search under the primary agent, not the second listing agent. The
+  board shows the other enquiries as information only, once per buyer under
+  the phone/email line: **"Also enquired with <agent>, <agent>"** (agents of
+  the listings the buyer's portal leads came in on, primary excluded). It is
+  never "moved" or "reassigned".
+- **B — only by hand.** "Reassigned from X to Y (date)" is shown only when a
+  real `contact_match_reassignments` record exists for the search (latest
+  wins) — never inferred from a portal lead, the search owner or its creator.
+  The old "first to X" and "Search created by" tags are gone.
+- **C — the buyer moves as a whole.** See "The reassignment mechanism" step 3.
+- **Move buyer to another agent.** `POST /corex/core-matches/buyers/{contact}/reassign`
+  (`corex.core-matches.reassign-buyer`, `ContactMatchReassignmentController::reassignBuyer`),
+  permission `core_matches.reassign` (branch manager / admin) on the route AND
+  in the controller; `{contact}` binds through ContactScope + AgencyScope so a
+  manager only reaches buyers they can already reach (a foreign-agency id 404s,
+  an agent 403s). Body: `to_agent_id` (active agent of the agency) + `reason`
+  (required). Buttons: "Move buyer" on each Core Matches row (next to "Update
+  buyer pipeline") and "Move to another agent" on the Buyer Pipeline card and
+  list row — one shared popup `corex/core-matches/_move-buyer-modal.blade.php`.
+Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`,
+`ContactMatchReassignPrimaryAgentTest.php`.
 
 **Type pill**: kept, but suppressed entirely when the whole board is
 already locked to one listing type (the Rentals entry point, or the
@@ -469,7 +493,27 @@ fact from two angles, never recorded separately.
    granted to `branch_manager` + `admin` only (mirrors `contacts
    .reassign_agent`'s existing role placement exactly), never `agent`.
 2. Throws `InvalidArgumentException` on an empty reason.
-3. Writes the audit row, then updates `agent_id`, inside a transaction.
+3. Writes the audit row, updates `agent_id`, **and sets the contact's
+   primary agent (`contacts.agent_id`) to the new agent**, all inside ONE
+   transaction (Johan, 2026-10-07: "the primary agent is the one working with
+   the client, so when a manager reassigns a buyer to another agent the
+   contact's primary agent MUST change"). The contact is saved through the
+   model, so the contact history gets its `agent_assigned` row (actor = the
+   manager, old/new agent); the History tab already renders it as "{manager}
+   moved this contact from X to Y". A co-agent (`second_agent_id`) equal to the
+   new primary is cleared. If any step fails, none of it sticks. **Ruling C
+   (Johan, 2026-10-07): ALL of the buyer's saved searches move to the new
+   agent in that same transaction** (one reassignment record per search that
+   changes owner, plus the one acted on) — `BuyerReassignmentService`. A
+   manager changing the primary agent on the contact edit screen
+   (`contacts.reassign_agent`) does the same (`moveSearches()`, reason "Primary
+   agent changed on the contact record."). Existing data is NOT bulk-changed; a read-only list of
+   record-vs-primary disagreements is produced separately for a clean-up
+   decision.
+   Reassign routes that exist: `POST /corex/core-matches/{match}/reassign`
+   only (no board button yet; the Buyer Pipeline has no reassign, and there is
+   no bulk buyer reassign). The Contact edit form's "Assigned Agents"
+   (`contacts.reassign_agent`) changes the primary but not search owners.
 
 Server-enforced twice over (BUILD_STANDARD §1c — direct-URL access must be
 blocked, not just absent from a menu): the route middleware
@@ -957,3 +1001,87 @@ The four board routes (`corex.core-matches.index` / `.all`, `corex.rentals.core-
 (`RequireAgencyContext`). A System Owner (super_admin, `agency_id` NULL) who has not picked an agency is sent to the agency
 picker (and back to the board afterwards) instead of a 500 — `renderBoard()` needs an agency id for the agency settings.
 Same pattern as Activity Scoring and the PPRA admin screens. Test: `tests/Feature/CoreMatches/CoreMatchesOwnerNoAgencyTest.php`.
+
+---
+
+## "Update buyer pipeline" on the board (2026-10-07, Johan)
+
+Each contact header on `/corex/core-matches` (sale and rental views, and the All view) shows the
+buyer's pipeline status chip. Beside it, **Update buyer pipeline** moves that buyer on the Buyer
+Pipeline itself, without leaving the board.
+
+**One code path, two entry points — nothing is re-implemented here.**
+- Statuses offered: the Buyer Pipeline board's own list — New / Warm / Cold / Lost
+  (`BuyerStateService::PIPELINE_STATES` minus `won`, which the system sets when a buyer is linked to a
+  property and which the board's drag cannot set either). The current status is preselected; Save is
+  disabled until a different one is picked.
+- New / Warm / Cold → the board's own `PATCH command-center.buyers.update-state`
+  (`BuyerPipelineController::updateState` → `BuyerStateService::transitionTo(…, 'manual_override', userId)`),
+  the exact call a drag on the board makes, then the board reloads. That call is what writes the
+  `buyer_state_transitions` row and fires the lost/restored domain events, so logging is identical.
+- Lost → the shared Mark-Lost dialog (`resources/views/command-center/buyers/_mark-lost-dialog.blade.php`,
+  now the ONE copy — the buyer page includes the same partial) → `POST command-center.buyers.mark-lost`
+  (`BuyerDetailController::markLost`): reason from the agency's `agency_lost_deal_reasons` (required),
+  notes, buyer's own words — same fields, same validation, same `buyer_lost_records` row, same transition.
+  The endpoint returns to the board (`back()`) with the usual toast.
+- **Row result:** the board is driven by the buyer's CURRENT status (`CoreMatchBuyerGate`), so after the
+  reload the chip shows the new status, and a buyer whose new status the agency excludes from Core Matches
+  (default Won + Lost; setting "Statuses excluded from Core Matches") has dropped off the list. No extra
+  code decides that.
+
+**Scoping / permissions = the board's.** Both endpoints bind `Contact` through `ContactScope`
+(own / branch / agency) + `AgencyScope`, so a crafted request for a buyer the user cannot reach 404s.
+The button is rendered only for contacts that bind under that normal scope (`$pipelineMovableContactIds`
+in `ContactMatchController::index()` — NOT the oversight bypass the board uses to LIST), only when the
+contact has a pipeline status, and on the rentals lens only with `buyer_pipeline.view` (the Rental
+Pipeline's own gate). The server stays the authority; the button rule only avoids offering a control that
+would 404.
+
+**No new setting** (nothing for the Setup Wizard), no new route, no migration, no new permission.
+Tests: `tests/Feature/CoreMatches/CoreMatchUpdateBuyerPipelineTest.php`.
+
+**Known, deliberately untouched (reported, not changed):** the Buyer Pipeline board's drag-to-Lost
+redirects to `/buyers/{id}?action=mark-lost`, but the buyer page does not read `?action=mark-lost`, so
+that drag lands on the page without opening the dialog; and `updateState`/`markLost` do not call
+`authorizeContact()` (the assistant view-but-not-edit rule used by the contact screens).
+
+## Agent offboarding moves the buyers' saved searches too (2026-10-07, Johan)
+
+When an agent is deleted and their contacts move to the successor
+(`AgentDeletionService::transferForOffboarding()`), every saved search of each contact whose
+**primary agent** moved now moves to the successor in the SAME transaction
+(`BuyerReassignmentService::moveSearchesOfContacts()`), one `contact_match_reassignments` row per
+search (from → to, moved-by = the admin, reason "Agent offboarded: <old> → <new>."). A search the
+successor already owns is skipped; searches of buyers whose primary agent is someone else (even if the
+departing agent is their co-agent) are untouched; the transfer's audit event carries a
+`contact_searches` count. If any step fails the whole offboarding rolls back. Deactivating an agent
+moves no contacts (only deleting does), so nothing changes there.
+
+**Not done, by ruling:** no clean-up of existing searches whose owner differs from the buyer's primary
+agent (58 on QA1, 73 on Staging) — test data, nothing to do.
+
+Tests: `tests/Feature/Admin/AgentOffboardingMovesSearchesTest.php`.
+
+## Buyer Interest Signals — view-only notes (2026-10-07, Johan)
+
+On the property Intelligence tab each Buyer Interest Signals row gains ONE control: **Notes (n)**.
+Click opens the buyer contact's notes in a popup, newest first, each with author and date. The list
+itself is unchanged (no remove, no status change). Nothing can be added, edited or deleted from there.
+
+- **Rule (visibility).** Notes have no visibility flag of their own — whoever may see the contact may
+  read all its (non-deleted) notes, exactly as on the contact screen and the Core Matches popup. So the
+  control follows the **contact's own scope** (`ContactScope`): admin/super_admin see every buyer in the
+  agency; a role with contacts scope `all` sees every buyer; `branch` sees buyers whose contact is in
+  their branch; `own` sees buyers they captured (`created_by_user_id`) — NOT "buyers whose primary agent
+  they are". A listing agent on `own` scope who did not capture the buyer sees no Notes control on that
+  row (the row already shows the buyer as an anonymous "Buyer"), and the notes address answers 404.
+  The control also needs `access_contacts` (the route's gate). Nothing was widened.
+- **Mechanism.** `PropertyIntelligenceService::getBuyerNoteCounts()` (visible buyers only, one query
+  each for visibility and counts) → `corex/properties/show.blade.php` Section E; the popup fetches the
+  existing read-only `corex.contacts.notes.quick-view` fragment (`ContactNoteController::quickView`,
+  `_notes-quick-view` / `_note-item` with `readOnly`). No new route, permission, setting or migration.
+- **Not on the seller live link.** The seller page only receives counts by tier; the notes control and
+  fragment URL never reach it (tested).
+- **Zero notes** shows a plain "Notes (0)" (not clickable).
+
+Tests: `tests/Feature/Intelligence/BuyerSignalNotesViewTest.php`.

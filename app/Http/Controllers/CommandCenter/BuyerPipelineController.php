@@ -165,6 +165,14 @@ class BuyerPipelineController extends Controller
             $sortBy = 'last_activity_at';
         }
 
+        // Johan, 2026-10-07 — "Move buyer to another agent" on the card: managers only
+        // (core_matches.reassign). Every buyer on this board already bound under the
+        // viewer's ContactScope + pipeline scope; the route re-checks permission + scope.
+        $canMoveBuyers = $user->hasPermission('core_matches.reassign');
+        $moveBuyerAgents = $canMoveBuyers
+            ? \App\Models\User::agencyMembers()->where('is_active', 1)->orderBy('name')->get(['id', 'name'])
+            : collect();
+
         // Agent filter door — options come from a copy of the SAME scope +
         // lead-type query (before state/agent/search narrow it further), so
         // the dropdown always lists every agent reachable from here rather
@@ -204,6 +212,8 @@ class BuyerPipelineController extends Controller
                 'indexRouteName' => $indexRouteName,
                 'search' => $search,
                 'agentOptions' => $agentOptions,
+                'canMoveBuyers' => $canMoveBuyers,
+                'moveBuyerAgents' => $moveBuyerAgents,
                 'agentFilter' => $agentFilter,
                 'stateFilter' => $stateFilter,
                 'enteredFrom' => $request->get('entered_from'),
@@ -288,6 +298,8 @@ class BuyerPipelineController extends Controller
             'indexRouteName' => $indexRouteName,
             'search' => $search,
             'agentOptions' => $agentOptions,
+                'canMoveBuyers' => $canMoveBuyers,
+                'moveBuyerAgents' => $moveBuyerAgents,
             'agentFilter' => $agentFilter,
             'stateFilter' => $stateFilter,
             'enteredFrom' => $request->get('entered_from'),

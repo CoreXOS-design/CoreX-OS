@@ -272,15 +272,21 @@ final class LeaseFoundationTest extends TestCase
         $this->assertFalse($row->isUsableBy($agency->id));
     }
 
-    public function test_the_check_shell_reports_no_differences(): void
+    public function test_the_check_has_nothing_to_report_for_a_lease_with_no_agreement_document(): void
     {
+        // The comparison is real since Build L3c (LeaseAgreementCheckTest). A lease with no agreement document — the
+        // fallback of §15.16 — has nothing to compare with, and says so rather than guessing.
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
         $lease = Lease::create($this->leaseAttributes($agency, $branch, $property));
 
-        $this->assertSame(
-            ['has_differences' => false, 'differences' => [], 'cannot_verify' => [], 'fingerprint' => null],
-            app(LeaseAgreementCheck::class)->verdict($lease),
-        );
+        $verdict = app(LeaseAgreementCheck::class)->verdict($lease);
+
+        $this->assertFalse($verdict['applicable']);
+        $this->assertFalse($verdict['has_differences']);
+        $this->assertFalse($verdict['needs_confirmation']);
+        $this->assertSame([], $verdict['differences']);
+        $this->assertSame([], $verdict['cannot_verify']);
+        $this->assertNull($verdict['fingerprint']);
     }
 
     public function test_the_harvest_is_real_and_says_nothing_when_it_has_no_map_to_read_with(): void

@@ -250,10 +250,49 @@
                                style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
                                title="Add a note">+ Note</button>
                             @endif
+                            {{-- Update buyer pipeline — moves the buyer on the Buyer Pipeline board itself:
+                                 same endpoints, same statuses, same Lost-reason dialog (one shared popup
+                                 below). Shown only for contacts the viewer could move on that board. --}}
+                            @if(in_array($contact->id, $pipelineMovableContactIds, true))
+                            <button type="button" x-data
+                               @click="$dispatch('open-core-match-pipeline', {
+                                   name: @js($contact->full_name),
+                                   state: @js($contact->buyer_state),
+                                   noun: @js($matches->contains(fn ($m) => $m->listing_type !== 'rental') ? 'buyer' : 'tenant'),
+                                   stateUrl: @js(route('command-center.buyers.update-state', $contact)),
+                                   lostUrl: @js(route('command-center.buyers.mark-lost', $contact)),
+                               })"
+                               class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
+                               style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
+                               title="Move this {{ $matches->contains(fn ($m) => $m->listing_type !== 'rental') ? 'buyer' : 'tenant' }} to a different Buyer Pipeline status">Update buyer pipeline</button>
+                            @endif
+                            {{-- Move buyer to another agent — managers only (core_matches.reassign), for
+                                 contacts the viewer can reach under their own/branch/agency scope. Moves the
+                                 primary agent AND all of the buyer's saved searches (one shared popup). --}}
+                            @if(in_array($contact->id, $reassignableContactIds, true))
+                            <button type="button" x-data
+                               @click="$dispatch('open-move-buyer', {
+                                   name: @js($contact->full_name),
+                                   current: @js(optional($moveBuyerAgents->firstWhere('id', $contact->agent_id))->name),
+                                   action: @js(route('corex.core-matches.reassign-buyer', $contact)),
+                                   currentId: {{ (int) $contact->agent_id }},
+                               })"
+                               class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
+                               style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
+                               title="Move this buyer, and all their saved searches, to another agent">Move buyer</button>
+                            @endif
                         </div>
                         <div class="flex items-center gap-3 mt-0.5 flex-wrap">
                             @if($contact->phone)<span class="text-xs" style="color:var(--text-secondary);">{{ $contact->phone }}</span>@endif
                             @if($contact->email)<span class="text-xs" style="color:var(--text-secondary);">{{ $contact->email }}</span>@endif
+                            {{-- Ruling A (Johan, 2026-10-07): the first agent to receive this buyer's
+                                 lead is their primary agent; leads they also sent to other agents are
+                                 shown as information only — never as "moved" or "reassigned". --}}
+                            @if($alsoEnquiredByContact->has($contact->id))
+                            <span class="text-xs" style="color:var(--text-muted);" title="This buyer also sent enquiries to these agents' listings. Their primary agent has not changed.">
+                                Also enquired with {{ $alsoEnquiredByContact->get($contact->id)->implode(', ') }}
+                            </span>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -319,19 +358,19 @@
                     </span>
                     @endif
 
-                    {{-- Who received it first — only shown when it DIFFERS
-                         from who it's assigned to now (a reassignment
-                         happened). When they're the same person, showing
-                         both is the same fact twice. Time is visible, not
-                         hover-only: the first-to-receive rule is decided to
-                         the minute, and two agents can get the same portal
-                         lead minutes apart. --}}
-                    @if($hasFirstReceivedColumn && $row['firstReceived'] && $hasAgentColumn
-                        && $row['firstReceived']->received_by_user_id !== $match->agent_id)
+                    {{-- "Reassigned from X to Y" — ONLY when a real reassignment
+                         record exists for this search (a manager moved the buyer
+                         by hand). Never inferred from a portal lead, from who owns
+                         or created the search, or from which agents the buyer
+                         enquired with (Johan, 2026-10-07). --}}
+                    @php $reassignment = $reassignmentByMatch->get($match->id); @endphp
+                    @if($reassignment)
                     <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
                           style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 22%, transparent);">
-                        Reassigned — first to {{ $firstReceivedNames->get($row['firstReceived']->received_by_user_id, 'Unknown') }}
-                        ({{ optional($row['firstReceived']->received_at)->format('d M Y, H:i') }})
+                        Reassigned
+                        @if($reassignment->from_agent_id) from {{ $flagAgentNames->get($reassignment->from_agent_id, 'Unknown') }}@endif
+                        to {{ $flagAgentNames->get($reassignment->to_agent_id, 'Unknown') }}
+                        ({{ optional($reassignment->created_at)->format('d M Y') }})
                     </span>
                     @endif
 
@@ -512,6 +551,79 @@
             </form>
         </x-modal>
     </div>
+    @endif
+
+    {{-- Update buyer pipeline popup — ONE for the whole board; the row's button supplies the
+         buyer's name, current status and the pipeline endpoints. The list is the Buyer Pipeline
+         board's own (New / Warm / Cold / Lost). New / Warm / Cold post to the board's own state
+         endpoint (BuyerPipelineController::updateState) exactly as a drag on the board does, then
+         the board reloads: the chip shows the new status, and a buyer whose new status this agency
+         excludes from Core Matches (CoreMatchBuyerGate) drops off the list. Lost does NOT post
+         here — it opens the shared Mark-Lost dialog (the same partial the buyer page uses), which
+         captures the reason and posts to the board's own mark-lost endpoint. --}}
+    @if(count($pipelineMovableContactIds))
+    <div x-data="{
+            name: '', current: '', state: '', noun: 'buyer', stateUrl: '', lostUrl: '', busy: false,
+            open(d) { this.name = d.name; this.current = d.state; this.state = d.state; this.noun = d.noun; this.stateUrl = d.stateUrl; this.lostUrl = d.lostUrl; this.$dispatch('open-modal', 'core-match-pipeline'); },
+            async save() {
+                if (!this.state || this.state === this.current || this.busy) return;
+                if (this.state === 'lost') {
+                    this.$dispatch('close-modal', 'core-match-pipeline');
+                    const dlg = this.$refs.coreMatchLostModal;
+                    const form = dlg.querySelector('[data-mark-lost-form]');
+                    form.action = this.lostUrl;
+                    dlg.querySelectorAll('[data-lost-noun]').forEach(el => el.textContent = this.noun);
+                    dlg.showModal();
+                    return;
+                }
+                this.busy = true;
+                try {
+                    const r = await fetch(this.stateUrl, {
+                        method: 'PATCH',
+                        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content },
+                        body: JSON.stringify({ state: this.state }),
+                    });
+                    if (r.ok) { window.location.reload(); return; }
+                    (window.showToast || alert)(r.status === 404
+                        ? 'This ' + this.noun + ' is no longer on the pipeline — someone may have archived or moved them. Refresh to see the current list.'
+                        : 'Could not update the ' + this.noun + ' pipeline status.', 'error');
+                } catch (e) {
+                    (window.showToast || alert)('Network error.', 'error');
+                }
+                this.busy = false;
+            },
+         }"
+         @open-core-match-pipeline.window="open($event.detail)">
+        <x-modal name="core-match-pipeline" max-width="md">
+            <div class="p-5 space-y-3">
+                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="name"></div>
+                <label class="block text-xs font-medium" style="color:var(--text-secondary);">
+                    Buyer pipeline status
+                    <select x-model="state" class="mt-1 w-full rounded-md px-3 py-2 text-sm"
+                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateKey => $stateLabel)
+                        <option value="{{ $stateKey }}">{{ $stateLabel }}</option>
+                        @endforeach
+                        <option value="won" disabled x-show="current === 'won'">Won</option>
+                    </select>
+                </label>
+                <p class="text-xs" style="color:var(--text-muted);" x-show="state === 'lost' && current !== 'lost'">You will be asked for the reason next.</p>
+                <div class="flex justify-end items-center gap-2">
+                    <button type="button" class="text-xs" style="color:var(--text-muted);" @click="$dispatch('close-modal', 'core-match-pipeline')">Cancel</button>
+                    <button type="button" class="corex-btn-primary text-sm" :disabled="!state || state === current || busy" @click="save()"
+                            x-text="state === 'lost' ? 'Continue' : 'Update'">Update</button>
+                </div>
+            </div>
+        </x-modal>
+
+        {{-- The shared Mark-Lost dialog (one copy, also used by the buyer page). The opener above
+             points its form at the chosen buyer's mark-lost endpoint; markLost() returns here. --}}
+        @include('command-center.buyers._mark-lost-dialog', ['ref' => 'coreMatchLostModal', 'agencyId' => (int) auth()->user()->effectiveAgencyId(), 'noun' => 'buyer', 'action' => null])
+    </div>
+    @endif
+
+    @if(count($reassignableContactIds))
+        @include('corex.core-matches._move-buyer-modal', ['moveBuyerAgents' => $moveBuyerAgents])
     @endif
 
     {{-- "Send N new" popup — same shell/pattern as the notes popup above

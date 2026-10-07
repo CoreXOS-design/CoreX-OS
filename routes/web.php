@@ -3147,6 +3147,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
     Route::post('/settings/rental-inspections/attended-as-labels', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAttendedAsLabels'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.attended-as-labels');
+    // §45.14 — the agency's own words for the three move-out classifications.
+    Route::post('/settings/rental-inspections/move-out-classification-labels', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateMoveOutClassificationLabels'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.move-out-classification-labels');
     Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
@@ -3541,6 +3544,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
         Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
             ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');
+        // LEASE-CAPTURE END
+        // LEASE-CAPTURE BEGIN (leases.md §15.9 — Build L3c): the lease screen in confirm mode — what the agent sees when the
+        // agreement was changed in e-sign. The GET also serves "Re-check". The POST is the "Confirm and activate" of a lease
+        // that was signed with a difference nobody had confirmed; the pre-approval confirmation is posted to the e-sign
+        // engine's own approve route instead (middleware `lease.agreement.confirmed`).
+        Route::get('/{lease}/agreement/confirm', [\App\Http\Controllers\CoreX\LeaseAgreementConfirmController::class, 'show'])
+            ->middleware('permission:leases.view')->name('corex.leases.agreement.confirm');
+        Route::post('/{lease}/agreement/confirm', [\App\Http\Controllers\CoreX\LeaseAgreementConfirmController::class, 'store'])
+            ->middleware('permission:leases.view')->name('corex.leases.agreement.confirm.store');
         // LEASE-CAPTURE END
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
@@ -5576,6 +5588,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.reassign')
         ->name('corex.core-matches.reassign');
 
+    // Johan, 2026-10-07 — "Move buyer to another agent": the buyer-level action on the
+    // Core Matches board and the Buyer Pipeline card (the search-level route above had
+    // no button). Same permission as above (branch manager / admin only), same
+    // reassignTo() semantics (primary agent + every saved search, one transaction).
+    // {contact} binds through ContactScope + AgencyScope exactly as the Buyer Pipeline's
+    // own endpoints do, so a manager can only move buyers they can already reach.
+    Route::post('/core-matches/buyers/{contact}/reassign', [\App\Http\Controllers\CoreX\ContactMatchReassignmentController::class, 'reassignBuyer'])
+        ->middleware('permission:core_matches.reassign')
+        ->name('corex.core-matches.reassign-buyer');
+
     // AT-Core-Matches, Johan's dated-link ruling — confirms a share that was
     // already MINTED server-side when the composer rendered (see
     // ContactMatch::mintShareLink()); this is the actual send click, and is
@@ -6453,7 +6475,9 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/documents/{document}/supporting/version/{version}/stream',       [\App\Http\Controllers\Docuperfect\SignatureController::class, 'streamSupportingFile'])->name('signatures.supporting.stream');
     // AT-352 item 2 — agent live "View document" (READ-ONLY recipient mirror; no write path)
     Route::get('/documents/{document}/signatures/view-live', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'viewLive'])->name('docuperfect.signatures.viewLive');
-    Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->name('docuperfect.signatures.approveAndAdvance');
+    // LEASE-AGREEMENT BEGIN (leases.md §15.8.4 — Build L3c): a lease agreement's final approval first checks the document against its lease.
+    Route::post('/documents/{document}/signatures/approve-and-advance', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'approveAndAdvance'])->middleware('lease.agreement.confirmed')->name('docuperfect.signatures.approveAndAdvance');
+    // LEASE-AGREEMENT END
     Route::get('/documents/{document}/signatures/authorise-signing', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'authoriseSigning'])->name('docuperfect.signatures.authoriseSigning');
     Route::post('/documents/{document}/signatures/return-to-candidate', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'returnToCandidate'])->name('docuperfect.signatures.returnToCandidate');
     // WET-INK explicit resubmit — candidate sends an edited returned doc back to the authoriser (no re-sign).

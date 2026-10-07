@@ -193,6 +193,8 @@ class ProspectingConfigurationService
             // was hardcoded [60, 300]; claim writes also bump a cache-version
             // stamp so this window only bounds staleness for non-claim changes.
             'mic_counts_cache_fresh_seconds', 'mic_counts_cache_stale_seconds',
+            // Days with no re-sighting before a portal listing is presumed off-market (default 90).
+            'listing_off_market_days',
         ];
         $clean = [];
         $errors = [];

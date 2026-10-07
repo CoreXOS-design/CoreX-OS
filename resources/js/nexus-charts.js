@@ -1,7 +1,17 @@
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
+import {
+    ENGAGEMENT_RANGES, ENGAGEMENT_DEFAULT_RANGE, engagementWindow, isEngagementRange,
+} from './engagement-ranges';
 
 window.NexusCharts = {
+    // Range buttons + slicing rule: ONE definition (engagement-ranges.js), read
+    // by the agent Intelligence tab and the seller live link.
+    engagementRanges: ENGAGEMENT_RANGES,
+    engagementDefaultRange: ENGAGEMENT_DEFAULT_RANGE,
+    engagementWindow,
+    isEngagementRange,
+
     /**
      * Portal engagement line chart (Views + P24 lead counts over time). Returns
      * the Chart instance; the caller mutates chart.data + calls chart.update()

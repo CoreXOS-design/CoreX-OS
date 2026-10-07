@@ -67,11 +67,15 @@ class BuyerPortalController extends Controller
                 ->where('agency_id', $agencyId)
                 ->first();
         }
-        if (!$agent && $link->generated_by_user_id) {
-            $agent = User::withoutGlobalScopes()->find($link->generated_by_user_id);
-        }
+        // Johan, 2026-10-07 (ruling D) — the buyer's CURRENT primary agent comes first,
+        // read live on every open. The agent who generated the link is a stored copy
+        // that kept showing the old agent after a manager moved the buyer; it is now
+        // only the fallback for a contact with no primary agent.
         if (!$agent && $contact->agent_id) {
             $agent = User::withoutGlobalScopes()->find($contact->agent_id);
+        }
+        if (!$agent && $link->generated_by_user_id) {
+            $agent = User::withoutGlobalScopes()->find($link->generated_by_user_id);
         }
 
         // Primary ContactMatch (or null). Drives the honest preferences summary
@@ -208,9 +212,13 @@ class BuyerPortalController extends Controller
     private function portalUnavailable($link)
     {
         $agencyId = (int) ($link->agency_id ?: 0);
-        $agent = $link->generated_by_user_id
-            ? User::withoutGlobalScopes()->find($link->generated_by_user_id)
+        // Ruling D (2026-10-07): the buyer's CURRENT primary agent first (when the
+        // contact still exists), the link's generator only as the fallback.
+        $primaryAgentId = $link->contact_id
+            ? Contact::withoutGlobalScopes()->where('id', $link->contact_id)->value('agent_id')
             : null;
+        $agentId = $primaryAgentId ?: $link->generated_by_user_id;
+        $agent = $agentId ? User::withoutGlobalScopes()->find($agentId) : null;
 
         return app(PublicLinkUnavailableResponder::class)->respond(
             $agencyId ?: null,

@@ -32,6 +32,9 @@ class LeaseSettingsController extends Controller
             // .ai/specs/rental-renewals.md §2 — tenant notice period.
             'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
             'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
+            // Johan, 7 Oct 2026 — automatic month-to-month (leases.md §5.3).
+            'monthToMonthAfterEndDays' => LeaseSetting::monthToMonthAfterEndDaysFor($agencyId),
+            'monthToMonthAfterEndDaysDefault' => LeaseSetting::DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS,
             // Round 7 (2026-10-05) — Command Centre "Unoccupied"/"Inactive"
             // tiles. Options = this agency's full write-side status
             // vocabulary (Property::allowedStatuses() — systemStatuses()
@@ -67,6 +70,9 @@ class LeaseSettingsController extends Controller
             // an onboarding-wizard saver for the 'leases' step, which posts
             // only the fields that step renders.
             'tenant_notice_period_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // Johan, 7 Oct 2026 (leases.md §5.3) — same §6.1 nullable/has()-guard reasoning: this method is also the
+            // onboarding wizard's saver for the leases step, so an absent key means "not shown", never "0".
+            'month_to_month_after_end_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             // Round 7 (2026-10-05) — same §6.1 nullable/has()-guard
             // reasoning; an empty array (every box unchecked) is itself a
             // valid, if unusual, choice, so 'array' here, never 'required'.
@@ -90,6 +96,9 @@ class LeaseSettingsController extends Controller
         }
         if ($request->has('tenant_notice_period_days')) {
             $data['tenant_notice_period_days'] = $validated['tenant_notice_period_days'];
+        }
+        if ($request->has('month_to_month_after_end_days')) {
+            $data['month_to_month_after_end_days'] = $validated['month_to_month_after_end_days'];
         }
         // Round 7 (2026-10-05) — a checkbox GROUP going from "every box
         // checked" to "every box unchecked" submits NO active_rental_statuses

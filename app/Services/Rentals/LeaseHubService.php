@@ -136,10 +136,9 @@ class LeaseHubService
         }
 
         if ($lease->end_date && $lease->status === Lease::STATUS_ACTIVE && now()->gt($lease->end_date) && !$lease->hasActiveNotice() && !$lease->renewed_lease_id) {
-            // The lease has ended with no outcome on file. The outcomes (month-to-month, notices) live in the Lease
-            // actions menu, not on the renewal form this used to open — land on the hub with the month-to-month
-            // dialog open (the other outcomes are one click away in the same menu).
-            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'month-to-month']];
+            // The lease has ended with no outcome on file. The outcomes (renewed / month-to-month / ended) live in the
+            // Lease actions menu — land on the hub with that menu open, showing all of them (Johan, 7 Oct 2026).
+            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'outcomes']];
         }
 
         return null;
@@ -177,6 +176,11 @@ class LeaseHubService
                 if ($envelope && $envelope->status === \App\Models\Docuperfect\SignatureTemplate::STATUS_COMPLETED) {
                     return $none('Signed — filing the document');
                 }
+                // leases.md §15.8.4 #3 (Build L3c) — the agreement was changed in e-sign: the agent reviews the
+                // differences on the lease screen before approving.
+                if ($user && $this->agreementNeedsReview($lease, $user)) {
+                    return ['label' => 'Agreement changed — review before approving', 'route_name' => 'corex.leases.agreement.confirm', 'route_param' => $lease->id];
+                }
                 if ($envelope && $envelope->document_id) {
                     return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.signatures.review', 'route_param' => $envelope->document_id];
                 }
@@ -184,6 +188,14 @@ class LeaseHubService
                 return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.esign.myDocuments', 'route_param' => []];
 
             case Lease::SIGNING_SIGNED:
+                // leases.md §15.5 (Build L3c) — signed with a difference nobody confirmed: the lease may not go live
+                // until the agent confirms the details on the lease screen.
+                if ($this->awaitingConfirmation($lease)) {
+                    return $user && app(LeaseAgreementConfirmService::class)->mayConfirm($user, $lease)
+                        ? ['label' => 'Signed — confirm the lease details', 'route_name' => 'corex.leases.agreement.confirm', 'route_param' => $lease->id]
+                        : $none('Signed — the agent who sent it must confirm the lease details');
+                }
+
                 // leases.md §15.5 — signed, but another lease is still active on the property: say what to do.
                 if ($lease->events()->where('event_type', \App\Models\LeaseEvent::TYPE_SIGNED_NOT_ACTIVATED)->exists()) {
                     return $none('Signed — another lease is still active on this property. End or renew it, then activate.');
@@ -200,6 +212,32 @@ class LeaseHubService
         }
 
         return null;
+    }
+
+    /**
+     * leases.md §15.5 (Build L3c) — the agreement was signed while it disagreed with its lease, and nothing has been
+     * confirmed since: the lease is a signed draft waiting for the agent.
+     */
+    public function awaitingConfirmation(Lease $lease): bool
+    {
+        $event = $lease->events()->where('event_type', \App\Models\LeaseEvent::TYPE_AGREEMENT_NEEDS_CONFIRMATION)->latest('id')->first();
+
+        return $event !== null
+            && (! $lease->agreement_confirmed_at || $lease->agreement_confirmed_at->lt($event->occurred_at));
+    }
+
+    /**
+     * leases.md §15.8.4 #3 — the agreement waiting for the agent's approval differs from its lease (or cannot be read),
+     * and this user is the one who would confirm it. A read of the document, never a write; a fault reads as "no".
+     */
+    private function agreementNeedsReview(Lease $lease, \App\Models\User $user): bool
+    {
+        try {
+            return app(LeaseAgreementConfirmService::class)->mayConfirm($user, $lease)
+                && app(LeaseAgreementCheck::class)->verdict($lease)['needs_confirmation'];
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     /**

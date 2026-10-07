@@ -319,6 +319,7 @@
         @if($hasEngagementData)
         <section class="surface-card p-5" id="engagement-section"
                  data-engagement-series='@json($engagementSeries)'
+                 data-month-start="{{ $portalEngagement['month_start'] ?? now()->startOfMonth()->format('Y-m-d') }}"
                  data-price-changes='@json($priceChangeEvents)'>
             <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
                 <div>
@@ -330,11 +331,10 @@
                         @endif
                     </p>
                 </div>
-                <div class="flex items-center gap-1 flex-shrink-0" id="engagement-range-toggle">
-                    <button type="button" data-range="30" class="engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border">30D</button>
-                    <button type="button" data-range="90" class="engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border">90D</button>
-                    <button type="button" data-range="all" class="engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border">6M</button>
-                </div>
+                {{-- Buttons are drawn by the script below from NexusCharts.engagementRanges —
+                     the SAME list the agent Intelligence tab uses (7 days, Month to date,
+                     30D, 90D, 6M), so the two pages can never show different ranges. --}}
+                <div class="flex items-center gap-1 flex-wrap" id="engagement-range-toggle"></div>
             </div>
 
             <div class="flex items-center gap-4 mt-3 mb-2 text-xs flex-wrap" style="color: var(--text-secondary);">
@@ -623,13 +623,34 @@
             var totalViewsEl = document.getElementById('engagement-total-views');
             var totalLeadsEl = document.getElementById('engagement-total-leads');
             var dayLabelEl = document.getElementById('engagement-day-label');
+            var monthStart = section.getAttribute('data-month-start') || '';
+            var toggle = document.getElementById('engagement-range-toggle');
             var chart = null;
-            var range = '30';
+            var range = window.NexusCharts ? window.NexusCharts.engagementDefaultRange : '30';
+
+            // This page reloads itself every 60s (refresh indicator above). Keep the
+            // seller's chosen range across that reload — otherwise 90D silently
+            // snaps back to 30D within a minute. Per-tab, per-page, best-effort.
+            var storeKey = 'sellerLinkEngagementRange:' + window.location.pathname;
+            try {
+                var saved = window.sessionStorage.getItem(storeKey);
+                if (saved && window.NexusCharts && window.NexusCharts.isEngagementRange(saved)) range = saved;
+            } catch (e) { /* storage blocked — default range, page still works */ }
+
+            // Draw the range buttons from the shared list.
+            if (toggle && window.NexusCharts) {
+                window.NexusCharts.engagementRanges.forEach(function (r) {
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'engagement-range-btn text-[0.6875rem] font-semibold px-2 py-1 rounded-md border';
+                    btn.setAttribute('data-range', r.key);
+                    btn.textContent = r.label;
+                    toggle.appendChild(btn);
+                });
+            }
 
             function filtered() {
-                if (range === 'all') return series;
-                var n = parseInt(range, 10);
-                return series.slice(-n);
+                return window.NexusCharts.engagementWindow(series, range, monthStart);
             }
 
             function fmt(d) {
@@ -687,6 +708,7 @@
             document.querySelectorAll('.engagement-range-btn').forEach(function (btn) {
                 btn.addEventListener('click', function () {
                     range = btn.getAttribute('data-range');
+                    try { window.sessionStorage.setItem(storeKey, range); } catch (e) { /* ignore */ }
                     apply();
                 });
             });

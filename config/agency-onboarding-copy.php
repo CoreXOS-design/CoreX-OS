@@ -11,6 +11,7 @@ use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
 use App\Http\Controllers\CoreX\RentalInventorySettingsController;
 use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
+use App\Http\Controllers\Settings\Prospecting\StaleRulesController;
 
 /**
  * Agency Onboarding Setup Wizard — content + control map (single source of truth).
@@ -496,6 +497,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionCustomRoomTypes'],
             // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection; no-op unless this step's marker was posted.
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionAttendedAsLabels'],
+            // §45.14 — the agency's own words for the three move-out classifications; no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionMoveOutClassificationLabels'],
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inventoryConditionStates'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateCreditBureau'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantedLabel'],
@@ -551,6 +554,11 @@ return [
              'label' => 'Days\' notice a tenant is expected to give',
              'explain' => 'A sensible South African convention for how much notice a tenant gives before moving out — not a legal minimum CoreX enforces.',
              'affects' => 'The notice-window figure shown on the Lease Hub and used when recording a tenant\'s notice to vacate. 30 days suits most agencies — change it to match your own lease wording.'],
+            // Johan, 7 Oct 2026 (leases.md §5.3) — same saver (LeaseSettingsController::update), has()-guarded there (§6.1).
+            ['key' => 'month_to_month_after_end_days', 'source' => 'leases', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 365,
+             'label' => 'Days after a lease\'s end date before it goes month-to-month',
+             'explain' => 'When a lease reaches its end date and there is no notice to vacate and no renewal on record, CoreX switches it to month-to-month by itself, logs it on the lease and tells the agent.',
+             'affects' => 'How long after the end date a lease is left alone before it switches. 1 means the day after the end date; a higher number gives agents more time to record a renewal or a notice first. A notice or a renewal, even one still out for signing, always stops the switch.'],
             ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'label' => 'Days a tenant has to report a fault after moving in',
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
@@ -1069,6 +1077,15 @@ return [
                 . 'opening the page immediately sees which not-yet-mandated properties fit a buyer they already have. '
                 . 'None of this can be filled in for you — it depends on the towns you actually work and how your '
                 . 'agency prices stock — so this is the one setup step that is genuinely yours to do.',
+        ],
+        'savers' => [
+            ['controller' => StaleRulesController::class, 'method' => 'updateListingWindow'],
+        ],
+        'controls' => [
+            ['key' => 'listing_off_market_days', 'source' => 'prospecting_thresholds', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 365,
+             'label' => 'Presume a portal listing off the market after (days unseen)',
+             'explain' => 'CoreX only knows a portal listing is still for sale when the CoreX Chrome extension sees it again. A listing that has not been seen for this many days is presumed off the market. A mandate normally runs 90 days, so 90 is the standard.',
+             'affects' => 'Which portal listings stay in Market Intelligence and in a presentation\'s Active Competition section. A shorter number drops listings an agent simply has not re-searched lately; a longer one keeps genuinely sold or withdrawn listings around for longer.'],
         ],
         'aux_partial' => 'agency-setup.steps.market-intelligence',
     ],

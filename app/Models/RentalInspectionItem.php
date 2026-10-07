@@ -79,6 +79,23 @@ class RentalInspectionItem extends Model
     }
 
     /**
+     * The items a REPORT of one inspection lists: every live item, PLUS any item retired since that was
+     * actually assessed in that inspection. A completed report is a record of what was inspected at the
+     * time — retiring an item later must not make it vanish from the report (public link, PDF, comparison).
+     * A retired item the inspection never assessed stays out, as does a bare photo anchor (not an assessment).
+     */
+    public function scopeListedOnReportOf(Builder $q, int $inspectionId): Builder
+    {
+        return $q->where(function (Builder $w) use ($inspectionId) {
+            $w->where('is_retired', false)
+                ->orWhereIn('id', RentalInspectionObservation::withoutGlobalScopes()
+                    ->recorded()
+                    ->where('rental_inspection_id', $inspectionId)
+                    ->select('rental_inspection_item_id'));
+        });
+    }
+
+    /**
      * §3.2, Johan (property 4862): "how do I add to a room, not a new
      * room." A single facet added to an ALREADY-EXISTING room — not a new
      * room, no checklist reseed. Behaves exactly like a vocabulary-seeded
