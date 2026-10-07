@@ -101,6 +101,9 @@ class RentalCatalogueItemController extends Controller
             'canViewCosts' => $canViewCosts,
             // Stored excl VAT; shown in the agency's capture mode, like the price.
             'itemCost' => ($canViewCosts && $agency) ? $this->vat->catalogueDefaultCostForLine($rentalCatalogueItem, $agency) : null,
+            // The price box edits the figure in the agency's capture basis (incl or excl), NOT the stored excl amount —
+            // otherwise an incl-VAT agency re-saves the excl figure as if it were incl and the price drops on every Save.
+            'itemPrice' => $agency ? $this->vat->catalogueDefaultPriceForLine($rentalCatalogueItem, $agency) : null,
         ]);
     }
 
