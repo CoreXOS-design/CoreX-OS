@@ -28,6 +28,9 @@ class MobileCoreMatchController extends Controller
             // Prod-audit 2026-09-16 — a reassigned buyer follows the assignee
             // (agent_id), matching the web board's own scoping.
             ->where('agent_id', $user->id)
+            // Same rule as the web board: a buyer in an excluded Buyer Pipeline status
+            // (default Won + Lost — agency setting) has no Core Matches.
+            ->buyerInPlay((int) $user->effectiveAgencyId())
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
             ->get();
