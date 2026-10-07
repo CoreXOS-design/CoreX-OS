@@ -253,7 +253,7 @@
                             {{-- Update buyer pipeline — moves the buyer on the Buyer Pipeline board itself:
                                  same endpoints, same statuses, same Lost-reason dialog (one shared popup
                                  below). Shown only for contacts the viewer could move on that board. --}}
-                            @if(in_array($contact->id, $pipelineMovableContactIds, true))
+                            @if(feature('buyer-pipeline') && in_array($contact->id, $pipelineMovableContactIds, true))
                             <button type="button" x-data
                                @click="$dispatch('open-core-match-pipeline', {
                                    name: @js($contact->full_name),

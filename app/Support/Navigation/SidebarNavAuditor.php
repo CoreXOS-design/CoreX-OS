@@ -302,9 +302,85 @@ class SidebarNavAuditor
         return $bestGroup;
     }
 
+    /**
+     * The @feature('key') ... @endfeature stack in force on every line (0-indexed),
+     * so each sidebar link can be mapped to the Features on/off toggle(s) that
+     * switch it. Blade comments are blanked first (newlines kept, so line numbers
+     * stay aligned) — several comments in the sidebar quote `@feature('x')` in prose
+     * and must not be read as real directives.
+     *
+     * @param  array<int,string> $lines
+     * @return array<int, list<string>>
+     */
+    public static function featureStacks(array $lines): array
+    {
+        $src = preg_replace_callback(
+            '/\{\{--.*?--\}\}/s',
+            fn ($m) => str_repeat("\n", substr_count($m[0], "\n")),
+            implode("\n", $lines)
+        );
+
+        $stack = [];
+        $out = [];
+        foreach (explode("\n", $src) as $i => $line) {
+            if (preg_match_all("/@feature\('([^']+)'\)|@endfeature/", $line, $m, PREG_SET_ORDER)) {
+                foreach ($m as $d) {
+                    if (isset($d[1]) && $d[1] !== '') {
+                        $stack[] = $d[1];
+                    } else {
+                        array_pop($stack);
+                    }
+                }
+            }
+            $out[$i] = $stack;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Lines (0-indexed) that sit inside an `@if($isOwner)` / `@if(auth()->user()->isOwnerRole())`
+     * block — the System-Owner-only area. Only that EXACT condition counts: the sidebar also has
+     * `@if($isOwner || $effectiveRole === 'super_admin')`, which an agency's own super-admin passes,
+     * so it is NOT owner-only. Conditionals are matched with a real open/close stack so a nested
+     * `@if … @endif` inside the owner block does not end it early.
+     *
+     * @param  array<int,string> $lines
+     * @return array<int,bool>
+     */
+    public static function ownerOnlyLines(array $lines): array
+    {
+        $src = preg_replace_callback(
+            '/\{\{--.*?--\}\}/s',
+            fn ($m) => str_repeat("\n", substr_count($m[0], "\n")),
+            implode("\n", $lines)
+        );
+
+        $stack = [];   // one bool per open conditional: is it an owner-only gate?
+        $out = [];
+        foreach (explode("\n", $src) as $i => $line) {
+            $openers = '@(?:if|unless|isset|auth|guest|production|env)\b';
+            $closers = '@end(?:if|unless|isset|auth|guest|production|env)\b';
+            if (preg_match_all('/(' . $openers . '\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)?|' . $openers . '|' . $closers . ')/', $line, $m)) {
+                foreach ($m[1] as $tok) {
+                    if (preg_match('/^@end/', $tok)) {
+                        array_pop($stack);
+                    } else {
+                        $stack[] = (bool) preg_match('/^@if\(\s*(?:\$isOwner|auth\(\)->user\(\)->isOwnerRole\(\))\s*\)$/', $tok);
+                    }
+                }
+            }
+            $out[$i] = in_array(true, $stack, true);
+        }
+
+        return $out;
+    }
+
     public static function parseNavEntries(array $lines, int $totalLines, array $panels): array
     {
         $navEntries = [];
+        $featureStacks = self::featureStacks($lines);
+        $ownerOnly = self::ownerOnlyLines($lines);
         for ($i = 0; $i < $totalLines; $i++) {
             if (!preg_match('/<a\s/', $lines[$i])) {
                 continue;
@@ -362,6 +438,8 @@ class SidebarNavAuditor
                 'is_toggle' => $isToggle,
                 'group' => self::groupAtLine($i, $panels),
                 'label' => $label ?: '(unlabeled)',
+                'features' => $featureStacks[$i] ?? [],
+                'owner_only' => $ownerOnly[$i] ?? false,
             ];
         }
         return $navEntries;

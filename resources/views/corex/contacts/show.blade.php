@@ -93,7 +93,7 @@
                 ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes &amp; Testimonials <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contact->contactNotes->count() + $contact->testimonials->count()) .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
-                ['key'=>'rental','label'=>'Rental Applications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $rentalApplicationsTotalCount .'</span>'],
+                ...(feature('rentals') ? [['key'=>'rental','label'=>'Rental Applications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $rentalApplicationsTotalCount .'</span>']] : []),
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contactThreads ?? collect())->count() .'</span>'],
@@ -1472,7 +1472,9 @@
                             <div class="flex items-center justify-between text-xs py-1" style="border-bottom: 1px solid var(--border);">
                                 <span>{{ $inv->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
                                 <span class="ds-badge {{ $__invStatusBadgeClass($inv->status) }}">{{ ucfirst(str_replace('_', ' ', $inv->status)) }}</span>
+                                @feature('rental-inspections')
                                 <a href="{{ route('corex.rental-inventories.show', $inv) }}" class="corex-btn-outline text-xs">View</a>
+                                @endfeature
                             </div>
                         @endforeach
                     </div>

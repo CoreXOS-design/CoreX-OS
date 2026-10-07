@@ -132,7 +132,7 @@
                         : null,
                     // AT-442 — the agency's own parts & labour catalogue consumed
                     // by internal job cards.
-                    $can('rental_catalogue.manage')
+                    $can('rental_catalogue.manage') && feature('rental-catalogue')
                         ? ['key'=>'rental-catalogue-items', 'label'=>'Parts & Labour Catalogue', 'type'=>'link', 'href'=>route('corex.rental-catalogue-items.index'), 'keywords'=>'job card labour part catalogue price unit maintenance']
                         : null,
                     $can('rental_details.manage_settings')
@@ -4236,7 +4236,7 @@
             <div class="rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
                 <p class="text-xs" style="color:var(--text-secondary);">
                     The full PPRA Inspection Pack checklist, its Inspection Report, and the current-FY sales/rentals list
-                    live under <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Inspection Pack</a>.
+                    live under @feature('ppra-inspection-pack')<a href="{{ route('admin.ppra-inspection-pack.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Inspection Pack</a>@else Admin → PPRA Inspection Pack @endfeature.
                 </p>
             </div>
         </div>
@@ -4269,7 +4269,7 @@
                 <p class="text-xs" style="color:var(--text-secondary);">
                     Agents start their own letter, print it, sign it and upload the signed copy from <span class="font-semibold">My Portal → Documents</span>.
                     The full register of every agency's letters lives under
-                    <a href="{{ route('admin.ppra-employment-letters.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Employment Letters</a>.
+                    @feature('ppra-employment-letters')<a href="{{ route('admin.ppra-employment-letters.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Employment Letters</a>@else Admin → PPRA Employment Letters @endfeature.
                 </p>
             </div>
         </div>

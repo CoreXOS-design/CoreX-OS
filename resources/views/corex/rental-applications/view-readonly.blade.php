@@ -305,7 +305,9 @@
                         @if($applicationLease->end_date) to {{ $applicationLease->end_date->format('Y-m-d') }} @endif
                         — <span class="ds-badge {{ $applicationLease->status === 'active' ? 'ds-badge-success' : 'ds-badge-muted' }}">{{ ucfirst($applicationLease->status) }}</span>
                         @permission('leases.view')
+                            @feature('rental-leases')
                             <a href="{{ route('corex.leases.show', $applicationLease) }}" class="underline">View lease</a>
+                            @endfeature
                         @endpermission
                     </p>
                 @endif

@@ -93,6 +93,7 @@
                     {{-- PPRA Inspection Pack back-link (2026-09-28, Johan) —
                          admins only, one source of truth: this card's document
                          IS the pack row's document, not a copy of it. --}}
+                    @feature('ppra-inspection-pack')
                     @permission('ppra_inspection_pack.view')
                     @php $ppraItem = \App\Services\Compliance\PpraInspectionPackChecklistService::itemForSlug($config->slug); @endphp
                     @if($ppraItem)
@@ -104,6 +105,7 @@
                         </div>
                     @endif
                     @endpermission
+                    @endfeature
                 </div>
             </div>
             @endforeach

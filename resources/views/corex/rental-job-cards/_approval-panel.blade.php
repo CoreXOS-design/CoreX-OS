@@ -19,7 +19,7 @@
         <div class="flex flex-wrap items-center gap-2 text-xs">
             @if($jaEmergency)
                 <span class="ds-badge ds-badge-warning">Emergency — owner agreed by {{ str_replace('_', ' ', $jaEmergency->approved_via) }} on {{ $jaEmergency->approved_at?->format('j M Y') }}</span>
-                <a href="{{ route('corex.rental-work-orders.show', $jaWorkOrder) }}#emergency-panel" class="underline">Work order</a>
+                @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $jaWorkOrder) }}#emergency-panel" class="underline">Work order</a>@else Work order @endfeature
             @elseif($jaWorkOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
                 <span class="ds-badge ds-badge-warning">Awaiting owner approval</span>
             @elseif($jaWorkOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED)
@@ -40,7 +40,7 @@
         @if(!$jaProceed->authorised)
             <p class="text-xs" style="color: var(--ds-crimson);">Work cannot start or be scheduled yet: {{ $jaProceed->note }}
                 @permission('rental_work_orders.record_emergency_approval')
-                    <a href="{{ route('corex.rental-work-orders.show', $jaWorkOrder) }}#emergency-panel" class="underline">Emergency? Record the owner's agreement on the work order.</a>
+                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $jaWorkOrder) }}#emergency-panel" class="underline">Emergency? Record the owner's agreement on the work order.</a>@else Emergency? Record the owner's agreement on the work order. @endfeature
                 @endpermission
             </p>
         @endif

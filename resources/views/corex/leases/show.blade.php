@@ -94,11 +94,15 @@
         <div class="flex items-center gap-2">
             <a href="{{ route('corex.leases.tenancy-report', $lease) }}" target="_blank" class="corex-btn-outline text-xs">Print tenancy report</a>
             @permission('rental_fault_reports.create')
+                @feature('rental-faults')
                 <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
+                @endfeature
             @endpermission
             {{-- AT-442 fix #3 — the Lease Hub had no direct work-order action at all (only "Report a fault"); pass lease_id so it wins and derives the property. --}}
             @permission('rental_work_orders.create')
+                @feature('rental-work-orders')
                 <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+                @endfeature
             @endpermission
             @permission('leases.create')
                 <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')">Edit</button>
@@ -376,7 +380,9 @@
             @include('corex.leases._agreement-card')
             {{-- LEASE-AGREEMENT END --}}
 
+            @feature('rental-job-cards')
             @include('corex.leases._job-cards-panel', ['jobCards' => $jobCards])
+            @endfeature
 
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Tenancy log</h2>
@@ -513,15 +519,21 @@
 
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Open items</h2>
+                @feature('rental-faults')
                 <a href="{{ route('corex.rental-fault-reports.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
                     <span>Open faults</span><span class="ds-badge ds-badge-muted">{{ $openItemCounts['faults'] }}</span>
                 </a>
+                @endfeature
+                @feature('rental-work-orders')
                 <a href="{{ route('corex.rental-work-orders.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
                     <span>Open work orders</span><span class="ds-badge ds-badge-muted">{{ $openItemCounts['work_orders'] }}</span>
                 </a>
+                @endfeature
+                @feature('rental-inspections')
                 <a href="{{ route('corex.rental-inspections.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
                     <span>Unsigned inspections</span><span class="ds-badge ds-badge-muted">{{ $openItemCounts['inspections'] }}</span>
                 </a>
+                @endfeature
             </div>
 
             <div id="lease-edit-panel" class="hidden rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">

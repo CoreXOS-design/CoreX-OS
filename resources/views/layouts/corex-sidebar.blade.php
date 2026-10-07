@@ -750,11 +750,14 @@
                 <a href="{{ route('command-center.today') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard', 'command-center.today') ? 'active' : '' }}">Today</a>
                 <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar') ? 'active' : '' }}">Calendar</a>
                 <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
+                @feature('performance-dashboards')
                 <a href="{{ route('command-center.reporting.agent') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agent') ? 'active' : '' }}">My Performance</a>
+                @endfeature
                 @php $pendingInvites = auth()->check() ? \App\Models\CommandCenter\CalendarEventInvitation::forUser(auth()->id())->pending()->count() : 0; @endphp
                 <a href="{{ route('command-center.calendar.invitations') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar.invitations*') ? 'active' : '' }}">
                     Invitations @if($pendingInvites > 0) <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $pendingInvites }}</span> @endif
                 </a>
+                @feature('performance-dashboards')
                 @permission('dashboard.oversight.view')
                 <a href="{{ route('command-center.reporting.branch') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.branch') ? 'active' : '' }}">Branch Report</a>
                 @endpermission
@@ -768,6 +771,7 @@
                     <a href="{{ route('corex.dashboard.oversight') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard.oversight') ? 'active' : '' }}">Oversight</a>
                 @endpermission
                 <a href="{{ route('command-center.performance') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.performance*') ? 'active' : '' }}">Performance</a>
+                @endfeature
                 <a href="{{ route('command-center.user-settings') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.user-settings*') ? 'active' : '' }}">User Settings</a>
             </div>
         </div>
@@ -826,6 +830,7 @@
                 );
             }
         @endphp
+        @feature('assistants')
         @if($_hasAssistants)
         <a href="{{ route('agent.assistants.index') }}"
            class="corex-nav-item {{ request()->routeIs('agent.assistants.*') ? 'active' : '' }}">
@@ -835,6 +840,7 @@
             <span>My Assistants</span>
         </a>
         @endif
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              REAL ESTATE (expandable group)
@@ -931,6 +937,7 @@
 
                 {{-- CMA / deeds capture (phase 1) — its OWN screen; deeds captures are
                      filtered OUT of MIC Opportunities and reviewed/promoted here. --}}
+                @feature('deeds-capture')
                 @permission('deeds_capture.access')
                 @if(\Illuminate\Support\Facades\Route::has('corex.deeds-capture.index'))
                 <a href="{{ route('corex.deeds-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.deeds-capture.*') ? 'active' : '' }}">
@@ -938,6 +945,7 @@
                 </a>
                 @endif
                 @endpermission
+                @endfeature
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
@@ -952,11 +960,13 @@
                 {{-- AT-419 — off-market P24-imported stock, split out from Properties.
                      Own permission key so visibility can be toggled independently of
                      access_properties above. --}}
+                @feature('imported-stock')
                 @permission('access_imported_stock')
                 @if(\Illuminate\Support\Facades\Route::has('corex.properties.imported-stock'))
                 <a href="{{ route('corex.properties.imported-stock') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.properties.imported-stock') || (request()->routeIs('corex.properties.*') && session('corex.lens.properties_imported', false))) ? 'active' : '' }}">Imported Stock</a>
                 @endif
                 @endpermission
+                @endfeature
 
                 @permission('access_contacts')
                 @if(\Illuminate\Support\Facades\Route::has('corex.contacts.index'))
@@ -1013,7 +1023,9 @@
                      remembers which board the user most recently entered through
                      (set by BuyerPipelineController::index()) so this item doesn't
                      light up for a buyer opened from the Rentals board. --}}
+                @feature('buyer-pipeline')
                 <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.buyers*') && !session('corex.lens.pipeline', false) ? 'active' : '' }}">Buyer Pipeline</a>
+                @endfeature
 
                 {{-- AT-XX — Viewing Packs (buyer-facing property packs).
                      Gated on access_viewing_packs to match the route group
@@ -1160,6 +1172,7 @@
              sees the "Rentals" group at all — otherwise they'd have the
              right to the queue but never see the toggle that leads to it. --}}
         @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned']) || $user->isRentalApplicationAuthoriser()))
+        @feature('rentals')
         <div>
             <button type="button" @click="push('rental-applications')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'rental-applications' ? 'active' : '' }}">
@@ -1195,40 +1208,52 @@
                      panel per Johan's approved design (2026-10-04): the one screen
                      that shows every rental property's state across the whole
                      module at a glance. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-command-centre')
                 @permission('rental_command_centre.view')
                 <a href="{{ route('corex.rentals.command-centre.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.command-centre.*') ? 'active' : '' }}">Command Centre</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rentals-reports.md — AT-443. Same-day nav entry per
                      non-negotiable #2. --}}
+                @feature('rental-reports')
                 @permission('rental_reports.view')
                 <a href="{{ route('corex.rentals.reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.reports.*') ? 'active' : '' }}">Reports</a>
                 @endpermission
+                @endfeature
 
+                @feature('rental-applications')
                 @permission('rental_applications.view')
                 <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/leases.md — the spine of rentals: property + tenant(s) +
                      terms, with in-inspection/out-inspection/work-orders all hanging
                      off it. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-leases')
                 @permission('leases.view')
                 <a href="{{ route('corex.leases.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
                      migration of an existing rental book. Same-day nav entry per
                      non-negotiable #2. --}}
+                @feature('rental-take-on-import')
                 @permission('rentals_take_on_import.view')
                 <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.take-on-import.*') ? 'active' : '' }}">Rental Take-On Import</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
                      every inspection; recording actually happens on the property's
                      Rental Images tab. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-inspections')
                 @permission('rental_inspections.view')
                 <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "theres no
                      seperate inventory left pane menu item. it lives on a property."
@@ -1237,48 +1262,64 @@
 
                 {{-- .ai/specs/rentals-faults-work-orders.md §2/§8.1 — the agency's fault
                      catalogue. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-faults')
                 @permission('rental_fault_types.view')
                 <a href="{{ route('corex.rental-fault-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-types.*') ? 'active' : '' }}">Rental Fault Types</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
                      record (settled 2026-09-24/25), not a tab within work orders. Same-day
                      nav entry per non-negotiable #2. --}}
+                @feature('rental-faults')
                 @permission('rental_fault_reports.view')
                 <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}">Rental Fault Reports</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work
                      orders themselves. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-work-orders')
                 @permission('rental_work_orders.view')
                 <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
                 @endpermission
+                @endfeature
 
                 {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
                      nav entry per non-negotiable #2. --}}
+                @feature('rental-notices')
                 @permission('rental_notices.create')
                 <a href="{{ route('corex.rental-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-notices.*') ? 'active' : '' }}">Rental Notices</a>
                 @endpermission
+                @endfeature
 
                 {{-- .ai/specs/rental-work-orders.md §14 (AT-442) — the internal
                      counterpart to an outside-supplier work order. Same-day nav
                      entry per non-negotiable #2. --}}
+                @feature('rental-job-cards')
                 @permission('rental_job_cards.view')
                 <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-job-cards.*') ? 'active' : '' }}">Job Cards</a>
                 @endpermission
+                @endfeature
 
                 {{-- Agency VAT set-up (2026-10-05) — Johan: surface the catalogue
                      from the Rentals panel too, not just Settings, since it sits
                      directly under Job Cards in the agent's own workflow. --}}
                 @permission('rental_catalogue.view')
+                @feature('rental-catalogue')
                 <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-catalogue-items.*') ? 'active' : '' }}">Parts &amp; Labour Catalogue</a>
+                @endfeature
                 {{-- 2026-10-05 — crews are picked on job cards the same way the catalogue is, so it sits right next to it. --}}
+                @feature('rental-crews')
                 <a href="{{ route('corex.rental-crews.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}">Rental Crews</a>
+                @endfeature
                 @endpermission
 
+                @feature('rental-applications')
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif
+                @endfeature
 
                 {{-- AT-403 — Johan: "rental menu - wheres my rental contacts?"
                      Entry point into the SAME Contacts screen as the main
@@ -1314,9 +1355,11 @@
                 {{-- Stays highlighted on a buyer card opened from this board
                      (session('corex.lens.pipeline') — see the Buyer Pipeline
                      item above). --}}
+                @feature('buyer-pipeline')
                 @permission('buyer_pipeline.view')
                 <a href="{{ route('corex.rentals.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') || (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) ? 'active' : '' }}">Rental Pipeline</a>
                 @endpermission
+                @endfeature
 
                 {{-- AT-401 — entry point into the SAME Core Matches screen as
                      Real Estate → Core Matches, listing_type locked to rental
@@ -1337,6 +1380,7 @@
                 @endfeature
             </div>
         </div>
+        @endfeature
         @endif
 
         {{-- ═══════════════════════════════════════════
@@ -1464,6 +1508,7 @@
              MY EARNINGS — AT-267 §10: an assistant has no commission of their own; hidden for them
              (the /my-earnings route is also deny_assistant-guarded, so nav and route agree).
              ═══════════════════════════════════════════ --}}
+        @feature('commission-management')
         @unless(auth()->user()?->is_assistant)
         <a href="{{ route('commission.dashboard') }}"
            class="corex-nav-item {{ request()->routeIs('commission.dashboard') ? 'active' : '' }}">
@@ -1473,6 +1518,7 @@
             <span>My Earnings</span>
         </a>
         @endunless
+        @endfeature
 
         {{-- What's New moved to TOOLS, below Filing Register (2026-07-26). --}}
 
@@ -2115,8 +2161,8 @@
              never disagree (an "HR" button that opens to a Documents-less,
              Payroll-less empty panel would be its own bug). --}}
         @php
-            $hrCanSeePayroll = $user && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']);
-            $hrCanSeeDocuments = $user && \App\Models\Compliance\PpraEmploymentLetter::userCanUseAdminRegister($user);
+            $hrCanSeePayroll = $user && feature('payroll') && $user->hasAnyPermission(['manage_payroll', 'run_payroll', 'view_payroll_reports']);
+            $hrCanSeeDocuments = $user && feature('ppra-employment-letters') && \App\Models\Compliance\PpraEmploymentLetter::userCanUseAdminRegister($user);
         @endphp
         @if($hrCanSeePayroll || $hrCanSeeDocuments)
         <div class="corex-nav-divider"></div>
@@ -2175,6 +2221,7 @@
                      Johan sends those documents — deliberately no dead links
                      for them yet. --}}
                 @if($hrCanSeeDocuments)
+                @feature('ppra-employment-letters')
                 <div>
                     <button type="button" @click="push('hr-documents')"
                             class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('hr-documents') ? 'active' : '' }}">
@@ -2192,6 +2239,7 @@
                         <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ppra-employment-letters.*') ? 'active' : '' }}">PPRA FFC Letter</a>
                     </div>
                 </div>
+                @endfeature
                 @endif
             </div>
         </div>
@@ -2247,7 +2295,7 @@
              link off Market Intelligence). Gated by its own existing permission
              (access_prospecting + prospecting feature — same as the route
              itself), not a new key. --}}
-        @if($user && ($user->hasAnyPermission(['view_performance', 'view_buyers_report']) || $user->hasPermission('access_prospecting')))
+        @if($user && (($user->hasPermission('view_performance') && feature('performance-roi-report')) || ($user->hasPermission('view_buyers_report') && feature('buyers-report')) || ($user->hasPermission('access_prospecting') && feature('prospecting'))))
         <div>
             <button type="button" @click="push('reports')"
                     class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('reports') ? 'active' : '' }}">
@@ -2265,21 +2313,27 @@
                 </button>
                 <div class="corex-nav-panel-title">Reports</div>
 
+                @feature('performance-roi-report')
                 @permission('view_performance')
                 <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report*') ? 'active' : '' }}">Performance &amp; ROI Report</a>
                 @endpermission
+                @endfeature
 
+                @feature('buyers-report')
                 @permission('view_buyers_report')
                 @if(\Illuminate\Support\Facades\Route::has('buyers-report.index'))
                 <a href="{{ route('buyers-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('buyers-report.*') ? 'active' : '' }}">Buyers Report</a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('prospecting')
                 @permission('access_prospecting')
                 @if(\Illuminate\Support\Facades\Route::has('market-intelligence.suburb-report.index'))
                 <a href="{{ route('market-intelligence.suburb-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.suburb-report*') ? 'active' : '' }}">Suburb Report</a>
                 @endif
                 @endpermission
+                @endfeature
             </div>
         </div>
         {{-- AT-401 — this @endif was previously missing here: Reports'
@@ -2510,9 +2564,11 @@
                 @endpermission
 
                 {{-- Billing — what THIS agency pays CoreX (read-only). Spec: agency-billing.md §8.3 (AT-11) --}}
+                @feature('billing')
                 @permission('billing.view')
                 <a href="{{ route('billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('billing.*') ? 'active' : '' }}">Billing</a>
                 @endpermission
+                @endfeature
 
                 {{-- Proforma Invoice list — moved here from Agency Tracker. Still
                      scoped own/branch/all via proforma.view (Role Manager). --}}
@@ -2529,15 +2585,19 @@
                 {{-- AT-267 — Assistants. Sits beside Role Manager because it is the same kind of
                      decision: who may do what. The difference is that an assistant's permissions
                      are chosen by their agent, not by a role. --}}
+                @feature('assistants')
                 @permission('assistants.view')
                 @if(\Illuminate\Support\Facades\Route::has('admin.assistants.index'))
                 <a href="{{ route('admin.assistants.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.assistants.*') ? 'active' : '' }}">Assistants</a>
                 @endif
                 @endpermission
+                @endfeature
 
+                @feature('soft-deletes')
                 @permission('access_soft_deletes')
                 <a href="{{ route('admin.soft-deletes.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.soft-deletes.*') ? 'active' : '' }}">Soft Deletes</a>
                 @endpermission
+                @endfeature
 
                 @feature('staff-take-on')
                 @permission('manage_staff_take_on')
@@ -2562,6 +2622,7 @@
 
         {{-- PPRA Inspection Pack — pure Admin feature (Johan's ruling 2026-09-28),
              admin/super_admin only, never nested under Compliance. --}}
+        @feature('ppra-inspection-pack')
         @permission('ppra_inspection_pack.view')
         <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ppra-inspection-pack.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -2570,6 +2631,7 @@
             <span>PPRA Inspection Pack</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- PPRA FFC Employment Letter moved into the new top-level HR menu,
              2026-10-05 (Johan) — HR → Documents → "PPRA FFC Letter". Same
@@ -2578,6 +2640,7 @@
              its new home. --}}
 
         {{-- Ellie Reference Sources (ellie-reference-sources spec) — super_admin only --}}
+        @feature('ellie')
         @permission('manage_reference_sources')
         <a href="{{ route('admin.ellie.reference-sources.index') }}" class="corex-nav-item {{ request()->routeIs('admin.ellie.reference-sources.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -2586,6 +2649,7 @@
             <span>Ellie Reference Sources</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Marketing Suppressions (AT-49) --}}
         @feature('marketing-suppressions')
@@ -2600,6 +2664,7 @@
         @endfeature
 
         {{-- Misfiled Documents (AT-167) --}}
+        @feature('misfiled-documents')
         @permission('access_misfiled_documents')
         <a href="{{ route('admin.misfiled-documents.index') }}" class="corex-nav-item {{ request()->routeIs('admin.misfiled-documents.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -2608,6 +2673,7 @@
             <span>Misfiled Documents</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Training Management moved to System Developer → Hidden (owner-only). --}}
 
@@ -2628,6 +2694,7 @@
         @endif
 
         {{-- Finance Engine --}}
+        @feature('finance-engine')
         @permission('access_finance_engine')
         <a href="{{ route('admin.finance.definitions') }}" class="corex-nav-item {{ request()->routeIs('admin.finance.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -2636,8 +2703,10 @@
             <span>Finance Engine</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- Contact Governance + Leave Visibility (admin/super_admin/owner) --}}
+        @feature('contact-governance')
         @if($user && in_array($user->role, ['admin', 'super_admin', 'owner']))
         <a href="{{ route('command-center.settings.contact-governance') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.contact-governance*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -2646,6 +2715,7 @@
             <span>Contact Governance</span>
         </a>
         @endif
+        @endfeature
 
         {{-- Deals (slide-panel group) --}}
         {{-- AT-219 (DR2 sunset): the abandoned deals-v2 prototype register is RETIRED (soft).

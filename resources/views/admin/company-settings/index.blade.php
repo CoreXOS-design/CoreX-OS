@@ -610,7 +610,7 @@
                  RentalVatType's own rate_mode works. ── --}}
             <div class="rounded-md p-4 space-y-3 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Catalogue Item Types</div>
-                <p class="text-xs" style="color:var(--text-muted);">Used on the <a href="{{ route('corex.rental-catalogue-items.index') }}" class="underline">parts &amp; labour catalogue</a>. Every type maps onto Labour or Part so job card reporting always adds up correctly.</p>
+                <p class="text-xs" style="color:var(--text-muted);">Used on the @feature('rental-catalogue')<a href="{{ route('corex.rental-catalogue-items.index') }}" class="underline">parts &amp; labour catalogue</a>@else parts &amp; labour catalogue @endfeature. Every type maps onto Labour or Part so job card reporting always adds up correctly.</p>
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
@@ -720,7 +720,7 @@
             {{-- ── Catalogue units — Pastel-style enhancement, 2026-10-05. ── --}}
             <div class="rounded-md p-4 space-y-3 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Catalogue Units</div>
-                <p class="text-xs" style="color:var(--text-muted);">Used on the <a href="{{ route('corex.rental-catalogue-items.index') }}" class="underline">parts &amp; labour catalogue</a> — a job card line reads quantity and unit together, e.g. "1 dozen screws".</p>
+                <p class="text-xs" style="color:var(--text-muted);">Used on the @feature('rental-catalogue')<a href="{{ route('corex.rental-catalogue-items.index') }}" class="underline">parts &amp; labour catalogue</a>@else parts &amp; labour catalogue @endfeature — a job card line reads quantity and unit together, e.g. "1 dozen screws".</p>
 
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
@@ -824,7 +824,9 @@
             <div class="rounded-md p-4 space-y-2 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Rental Crews</div>
                 <p class="text-xs" style="color:var(--text-muted);">The people (or named teams) picked on a job card's Assign dropdown — set up here, never a CoreX login.</p>
+                @feature('rental-crews')
                 <a href="{{ route('corex.rental-crews.index') }}" class="corex-btn-secondary text-xs px-3 py-1.5 inline-block">Manage crews</a>
+                @endfeature
             </div>
 
             {{-- ── Proforma Invoice — Banking & Numbering (Accounting pillar) ── --}}

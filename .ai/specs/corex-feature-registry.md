@@ -246,6 +246,11 @@ real external or structural consequence.
     'settings_section' => 'feature-rentals', // $railGroups anchor in corex/settings.blade.php
     'route_prefixes'   => ['rental', 'rentals'], // for the phase-4 feature:<key> middleware
     'global_flag'      => null,         // optional key in config/features.php for the outer AND
+    // ── added 2026-10-07 (§8.2) — both OPTIONAL ──
+    'route_names'      => ['corex.leases.*'], // Str::is() globs of the signed-in WEB routes this feature owns;
+                                              // EnforceFeatureRoutes 404s them when the feature is off
+    'view_dirs'        => ['corex/leases/'],  // views/ prefixes of its OWN screens; any other view that links to
+                                              // its routes must wrap the link in @feature('<key>') (guard test)
 ],
 ```
 - `explain` — a full sentence: what the module is (STANDARDS F.8, no jargon, no codenames).
@@ -472,6 +477,101 @@ future phase could template it; v1 wraps existing items. A test asserts every no
 feature with a `sidebar_section` has a matching `@feature('<key>')` guard in the sidebar (so a new
 feature can't ship nav-ungated — Non-neg #2 structural).
 
+### 8.2 Sidebar completeness — every sidebar item is switchable (Andre + Johan, 2026-10-07, STANDING RULE)
+
+**The rule:** anything added to the sidebar must be switchable on/off under Settings → Features.
+A feature that is off must (a) hide the sidebar item, (b) refuse its routes, (c) hide links to it
+on every other screen, and (d) hide a parent group whose children are all off. The toggle beats the
+Role Manager permission (feature AND permission, §3.1). Everything defaults ON, so no existing
+agency loses anything. The Setup Wizard's capabilities step is generated from the registry (§7), so
+a new row appears there with no extra work. Enforced by `FeatureNavGuardCoverageTest` (below).
+
+**What was missing before this section:** the registry covered ~23 modules, and the original guard
+(§12 #11) only checked registry → sidebar. A new sidebar item with *no* registry row slipped through,
+which is how the Rentals menu (17 links), Deeds Capture, Imported Stock, Buyer Pipeline, the HR PPRA
+letter, Performance/Buyers reports and seven Company-menu items shipped with no switch.
+
+**Route refusal is central, not scattered.** `App\Http\Middleware\EnforceFeatureRoutes` (global in the
+`web` group, same precedent as `DenyAssistantRecordMutation`) reads each feature's `route_names` globs
+and 404s a signed-in request to a matching route when the owning feature resolves off — same answer
+and same decision source as `CheckFeature`. A new route inside an owned glob is covered the day it is
+added. A route matching several features' globs needs all of them on (e.g. the Rentals pipeline lens
+is both `rentals` and `buyer-pipeline`). It is inert for guests: tenant / landlord / contractor secure
+links and public application forms are never affected by an agency switching a module off.
+
+**The catalogue added (all `default => true`, `core => false`):**
+
+| Category | Key | Sidebar item(s) it switches | Depends on |
+|----------|-----|-----------------------------|------------|
+| Rentals | `rentals` *(existing, now the master switch)* | the whole Rentals group + its Contacts / Properties / Core Matches lenses, contact "Rental" tab | — |
+| Rentals | `rental-command-centre` | Command Centre | rentals |
+| Rentals | `rental-reports` | Reports | rentals |
+| Rentals | `rental-applications` | Rental Applications, Rental Application Authorisation | rentals |
+| Rentals | `rental-leases` | Leases | rentals |
+| Rentals | `rental-take-on-import` | Rental Take-On Import | rentals |
+| Rentals | `rental-inspections` | Rental Inspections (+ inventories) | rentals |
+| Rentals | `rental-faults` | Rental Fault Types, Rental Fault Reports | rentals |
+| Rentals | `rental-work-orders` | Rental Work Orders | rentals |
+| Rentals | `rental-notices` | Rental Notices | rentals, rental-leases |
+| Rentals | `rental-job-cards` | Job Cards | rentals |
+| Rentals | `rental-catalogue` | Parts & Labour Catalogue | rentals |
+| Rentals | `rental-crews` | Rental Crews | rentals |
+| Prospecting & Outreach | `deeds-capture` | Deeds Capture | — |
+| Listings & Marketing | `imported-stock` | Imported Stock (other agency stock) | — |
+| Buyers & Matching | `buyer-pipeline` | Buyer Pipeline, Rental Pipeline, the Core Matches "Update buyer pipeline" button | — |
+| Reports & Performance | `performance-roi-report` | Performance & ROI Report | — |
+| Reports & Performance | `buyers-report` | Buyers Report | — |
+| Reports & Performance | `performance-dashboards` | Dashboard: My Performance, Branch/Agency Report, Lost Deals, Oversight, Performance | — |
+| People & Payroll | `ppra-employment-letters` | HR → Documents → PPRA FFC Letter, and the agent's My Portal letter tab | — |
+| Company & Admin | `billing` | Billing | — |
+| Company & Admin | `assistants` *(switchboard-origin)* | Assistants, My Assistants | — |
+| Company & Admin | `soft-deletes` | Soft Deletes | — |
+| Company & Admin | `ppra-inspection-pack` | PPRA Inspection Pack | — |
+| Company & Admin | `misfiled-documents` | Misfiled Documents | — |
+| Company & Admin | `finance-engine` | Finance Engine | — |
+| Company & Admin | `contact-governance` | Contact Governance | — |
+
+Existing keys that gained items: `commission-management` (My Earnings), `prospecting` (Suburb Report),
+`ellie` (Ellie Reference Sources).
+
+**`assistants` is a seventh switchboard-origin key (§7.2), not a new store.** Assistants already had an
+agency switch (`agencies.assistants_enabled`: Company Settings, the Setup Wizard, the My Assistants menu).
+The Features key reads that column, so there is one switch for the feature rather than two that can
+disagree. It ships OFF by design (kill switch), and `agency:backfill-features` skips it.
+
+**Groups that hide themselves.** Rentals (`@feature('rentals')` around the group), HR (its two inputs
+include `feature('payroll')` / `feature('ppra-employment-letters')`), Reports (outer gate = any of its
+three reports still on). Company and Dashboard always keep core items, so they never empty.
+
+**Exempt from a toggle, on purpose (explicit list: `App\Support\Navigation\SidebarFeatureCoverage`):**
+core pillar pages (Today / Calendar / Tasks / User Settings, My Portal, Properties, Map, Contacts,
+Deal Register & its settings, Settings, Company Settings, Role Manager, What's New — each tied to a
+`'core' => true` key, asserted by the guard) and the System-Owner-only System Developer section
+(Agency, API & Server, Integration, Importer, Hidden — agencies never see them).
+
+**Not gated, by decision (reported to Johan):**
+- Settings-page configuration screens (`corex.settings.*`, `rental.settings.*`): an agency can still
+  configure Rentals/etc. while a module is switched off. Only the *links from Settings to a feature's
+  own pages* are hidden.
+- The tenant / landlord client API (`api/v1/client/rentals/*`), public secure links and public forms:
+  not sidebar-reachable, and a signed-in-agent toggle should not silently kill a tenant's link.
+- A property's rental tabs (details / inspection rooms / images) — part of the property record.
+
+**Guard — `tests/Feature/Features/FeatureNavGuardCoverageTest.php`** (extends the existing sidebar
+audit; `SidebarNavAuditor` gained per-link `features` + `owner_only`; `scripts/sidebar-nav-audit.php`
+prints the same offenders):
+1. registry → sidebar (the original AC-11);
+2. **sidebar → registry**: every link sits in an `@feature` wrap or is an explicit exemption;
+3. every `@feature` key a link is wrapped in exists and is not core; every feature key used in *any* view
+   exists (an unknown key silently resolves OFF);
+4. core exemptions are justified by a `'core' => true` key and never cover a route a feature owns;
+5. every `route_names` glob matches a real route (a typo would enforce nothing);
+6. **cross-links**: any view outside a feature's `view_dirs` that links to its routes contains `@feature('<key>')`.
+
+Behaviour is proven in `tests/Feature/Features/SidebarFeatureTogglesTest.php` (404 on off, parent
+cascade, tenant isolation, two-feature routes, guests untouched, sidebar items and groups hiding,
+every toggle on the Settings screen and in the Wizard).
+
 ---
 
 ## 9. Permissions (Non-neg #5)
@@ -560,6 +660,12 @@ feature can't ship nav-ungated — Non-neg #2 structural).
 13. Multi-tenancy: Agency A can never read/write Agency B's `agency_features`; no
     `withoutGlobalScope` in request code.
 14. No raw error reaches a user on any bad-input path (§11); unknown key logs + fails closed.
+15. (2026-10-07, §8.2) Every sidebar link has a Features toggle or is an explicit core / owner-only
+    exemption; a feature that is off hides its item, 404s its routes (`EnforceFeatureRoutes`), hides
+    links to it from other screens, and a group with all children off hides itself. Guard test fails
+    otherwise.
+16. (2026-10-07) All sidebar-completeness toggles default ON; an agency that never opened Features
+    sees exactly what it saw before.
 
 ---
 
@@ -572,6 +678,8 @@ override, core-always-on, `depends_on` cascade (+ cycle rejected), env kill-swit
 (BUILD_STANDARD §5). **Do NOT run the full suite** (Non-neg #13) — this file only.
 Later phases add their own focused files (settings-saver guard extends
 `AgencySetupWizardSaverGuardTest`; nav guard test; per-module route-gate tests).
+Sidebar completeness (2026-10-07, §8.2): `FeatureNavGuardCoverageTest` (structural guard) and
+`SidebarFeatureTogglesTest` (route refusal, sidebar rendering, Settings screen + Wizard).
 
 ---
 

@@ -19,12 +19,16 @@
  *   php scripts/sidebar-nav-audit.php --dump-rules  # just the parsed $activeGroup chain
  *   php scripts/sidebar-nav-audit.php --refresh-routes  # force-regenerate the routes cache
  *
+ * Also lists every sidebar link that has NO Settings → Features on/off toggle and is not an explicit
+ * core / System-Owner-only exemption (standing rule, 2026-10-07 — App\Support\Navigation\SidebarFeatureCoverage).
+ *
  * Exit code is always 0 (this is a reporting tool, not a gate) — the gate
  * lives in the PHPUnit test, which calls the same class directly.
  */
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use App\Support\Navigation\SidebarFeatureCoverage;
 use App\Support\Navigation\SidebarNavAuditor;
 
 $root = dirname(__DIR__);
@@ -71,4 +75,13 @@ foreach ($result['rows'] as $r) {
         $r['conditional_alt_group'] ?? '-',
         $r['items'] ? implode('; ', $r['items']) : '(none)'
     );
+}
+
+echo "\n=== Sidebar links with no Features on/off toggle (standing rule) ===\n";
+$uncovered = SidebarFeatureCoverage::uncovered($result['navEntries']);
+if (!$uncovered) {
+    echo "none — every sidebar link has a toggle or an explicit exemption\n";
+}
+foreach ($uncovered as $e) {
+    echo sprintf("line %d: %s (%s) group=%s\n", $e['line'], $e['label'], $e['route_name'] ?? 'no route', $e['group'] ?? '-');
 }

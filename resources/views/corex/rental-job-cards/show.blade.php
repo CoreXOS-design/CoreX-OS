@@ -97,7 +97,9 @@
                     @endpermission
                 @endif
                 @if($jobCard->rental_work_order_id)
+                    @feature('rental-work-orders')
                     <a href="{{ route('corex.rental-work-orders.show', $jobCard->rental_work_order_id) }}" class="corex-btn-outline text-xs">View work order</a>
+                    @endfeature
                 @endif
             @endif
             <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-btn-outline text-xs">&larr; All job cards</a>
@@ -238,7 +240,7 @@
                         @if($displayFaultReport)
                             <div class="text-sm space-y-1 rounded-md p-2" style="background: var(--surface-alt, rgba(0,0,0,.02)); border: 1px solid var(--border);">
                                 <div>
-                                    <a href="{{ route('corex.rental-fault-reports.show', $displayFaultReport) }}" class="underline">Fault report #{{ $displayFaultReport->id }}</a>
+                                    @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.show', $displayFaultReport) }}" class="underline">Fault report #{{ $displayFaultReport->id }}</a>@else Fault report #{{ $displayFaultReport->id }} @endfeature
                                     — {{ $displayFaultReport->title }}
                                 </div>
                                 <div style="color: var(--text-muted);">{{ $displayFaultReport->description }}</div>
@@ -258,7 +260,7 @@
                         @if($displayWorkOrder)
                             <div class="text-sm space-y-1 rounded-md p-2" style="background: var(--surface-alt, rgba(0,0,0,.02)); border: 1px solid var(--border);">
                                 <div>
-                                    <a href="{{ route('corex.rental-work-orders.show', $displayWorkOrder) }}" class="underline">Work order #{{ $displayWorkOrder->id }}</a>
+                                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $displayWorkOrder) }}" class="underline">Work order #{{ $displayWorkOrder->id }}</a>@else Work order #{{ $displayWorkOrder->id }} @endfeature
                                     — {{ $displayWorkOrder->title }}
                                 </div>
                                 <div style="color: var(--text-muted);">{{ $displayWorkOrder->description }}</div>
@@ -271,7 +273,7 @@
                         @if($jobCard?->workOrder?->reportedInspectionObservation?->inspection)
                             <div class="text-sm">
                                 <span style="color: var(--text-muted);">From inspection:</span>
-                                <a href="{{ route('corex.rental-inspections.show', $jobCard->workOrder->reportedInspectionObservation->inspection) }}" class="underline">{{ ucfirst(str_replace('_', '-', $jobCard->workOrder->reportedInspectionObservation->inspection->type)) }}-inspection {{ $jobCard->workOrder->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $jobCard->workOrder->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }}</a>
+                                @feature('rental-inspections')<a href="{{ route('corex.rental-inspections.show', $jobCard->workOrder->reportedInspectionObservation->inspection) }}" class="underline">{{ ucfirst(str_replace('_', '-', $jobCard->workOrder->reportedInspectionObservation->inspection->type)) }}-inspection {{ $jobCard->workOrder->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $jobCard->workOrder->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }}</a>@else {{ ucfirst(str_replace('_', '-', $jobCard->workOrder->reportedInspectionObservation->inspection->type)) }}-inspection {{ $jobCard->workOrder->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $jobCard->workOrder->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }} @endfeature
                             </div>
                         @endif
                     @endif
@@ -598,7 +600,9 @@
                     <button type="submit" class="corex-btn-outline text-xs">Assign</button>
                 </form>
                 @permission('rental_catalogue.manage')
+                @feature('rental-crews')
                 <a href="{{ route('corex.rental-crews.index') }}" class="text-xs underline" style="color: var(--text-muted);">Manage crews</a>
+                @endfeature
                 @endpermission
                 <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-2">
                     @csrf

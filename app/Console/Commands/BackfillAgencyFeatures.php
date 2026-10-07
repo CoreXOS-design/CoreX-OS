@@ -39,7 +39,7 @@ class BackfillAgencyFeatures extends Command
     /** Switchboard-origin keys — owned by their existing store + the Phase 2 adapter. */
     private const SWITCHBOARD_KEYS = [
         'marketing', 'syndication-p24', 'syndication-pp',
-        'core-matches', 'multi-branch', 'public-website',
+        'core-matches', 'multi-branch', 'public-website', 'assistants',
     ];
 
     public function handle(): int

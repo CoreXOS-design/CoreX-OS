@@ -95,7 +95,9 @@
                     {{ $showArchived ? 'Archived packs will appear here.' : 'Open a buyer in the Buyer Pipeline and click “Build Viewing Pack”.' }}
                 </p>
                 @unless($showArchived)
+                    @feature('buyer-pipeline')
                     <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-btn-primary no-underline">Open Buyer Pipeline</a>
+                    @endfeature
                 @endunless
             </div>
         @else
