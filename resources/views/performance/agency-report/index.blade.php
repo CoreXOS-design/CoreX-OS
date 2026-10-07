@@ -207,9 +207,6 @@
     {{-- AT-366-E — company buyer-activity summary --}}
     @includeWhen(isset($buyer), 'performance.agency-report._buyer-summary')
 
-    {{-- Lead response (Johan, 2026-10-07) — same calculation + drill-down as the Buyers Report. --}}
-    @includeWhen(isset($leadResponse), 'performance.agency-report._lead-response')
-
     {{-- Branch rollup (sortable, drillable) — contained horizontal scroll (fix #1) --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">By branch</h2>

@@ -98,25 +98,33 @@
          column adds up to) and the small text names how many properties
          that's spread across — never two numbers that look like they
          disagree because one counts records and the other counts rows. --}}
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+    {{-- Compact tile strip (Johan, 2026-10-07: "the tiles are way too big … a max of 2 lines"; layout only —
+         what a tile counts is unchanged). Number and label sit side by side on one short row; six columns from
+         the lg breakpoint, so the eleven tiles make exactly TWO rows (6 + 5) at laptop and desktop widths (1366, 1920).
+         Narrower screens wrap to more rows (tablet 4 across, phone 2 across) — nothing scrolls sideways. The
+         freed height goes to the needs-action panel and the property list below, which fill the viewport. --}}
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5" data-qa="rcc-tiles">
         @foreach($tiles as $key => $label)
         @php
             $active = $filters['tile'] === $key;
             $isRecordBased = is_array($tileCounts[$key]);
             $bigNumber = $isRecordBased ? $tileCounts[$key]['records'] : (int) $tileCounts[$key];
+            $propertiesNote = $isRecordBased
+                ? 'on ' . number_format($tileCounts[$key]['properties']) . ' ' . \Illuminate\Support\Str::plural('property', $tileCounts[$key]['properties'])
+                : null;
         @endphp
         <a href="{{ $tileHref($key) }}"
-           class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"
+           class="pstat-v2 px-2.5 py-1.5 flex items-center gap-2 no-underline cursor-pointer min-w-0"
+           title="{{ $label }}{{ $propertiesNote ? ' · ' . $propertiesNote : '' }}"
+           data-qa="rcc-tile-{{ $key }}"
            style="{{ $active ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
-            <div class="min-w-0">
-                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format($bigNumber) }}</div>
-                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">
-                    {{ $label }}
-                    @if($isRecordBased)
-                        <span class="font-normal" style="text-transform: none; color: var(--text-muted);">&middot; on {{ number_format($tileCounts[$key]['properties']) }} {{ \Illuminate\Support\Str::plural('property', $tileCounts[$key]['properties']) }}</span>
-                    @endif
-                </div>
-            </div>
+            <span class="text-base font-bold leading-none tabular-nums flex-shrink-0" style="color:var(--text-primary);">{{ number_format($bigNumber) }}</span>
+            <span class="text-[0.6875rem] font-medium leading-tight min-w-0" style="color:var(--text-muted);">
+                {{ $label }}
+                @if($propertiesNote)
+                    <span class="font-normal">&middot; {{ $propertiesNote }}</span>
+                @endif
+            </span>
         </a>
         @endforeach
     </div>
@@ -277,6 +285,14 @@
              own scroll, and without the page itself ever needing to scroll
              to reach a row. --}}
         <div id="rcc-table-section" class="w-full lg:flex-1 min-w-0 flex flex-col" style="min-height: 0;">
+            {{-- Heading (Johan, 2026-10-07: the right-hand panel had none) — says what the list is, how many rows the
+                 current tile / search / filters leave, and which tile is filtering it. --}}
+            <div class="flex items-center justify-between gap-2 flex-shrink-0 mb-1.5">
+                <h2 class="text-sm font-semibold">Property list ({{ number_format($properties->total()) }})</h2>
+                @if($filters['tile'] && isset($tiles[$filters['tile']]))
+                    <span class="text-[11px]" style="color: var(--text-muted);">Showing: {{ $tiles[$filters['tile']] }}</span>
+                @endif
+            </div>
             {{-- Fix B2 (2026-10-05) — one line at normal desktop widths:
                  labels dropped in favour of aria-label/placeholder, padding
                  and control widths cut down, flex-nowrap with a local

@@ -85,16 +85,8 @@ class AgencyPerformanceReportController extends Controller
             session()->flash('compare_error', $compareError);
         }
 
-        // Lead response (Johan, 2026-10-07) — same one calculation the Buyers Report uses, over the viewer's
-        // own cohort (the ceiling travels inside $scope, so only entitled agents' leads can appear).
-        $leadResponse = app(\App\Services\LeadResponse\LeadResponseService::class)->report(
-            (int) $agencyId, $period,
-            app(\App\Services\Performance\HierarchyResolver::class)->agents($scope)->pluck('id')->map(fn ($i) => (int) $i)->all()
-        );
-
         return view('performance.agency-report.index', [
             'report' => $report,
-            'leadResponse' => $leadResponse,
             'buyer'  => [
                 'metrics'   => $buyerActivity['metrics'],
                 'aggregate' => $buyerActivity['company'],
@@ -270,14 +262,9 @@ class AgencyPerformanceReportController extends Controller
         $scope  = $scopes->ceiling($user);
         $report = $service->build($scope, $period);
         $buyerActivity = $buyers->rollup($scope, $period);
-        $leadResponse = app(\App\Services\LeadResponse\LeadResponseService::class)->report(
-            (int) $agencyId, $period,
-            app(\App\Services\Performance\HierarchyResolver::class)->agents($scope)->pluck('id')->map(fn ($i) => (int) $i)->all()
-        );
 
         return view('performance.agency-report.print-company', [
             'report' => $report,
-            'leadResponse' => $leadResponse,
             'buyer'  => ['metrics' => $buyerActivity['metrics'], 'aggregate' => $buyerActivity['company']],
             'agency' => \App\Models\Agency::withoutGlobalScopes()->find((int) $agencyId),
             'preset' => $preset,
@@ -334,7 +321,7 @@ class AgencyPerformanceReportController extends Controller
         ];
         $metricIn = (string) $request->query('metric', '');
         $metric   = $map[$metricIn] ?? $metricIn; // accept the short alias OR the full metric/tile key
-        abort_unless($metric === 'lead_response' || in_array($metric, PerformanceDrilldownService::METRICS, true), 422, 'Unknown metric.');
+        abort_unless(in_array($metric, PerformanceDrilldownService::METRICS, true), 422, 'Unknown metric.');
 
         $status = $request->filled('status') ? (string) $request->query('status') : null;
         abort_if($status !== null && !in_array($status, ['pending', 'granted', 'registered', 'declined', 'all'], true), 422, 'Unknown status.');
@@ -359,9 +346,6 @@ class AgencyPerformanceReportController extends Controller
         // The ceiling is ANDed onto the cohort too, so even the company-level
         // drill-down (and an unknown level) can only list entitled agents' rows.
         $cohort   = $drill->cohort($agencyId, $branchId, $agentId, $scopes->ceiling($actor));
-        if ($metric === 'lead_response') {
-            return $this->leadResponseDrilldown($request, $period, (int) $agencyId, $cohort, $level, $id);
-        }
         $res      = $drill->rows($metric, $cohort, $period, $agencyId, $metric === 'deals' ? $status : null);
 
         return response()->json([
@@ -369,41 +353,6 @@ class AgencyPerformanceReportController extends Controller
             'total'   => $res['count'],
             'columns' => $this->drilldownColumns($metric),
             'rows'    => array_map(fn ($r) => $this->drilldownRow($metric, $r), $res['rows']),
-        ]);
-    }
-
-    /** The leads behind any lead-response figure — the cohort (already scope-ceilinged) is the limit. */
-    private function leadResponseDrilldown(Request $request, Period $period, int $agencyId, array $cohort, string $level, ?int $id)
-    {
-        $svc = app(\App\Services\LeadResponse\LeadResponseService::class);
-        $subtype = (string) $request->query('subtype', 'received');
-        $subtype = in_array($subtype, \App\Services\LeadResponse\LeadResponseService::SUBTYPES, true) ? $subtype : 'received';
-        $source = $request->filled('source') ? (string) $request->query('source') : null;
-        if ($source !== null && ! array_key_exists($source, \App\Services\LeadResponse\LeadResponseService::SOURCES)) {
-            abort(422, 'Unknown source.');
-        }
-
-        $res = $svc->rows($agencyId, $period, $cohort, $subtype, null, $source);
-        $noun = [
-            'received' => 'leads received', 'in_target' => 'leads answered in target', 'late' => 'leads answered late',
-            'waiting' => 'leads not yet contacted', 'overdue' => 'leads not yet contacted and past target',
-            'responded' => 'answered leads (response times)',
-        ][$subtype];
-        $who = match ($level) {
-            'agent' => (string) (DB::table('users')->where('id', $id)->value('name') ?? 'Agent'),
-            'branch' => $id ? (string) (DB::table('branches')->where('id', $id)->value('name') ?? 'Branch') : 'Company',
-            default => 'Company',
-        };
-        if ($source !== null) {
-            $who .= ' · ' . \App\Services\LeadResponse\LeadResponseService::SOURCES[$source];
-        }
-
-        return response()->json([
-            'title'     => trim("{$res['count']} {$noun}") . " — {$who} · " . $period->label,
-            'total'     => $res['count'],
-            'columns'   => $svc->columns(),
-            'rows'      => $res['rows'],
-            'truncated' => $res['truncated'],
         ]);
     }
 
