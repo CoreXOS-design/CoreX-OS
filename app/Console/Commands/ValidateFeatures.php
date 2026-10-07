@@ -62,6 +62,19 @@ class ValidateFeatures extends Command
                     $errors[] = "[$key] depends_on unknown feature '$parent'.";
                 }
             }
+            // Optional route_names (route-name globs, enforced by EnforceFeatureRoutes) and view_dirs
+            // (own-screen view prefixes, used by the cross-link guard): lists of non-empty strings.
+            foreach (['route_names', 'view_dirs'] as $list) {
+                if (!array_key_exists($list, $def)) {
+                    continue;
+                }
+                if (!is_array($def[$list]) || array_filter($def[$list], fn ($v) => !is_string($v) || trim($v) === '')) {
+                    $errors[] = "[$key] '$list' must be a list of non-empty strings.";
+                }
+            }
+            if (!empty($def['core']) && !empty($def['route_names'])) {
+                $errors[] = "[$key] is core (never toggleable) — it cannot own route_names to refuse.";
+            }
         }
 
         // Cycle detection (DFS).

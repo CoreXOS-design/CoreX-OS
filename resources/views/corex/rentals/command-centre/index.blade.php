@@ -83,7 +83,9 @@
             @endif
             <a href="{{ route('corex.rentals.command-centre.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
             @if(\Illuminate\Support\Facades\Route::has('corex.rentals.reports.index'))
+            @feature('rental-reports')
             <a href="{{ route('corex.rentals.reports.index') }}" class="corex-btn-outline text-xs">Reports</a>
+            @endfeature
             @endif
         </div>
     </div>
@@ -348,13 +350,13 @@
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->active_end_date ? \Illuminate\Support\Carbon::parse($property->active_end_date)->format('Y-m-d') : ($property->active_month_to_month ? 'Month-to-month' : '—') }}</td>
                             <td class="px-3 py-2 whitespace-nowrap">
                                 @if((int) $property->open_faults_count > 0)
-                                    <a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_faults_count }} F</a>
+                                    @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_faults_count }} F</a>@else {{ (int) $property->open_faults_count }} F @endfeature
                                 @else
                                     <span style="color: var(--text-muted);">0 F</span>
                                 @endif
                                 ·
                                 @if((int) $property->open_work_orders_count > 0)
-                                    <a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_work_orders_count }} WO</a>
+                                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_work_orders_count }} WO</a>@else {{ (int) $property->open_work_orders_count }} WO @endfeature
                                 @else
                                     <span style="color: var(--text-muted);">0 WO</span>
                                 @endif
@@ -363,20 +365,34 @@
                             <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;">
                                 <x-row-actions-popup>
                                     @if($property->active_lease_id)
+                                    @feature('rental-leases')
                                     <a href="{{ route('corex.leases.show', $property->active_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open lease</a>
+                                    @endfeature
                                     {{-- AT-444 follow-up (2026-10-05) — opens the Lease Hub's matching
                                          "Lease actions" dialog directly (LeaseActionDialogResolver);
                                          ignored by the hub if not valid for the lease's current state. --}}
+                                    @feature('rental-leases')
                                     <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'renew']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Renew</a>
+                                    @endfeature
+                                    @feature('rental-leases')
                                     <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'tenant-notice']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Record notice</a>
+                                    @endfeature
                                     @if((int) $property->pending_renewal_draft_count > 0 && $property->pending_renewal_draft_lease_id)
+                                    @feature('rental-leases')
                                     <a href="{{ route('corex.leases.show', $property->pending_renewal_draft_lease_id) }}" class="block px-3 py-2 no-underline" style="color: var(--ds-red, #dc2626);">Cancel renewal draft</a>
+                                    @endfeature
                                     @endif
                                     @endif
                                     <a href="{{ route('corex.properties.show', $property->id) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Open property</a>
+                                    @feature('rental-faults')
                                     <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Report fault</a>
+                                    @endfeature
+                                    @feature('rental-work-orders')
                                     <a href="{{ route('corex.rental-work-orders.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">New work order</a>
+                                    @endfeature
+                                    @feature('rental-inspections')
                                     <a href="{{ route('corex.rental-inspections.create', ['property_id' => $property->id, 'lease_id' => $property->active_lease_id]) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Start inspection</a>
+                                    @endfeature
                                 </x-row-actions-popup>
                             </td>
                         </tr>

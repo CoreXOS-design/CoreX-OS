@@ -1,0 +1,16 @@
+[Unit]
+Description=CoreX QA1 (corex_qa1) Laravel queue worker — mail (dedicated; never shares a worker with long jobs) — QA-scoped, do not use for live/staging
+After=network.target mysql.service
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=3
+WorkingDirectory=/corex-qa1
+ExecStart=/usr/bin/php /corex-qa1/artisan queue:work --queue=mail --sleep=1 --tries=3 --max-time=3600
+StandardOutput=append:/var/log/corex-qa1-queue-mail.log
+StandardError=append:/var/log/corex-qa1-queue-mail.log
+
+[Install]
+WantedBy=multi-user.target

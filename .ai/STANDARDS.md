@@ -1177,6 +1177,20 @@ These are the non-negotiable rules for building CoreX. Every developer, every pr
 ### Navigation — No Orphaned Pages
 Every new page or feature must include a navigation path to reach it. A sidebar link, a button, a contextual action — something. If a user cannot navigate to a page without knowing the URL, the feature is incomplete.
 
+### Navigation — Every Sidebar Item Ships With A Features On/Off Toggle (Andre + Johan, 2026-10-07, standing rule)
+Anything added to the sidebar must be switchable on and off under **Settings → Features on/off**. A navigation entry with no switch is incomplete, exactly like a page with no navigation entry.
+
+A new sidebar item is not done until, in the SAME commit:
+1. **It has a row in `config/corex-features.php`** — label, plain-English `explain` and a concrete `affects`, `default => true` (nothing may disappear for an agency that already uses it), `depends_on` its parent module where it genuinely cannot work without it, a `category` that matches the sidebar group, and `route_names` (globs of the signed-in web routes it owns) plus `view_dirs` (its own screens). One row feeds the Settings screen AND the Setup Wizard — no second place to remember (this is also rule #10a).
+2. **The sidebar link is wrapped in `@feature('<key>')`.** A group whose children are all switched off hides itself — compute the group's visibility from the children's features, as the HR, Reports and Rentals groups do.
+3. **Its routes are refused when it is off.** `route_names` is enforced by `App\Http\Middleware\EnforceFeatureRoutes` (404, same as `feature:` middleware), so a hand-typed URL does not open it. A route matching several features' globs needs all of them on. The toggle beats the Role Manager permission.
+4. **Every other screen that links to it hides the link.** Wrap the link/button in `@feature('<key>')`; where the link sits inside a sentence, keep the text and drop the link (`@feature('k')<a …>text</a>@else text @endfeature`). Never leave a dead button on another page.
+5. **Not a duplicate switch.** If the feature already has a switch (e.g. Assistants → `agencies.assistants_enabled`), register it as a switchboard-origin key reading that store (`AgencyFeatureService::SWITCHBOARD_STORES`) — one switch, one home.
+
+Only two kinds of link may have no toggle, and both are listed explicitly in `App\Support\Navigation\SidebarFeatureCoverage`: a **core pillar page** (justified by a `'core' => true` registry key) and a **System-Owner-only** link (inside an `@if($isOwner)` block or an owner-only group). Do not add anything else there to make a test pass — add the toggle.
+
+**Enforced, not a paragraph:** `FeatureNavGuardCoverageTest` (extends the existing sidebar audit, `SidebarNavAuditor`) fails when a sidebar link sits outside every `@feature` wrap and is not exempt, when a view uses an unknown feature key (an unknown key silently resolves to OFF), when a `route_names` glob matches no route, and when a screen outside a feature's own views links to it without `@feature`. `php scripts/sidebar-nav-audit.php` lists the offenders. Spec: `.ai/specs/corex-feature-registry.md` §8.2.
+
 ### Soft Deletes — No Hard Deletes
 CoreX has a no-hard-deletes policy across the entire platform.
 - Show a "Delete" button to users

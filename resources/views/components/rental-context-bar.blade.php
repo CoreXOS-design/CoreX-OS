@@ -66,6 +66,16 @@
             'tenant' => ['label' => $tenantNames, 'route' => null, 'count' => null],
             'landlord' => ['label' => $landlordNames, 'route' => null, 'count' => null],
         ];
+
+        // Features on/off — a chip that points at a switched-off module is dropped, not left as a dead link.
+        $chips = array_filter($chips, fn ($k) => match ($k) {
+            'lease'       => feature('rental-leases'),
+            'application' => feature('rental-applications'),
+            'inspections' => feature('rental-inspections'),
+            'faults'      => feature('rental-faults'),
+            'work_orders' => feature('rental-work-orders'),
+            default       => true,
+        }, ARRAY_FILTER_USE_KEY);
     @endphp
     <div class="flex flex-wrap items-center gap-2 rounded-md p-2 text-xs mb-3" style="background: var(--surface-2); border: 1px solid var(--border);">
         @foreach($chips as $key => $chip)

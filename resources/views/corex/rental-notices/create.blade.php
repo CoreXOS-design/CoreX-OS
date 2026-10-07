@@ -42,6 +42,8 @@
         </form>
     @endif
 
+    @feature('rental-leases')
     <a href="{{ route('corex.leases.show', $lease) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">&larr; Back to Lease Hub</a>
+    @endfeature
 </div>
 @endsection

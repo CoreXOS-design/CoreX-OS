@@ -52,7 +52,7 @@
                         </td>
                         <td>
                             @if ($row->targetLease)
-                                <a href="{{ route('corex.leases.show', $row->target_lease_id) }}">Lease #{{ $row->target_lease_id }}</a>
+                                @feature('rental-leases')<a href="{{ route('corex.leases.show', $row->target_lease_id) }}">Lease #{{ $row->target_lease_id }}</a>@else Lease #{{ $row->target_lease_id }} @endfeature
                             @else
                                 —
                             @endif

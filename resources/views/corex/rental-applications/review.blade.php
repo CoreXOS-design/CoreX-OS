@@ -605,9 +605,24 @@
            agent would expect. Solid background + a bottom border, since
            this now sits ON TOP of the document's own page images while
            pinned, not beside them. */
+        /* QA1, 2026-10-07 — Johan, blocking his rentals test: "the income
+           highlighter is hidden underneath the header bar that shows '1 mark
+           Save 1 mark'." Root cause: this bar AND the pen rail beside the
+           document (document-highlighter-pages.blade.php — Income, Expense,
+           the other pens, Note, stroke, undo/redo) are both position:sticky
+           at top:0 of the SAME scroll box, and this bar (z-index 5) paints
+           over the rail, so once the document is scrolled the first pens
+           (Income is first) sit underneath it. Fix is one shared number: the
+           bar has a FIXED height (--rr-save-bar-h, content never wraps so
+           it can never grow past it) and the rail pins BELOW it at exactly
+           that offset. A fixed height, not a measured one, so there is no
+           script to drift and no first-paint flash. The rail takes only the
+           room under the bar — the document column is not narrowed at all. */
+        #continuousViewScroll { --rr-save-bar-h: 40px; }
         .rr-doc-save-bar {
             position: sticky; top: 0; z-index: 5;
-            background: var(--surface); padding: 6px 2px;
+            background: var(--surface); padding: 0 2px;
+            height: var(--rr-save-bar-h); box-sizing: border-box; flex-wrap: nowrap; white-space: nowrap;
             border-bottom: 1px solid transparent;
         }
         /* Loud only while there's something to lose — see the button's own
@@ -1578,7 +1593,7 @@
                                                  everything's saved — the absence of urgency is itself the
                                                  signal, same instinct as justSaved's own quiet confirmation
                                                  just below. --}}
-                                            <div class="flex items-center gap-3 mb-2 rr-doc-save-bar" :class="{ 'rr-doc-save-bar-dirty': dirty }">
+                                            <div class="flex items-center gap-3 mb-1 rr-doc-save-bar" :class="{ 'rr-doc-save-bar-dirty': dirty }">
                                                 <span class="text-xs font-semibold" style="color: var(--text-secondary);" x-show="!loading">
                                                     <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
                                                 </span>
