@@ -58,7 +58,7 @@
                 @endphp
                 <li class="py-2.5 flex items-center justify-between gap-3">
                     <div class="min-w-0">
-                        <a href="{{ route('corex.properties.show', $ep) }}" data-expiry-popup-link
+                        <a href="{{ route('corex.properties.show', $ep) }}" @click="send()"
                            class="text-sm font-medium truncate block hover:underline" style="color:var(--text-primary);">
                             {{ $ep->buildDisplayAddress() ?: ($ep->title ?: 'Property #' . $ep->id) }}
                         </a>
@@ -79,7 +79,7 @@
         </div>
 
         <div class="flex items-center justify-end gap-2 px-5 py-3" style="background:var(--surface-2); border-top:1px solid var(--border);">
-            <a href="{{ $__exViewAll }}" data-expiry-popup-link class="corex-btn-outline text-sm">View all</a>
+            <a href="{{ $__exViewAll }}" @click="send()" class="corex-btn-outline text-sm">View all</a>
             <button type="button" @click="close()" class="corex-btn-primary text-sm">Got it</button>
         </div>
     </div>
@@ -92,19 +92,15 @@
  * AT-448 — expiring-soon popup controller. Mirrors coreXSystemUpdates(): the
  * dismissal POST is fire-and-forget (the user is never trapped behind a modal
  * because our bookkeeping failed), keepalive so a click-through still records,
- * and a failure is logged to the console instead of swallowed.
+ * and a failure is logged to the console instead of swallowed. Links inside the
+ * modal call send() declaratively (@click) — no init() DOM walk, so the render
+ * gate exercises the real registration path.
  */
 function coreXExpiryPopup(ids, dismissUrl, scope) {
     return {
         open: true,
         ids: ids,
         sent: false,
-
-        init() {
-            this.$el.querySelectorAll('[data-expiry-popup-link]').forEach((link) => {
-                link.addEventListener('click', () => this.send());
-            });
-        },
 
         close() {
             this.open = false;
