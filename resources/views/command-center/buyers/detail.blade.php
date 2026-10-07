@@ -738,47 +738,7 @@
 
     {{-- Mark Lost Modal --}}
     @if($buyer->buyer_state !== 'lost')
-    <dialog x-ref="lostModal" class="rounded-md p-0 w-full max-w-md backdrop:bg-black/50" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-        <form method="POST" action="{{ route('command-center.buyers.mark-lost', $buyer) }}" class="p-5 space-y-4">
-            @csrf
-            {{-- AT-401 — heading/labels follow this contact's own wishlist type
-                 ($isRentalContact, computed above). The reason list itself is
-                 NOT split by listing_type today (agency_lost_deal_reasons has
-                 applies_to_buyers/applies_to_sellers only, no tenant column),
-                 so it stays the shared sales+rental list, unchanged — flagged
-                 to Johan rather than invented. --}}
-            <h3 class="text-lg font-semibold">Why is this {{ $isRentalContact ? 'tenant' : 'buyer' }} being marked as lost?</h3>
-            @php $reasons = DB::table('agency_lost_deal_reasons')->where('agency_id', $buyer->agency_id)->where('applies_to_buyers', true)->where('active', true)->orderBy('display_order')->get(); @endphp
-            <div class="space-y-1 max-h-48 overflow-y-auto">
-                @foreach($reasons as $reason)
-                    <label class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs" style="color: var(--text-primary);">
-                        <input type="radio" name="reason_code" value="{{ $reason->code }}" required class="w-3 h-3">
-                        <span>{{ $reason->label }}</span>
-                        <span class="text-[10px] ml-auto" style="color: var(--text-muted);">{{ $reason->category }}</span>
-                    </label>
-                @endforeach
-            </div>
-            <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes</label>
-                <textarea name="notes" rows="3" placeholder="Additional context…"
-                          class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
-            </div>
-            <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What did the {{ $isRentalContact ? 'tenant' : 'buyer' }} say? (optional)</label>
-                <textarea name="outcome" rows="3" placeholder="{{ $isRentalContact ? 'Tenant' : 'Buyer' }}'s actual words…"
-                          class="w-full rounded-md px-3 py-2 text-sm"
-                          style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
-            </div>
-            <div class="flex justify-end gap-2">
-                <button type="button" onclick="this.closest('dialog').close()" class="corex-btn-outline">Cancel</button>
-                <button type="submit" class="corex-btn-primary"
-                        style="background: var(--ds-crimson, #c41e3a); border-color: var(--ds-crimson, #c41e3a);">
-                    Mark Lost
-                </button>
-            </div>
-        </form>
-    </dialog>
+    @include('command-center.buyers._mark-lost-dialog', ['ref' => 'lostModal', 'agencyId' => $buyer->agency_id, 'noun' => $isRentalContact ? 'tenant' : 'buyer', 'action' => route('command-center.buyers.mark-lost', $buyer)])
     @endif
 
     {{-- Re-engage Modal --}}

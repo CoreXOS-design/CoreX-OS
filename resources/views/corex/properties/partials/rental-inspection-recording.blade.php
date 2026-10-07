@@ -617,14 +617,14 @@
         <div class="rir-compare-headers" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
             <div class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">
                 <template x-if="{{ $predecessorJs }}">
-                    <span x-text="(({{ $predecessorJs }}.type === 'out' ? 'Out' : ({{ $predecessorJs }}.type === 'in' ? 'In' : 'Routine')) + '-inspection · ' + ({{ $predecessorJs }}.completed_at || {{ $predecessorJs }}.scheduled_for || {{ $predecessorJs }}.created_at || '').slice(0, 10) + ' · ' + {{ $predecessorJs }}.status.replace('_',' '))"></span>
+                    <span x-text="(inspectionTypeLabel({{ $predecessorJs }}.type) + '-inspection · ' + ({{ $predecessorJs }}.completed_at || {{ $predecessorJs }}.scheduled_for || {{ $predecessorJs }}.created_at || '').slice(0, 10) + ' · ' + {{ $predecessorJs }}.status.replace('_',' '))"></span>
                 </template>
                 <template x-if="!{{ $predecessorJs }}">
                     <span style="color:var(--text-muted); font-weight:normal; text-transform:none;">First inspection in this chain — nothing yet to compare against.</span>
                 </template>
             </div>
             <div class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">
-                <span x-text="(({{ $sectionJs }} === 'out' ? 'Out' : ({{ $sectionJs }} === 'in' ? 'In' : 'Routine')) + '-inspection · ' + (currentInspection({{ $sectionJs }}).completed_at || currentInspection({{ $sectionJs }}).scheduled_for || currentInspection({{ $sectionJs }}).created_at || '').slice(0, 10) + ' · ' + currentInspection({{ $sectionJs }}).status.replace('_',' '))"></span>
+                <span x-text="(inspectionTypeLabel({{ $sectionJs }}) + '-inspection · ' + (currentInspection({{ $sectionJs }}).completed_at || currentInspection({{ $sectionJs }}).scheduled_for || currentInspection({{ $sectionJs }}).created_at || '').slice(0, 10) + ' · ' + currentInspection({{ $sectionJs }}).status.replace('_',' '))"></span>
             </div>
         </div>
 

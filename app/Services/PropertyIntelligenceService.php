@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\Property;
+use App\Models\User;
 use App\Services\Matching\MatchingService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -138,6 +139,10 @@ class PropertyIntelligenceService
             'has_data'    => $rows->isNotEmpty(),
             'pp_has_data' => $ppRows->isNotEmpty(),
             'max_days'    => $days,
+            // First day of the current month, server calendar — the "Month to
+            // date" range button filters the series on this, on both the agent
+            // Intelligence tab and the seller live link.
+            'month_start' => now()->startOfMonth()->format('Y-m-d'),
         ];
     }
 
@@ -163,7 +168,13 @@ class PropertyIntelligenceService
      * with several matching wishlists is counted ONCE (best score), so the card
      * is an honest BUYER count, not a wishlist count.
      *
-     * @return Collection<int,array{id:int,name:string,state:?string,last_activity:mixed,match_score:int,tier:?string}>
+     * Each row also carries `agent_name` — the buyer's PRIMARY agent (contacts.agent_id),
+     * so the listing agent knows who to talk to. AGENT-FACING ONLY: the seller live
+     * link consumes this collection but only ever counts it (buildBuyerDemand), and
+     * the contact itself is read through ContactScope, so a buyer the viewer may not
+     * see stays "Buyer" with no agent either.
+     *
+     * @return Collection<int,array{id:int,name:string,state:?string,last_activity:mixed,match_score:int,tier:?string,agent_name:?string}>
      */
     public function getBuyerInterestSignals(int $propertyId): Collection
     {
@@ -172,18 +183,28 @@ class PropertyIntelligenceService
             return collect();
         }
 
-        return app(MatchingService::class)->matchesForProperty($property)
+        $matches = app(MatchingService::class)->matchesForProperty($property);
+
+        // One query for every buyer's primary agent's name (no N+1). Ids come
+        // from agency-scoped, ContactScope-filtered contacts, so no cross-agency
+        // name can be read here.
+        $agentNames = User::withoutGlobalScopes()
+            ->whereIn('id', $matches->map(fn ($m) => $m->contact?->agent_id)->filter()->unique()->all())
+            ->pluck('name', 'id');
+
+        return $matches
             // Canonical floor — below 50 is "not a match" (tierFor() === null).
             ->filter(fn ($m) => (int) $m->match_score >= MatchingService::MIN_SCORE_TO_DISPLAY)
             // One row per buyer — keep their best-scoring wishlist.
             ->groupBy('contact_id')
             ->map(fn (Collection $group) => $group->sortByDesc('match_score')->first())
-            ->map(function ($m) {
+            ->map(function ($m) use ($agentNames) {
                 $contact = $m->contact;
                 $score   = (int) $m->match_score;
 
                 return [
                     'id'            => (int) $m->contact_id,
+                    'agent_name'    => $contact?->agent_id ? ($agentNames[$contact->agent_id] ?? null) : null,
                     'name'          => $contact
                         ? trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''))
                         : 'Buyer',

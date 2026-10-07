@@ -540,12 +540,18 @@ final class RentalInspectionI4CopiesTest extends TestCase
             'recipient_email' => 'naledi@example.co.za', 'status' => 'failed',
         ]);
 
+        // BelongsToAgency forces a new record into the ACTING user's agency, so a user of ANOTHER agency must be
+        // created with nobody logged in — otherwise this "stranger" is silently a same-agency colleague and the
+        // test proves nothing about agency scoping (it passed that way before: 7 Oct 2026, same blind spot as I-3).
+        \Illuminate\Support\Facades\Auth::logout();
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
         $otherBranch = Branch::forceCreate(['name' => 'HQ', 'agency_id' => $otherAgency->id]);
+        // A non-owner role: the global "admin" role is a platform owner who deliberately sees every agency.
         $stranger = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'agent']);
+        $this->assertSame($otherAgency->id, $stranger->fresh()->agency_id, 'the stranger really is in another agency');
+        $this->assertNotSame($this->agency->id, $stranger->fresh()->agency_id);
         Mail::fake();
 
-        // The first and only request of this test is the stranger's: no agency context left over from the agent.
         $this->actingAs($stranger)->post(route('corex.rental-inspections.resend-recipient', $inspection), ['log_id' => $row->id])->assertNotFound();
         Mail::assertNothingSent();
     }

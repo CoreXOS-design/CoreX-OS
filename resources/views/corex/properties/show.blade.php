@@ -5240,7 +5240,7 @@
                                      as the pre-chain version (2026-09-22) — a
                                      ternary that returns a real empty string. --}}
                                 <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                      x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
+                                      x-text="chainTail ? (inspectionTypeLabel(chainTail.type) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
                             </h3>
                             <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                         </button>
@@ -6651,7 +6651,7 @@
                 compareViewerInspectionTypeName(side) {
                     const insp = this.compareViewerInspectionFor(side);
                     if (!insp) return 'Nothing yet';
-                    const typeLabel = insp.type === 'out' ? 'Out' : (insp.type === 'in' ? 'In' : 'Routine');
+                    const typeLabel = this.inspectionTypeLabel(insp.type);
                     return typeLabel + '-inspection';
                 },
                 compareViewerInspectionDate(side) {
@@ -7468,6 +7468,11 @@
                 // whole rule — works for any chain length without special-
                 // casing a third slot. Returns null for any other value,
                 // same as the old ternary did for an unrecognised section.
+                // One name per inspection type for every header on this tab. An interim inspection must read
+                // "Interim" (as on the list, create and due screens), never fall through to "Routine".
+                inspectionTypeLabel(type) {
+                    return type === 'out' ? 'Out' : (type === 'in' ? 'In' : (type === 'interim' ? 'Interim' : 'Routine'));
+                },
                 currentInspection(section) { return (this.chainTail && this.chainTail.type === section) ? this.chainTail : null; },
                 // The read-only left panel — always this inspection's own
                 // predecessor, never resolved by type. Null for the first
@@ -10635,6 +10640,12 @@
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $buyer['name'] }}</span>
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background: {{ $statePill }}20; color: {{ $statePill }};">{{ $buyer['state'] ?? 'new' }}</span>
+                                    {{-- The buyer's PRIMARY agent — who the listing agent should talk to. Agent-facing
+                                         row only (this block is x-show="!sellerPreview"); the seller live link never
+                                         receives it (it only counts signals). --}}
+                                    <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-agent>
+                                        Agent: {{ $buyer['agent_name'] ?? 'Unassigned' }}
+                                    </span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" title="Match strength: {{ $tierLabel }} ({{ $buyer['match_score'] }}% fit to this property)" style="background: {{ $tierColour }}20; color: {{ $tierColour }};">{{ $buyer['match_score'] }}% · {{ $tierLabel }}</span>

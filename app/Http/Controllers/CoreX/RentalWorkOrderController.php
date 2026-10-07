@@ -840,30 +840,75 @@ class RentalWorkOrderController extends Controller
         return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order restored.');
     }
 
-    /** §3.4 — 'reported' and 'in_progress' photo types upload the same way; 'completed' feeds the completion gate. */
-    public function storePhoto(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): JsonResponse
+    /**
+     * §3.4 — 'reported' and 'in_progress' photo types upload the same way; 'completed' feeds the completion gate.
+     *
+     * One action, two callers (§17.30, same fix as the job card's §17.29 A): the office's photo form on the work order
+     * (a normal browser POST — it must save the photo and bring the person BACK TO THE WORK ORDER with a message, never
+     * show the raw JSON a script would get) and a script/fetch client that asks for JSON (Accept: application/json —
+     * keeps the 201 / 200 + photo body and the 422).
+     */
+    public function storePhoto(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): JsonResponse|RedirectResponse
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
 
-        $validated = $request->validate([
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'photo_type' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::PHOTO_REPORTED, RentalWorkOrder::PHOTO_IN_PROGRESS, RentalWorkOrder::PHOTO_COMPLETED,
             ])],
             'client_idempotency_key' => 'nullable|uuid',
+        ], [
+            'photo.required' => 'Choose a photo to upload.',
+            'photo.mimes' => 'The photo must be a JPG, PNG, WEBP or HEIC image.',
+            'photo.max' => 'That photo is too large — the limit is 50 MB.',
+            'photo.uploaded' => 'The photo did not upload — it may be too large for the server. Try a smaller photo.',
+            'photo_type.required' => 'Choose whether this is a Before, In progress or Completed photo.',
+            'photo_type.in' => 'Choose whether this is a Before, In progress or Completed photo.',
         ]);
+
+        $wantsJson = $request->expectsJson();
+        // The photo block sits low on the page, so the redirect lands on it and the message is shown inside it ('photo' error bag).
+        $back = route('corex.rental-work-orders.show', $rentalWorkOrder) . '#wo-photos';
+
+        if ($validator->fails()) {
+            if ($wantsJson) {
+                throw new \Illuminate\Validation\ValidationException($validator);
+            }
+
+            return redirect($back)->withErrors($validator, 'photo');
+        }
+
+        $validated = $validator->validated();
 
         $clientKey = $validated['client_idempotency_key'] ?? null;
         if ($clientKey) {
             $existing = RentalWorkOrderPhoto::where('client_idempotency_key', $clientKey)
                 ->where('rental_work_order_id', $rentalWorkOrder->id)->first();
             if ($existing) {
-                return response()->json($existing, 200);
+                return $wantsJson
+                    ? response()->json($existing, 200)
+                    : redirect($back)->with('wo_photo_message', 'That photo was already uploaded.');
             }
         }
 
-        $photo = $service->storePhoto($rentalWorkOrder, $request->file('photo'), $validated['photo_type'], $request->user(), $clientKey);
+        try {
+            $photo = $service->storePhoto($rentalWorkOrder, $request->file('photo'), $validated['photo_type'], $request->user(), $clientKey);
+        } catch (\Throwable $e) {
+            if ($wantsJson) {
+                throw $e;
+            }
+            report($e);
 
-        return response()->json($photo, 201);
+            return redirect($back)->withErrors(['photo' => 'The photo could not be saved. Nothing was uploaded — please try again.'], 'photo');
+        }
+
+        if ($wantsJson) {
+            return response()->json($photo, 201);
+        }
+
+        $label = ['reported' => 'Before', 'in_progress' => 'In progress', 'completed' => 'Completed'][$validated['photo_type']];
+
+        return redirect($back)->with('wo_photo_message', $label . ' photo uploaded.');
     }
 }
