@@ -28,6 +28,23 @@ It is not a marketing presentation and not a CMA. It is a "what's actually happe
 6. **Renders fully with the Tailwind CDN blocked at the network level.** This page loads `@vite(['resources/css/app.css', 'resources/js/app.js'])` — no third-party script in the critical path. Proven with Puppeteer request-interception, not assumed.
 7. **Mobile first.** A seller opens this from a WhatsApp link on a phone — verify at a phone viewport, not just desktop.
 8. **Every number must be independently re-derivable.** Document the exact formula for anything computed (not just looked up) — see each section below.
+9. **A seller taken off the property loses the link — and gets it back if re-linked** (Johan, audit `2026-09-13-property-seller-live-link-survives-unlink.md`; built 2026-10-07). See "When the seller is removed" below.
+
+---
+
+## When the seller is removed
+
+A link belongs to a seller *on* a property. The moment that seller is no longer on it, the link stops working — the public page answers "This link is no longer active" (HTTP 410) and does not reveal the listing, and the link disappears from the property's "Seller Live Links" panel. Nothing is deleted.
+
+**How (built as derived state, not a stored flag):** `PropertySellerLink::scopeStillHeld()` / `isHeld()`. A link is *in force* when it is not manually revoked (`revoked_at` null) **and** its `contact_property` row for the same (property, contact) is not evidence of removal — i.e. the row is not archived (`deleted_at` null) and its role is still seller-side (`owner`, `seller`, `landlord`, `lessor`) or null. Used by `SellerLinkController::show()` (checked before anything is recorded or loaded) and by the property page's panel query.
+
+- **Every removal path is covered**, because the rule reads the relationship rather than hooking each unlink screen: the property's Contacts unlink, the contact's unlink, the mobile unlink, the Seller Outreach unlink, and a role change away from seller (e.g. seller → buyer).
+- **Re-linking restores it.** Linking the contact back as a seller makes the *same* link (same web address) work again — the seller's earlier WhatsApp message is still good. No second link is issued.
+- **A manual Revoke is permanent.** `revoked_at` is never undone by re-linking; the agent must issue a fresh link if they want one.
+- **Links orphaned before this rule need no data repair** — they are caught the same way on every read.
+- A pair with **no `contact_property` row at all**, or a null role, is *not* treated as removed (links issued before the pivot was reliably written keep working).
+- **Not changed (flagged):** `TransactionStateService::linkedPropertyIds()` still unions `property_seller_links` (`revoked_at` null) into "properties this contact owns", so a removed seller's un-revoked link can still count them as an owner for the outreach transaction-state check. It documents that union as deliberate, so it was left alone.
+- Tests: `tests/Feature/PublicLinks/SellerLinkRemovedSellerTest.php`.
 
 ---
 

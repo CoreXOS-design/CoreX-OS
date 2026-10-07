@@ -48,7 +48,7 @@ class AgentPerformanceController extends Controller
         abort_unless((bool)preg_match('/^\d{4}-\d{2}$/', $period), 422);
 
         // Source of truth: same service as BM Performance + Agent dashboard (read-only)
-        $payload = $service->getAgentRollup($bmBranchId, $userId, $period);
+        $payload = $service->getAgentRollup($bmBranchId, $userId, $period, (int) $targetUser->agency_id);
         $agentRow = $payload['agent'];
 
         // Human branch name

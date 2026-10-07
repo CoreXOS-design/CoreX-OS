@@ -17,7 +17,8 @@ class ListingStockController extends Controller
         $source = trim((string) $request->get('source', 'propcon'));
 
         // Build a base query for totals
-        $base = ListingStock::query()->where('source', $source);
+        // Own / branch / agency breadth (the agency leg is the model's global scope).
+        $base = ListingStock::query()->visibleTo($request->user())->where('source', $source);
         if ($status !== 'all') {
             // Keep flexible: Propcon may say "Active", "For Sale", etc.
             // v1 default is "active" = status contains "active" or "for sale"
@@ -107,7 +108,12 @@ class ListingStockController extends Controller
         $status = trim((string) $request->get('status', 'active'));
         $source = trim((string) $request->get('source', 'propcon'));
 
+        // Direct-URL by user id: another agency's user never resolves (User global scope);
+        // inside the agency, an agent outside the viewer's own/branch breadth is refused.
+        abort_unless(ListingStock::viewerMaySeeAgent($request->user(), $user), 404);
+
         $q = ListingStock::query()
+            ->visibleTo($request->user())
             ->where('source', $source)
             ->where('user_id', $user->id);
 
@@ -139,10 +145,31 @@ class ListingStockController extends Controller
             'source' => $source,
         ]);
     }
+    /**
+     * Reassigning listing agents is a manager/admin action. Gate = the one the Properties
+     * module already uses to let someone pick another agent (PropertyController::store):
+     * properties.edit AND an 'all' / 'branch' properties data scope. Agents, viewers and
+     * assistants never reach it, even if a custom role handed them the stock permission.
+     */
+    private function authorizeReassign(Request $request, ListingStock $listing): void
+    {
+        $viewer = $request->user();
+
+        abort_unless($viewer && ! $viewer->is_assistant && $viewer->hasPermission('properties.edit'), 403);
+        abort_unless(in_array(\App\Services\PermissionService::getDataScope($viewer, 'properties'), ['all', 'branch'], true), 403);
+
+        // The row itself must be inside the viewer's own/branch/agency breadth. Another
+        // agency's listing already 404s at route binding (BelongsToAgency global scope).
+        abort_unless(ListingStock::query()->visibleTo($viewer)->whereKey($listing->getKey())->exists(), 404);
+    }
+
     public function editAgents(Request $request, ListingStock $listing)
     {
-        // Active users for assignment (agents, admins, BMs if needed)
+        $this->authorizeReassign($request, $listing);
+
+        // Active users for assignment (agents, admins, BMs if needed) — this listing's agency only
         $users = User::query()
+            ->where('agency_id', $listing->agency_id)
             ->where('is_active', 1)
             ->orderBy('name')
             ->get(['id','name','email','role']);
@@ -159,6 +186,8 @@ class ListingStockController extends Controller
 
     public function updateAgents(Request $request, ListingStock $listing)
     {
+        $this->authorizeReassign($request, $listing);
+
         $data = $request->validate([
             'primary_user_id' => ['required','integer','exists:users,id'],
             'agent_ids' => ['array'],
@@ -167,6 +196,15 @@ class ListingStockController extends Controller
 
         $primaryId = (int) $data['primary_user_id'];
         $agentIds = array_values(array_unique(array_map('intval', $data['agent_ids'] ?? [])));
+
+        // exists:users,id is not agency-aware — every assignee must belong to THIS listing's
+        // agency, so a listing can never be handed to another agency's practitioner.
+        $requested = array_values(array_unique(array_merge([$primaryId], $agentIds)));
+        $inAgency = User::query()->withoutGlobalScopes()
+            ->where('agency_id', $listing->agency_id)
+            ->whereIn('id', $requested)
+            ->count();
+        abort_unless($inAgency === count($requested), 422, 'The selected agents must belong to this agency.');
 
         // If primary wasn't changed but other agents were selected,
         // promote the first non-current agent to be the new primary.

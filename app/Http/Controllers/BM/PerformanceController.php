@@ -26,7 +26,9 @@ class PerformanceController extends Controller
         $branchId = (int)($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
 
         // Existing rollup service (do NOT change weights system)
-        $rollup = $service->getBranchRollup($branchId, $period);
+        // A branch belongs to exactly one agency — hand it to the rollup so its raw queries are agency-filtered.
+        $branchAgencyId = (int) (\DB::table('branches')->where('id', $branchId)->value('agency_id') ?? 0) ?: null;
+        $rollup = $service->getBranchRollup($branchId, $period, $branchAgencyId);
 
         $branchName = \App\Models\Branch::where('id', $branchId)->value('name') ?? 'Branch';
 
@@ -200,7 +202,8 @@ class PerformanceController extends Controller
             return back()->with('status', 'Set a branch budget first.');
         }
 
-        $rollup = $service->getBranchRollup($branchId, $period);
+        $branchAgencyId = (int) (\DB::table('branches')->where('id', $branchId)->value('agency_id') ?? 0) ?: null;
+        $rollup = $service->getBranchRollup($branchId, $period, $branchAgencyId);
 
         $commissionRate = (float) config('performance.commission_rate', 0.075);
         $companyShare   = (float) config('performance.company_share', 0.50);

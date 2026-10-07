@@ -93,7 +93,8 @@ class AgentPerformanceController extends Controller
         $salesValue = (float)($dealActuals->sales_value ?? 0);
 
         // WOW rollup: points + momentum + activities_today (branch/team logic irrelevant here; it's per-agent)
-        $wow = $service->getAgentRollup((int)($agent->branch_id ?? 0), (int)$agent->id, $period);
+        // Agency passed explicitly: the rollup's raw queries only filter by agency when handed one.
+        $wow = $service->getAgentRollup((int)($agent->branch_id ?? 0), (int)$agent->id, $period, (int) $targetUser->agency_id);
         $pts = $wow['points'] ?? [];
 
         // Deals list (for table) — exclude declined, join deal_money_lines for settlement truth
