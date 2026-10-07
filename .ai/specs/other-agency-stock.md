@@ -1,6 +1,6 @@
 # Other Agency Stock
 
-**Status:** Live on QA1. 2026-10-07: P24 field audit + fixes (§5a, extension 3.8.2).
+**Status:** Live on QA1. 2026-10-07: P24 field audit + fixes (§5a, extension 3.8.2); action rules (§5c) and P24 heading + features (§5d, extension 3.9.1).
 **Pillars:** Property (new status, new source-metadata table), Agent (importing agent becomes the property's agent), Contact (viewing packs / Core Matches use it downstream, unchanged).
 
 ## 1. What this is and why
@@ -261,7 +261,8 @@ pets, suburb/city via the URL's P24 suburb id, agent and agency, description.
 
 **Mismatches found and NOT changed (report-only, none asked for):** P24 "Special Feature" / "Lifestyle" / "Description" ("Single
 Storey") rows, the icon-strip tags (Pet Friendly, Fibre Internet, Furnished), "Occupation Date" / "Lease Period" / "Furnished" on
-rentals, "Reception Rooms", "Office", "Study", "No Transfer Duty", "Standalone Building" are not imported. The **Pull as My Own Listing**
+rentals, "Reception Rooms", "Office", "Study", "No Transfer Duty", "Standalone Building" are not imported. **(2026-10-07, later the
+same day: the ones with a CoreX equivalent ARE imported now — §5d.)** The **Pull as My Own Listing**
 flow (`content-p24-detail.js`, lines ~385-396, ~232-254) still has the old digit-stripping (`parseInt("2.5")` → 2, a price "4999000.00"
 → 499 900 000) and the sequential-photo guess — own-stock, outside this task.
 
@@ -321,6 +322,94 @@ syndicate-able version of another agency's listing). Now:
 - **No other path exists** today: there is no bulk-duplicate on the properties list and no API duplicate route (the one clone route is `corex.properties.duplicate`). A route-table test fails if a second property-cloning route is ever added without extending this guard.
 - Tests: `tests/Feature/Properties/OtherAgencyStockNoDuplicateTest.php` (button + route + JSON + change-type + clone builder + normal property still duplicates).
 
+### 5c. What an Other Agency Stock property may be used for — explicit action rules (2026-10-07, Johan)
+
+The consent an agent ticks on an import (§3a) is ONLY permission to take a buyer to the property. Not to market, pitch or
+present it. Other Agency Stock is used only in Core Matches and viewing packs / share links. So four actions on the property
+page's Actions panel are blocked by rules of their own — each **greyed with a plain hover reason AND refused server-side**, and
+none of them leans on the marketing-compliance gate (which today greys some of the same buttons by accident, and only while a
+listing is not "marketable"):
+
+| Action | Button | Refused on a direct address / call |
+|---|---|---|
+| **Pitch Seller** (`pitch_seller`) | disabled | `seller-outreach.entry.from-property` (GET + POST), the composer opened with that `property_id`, and its send + queue calls. The composer's property picker leaves it out. |
+| **Ad Builder** (`ad_builder`) | disabled; the Properties list "Ad" links are greyed too | `corex.properties.ad` page; the Ad Manager tool's single `canAdvertise()` seam (previews / generate / brochures by property id) |
+| **Market Property** (`market_property`) | disabled | the social marketing page, its AI "write copy" call and publish (`corex.properties.marketing.*`) |
+| **Generate Presentation** (`generate_presentation`) | disabled (also the "Generate presentation" link in the Market Position card) | the generate and coverage routes, and `PresentationGeneratorService::generateForProperty()` itself for any non-HTTP caller |
+
+Unchanged on purpose: **Syndication** stays refused by its own layers (§2); **Live Preview**, **Archive**, **Report
+Non-Compliance** keep working; **Duplicate** stays blocked (§5b). Share (taking a buyer to it) is allowed — the panel draws it
+from Core Matches only, by the existing design of `share-actions.blade.php`.
+
+**One registry.** `App\Services\Properties\OtherAgencyStockActionRules::RULES` declares, for every panel action, `blocked` /
+`allowed` / `existing` (already guarded by its own older layer) and the reason text. Buttons read it (`isBlocked()` / `reason()`);
+routes and services call `assertAllowed()`, which throws `OtherAgencyStockActionBlockedException` — a 403 that renders as JSON
+(`{ok:false, error, message}`) or as a redirect to the property with the reason shown. **Guard:** every button in the Actions panel
+must carry `data-oas-action="<key>"` and every key must exist in `RULES`; a new action without a declared OAS behaviour fails
+`tests/Feature/Properties/OtherAgencyStockActionRulesTest.php`. An undeclared key throws, it is never silently "allowed".
+
+**The block is not forever.** It follows the STATUS (`isOtherAgencyStock()`), nothing else. When an authorised user (§7, permission
+`other_agency_stock.change_status`) changes the status away from other_agency_stock — e.g. to draft — the property is ordinary
+agency stock and every block above lifts with no further step; it behaves exactly as a draft does today (verified by test through
+the real edit form). An agent without the permission is refused and nothing changes.
+
+**Noticed in the unlock / status-change path and NOT changed (report-only):**
+1. A **re-import of the same portal listing** after the status was moved away finds the old `property_external_sources` row (dedup on
+   portal + listing ref) and updates that property — flipping it BACK to other_agency_stock and overwriting its advert fields and
+   agent, even if the agency has since worked it as its own stock.
+2. The old source row, the consent rows and the unlock history stay attached after the status change; only the "View on Property24"
+   link and the "Locked — imported from …" line (both gated on the status) disappear.
+3. Moving it to **Active** then requires a linked contact like any other listing (the exemption in §8b is for OAS only) — expected,
+   but it is the first time an agent meets that rule on this property.
+4. The share-link button is not drawn on an OAS property's own page (only from Core Matches) — existing design, noted because
+   "share links" is one of the two things OAS is for.
+
+### 5d. Property24 import — the advert's heading and the features (2026-10-07, extension 3.9.1; reference: P24 117580701 vs QA1 property 21181)
+
+**Title.** The stored title was P24's generic line ("3 Bedroom Townhouse for sale in Uvongo"). The advert's own heading is the
+`<h5>` at the top of the description card (`.p24_listingAbout h5`): "Beautifully situated Coastal Property with sea views". It is the
+title now. When an advert has no heading P24 prints its own generic line in that slot ("House For Sale in Umhlali Golf Estate
+Ballito KwaZulu Natal", "Apartment To Rent in Ballito Central, Ballito, KwaZulu Natal"); anything shaped "<type> for sale / to rent
+in <place>" that ends in a province is treated as no heading and the title falls back to the generic JSON-LD line. A genuine
+heading that merely says "for sale in" (it does not end in a province) is kept.
+
+**Features.** The extension sends EVERY row of every accordion (`feature_rows: [{s: section, k: label, v: [values]}]` — Property
+Overview, Rooms/Facilities, External Features, Building, Other Features) and the icon-strip tags without a count (`strip_tags`),
+raw. `App\Services\Properties\OtherAgencyStockFeatureMapper` (server-side, like zoning/currency) turns them into what the property
+page ticks — `spaces_json.features.{theProperty, security, connectivity, sustainability}` — plus extra rooms as spaces; the flat
+`features_json` is written as the same mirror the page recomputes on save, so a later save is not an "edit" to the locked column.
+Only labels in CoreX's own picker are ever emitted; nothing new is invented. A re-import REPLACES the ticks; an older extension that
+sends no rows leaves them alone.
+
+| P24 shows | Ticks in CoreX |
+|---|---|
+| Furnished Yes / No | The Property: Furnished / Unfurnished |
+| Pets Allowed Yes / No (and the "No Pets Allowed" tag) | Pet Friendly / Pets Not Allowed (the `pet_friendly` column as before) |
+| Description row ("Single Storey", "Top Floor", "Ground Floor", …) | The Property: the same-named feature |
+| Special Feature ("Balcony", "Communal braai area", "Sea View", …) | The Property: same-named feature |
+| Lifestyle ("Security Complex", "Security Estate") | Security: same-named feature |
+| Security row ("Totally Fenced", "Electric Gate", "Security Gate", "Closed Circuit TV", "24 Hour Response", "Guard", "Electric fencing", …) | Security: same-named, or CCTV / Armed Response / 24 Hour Guard / Electric Fence (the CoreX→P24 table the syndication mapper already uses, read backwards) |
+| Temperature Control "Air Conditioning Unit" | The Property: Air Conditioned |
+| Wheelchair Accessible Yes / Standalone Building Yes | The Property: Wheelchair Friendly / Standalone |
+| Internet Access ("Fibre", "ADSL", "Satellite") and the "Fibre Internet" tag | Connectivity: Fibre / ADSL / Satellite Internet |
+| Generator Yes; Backup Water ("Water Tank", "Borehole") | Sustainability: Generator; Backup Water + Water Tank / Borehole |
+| Rooms rows with a CoreX space type ("Reception Rooms 2", "Office", "Study" and the Study tag) | a Reception Room / Office / Study space with that count |
+
+**Shown by P24 with NO CoreX equivalent (reported, not imported):** the Building section's Wall / Floor / Roof / Window / Style
+(CoreX holds fabric per room, P24 states it property-wide — attributing it to rooms would be invention), Number of floors, Floor
+Number, Lifestyle "Complex" (and Golf Estate-style values), Description "Office" on commercial, No Transfer Duty, Occupation Date and
+Lease Period (rentals), Price per m² (derived). **Points of Interest** is not read: P24 loads it on demand from a separate request
+(nearby places, not features of the property).
+
+**Drift found, not changed:** the property page's picker (`show.blade.php` `_FEATURE_CATEGORIES`) offers **Communal Braai Area** and
+**Sea View** under The Property; `config/property-spaces.php` (the "mirror" the mobile API reads) does not. The mapper accepts them
+(`PICKER_ONLY`), and the test fails if either list changes without the other being updated.
+
+**Tests.** Page → payload: `tests/p24-oas-extract.test.cjs` (now seven saved pages — the reference townhouse 117580701 added — plus
+heading and raw-row cases). Payload → ticks → stored property: `tests/Feature/Properties/OtherAgencyStockFeatureMapperTest.php`
+(runs the golden payloads through the mapper and the real import endpoint, and checks every emitted label against the property page's
+own picker).
+
 ## 6. Visibility — a role setting, no hardcoding
 
 `agencies.other_agency_stock_visible_roles` (nullable JSON `string[]`) — a direct column, not a
@@ -349,6 +438,25 @@ Applied via `Property::scopeVisibleOtherAgencyStock($query, ?User $viewer = null
 - `PropertyController::show` (via `AuthorizesPropertyAccess`) — property detail.
 - `ViewingPackController::searchProperties` — the ad-hoc picker (previously had NO status
   filter of any kind).
+
+### 6a. Where the settings live — navigation (2026-10-07, Johan: "cannot find other agency stock under company settings")
+
+The two settings (who can see Other Agency Stock; the import consent wording) are one card with one Save,
+`SettingsController::updateOtherAgencyStock`, reached from three places — all the same saver:
+
+1. **Company Settings → Other Agency Stock tab** (`/admin/company-settings#other-agency-stock`). Its own
+   tab in the tab bar (Company · Branding · Branches · **Other Agency Stock** · Website · Performance).
+   It used to be a card at the bottom of the Branches tab, beside the Data Isolation switch, so nobody
+   looking for it by name could find it. Save returns to this tab (the form posts
+   `return_fragment=other-agency-stock`; the controller allow-lists that one value and adds it as the
+   redirect fragment — a bare `back()` drops the fragment and used to land on the Company tab).
+2. **Settings → search rail** ("Search settings…", Agency group): an "Other Agency Stock" link that opens
+   the tab above. Shown only to users with `manage_performance_settings` (same gate as the page).
+3. **Setup Wizard → Properties step** (see above).
+
+Access is unchanged: route middleware + controller both require `manage_performance_settings`; the agency is
+the signed-in user's own (`effectiveAgencyId()`), never a posted id. Test:
+`tests/Feature/Admin/CompanySettingsOtherAgencyStockTabTest.php`.
 
 ## 7. Status-change gate
 
@@ -396,7 +504,12 @@ original list, not a new exemption class.
 (enforced for every completed, non-draft property) is bypassed for `other_agency_stock`
 specifically (`! $property->isOtherAgencyStock()` added to the guard) — the agency will
 never have (and can never legitimately obtain) the other agency's seller/owner details, so
-this listing can never gain a linked contact. Every other status keeps the rule unchanged.
+a linked contact is NOT REQUIRED to save it. Every other status keeps the rule unchanged.
+
+**Amended 2026-10-07 (Johan):** the earlier line here said such a listing "can never gain a
+linked contact". That is withdrawn — linking a contact (seller/owner) to an Other Agency Stock
+property stays allowed; it is simply not required. What the link does NOT unlock is a pitch:
+Pitch Seller stays disabled on the property (§5c).
 
 Enforced in **`PropertyObserver::saving()`** — the one Eloquent-level chokepoint every update
 path (property edit form, gallery/photo endpoints, bulk edit, API — anything that calls

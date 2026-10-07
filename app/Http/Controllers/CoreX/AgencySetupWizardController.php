@@ -708,6 +708,7 @@ class AgencySetupWizardController extends Controller
                     'contractor_secure_link_expiry_days' => \App\Models\RentalPortalSetting::contractorSecureLinkExpiryDaysFor($agency->id),
                     'notify_landlord_on_decision_needed' => \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agency->id),
                     'notify_tenant_on_status_change' => \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($agency->id),
+                    'auto_portal_access_on_signing' => \App\Models\RentalPortalSetting::autoPortalAccessOnSigningFor($agency->id),
                     'crew_links_enabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($agency->id),
                     'crew_job_link_expiry_days' => \App\Models\RentalPortalSetting::crewJobLinkExpiryDaysFor($agency->id),
                     'crew_link_show_costs' => \App\Models\RentalPortalSetting::crewLinkShowCostsFor($agency->id),
@@ -723,6 +724,8 @@ class AgencySetupWizardController extends Controller
                     'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
+                    'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
+                    'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
                     // §45.6 (Build I-4) — who else is copied on the completed report.

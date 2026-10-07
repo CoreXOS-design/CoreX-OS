@@ -178,7 +178,7 @@ class RentalInspectionRecordingController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC, RentalInspection::TYPE_INTERIM])],
         ]);
 
         try {
@@ -222,6 +222,9 @@ class RentalInspectionRecordingController extends Controller
     public function storeItem(Request $request, Property $property): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         $validated = $request->validate([
             'kind' => ['required', 'in:' . RentalInspectionItem::KIND_SPACE . ',' . RentalInspectionItem::KIND_METER . ',item'],
             'label' => ['required', 'string', 'max:191'],
@@ -294,6 +297,9 @@ class RentalInspectionRecordingController extends Controller
     public function assignType(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         abort_if($item->property_id !== $property->id, 404);
         abort_if($item->kind !== RentalInspectionItem::KIND_SPACE, 422, 'Only a space can be given a room type.');
         abort_if($item->property_room_id !== null, 422, 'This space already has a room type.');
@@ -357,6 +363,9 @@ class RentalInspectionRecordingController extends Controller
     public function retireItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         abort_if($item->property_id !== $property->id, 404);
 
         $item->update(['is_retired' => true]);
@@ -368,6 +377,9 @@ class RentalInspectionRecordingController extends Controller
     public function restoreItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         abort_if($item->property_id !== $property->id, 404);
 
         $item->restoreItem();
@@ -379,6 +391,9 @@ class RentalInspectionRecordingController extends Controller
     public function renameItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         abort_if($item->property_id !== $property->id, 404);
 
         $validated = $request->validate(['label' => ['required', 'string', 'max:191']]);
@@ -503,6 +518,9 @@ class RentalInspectionRecordingController extends Controller
     public function seedFromAdvertising(Request $request, Property $property, \App\Services\Rentals\RentalInspectionFormSeeder $seeder): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         try {
             $seeder->seedFromAdvertising($property, $request->user());
         } catch (\LogicException $e) {
@@ -551,6 +569,9 @@ class RentalInspectionRecordingController extends Controller
 
         try {
             $rentalInspection->updateDetails($validated);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            // §47 — signed (locked) or closed: a refusal the screen can show as it is, same as every other write path.
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 400);
         }
@@ -996,12 +1017,32 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /** Audit H1 — 409 for any write against a completed / cancelled / archived inspection. */
-    private function refuseIfNotRecordable(RentalInspection $rentalInspection): ?JsonResponse
+    /**
+     * $content = true (the default) is for anything that changes the report itself — conditions, notes, photos, tags,
+     * discrepancy decisions: refused when the inspection is closed (completed = sent to the parties, cancelled,
+     * archived) AND when it has been signed (a signed report is locked — §47). The signature endpoints pass false: they
+     * only need the inspection to be open.
+     */
+    private function refuseIfNotRecordable(RentalInspection $rentalInspection, bool $content = true): ?JsonResponse
     {
         try {
-            $rentalInspection->assertRecordable();
+            $content ? $rentalInspection->assertContentEditable() : $rentalInspection->assertRecordable();
         } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
+        }
+
+        return null;
+    }
+
+    /**
+     * §47 — the property's checklist (items, rooms) is what the CURRENT report is made of: while the chain's open tail
+     * has been signed, adding, renaming, retiring or re-typing checklist entries would change a signed report.
+     */
+    private function refuseIfTailSigned(Property $property): ?JsonResponse
+    {
+        $tail = RentalInspection::chainTailFor($property);
+        if ($tail && $tail->isRecordable() && $tail->isSignedLocked()) {
+            return response()->json(['message' => (new \App\Exceptions\RentalInspectionSignedLockedException())->getMessage(), 'reason' => 'signed_locked'], 409);
         }
 
         return null;
@@ -1273,6 +1314,10 @@ class RentalInspectionRecordingController extends Controller
         if ($tail && $tail->status === RentalInspection::STATUS_COMPLETED) {
             abort(409, 'This inspection is completed — photos can no longer be linked or unlinked.');
         }
+        // §47 — a signed report is locked, and the photo pairing is part of what was signed.
+        if ($tail && $tail->isRecordable() && $tail->isSignedLocked()) {
+            abort(409, (new \App\Exceptions\RentalInspectionSignedLockedException())->getMessage());
+        }
     }
 
     /**
@@ -1329,6 +1374,8 @@ class RentalInspectionRecordingController extends Controller
     {
         $this->authorizePropertyForInspections($property);
         $this->guardPhotoMatchTail($property);
+        // §47 — pairing writes to the current inspection: refused once it is signed (locked) or sent (completed), like linking by hand.
+        $this->assertPhotoMatchingUnlocked($property);
         $tail = RentalInspection::chainTailFor($property);
         abort_if(! $tail, 422, 'No current inspection to auto-pair against.');
 
@@ -1390,7 +1437,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeSignature(Request $request, RentalInspection $rentalInspection, SignedDocumentDistributionService $distributionService): JsonResponse
     {
-        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection, false)) {
             return $refused;
         }
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
@@ -1485,7 +1532,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function supersedeWetInkSignature(Request $request, RentalInspection $rentalInspection, RentalInspectionSignature $signature, SignedDocumentDistributionService $distributionService): JsonResponse
     {
-        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection, false)) {
             return $refused;
         }
 
@@ -1610,7 +1657,60 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
-        return response()->json($rentalInspection->fresh());
+        // §47 — after an "Edit report" the old links were revoked: issue fresh ones (not sent — the agent resends).
+        $reissued = app(\App\Services\Rentals\RentalInspectionReopenService::class)->reissueLinksAfterReopen($rentalInspection, request()->user());
+
+        return response()->json(array_merge($rentalInspection->fresh()->toArray(), ['fresh_links_issued' => $reissued]));
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/reopen — §47 "Edit report" (Johan, 7 Oct 2026). Voids EVERY signature
+     * and sends the report back to the not-signed state; everyone must sign the changed report again. A reason is
+     * required. Refused — for every role — once the report has been sent to the parties.
+     */
+    public function reopen(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
+
+        try {
+            $reopen = app(\App\Services\Rentals\RentalInspectionReopenService::class)->reopen($rentalInspection, $request->user(), $validated['reason']);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return response()->json(['message' => $e->getMessage(), 'reason' => 'not_recordable'], 409);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'voided' => count($reopen->voided_signatures),
+            'links_revoked' => count($reopen->revoked_link_ids ?? []),
+            'message' => 'The report is open for editing. All signatures were cleared and the signing links stopped working — when you mark it ready to sign again, resend each person their link.',
+            'inspection' => $rentalInspection->fresh(),
+        ]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/replace — §47 "Start new inspection" for a report that has been sent
+     * to the parties and can therefore never be edited. Same property, lease and type; the old one is untouched and
+     * linked as replaced-by / replaces in both histories.
+     */
+    public function replace(Request $request, RentalInspection $rentalInspection)
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        try {
+            $new = RentalInspection::startReplacement($rentalInspection, $request->user());
+        } catch (\LogicException $e) {
+            return $request->expectsJson()
+                ? response()->json(['message' => $e->getMessage()], 409)
+                : redirect()->route('corex.rental-inspections.show', $rentalInspection)->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+
+        return $request->expectsJson()
+            ? response()->json(['ok' => true, 'id' => $new->id, 'url' => route('corex.rental-inspections.show', $new)], 201)
+            : redirect()->route('corex.rental-inspections.show', $new)->with('success', 'New inspection started — it replaces the one that was sent.');
     }
 
     /**

@@ -4,7 +4,7 @@
   "listing_url": "https://www.property24.com/for-sale/shakas-rock/ballito/kwazulu-natal/7654/117608849",
   "price": 3795000,
   "description": "Situated in the sought-after Long Island gated estate, this spacious 3-bedroom apartment offers comfortable coastal living in a secure 24-hour security estate, within walking distance of Thompson Bay.\n            The apartment features three generously sized bedrooms and two bathrooms, with the main bedroom enjoying an en-suite full bathroom with both bath and shower. The open-plan, fully fitted kitchen flows seamlessly into an exceptionally large living area comprising a combined lounge and dining room. Sliding doors open onto the outdoor area, where you can relax and enjoy the lovely elevated ocean views.\n            The property includes a lock-up automated garage plus an additional undercover parking bay. Residents enjoy access to a large communal swimming pool, while the estate is pet-friendly with BC permission.\n            A fantastic opportunity to own a spacious coastal home in one of Ballito’s popular beachfront areas — perfect as a permanent residence, holiday home or investment.",
-  "listing_title": "3 Bedroom Apartment / flat for sale in Shakas Rock",
+  "listing_title": "Spacious coastal living with elevated ocean views",
   "listing_type": "sale",
   "property_type_raw": "Apartment",
   "property_type_label_hint": "Apartment / Flat",
@@ -67,12 +67,143 @@
     "Open plan with fitted hob and oven"
   ],
   "garden_features": [],
-  "security_features": [
-    "Totally Fenced"
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117608849"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Apartment / Flat"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "09 September 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "154 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Price per m²",
+      "v": [
+        "R 24 643"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Levies",
+      "v": [
+        "R 3 243"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 1 699"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Pets Allowed",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bedrooms",
+      "v": [
+        "3"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bathrooms",
+      "v": [
+        "2",
+        "Main en suite is a full bathroom with bath and ..."
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Kitchens",
+      "v": [
+        "1",
+        "Open plan with fitted hob and oven"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Reception Rooms",
+      "v": [
+        "2"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garage",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Parking",
+      "v": [
+        "Single Parking"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Pool",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Wall",
+      "v": [
+        "Plaster"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Floor",
+      "v": [
+        "Tiled Floors"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Security",
+      "v": [
+        "Totally Fenced"
+      ]
+    }
+  ],
+  "strip_tags": [
+    "Pet Friendly",
+    "Pool"
   ],
   "bathroom_features": [
     "Main en suite is a full bathroom with bath and ..."
   ],
-  "_title": "3 Bedroom Apartment / flat for sale in Shakas Rock",
+  "_title": "Spacious coastal living with elevated ocean views",
   "_expected_photo_count": 24
 }

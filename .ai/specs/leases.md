@@ -1964,3 +1964,17 @@ Recommended pairing under the two-working-lanes rule: **L1 alone → L2 ‖ L3b 
 - **Tenancy-log type boxes are filters.** They were read as status ticks. They are now compact chips under a "Show:" label; with none on, every type is shown ("All types shown"); a "Clear filters" link appears when any filter is active; ticking a chip filters at once. Nothing is auto-ticked — "Lease signed" on the stage strip is decided by `LeaseHubService::lifecycle()` (§15.5: a signed agreement, a paper copy, or — for sources other than a rental application — a lease that is no longer a draft).
 - **Property → Rental tab dates, one source of truth.** While a lease is ACTIVE on the property, Lease Start/End Date on the tab show that lease's dates, read-only and not posted. Only with no active lease are they the property's own editable dates (they are also the portal "available from" date — rental-renewals.md §19 — which is why they stay editable then). The tab's rental-details form is laid out as four label-over-input columns, compact, with no static helper text (an agency's own custom-field help text still shows).
 - Tests: `tests/Feature/Leases/LeaseScreenLinksAndRentalTabTest.php`.
+
+
+## 16. Lease screen — Tenant / Landlord portal access cards (7 Oct 2026, QA1)
+The two cards at the foot of the lease screen's right panel show, per tenant / landlord of THIS lease, the portal
+login's status and the personal portal link with Copy, Email link / Resend invite and WhatsApp share, and one
+"Set up portal access & email the link" action when there is no login. A signed lease gives its parties portal
+access automatically (agency setting, default ON, in the Setup Wizard) and its signed-copy email carries their
+link. Behaviour, rules and tests: `.ai/specs/rental-portal-access.md` §16. View: `corex.leases._portal-access-person`.
+
+Paper-signed copy (7 Oct 2026): attaching a signed paper copy (New Lease, Renewal, renewal upload, APIs) also emails the tenant(s) and
+landlord(s) the copy with their portal link, once per lease — `.ai/specs/rental-portal-access.md` §18.
+
+Portal (7 Oct 2026): a signed lease's agreement (e-signed final PDF or the wet-ink copy) is listed in the tenant's and owner's portal Documents
+area; unsigned and archived leases never are — `.ai/specs/rental-portal-access.md` §19.

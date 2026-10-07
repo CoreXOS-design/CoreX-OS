@@ -65,7 +65,7 @@ class RentalInspectionCalendarSyncService
             'created_by_id' => $inspection->created_by_user_id,
             'event_type' => 'lease',
             'category' => 'rental_inspection',
-            'title' => ucfirst(str_replace('_', '-', $inspection->type)) . '-inspection — ' . ($inspection->property?->buildDisplayAddress() ?? 'Property #' . $inspection->property_id),
+            'title' => \App\Models\RentalInspection::typeName($inspection->type) . ' — ' . ($inspection->property?->buildDisplayAddress() ?? 'Property #' . $inspection->property_id),
             'description' => $this->descriptionFor($inspection),
             'event_date' => $start,
             'end_date' => $end,

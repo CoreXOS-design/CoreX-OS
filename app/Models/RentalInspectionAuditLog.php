@@ -39,6 +39,13 @@ class RentalInspectionAuditLog extends Model
     public const EVENT_SIGNATURE_SUPERSEDED = 'signature_superseded';
     public const EVENT_FINDING_SUPERSEDED = 'finding_superseded';
     public const EVENT_COPIES_SENT = 'report_copies_sent';
+    // §46 — signing by personal link.
+    public const EVENT_SIGNING_LINK_SENT = 'signing_link_sent';
+    public const EVENT_SIGNING_LINK_REVOKED = 'signing_link_revoked';
+    public const EVENT_SIGNED_BY_LINK = 'signed_by_link';
+    // §47 — "Edit report" on a signed inspection.
+    public const EVENT_REOPENED = 'report_reopened';
+    public const EVENT_REPLACED = 'replaced';
 
     /** @var array<string, string> event key => the label the History panel's filter shows */
     public const EVENT_LABELS = [
@@ -58,6 +65,11 @@ class RentalInspectionAuditLog extends Model
         self::EVENT_SIGNATURE_SUPERSEDED => 'Signature replaced',
         self::EVENT_FINDING_SUPERSEDED => 'Finding replaced',
         self::EVENT_COPIES_SENT => 'Report copies sent',
+        self::EVENT_SIGNING_LINK_SENT => 'Signing link sent',
+        self::EVENT_SIGNING_LINK_REVOKED => 'Signing link revoked',
+        self::EVENT_SIGNED_BY_LINK => 'Signed from a link',
+        self::EVENT_REOPENED => 'Report reopened for editing',
+        self::EVENT_REPLACED => 'Replaced / replaces',
     ];
 
     protected $fillable = [

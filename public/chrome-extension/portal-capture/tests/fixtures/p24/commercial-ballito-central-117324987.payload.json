@@ -4,7 +4,7 @@
   "listing_url": "https://www.property24.com/for-sale/ballito-central/ballito/kwazulu-natal/17817/117324987",
   "price": 1330000,
   "description": "EXCLUSIVE MANDATE  74m2 in extent.  Direct access via roadway with no stairs plus stack away doors.  Outside balcony overlooks the immaculate garden and fever trees.  Includes a kitchenette, seperate toilet and basin with an open plan space which could be easily custom designed.  Prime location within reach of everything.\n            \n            To view this property or any other quality real estate please do not hesitate to contact your professional and qualified property consultants at Fiona Crago Real Estate in Ballito.",
-  "listing_title": "Commercial property for sale in Ballito Central",
+  "listing_title": "Conveniently situated prime commercial space in a popular and sought after boutique business park behind Lifestyle and within the business hub",
   "listing_type": "sale",
   "property_type_raw": "Place",
   "property_type_label_hint": "Commercial Property",
@@ -61,14 +61,141 @@
     "Sink"
   ],
   "garden_features": [],
-  "security_features": [
-    "Totally Fenced",
-    "Electric Gate",
-    "Security Gate"
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117324987"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Commercial Property"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Description",
+      "v": [
+        "Office"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Lifestyle",
+      "v": [
+        "Complex"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "17 June 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "74 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Levies",
+      "v": [
+        "R 1 399"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 1 524"
+      ]
+    },
+    {
+      "s": "Facilities",
+      "k": "Bathrooms",
+      "v": [
+        "1",
+        "In unit bathrooms"
+      ]
+    },
+    {
+      "s": "Facilities",
+      "k": "Kitchens",
+      "v": [
+        "1",
+        "Sink"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Parking",
+      "v": [
+        "1",
+        "Carport parking, Secure parking"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Style",
+      "v": [
+        "Conventional"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Roof",
+      "v": [
+        "Zinc"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Wall",
+      "v": [
+        "Plaster"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Window",
+      "v": [
+        "Aluminium"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Security",
+      "v": [
+        "Totally Fenced, Electric Gate, Security Gate"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Temperature Control",
+      "v": [
+        "Air Conditioning Unit"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Wheelchair Accessible",
+      "v": [
+        "Yes"
+      ]
+    }
   ],
+  "strip_tags": [],
   "bathroom_features": [
     "In unit bathrooms"
   ],
-  "_title": "Commercial property for sale in Ballito Central",
+  "_title": "Conveniently situated prime commercial space in a popular and sought after boutique business park behind Lifestyle and within the business hub",
   "_expected_photo_count": 17
 }

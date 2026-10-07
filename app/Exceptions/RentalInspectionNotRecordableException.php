@@ -11,6 +11,6 @@ namespace App\Exceptions;
  * existing `catch (\LogicException)` -> 409 handler in the module treats it
  * the same way.
  */
-final class RentalInspectionNotRecordableException extends \LogicException
+class RentalInspectionNotRecordableException extends \LogicException
 {
 }

@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Contacts;
 
+use App\Exceptions\Rentals\PortalAccessException;
 use App\Http\Controllers\Controller;
 use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Services\ClientAuthService;
+use App\Services\Rentals\RentalPortalAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -19,6 +21,11 @@ class ClientLoginController extends Controller
 {
     public function __construct(private readonly ClientAuthService $service) {}
 
+    /**
+     * Create the client login for this contact — or attach the contact to the login that already exists for the
+     * email (a person is one login). Never a bare "already in use": the service says in plain words why not.
+     * Spec: .ai/specs/rental-portal-access.md §16.
+     */
     public function create(Request $request, Contact $contact): RedirectResponse
     {
         $this->authorize('client_app.create_login');
@@ -28,41 +35,15 @@ class ClientLoginController extends Controller
             'password' => 'nullable|string|min:8|max:120',
         ]);
 
-        $email = strtolower(trim($data['email']));
-
-        if ($this->service->isClientEmailTaken($email)) {
-            $existing = ClientUser::where('email', $email)->first();
-            if ($existing) {
-                $contact->forceFill(['client_user_id' => $existing->id])->save();
-                return back()->with('client_login_success', 'Linked existing client login to this contact.');
-            }
-            return back()->withErrors(['email' => 'That email is already used by another contact.']);
+        try {
+            $result = app(RentalPortalAccessService::class)->attach(
+                $contact, $data['email'], auth()->user(), $request, $data['password'] ?? null
+            );
+        } catch (PortalAccessException $e) {
+            return back()->withErrors(['email' => $e->getMessage()]);
         }
 
-        $clientUser = ClientUser::create([
-            'email' => $email,
-            'password' => $data['password'] ? Hash::make($data['password']) : null,
-            'password_must_change' => !empty($data['password']),
-            'password_set_at' => $data['password'] ? now() : null,
-            'created_by_agency_id' => $contact->agency_id,
-        ]);
-
-        $contact->forceFill(['client_user_id' => $clientUser->id])->save();
-
-        $this->service->log(
-            $clientUser,
-            $contact->agency_id,
-            $contact->id,
-            $data['password'] ? 'password_set' : 'lookup',
-            $request,
-            ['source' => 'agent_created', 'agent_user_id' => auth()->id()]
-        );
-
-        $msg = $data['password']
-            ? "Client login created. Email: {$email} — share the password with the client securely."
-            : "Client login created for {$email}. The client should sign in via the app and use 'Get OTP'.";
-
-        return back()->with('client_login_success', $msg);
+        return back()->with('client_login_success', $result['message']);
     }
 
     public function reset(Request $request, Contact $contact): RedirectResponse

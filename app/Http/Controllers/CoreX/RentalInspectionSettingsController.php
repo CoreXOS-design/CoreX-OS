@@ -32,6 +32,10 @@ class RentalInspectionSettingsController extends Controller
             // 2026-09-23 — the public inspection-report link's expiry window.
             'publicLinkExpiryDays' => RentalInspectionSetting::publicLinkExpiryDaysFor($agencyId),
             'defaultPublicLinkExpiryDays' => RentalInspectionSetting::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS,
+            // §46 — signing by personal link.
+            'signingLinkEnabled' => RentalInspectionSetting::signingLinkEnabledFor($agencyId),
+            'signingLinkExpiryDays' => RentalInspectionSetting::signingLinkExpiryDaysFor($agencyId),
+            'defaultSigningLinkExpiryDays' => RentalInspectionSetting::DEFAULT_SIGNING_LINK_EXPIRY_DAYS,
             // §15.6 — editable here, NOT in the Setup Wizard: the wizard's
             // generic control types (number/select/text/textarea/toggle)
             // have no repeater/list type, and building one is out of scope
@@ -138,6 +142,9 @@ class RentalInspectionSettingsController extends Controller
             // nullable so a caller that never renders them still saves.
             'require_notes_blocks_progression' => ['nullable', 'boolean'],
             'all_items_required_to_complete' => ['nullable', 'boolean'],
+            // §46 — signing by personal link; both has()-guarded below so a wizard step that renders only one is safe.
+            'signing_link_enabled' => ['nullable', 'boolean'],
+            'signing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
         ]);
 
@@ -156,6 +163,13 @@ class RentalInspectionSettingsController extends Controller
         // §45.3 (Build I-1) — same hidden-0-then-checkbox control, same has() guard.
         if ($request->has('all_items_required_to_complete')) {
             $attributes['all_items_required_to_complete'] = $request->boolean('all_items_required_to_complete');
+        }
+        // §46 — same hidden-0-then-checkbox control and the same has() guard; the expiry saves only when filled.
+        if ($request->has('signing_link_enabled')) {
+            $attributes['signing_link_enabled'] = $request->boolean('signing_link_enabled');
+        }
+        if ($request->filled('signing_link_expiry_days')) {
+            $attributes['signing_link_expiry_days'] = (int) $validated['signing_link_expiry_days'];
         }
         // Blank/absent leaves the stored value (and therefore the model's own
         // default) alone; a number saves.

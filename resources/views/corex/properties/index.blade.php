@@ -1088,10 +1088,15 @@
                         <a href="{{ route('corex.properties.show', $property) }}"
                            target="_blank" rel="noopener"
                            class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                        @if($property->isOtherAgencyStock())
+                        <span class="corex-btn-primary text-[10px] px-2 py-1 opacity-50 cursor-not-allowed" aria-disabled="true" data-oas-blocked="ad_builder"
+                              title="{{ \App\Services\Properties\OtherAgencyStockActionRules::reason('ad_builder') }}">Ad</span>
+                        @else
                         <a href="{{ route('corex.properties.ad', $property) }}"
                            target="_blank"
                            class="corex-btn-primary text-[10px] px-2 py-1"
                            title="Create Ad">Ad</a>
+                        @endif
                         <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                               onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
                             @csrf @method('DELETE')
@@ -1313,7 +1318,12 @@
                         <div class="flex items-center justify-end gap-1">
                             @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])
                             <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                            @if($property->isOtherAgencyStock())
+                            <span class="corex-btn-outline text-[10px] px-2 py-1 opacity-50 cursor-not-allowed" aria-disabled="true" data-oas-blocked="ad_builder"
+                                  title="{{ \App\Services\Properties\OtherAgencyStockActionRules::reason('ad_builder') }}">Ad</span>
+                            @else
                             <a href="{{ route('corex.properties.ad', $property) }}" target="_blank" class="corex-btn-outline text-[10px] px-2 py-1">Ad</a>
+                            @endif
                             <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                                   onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
                                 @csrf @method('DELETE')

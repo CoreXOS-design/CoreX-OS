@@ -40,7 +40,7 @@ class RentalInspectionPhotoNoteController extends Controller
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         if (RentalInspectionPhotoNote::liveFor($photo)) {
@@ -79,7 +79,7 @@ class RentalInspectionPhotoNoteController extends Controller
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         $classifications = RentalInspectionSetting::photoNoteClassificationsFor($rentalInspection->agency_id);
@@ -108,7 +108,7 @@ class RentalInspectionPhotoNoteController extends Controller
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         $note->forceFill(['archived_by_user_id' => $request->user()->id])->save();
@@ -137,7 +137,7 @@ class RentalInspectionPhotoNoteController extends Controller
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         if (RentalInspectionPhotoNote::liveFor($photo)) {

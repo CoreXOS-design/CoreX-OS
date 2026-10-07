@@ -404,6 +404,14 @@ class LeaseSigningStateService
     {
         $this->dispatchDomainEvent(fn () => new LeaseAgreementSigned($lease, $envelope->id, $actor?->id));
 
+        // rental-portal-access.md §16 — signed: its tenant(s) and landlord(s) get portal access (agency setting, default ON).
+        // Best effort — a fault here never undoes the signing.
+        try {
+            app(RentalPortalAccessService::class)->provisionForSignedLease($lease);
+        } catch (\Throwable $e) {
+            Log::warning('Portal access on signing failed', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
+        }
+
         $this->tellAgent(
             $lease,
             $envelope,

@@ -722,8 +722,7 @@
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Tenant portal access</h2>
                 @forelse($lease->tenantContacts() as $tenantContact)
-                    <p class="text-xs font-medium">{{ $tenantContact->full_name }}</p>
-                    @include('corex.contacts.partials.client-app-access', ['contact' => $tenantContact])
+                    @include('corex.leases._portal-access-person', ['lease' => $lease, 'contact' => $tenantContact, 'role' => 'tenant'])
                 @empty
                     <p class="text-xs" style="color: var(--text-muted);">No tenant linked to this lease yet.</p>
                 @endforelse
@@ -731,8 +730,7 @@
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Landlord portal access</h2>
                 @forelse($lease->landlordContacts() as $landlordContact)
-                    <p class="text-xs font-medium">{{ $landlordContact->full_name }}</p>
-                    @include('corex.contacts.partials.client-app-access', ['contact' => $landlordContact])
+                    @include('corex.leases._portal-access-person', ['lease' => $lease, 'contact' => $landlordContact, 'role' => 'landlord'])
                 @empty
                     <p class="text-xs" style="color: var(--text-muted);">No landlord linked to this property yet.</p>
                 @endforelse

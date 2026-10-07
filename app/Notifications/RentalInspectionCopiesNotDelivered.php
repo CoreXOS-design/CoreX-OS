@@ -30,7 +30,7 @@ class RentalInspectionCopiesNotDelivered extends Notification
 
     public function message(): string
     {
-        $label = ucfirst(str_replace('_', '-', $this->inspectionType)) . '-inspection report';
+        $label = \App\Models\RentalInspection::typeName($this->inspectionType) . ' report';
 
         return $this->problemCount === null
             ? "{$label} for {$this->propertyAddress} could not be sent — open the inspection to resend it."

@@ -37,7 +37,7 @@
         <div>
             <h1 class="text-lg font-semibold">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span>
-            <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', '-', $inspection->type)) }} inspection</span>
+            <span class="text-xs" style="color: var(--text-muted);">{{ \App\Models\RentalInspection::typeLabel($inspection->type) }} inspection</span>
         </div>
         <div class="flex items-center gap-2">
             {{-- The printable tick-box form — takes it to the property in wet
@@ -80,7 +80,8 @@
                     @csrf
                     <span class="text-xs font-semibold" style="color: var(--text-secondary);">Next inspection:</span>
                     <select name="type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
-                        <option value="ad_hoc">Routine (mid-tenancy)</option>
+                        <option value="ad_hoc">Routine — unplanned mid-tenancy check</option>
+                        <option value="interim">Interim — planned mid-tenancy inspection</option>
                         <option value="out">Out</option>
                     </select>
                     <button type="submit" class="corex-btn-primary text-xs">Start</button>
@@ -91,16 +92,34 @@
             <p class="text-xs" style="color: var(--text-muted);">
                 Next in this chain:
                 <a href="{{ route('corex.rental-inspections.show', $inspection->nextInChain) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">
-                    {{ ucfirst(str_replace('_', '-', $inspection->nextInChain->type)) }}-inspection
+                    {{ \App\Models\RentalInspection::typeName($inspection->nextInChain->type) }}
                 </a>
             </p>
         @endif
     @endpermission
+    {{-- §47 — a report that was sent can never be edited; a new inspection replaces it. Linked both ways. --}}
+    @php
+        $replacedByInspection = \App\Models\RentalInspection::withoutGlobalScopes()->where('replaces_inspection_id', $inspection->id)->where('status', '!=', 'cancelled')->first();
+        $replacesInspection = $inspection->replaces_inspection_id ? \App\Models\RentalInspection::withoutGlobalScopes()->withTrashed()->find($inspection->replaces_inspection_id) : null;
+    @endphp
+    @if($replacedByInspection)
+        <p class="text-xs" style="color: var(--text-muted);" data-qa="replaced-by">
+            Replaced by:
+            <a href="{{ route('corex.rental-inspections.show', $replacedByInspection->id) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">{{ \App\Models\RentalInspection::typeName($replacedByInspection->type) }} #{{ $replacedByInspection->id }}</a>
+            — this report stays exactly as it was sent.
+        </p>
+    @endif
+    @if($replacesInspection)
+        <p class="text-xs" style="color: var(--text-muted);" data-qa="replaces">
+            Replaces:
+            <a href="{{ route('corex.rental-inspections.show', $replacesInspection->id) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">{{ \App\Models\RentalInspection::typeName($replacesInspection->type) }} #{{ $replacesInspection->id }}</a>
+        </p>
+    @endif
     @if($inspection->previousInspection)
         <p class="text-xs" style="color: var(--text-muted);">
             Follows:
             <a href="{{ route('corex.rental-inspections.show', $inspection->previousInspection) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">
-                {{ ucfirst(str_replace('_', '-', $inspection->previousInspection->type)) }}-inspection
+                {{ \App\Models\RentalInspection::typeName($inspection->previousInspection->type) }}
             </a>
         </p>
     @endif
@@ -292,6 +311,18 @@
     </div>
 
     {{-- §45.6 (Build I-4) — who the completed report went to, and what happened. --}}
+    {{-- §47 — the lock on a signed / sent report: Edit report, or (once sent) Start new inspection. --}}
+    @if(! $inspection->trashed() && $inspection->status !== 'cancelled')
+        @include('corex.rental-inspections.partials._report-lock', ['inspectionIdJs' => (string) $inspection->id, 'reloadOnChange' => true])
+    @endif
+
+    {{-- §46 — Sign by link: per-party status + send / QR / sign on this device. --}}
+    @if(! $inspection->trashed() && $inspection->isRecordable() && app(\App\Services\Rentals\RentalInspectionSigningLinkService::class)->enabledFor($inspection))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="signing-links-card">
+            @include('corex.rental-inspections.partials._signing-links', ['inspectionIdJs' => (string) $inspection->id, 'reloadOnChange' => true])
+        </div>
+    @endif
+
     @include('corex.rental-inspections.partials._copies-sent', ['inspection' => $inspection])
 
     {{-- §45.8 (Build I-6b) — History: who did what to this inspection, and when. Append-only; newest first. --}}
@@ -693,6 +724,29 @@
              public page/inventory show page, which show the live row only.
              Kept as-is; not changed by this pass. --}}
         @foreach($inspection->signatures as $signature)
+            @if($signature->voided_by_reopen_id)
+                {{-- §47 — voided by "Edit report": history only. Never a signature (no image, no "Signed"), never counted, never on the PDF. --}}
+                @php
+                    $voidedLabel = match($signature->party_role) {
+                        'agent' => 'Agent',
+                        'landlord' => 'Landlord' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                        default => 'Tenant' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                    };
+                    $reopenRow = $signature->voidedByReopen;
+                @endphp
+                <div class="text-sm py-2" style="border-bottom: 1px solid var(--border); color: var(--text-muted);" data-qa="voided-signature">
+                    <div class="flex items-center justify-between gap-3">
+                        <span>{{ $voidedLabel }}</span>
+                        <span class="text-xs font-semibold uppercase tracking-wide">Voided</span>
+                    </div>
+                    <div class="text-xs mt-0.5">
+                        {{ $signature->disposition === 'signed' ? 'Signed' : ucfirst(str_replace('_', ' ', (string) $signature->disposition)) }}
+                        {{ $signature->disposition_recorded_at?->format('d M Y H:i') }}{{ $signature->signed_via === 'link' ? ', from their own link' : ($signature->signed_via === 'agent_device' ? ", on the agent's device" : '') }}.
+                        Voided {{ $reopenRow?->reopened_at?->format('d M Y H:i') }} when {{ $reopenRow?->reopenedBy?->name ?? 'the agent' }} reopened the report: “{{ $reopenRow?->reason }}”.
+                    </div>
+                </div>
+                @continue
+            @endif
             @php
                 $partyLabel = match($signature->party_role) {
                     'agent' => 'Agent',

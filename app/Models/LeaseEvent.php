@@ -39,6 +39,8 @@ class LeaseEvent extends Model
     public const TYPE_AGREEMENT_EXPIRED = 'agreement_expired';
     public const TYPE_SIGNED_NOT_ACTIVATED = 'signed_not_activated';
     public const TYPE_LEASE_SIGNED_ON_PAPER = 'lease_signed_on_paper';
+    /** rental-portal-access.md §18 — the paper-signed copy (and portal link) emailed to the tenant(s) and landlord(s). */
+    public const TYPE_LEASE_SIGNED_COPY_EMAILED = 'lease_signed_copy_emailed';
     public const TYPE_LEASE_EDITED = 'lease_edited';
     /** leases.md §3.8 — archive and restore, with who / why. */
     public const TYPE_LEASE_ARCHIVED = 'lease_archived';

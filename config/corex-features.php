@@ -654,6 +654,16 @@ return [
         'route_names' => ['buyers-report.*'],
         'view_dirs' => ['buyers-report/'],
     ],
+    'lead-response-report' => [
+        'label' => 'Lead Response Report', 'category' => 'Reports & Performance',
+        'explain' => 'The report of how fast new enquiries from portals, the website and shared links get a first reply, by agent and by source, with print and PDF.',
+        'affects' => 'Whether Lead Response appears in the Reports menu. Off hides it; enquiries and their recorded first replies are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['view_buyers_report'], 'sidebar_section' => 'reports',
+        'settings_section' => null, 'route_prefixes' => ['corex/lead-response-report'], 'global_flag' => null,
+        'route_names' => ['lead-response-report.*'],
+        'view_dirs' => ['lead-response-report/'],
+    ],
     'performance-dashboards' => [
         'label' => 'Performance Dashboards', 'category' => 'Reports & Performance',
         'explain' => 'The Dashboard\'s performance pages — My Performance, Branch Report, Agency Report, Lost Deals, Oversight and Performance.',

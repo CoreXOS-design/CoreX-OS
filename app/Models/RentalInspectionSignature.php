@@ -67,12 +67,27 @@ class RentalInspectionSignature extends Model
         'disposition_recorded_at',
         'superseded_at',
         'superseded_by_signature_id',
+        // §46 — signed from a personal link or on the agent's device.
+        'signed_via',
+        'signing_link_id',
+        'signed_on_device_by_user_id',
+        'signed_typed_name',
+        'read_confirmed_at',
+        'signer_comment',
+        'signed_ip',
+        'signed_user_agent',
+        'signed_report_fingerprint',
+        'voided_by_reopen_id',
     ];
 
     protected $casts = [
         'disposition_recorded_at' => 'datetime',
         'superseded_at' => 'datetime',
+        'read_confirmed_at' => 'datetime',
     ];
+
+    public const SIGNED_VIA_LINK = 'link';
+    public const SIGNED_VIA_AGENT_DEVICE = 'agent_device';
 
     public function inspection(): BelongsTo
     {
@@ -93,6 +108,17 @@ class RentalInspectionSignature extends Model
     public function supersededBy(): BelongsTo
     {
         return $this->belongsTo(self::class, 'superseded_by_signature_id');
+    }
+
+    /** §47 — the "Edit report" that voided this signature (null for a signature that still counts or was corrected another way). */
+    public function voidedByReopen(): BelongsTo
+    {
+        return $this->belongsTo(RentalInspectionReopen::class, 'voided_by_reopen_id');
+    }
+
+    public function isVoided(): bool
+    {
+        return $this->voided_by_reopen_id !== null;
     }
 
     public function isWetInk(): bool
@@ -270,6 +296,10 @@ class RentalInspectionSignature extends Model
                 $attributes['refusal_reason_note'] = null;
             }
         }
+
+        // §47 — whichever route recorded it (link, device, the agent's own screen, the PIN), the signature carries a
+        // fingerprint of the report as it stood when it was given.
+        $attributes['signed_report_fingerprint'] ??= $inspection->reportFingerprint();
 
         return self::create(array_merge($attributes, [
             'agency_id' => $inspection->agency_id,

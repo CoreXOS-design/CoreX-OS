@@ -1245,7 +1245,14 @@ class SettingsController extends Controller
             ]);
         }
 
-        return back()->with('success', 'Other Agency Stock settings updated.');
+        $redirect = back()->with('success', 'Other Agency Stock settings updated.');
+        // Company Settings → Other Agency Stock posts this so Save lands back on its own tab (the
+        // tab is restored from the URL fragment, which a bare back() drops). Allow-listed, never echoed.
+        if ($request->input('return_fragment') === 'other-agency-stock') {
+            $redirect->withFragment('other-agency-stock');
+        }
+
+        return $redirect;
     }
 
     // ── AI background removal (agent photos) toggle — ad-manager.md §15.2 ──

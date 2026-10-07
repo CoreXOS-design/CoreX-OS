@@ -255,13 +255,7 @@
                         {{-- BUILD 3 END --}}
 
                         <template x-if="tenantTab === 'documents'">
-                            <div class="card">
-                                <h2>My documents</h2>
-                                <template x-for="d in documents" :key="d.id">
-                                    <div class="list-item" x-text="d.name"></div>
-                                </template>
-                                <p class="muted" x-show="!documents.length">No documents shared yet.</p>
-                            </div>
+                            @include('rentals.portal._documents')
                         </template>
                     </div>
                 </template>
@@ -274,7 +268,12 @@
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
                             <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults</button>
                             <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadWorkOrders()">Jobs</button>
+                            <button :class="{active: landlordTab==='documents'}" @click="landlordTab='documents'; loadDocuments()">Documents</button>
                         </div>
+
+                        <template x-if="landlordTab === 'documents'">
+                            @include('rentals.portal._documents')
+                        </template>
 
                         <template x-if="landlordTab === 'decisions'">
                             <div>
@@ -489,6 +488,7 @@ function rentalsPortal() {
         landlordTab: 'decisions',
         tenantLeases: [], leaseDetail: null,
         faultReports: [], documents: [],
+        docs: { rows: [], meta: null, loaded: false, error: null, q: '', type: '', from: '', to: '', sort: 'date', dir: 'desc', page: 1 },
         faultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null },
         faultTypesByProperty: {},
         decisions: { fault_reports: [], work_orders: [], variations: [] },
@@ -501,6 +501,10 @@ function rentalsPortal() {
         landlordFaultTypesByProperty: {},
 
         async init() {
+            // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
+            // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
+            const linked = new URLSearchParams(window.location.search).get('email');
+            if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) this.login.email = linked.trim();
             const me = await portalFetch('/api/v1/client/me');
             if (me.ok) {
                 this.session.authenticated = true;
@@ -632,9 +636,18 @@ function rentalsPortal() {
             await this.loadWorkOrders();
         },
         // BUILD 3 END
+        // §19 — one Documents panel for both audiences; the list is always the signed-in person's OWN (server-side).
         async loadDocuments() {
-            const r = await portalFetch('/api/v1/client/rentals/documents');
-            if (r.ok) this.documents = r.data.documents;
+            const base = this.activeRole === 'landlord' ? '/api/v1/client/rentals/landlord' : '/api/v1/client/rentals';
+            const p = new URLSearchParams({ sort: this.docs.sort, dir: this.docs.dir, page: this.docs.page });
+            ['q', 'type', 'from', 'to'].forEach(k => { if (this.docs[k]) p.set(k, this.docs[k]); });
+            this.docs.error = null;
+            const r = await portalFetch(base + '/documents?' + p.toString());
+            if (!r.ok) { this.docs.error = r.data?.message || 'Could not load your documents.'; this.docs.loaded = true; return; }
+            this.docs.rows = r.data.documents;
+            this.docs.meta = r.data.meta;
+            this.docs.page = r.data.meta.page;
+            this.docs.loaded = true;
         },
 
         async startFaultReport() {

@@ -48,6 +48,8 @@ final class EntryPointController extends Controller
         if ((int) $property->agency_id !== $agencyId) {
             abort(404);
         }
+        // Other Agency Stock can never be pitched (spec other-agency-stock.md §5c).
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $property);
 
         $sellers = $this->loadSellerContactsForProperty($agencyId, $property);
 
@@ -86,6 +88,7 @@ final class EntryPointController extends Controller
         if ((int) $property->agency_id !== $agencyId) {
             abort(404);
         }
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $property);
 
         $linked = $this->resolveLinkedExistingContact($request, $agencyId);
         if ($linked !== null) {

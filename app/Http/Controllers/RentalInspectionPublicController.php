@@ -43,6 +43,19 @@ class RentalInspectionPublicController extends Controller
             return $this->privateHeaders(response()->view('rental-inspections.public.unavailable'));
         }
 
+        return $this->privateHeaders(response()->view('rental-inspections.public.show', $this->reportData($inspection, fn ($signature, string $kind) => $signature->fileUrl($kind, $inspection->public_token))));
+    }
+
+    /**
+     * §46 — everything the report page renders, built once so the general public link and a party's personal signing
+     * link show the SAME report. `$signatureFileUrl` says how a signature image / wet-ink scan is fetched under the
+     * caller's own token (each kind of link has its own token-authorised file route).
+     *
+     * @param  callable(\App\Models\RentalInspectionSignature, string): ?string  $signatureFileUrl
+     * @return array<string, mixed>
+     */
+    public function reportData(RentalInspection $inspection, callable $signatureFileUrl): array
+    {
         // Audit L1 — every relation is loaded scope-free: the token is the
         // authority here. A logged-in agent of ANOTHER agency opening a
         // forwarded link would otherwise get AgencyScope-filtered nulls
@@ -153,7 +166,8 @@ class RentalInspectionPublicController extends Controller
             ? $attendanceService->board($inspection)
             : null;
 
-        return $this->privateHeaders(response()->view('rental-inspections.public.show', [
+        return [
+            'signatureFileUrl' => $signatureFileUrl,
             'inspection' => $inspection,
             'rows' => $rows,
             'roomNotes' => $roomNotes,
@@ -166,7 +180,7 @@ class RentalInspectionPublicController extends Controller
             'signatureRows' => $inspection->signatureSummaryRows(),
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
-        ]));
+        ];
     }
 
     /**
@@ -174,7 +188,7 @@ class RentalInspectionPublicController extends Controller
      * indexes and shared caches, and stop the token leaking in a Referer
      * header when a photo / signature link is opened.
      */
-    private function privateHeaders(\Symfony\Component\HttpFoundation\Response $response): \Symfony\Component\HttpFoundation\Response
+    public function privateHeaders(\Symfony\Component\HttpFoundation\Response $response): \Symfony\Component\HttpFoundation\Response
     {
         $response->headers->set('X-Robots-Tag', 'noindex, nofollow, noarchive');
         $response->headers->set('Cache-Control', 'no-store, private');

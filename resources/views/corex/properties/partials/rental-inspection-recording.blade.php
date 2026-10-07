@@ -1527,6 +1527,24 @@
             </div>
         </template>
 
+        {{-- §46 — "Sign by link": each party's personal signing link, its status, and the ways to get it to them (email,
+             WhatsApp, copy, full-screen QR, sign on this device). Shown for any open inspection (a party can read the report
+             before it is ready to sign); the panel hides itself when the agency has signing by link switched off or the
+             inspection is of a kind that is not signed. The host screen refreshes its signatures when someone signs. --}}
+        <template x-if="!['completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">
+            <div @signing-links-changed="refreshInspectionData()" class="space-y-2">
+                {{-- §47 — a signed report is locked; "Edit report" clears every signature. --}}
+                @include('corex.rental-inspections.partials._report-lock', ['inspectionIdJs' => "currentInspection({$sectionJs}).id", 'reloadOnChange' => false])
+                @include('corex.rental-inspections.partials._signing-links', ['inspectionIdJs' => "currentInspection({$sectionJs}).id", 'reloadOnChange' => false])
+            </div>
+        </template>
+        {{-- §47 — a completed report has been SENT: never editable, by anyone. The only way forward is "Start new inspection". --}}
+        <template x-if="currentInspection({{ $sectionJs }}).status === 'completed'">
+            <div @signing-links-changed="refreshInspectionData()">
+                @include('corex.rental-inspections.partials._report-lock', ['inspectionIdJs' => "currentInspection({$sectionJs}).id", 'reloadOnChange' => false])
+            </div>
+        </template>
+
         {{-- §15 (2026-09-20) — one shared signing block for both sections:
              per-tenant rows, the landlord row (if Property::
              sellerOwnerContact() resolves one — §15.4), then the agent's

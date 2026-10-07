@@ -532,6 +532,7 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateContractorLinksEnabled'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnDecisionNeeded'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyTenantOnStatusChange'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateAutoPortalAccessOnSigning'],
             // .ai/specs/rental-work-orders.md §14.27.3 / §14.28 — crew links (Build 1's five). Each saver is
             // has()-guarded (onboarding §6.1) — an absent field leaves the saved value alone.
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinksEnabled'],
@@ -566,8 +567,8 @@ return [
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
              'affects' => 'How long the "report a fault" window stays open on a new tenancy. 7 days suits most agencies — a report after this window still reaches the agent, it is just their call whether to accept it.'],
             ['key' => 'out_inspection_signing_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 60,
-             'label' => 'Days a tenant has to sign the out-inspection',
-             'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
+             'label' => 'Days a tenant has to sign an inspection',
+             'explain' => 'Once any inspection (In, Routine, Interim or Out) is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
              'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
             // 2026-09-23 — same saver as the two window fields above
             // (RentalInspectionSettingsController::update() — registered
@@ -577,6 +578,16 @@ return [
              'label' => 'Days the public inspection-report link stays live',
              'explain' => 'A completed inspection\'s PDF carries a link a tenant or landlord can open with no CoreX login. This many days after it is issued, the link stops working.',
              'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
+            // §46 — signing an inspection by a personal link. Same saver as the controls above
+            // (RentalInspectionSettingsController::update(), registered once) — both has()-guarded there.
+            ['key' => 'signing_link_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let tenants and landlords sign an inspection from a personal link',
+             'explain' => 'The agent can send each tenant and the landlord a personal link by email or WhatsApp, or show a QR code on their own phone. The person opens the full inspection report on their own phone, reads it, and signs from there — CoreX records the signature, the time and the device it was signed on.',
+             'affects' => 'Whether the agent sees the "Sign by link" controls on an inspection. Off means signing stays on the agent\'s own screen, on paper, or on the agent\'s device. On by default.'],
+            ['key' => 'signing_link_expiry_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days a personal signing link stays live',
+             'explain' => 'Each person\'s signing link stops working this many days after the agent issues it, and also as soon as the agent revokes it.',
+             'affects' => 'How long a tenant or landlord has to open their link and sign. 30 days suits most agencies — the agent can issue a fresh link from the inspection at any time.'],
             // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
             // defaults ON.
             ['key' => 'auto_pair_photos_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
@@ -683,6 +694,10 @@ return [
              'label' => 'Landlord portal access',
              'explain' => 'Lets a landlord log in and see their properties, approve/decline repair decisions, and view inspection reports.',
              'affects' => 'Whether a landlord can reach the rentals portal at all. On by default.'],
+            ['key' => 'auto_portal_access_on_signing', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Give tenant and landlord portal access automatically when a lease is signed',
+             'explain' => 'When a lease is signed, CoreX sets up the portal login for its tenant(s) and landlord(s) using the email on their contact, and the signed-lease email they receive carries their personal portal link. The first time they open it they confirm their email with a code and choose a password.',
+             'affects' => 'Whether your agents have to set up portal access by hand for every lease, or it is simply there when the lease is signed. Has no effect if tenant or landlord portal access above is switched off. On by default.'],
             ['key' => 'contractor_links_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
              'label' => 'Contractor secure links',
              'explain' => 'Lets an agent send a contractor a per-job link (no login) to upload a quote, upload after photos, and mark a job done.',
@@ -1151,7 +1166,7 @@ return [
             ['key' => 'lead_response_target_minutes', 'source' => 'lead_response', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 10080,
              'label' => 'Respond to a new enquiry within (minutes)',
              'explain' => 'The time your agency aims to make first contact with someone who enquires through a portal, your website or a shared link. Only the hours chosen above count towards it.',
-             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Buyers Report and the Performance Report, and when a waiting enquiry is flagged as past target.'],
+             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Lead Response report (Reports menu), and when a waiting enquiry is flagged as past target.'],
         ],
         'aux_partial' => 'agency-setup.steps.contacts-collections',
     ],

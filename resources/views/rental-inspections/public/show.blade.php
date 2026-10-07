@@ -18,6 +18,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Inspection report — {{ $inspection->property?->buildDisplayAddress() }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @isset($signing)
+        {{-- §46 — a party's signing link: the signature pad the other external signing pages already bundle. --}}
+        <meta name="csrf-token" content="{{ csrf_token() }}">
+        @vite(['resources/js/esign-signature-pad.js'])
+    @endisset
     {{-- §40, 2026-09-28 — Johan: "how do we print / share it now" —
          this page already has everything a printed record needs (photos,
          conditions, notes, signatures) and nothing this docblock's own
@@ -43,10 +48,20 @@
 </head>
 <body class="bg-slate-50 min-h-screen p-4 sm:p-8">
     <div class="max-w-3xl mx-auto space-y-6">
+        @isset($signing)
+            @if(($signing['mode'] ?? null) === 'device')
+                <div class="no-print rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm p-3 flex items-center justify-between gap-3" data-qa="device-banner">
+                    <span>Signing on {{ $signing['device_agent_name'] ?? 'the agent' }}'s device for <strong>{{ $signing['party_name'] }}</strong>. Read the report, then scroll to the end to sign.</span>
+                    @if(! empty($signing['back_url']))
+                        <a href="{{ $signing['back_url'] }}" class="font-semibold underline whitespace-nowrap">Back to CoreX</a>
+                    @endif
+                </div>
+            @endif
+        @endisset
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
             <div class="flex items-start justify-between gap-3">
                 <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ ucfirst($inspection->type) }}-inspection report</p>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ \App\Models\RentalInspection::typeName($inspection->type) }} report</p>
                     <h1 class="text-xl font-bold text-slate-800 mt-1">{{ $inspection->property?->buildDisplayAddress() }}</h1>
                     <p class="text-sm text-slate-500 mt-1">
                         {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
@@ -273,14 +288,23 @@
                             @endif
                         </div>
                         @if($row['signature'])
-                            <p class="text-xs text-slate-400 mt-0.5">{{ $row['signature']->disposition_recorded_at?->format('d M Y, H:i') }}</p>
+                            <p class="text-xs text-slate-400 mt-0.5">{{ $row['signature']->disposition_recorded_at?->format('d M Y, H:i') }}
+                                @if($row['signature']->signed_via === \App\Models\RentalInspectionSignature::SIGNED_VIA_LINK)
+                                    &middot; signed from their own link as &ldquo;{{ $row['signature']->signed_typed_name }}&rdquo;
+                                @elseif($row['signature']->signed_via === \App\Models\RentalInspectionSignature::SIGNED_VIA_AGENT_DEVICE)
+                                    &middot; signed on the agent's device as &ldquo;{{ $row['signature']->signed_typed_name }}&rdquo;
+                                @endif
+                            </p>
+                            @if($row['signature']->signer_comment)
+                                <p class="text-sm mt-1 py-1 pl-2 border-l-2 border-slate-300 text-slate-600">Comment: {{ $row['signature']->signer_comment }}</p>
+                            @endif
                             @if($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
                                 <p class="text-sm mt-1 py-1 pl-2 border-l-2 rounded-r" style="background-color: color-mix(in srgb, {{ $severityColors['red'] }} 12%, white); border-left-color: {{ $severityColors['red'] }};">
                                     {{ $refusalReasonLabels->get($row['signature']->refusal_reason_preset, ucfirst(str_replace('_', ' ', $row['signature']->refusal_reason_preset))) }}
                                     @if($row['signature']->refusal_reason_note) — {{ $row['signature']->refusal_reason_note }} @endif
                                 </p>
                             @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED && $row['signature']->party_signature_path)
-                                <img src="{{ $row['signature']->fileUrl('signature', $inspection->public_token) }}" alt="{{ $row['role'] }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                <img src="{{ $signatureFileUrl($row['signature'], 'signature') }}" alt="{{ $row['role'] }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK && $row['signature']->wet_ink_upload_path)
                                 {{-- Conductor brief 2026-09-29 — the bug this
                                      build fixes: a wet-ink upload is not
@@ -294,7 +318,7 @@
                                      directly-servable storage path. --}}
                                 @php
                                     $isImageScan = in_array(strtolower(pathinfo($row['signature']->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'heic', 'heif']);
-                                    $wetInkUrl = $row['signature']->fileUrl('wet-ink', $inspection->public_token);
+                                    $wetInkUrl = $signatureFileUrl($row['signature'], 'wet-ink');
                                 @endphp
                                 @if($isImageScan)
                                     <a href="{{ $wetInkUrl }}" target="_blank" rel="noopener">
@@ -309,6 +333,10 @@
                 @endforeach
             </div>
         </div>
+
+        @isset($signing)
+            @include('rental-inspections.public.partials.sign-section')
+        @endisset
     </div>
 </body>
 </html>

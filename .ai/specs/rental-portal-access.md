@@ -320,3 +320,245 @@ not a new way to commission work.
 `app/Http/Controllers/Api/V1/ClientLandlordRentalsController.php` (new `faultReportStore()`) ·
 `routes/api.php` (one new route) ·
 `tests/Feature/RentalPortalAccess/{RentalPortalWorkflowTest.php,PartyIsolationTest.php}` (new tests).
+
+---
+
+## 16. Agent-side portal access — one person is one login; link and invite on the lease screen (7 Oct 2026, QA1)
+**Trigger.** Johan, QA1 rentals test, 2026-10-07: on the new lease for a tenant (HFC contact 8966), under
+"Tenant portal access", **Create Client Login** answered "email already in use" — for a tenant who had no
+login at all. He asked how the logic works, wanted the dead end fixed, the link on the lease screen, and the
+link in the signed-lease email.
+
+**Root cause (not the login — the contact itself).** `ClientAuthService::isClientEmailTaken()` also counted any
+`Contact` carrying the email, and the create form pre-fills the contact's own email, so every contact with a real
+email collided with itself; with no `ClientUser` to attach to the controller fell through to a bare error and the
+card still said "Not configured". Fixed at the root by one service (below), not by loosening the check.
+
+### 16.1 How access works (the logic, written down)
+- A `ClientUser` is **one account per email address, system-wide** (unique active email). Any number of that
+  person's `contacts` rows point at it (`contacts.client_user_id`) — across agencies too (one Contact per agency).
+- The portal acts for the login through its contact(s) **in the agency it has selected**. Before this stage it
+  took only the first such contact; `RentalPortalScopeService::personContactIds()` now unions every contact of
+  that login in the agency (tenant leases, landlord properties, documents), so one login carries both roles even
+  when the person exists as two contact records. `ClientAuthService::contactForAgency()` is ordered, so the one
+  contact used for attribution (`reported_by_contact_id`) is stable.
+- **First-time access needs no agent action at all.** A person whose contact has a real email opens `/portal`,
+  enters the email, gets a code, chooses a password; `findOrCreateClientUser()` creates the login and links the
+  contacts carrying that email. The agent-side button only pre-creates it (so the card shows a status) and
+  sends the link.
+
+### 16.2 `RentalPortalAccessService` — the one agent-side path
+`attach($contact, ?email, ?actor, ?request, ?tempPassword)`: idempotent; the email defaults to the contact's own.
+- No login for the email → create it (origin agency = the contact's), attach. Login exists → **attach this
+  contact to it** (outcome `created | attached | already | switched`).
+- **Same-person rule** (so a stranger's login can never be opened onto this contact's data): the email must be on
+  this contact, or on another contact in this agency (mirror column or any saved email), or the login must already
+  be tied to a contact in this agency, or be an agent-managed placeholder address. Otherwise it is refused **in
+  plain words** ("…belongs to someone who is not on your contact list…" / "…managed by another agency…" / "That
+  email is not saved on <name>'s contact…") — never a bare "already in use".
+- No email → "<name> has no email address saved yet. Add one to the contact first". The lease card links to the
+  contact; nothing is typed on the lease screen, so the login always belongs to the person on file.
+- **Email changed on the contact** (or the login is a `@corexclient.co.za` placeholder that cannot receive mail):
+  the card shows "Contact email changed" with **Move the login to <new email>** (`switchToContactEmail`) — the
+  contact moves to the login for the new email; the old login is soft-deleted only when nobody else is on it and it
+  is the agency's to remove (a login managed by another agency is never touched).
+- Two tenants on one lease: each contact is attached on its own; a shared email is one login. A person who is
+  tenant on one lease and landlord on another is one login, both roles (16.1).
+- `enabledFor($agencyId, 'tenant'|'landlord')` = the agency's tenant / landlord portal toggle **and** the Rentals
+  features switch. Off → the card says so, no link is offered, nothing can be sent, no link in any email.
+
+### 16.3 Lease screen (the two cards only — `corex.leases._portal-access-person`)
+Per person: name, status (**Not set up · Pending OTP · Active · Must change password · Contact email changed ·
+No email on the contact · Portal access is switched off**), the login email, then:
+- not set up → one primary action **"Set up portal access & email the link"** (sets up, then sends) and a quiet
+  "Set up only";
+- set up → the personal link (`/portal?email=…` — the portal pre-fills the email and waits for **Continue**;
+  nothing is looked up or sent by opening the link) with **Copy**, **Email link / Resend invite** and **Share on
+  WhatsApp** (`WhatsAppNumberFormatter`, the contact's own dial code);
+- the old reset-password / sign-out-devices / remove actions stay on the contact page (a link points there).
+Routes `corex.leases.portal-access.{setup,invite,switch}` (`POST /corex/leases/{lease}/portal-access/{contact}/…`),
+`LeasePortalAccessController`: lease scope first (own / branch / agency via `guardRentalRecordScope`), permission
+`client_app.create_login`, and the contact must be one of THIS lease's tenants/landlords (anything else is a 404).
+The contact page's "Create Client Login" (`ClientLoginController::create`) now goes through the same service.
+Invites go through `RentalMailDispatcher` as the pressing agent (`RentalPortalInviteMail`, agency-branded,
+neutral wording) and are logged to `client_access_logs` (`portal_invite_sent`).
+
+### 16.4 Automatic access when a lease is signed + the link in the signed copy
+- **Agency setting `auto_portal_access_on_signing`** (`rental_portal_settings`, read-time default **ON**), a
+  has()-guarded saver `updateAutoPortalAccessOnSigning`, a toggle on Settings → Rental portal **and** a control on
+  the Setup Wizard Rentals step (§10a): *"Give tenant and landlord portal access automatically when a lease is
+  signed."* When ON, at signing every tenant and landlord with a real email gets their login
+  (`provisionForSignedLease`, best effort, after the commit — a fault never undoes the signing; a person without an
+  email, or whose email cannot be attached, is skipped and logged). OFF = fully manual and **no link in the mail**.
+  Fires from `LeaseSigningStateService::announceSigned()` (e-signed lease) and from
+  `LeaseCaptureService` after a signed paper copy is attached.
+- **The completion copy** (`SignatureService::sendCompletionEmails` → `SignedDocumentMail`) of a lease agreement
+  gains a **"Your CoreX portal"** block for each signer who is a tenant / landlord of that lease: what that role
+  can really do today, a button and the plain link, and the first-time note (code, then choose a password). Tenant:
+  *view your lease and the property, report a fault and follow it through to a fix, and see your documents.*
+  Landlord: *approve or decline repair decisions, see your properties and tenancy, and follow faults and jobs.*
+  (Copy lists only what the web portal's tabs offer — no statements, and inspections are API/mobile only, so neither
+  is promised.) A person who is both gets one link listing both. No block for any other document, for a signer who
+  is not a party to the lease, for a placeholder address, when that audience's portal is off, or when automatic
+  access is off.
+- **Paper copies.** Access is created automatically when a signed paper copy is attached, and (since §18) the parties
+  are emailed the copy and their link — the same as the e-sign path.
+
+### 16.5 Acceptance
+- [x] Create on a contact whose email is its own, with no login: creates and attaches (no "already in use").
+- [x] Existing login for the email: attached; stranger's login: plain refusal, nothing linked.
+- [x] No email, changed email, placeholder login, two tenants, one person in two roles: each handled (tests).
+- [x] Link with Copy / Email / WhatsApp / Resend on both cards; invite mail lists only what the role gets.
+- [x] Signing creates access (setting, default ON, also in the wizard); the signed copy carries the block; nothing
+      when the portal is off for the agency.
+- [x] Multi-agency (CLAUDE.md #9): no HFC wording; defaults neutral; the second agency sees its own branding and
+      its own toggles.
+- Tests: `tests/Feature/RentalPortalAccess/{LeasePortalAccessTest,LeasePortalSigningTest}.php`.
+
+**Files:** `app/Services/Rentals/RentalPortalAccessService.php` · `app/Exceptions/Rentals/PortalAccessException.php` ·
+`app/Http/Controllers/CoreX/LeasePortalAccessController.php` · `app/Http/Controllers/Contacts/ClientLoginController.php` ·
+`app/Mail/Rentals/RentalPortalInviteMail.php` + `resources/views/emails/rentals/{portal-invite,partials/portal-link-button}.blade.php` ·
+`resources/views/corex/leases/{_portal-access-person,show}.blade.php` · `resources/views/rentals/portal/shell.blade.php` (email pre-fill) ·
+`app/Services/Rentals/RentalPortalScopeService.php` · `app/Services/ClientAuthService.php` (ordered `contactForAgency`) ·
+`app/Mail/Signatures/SignedDocumentMail.php` + `emails/signatures/signed-document.blade.php` · `app/Services/Docuperfect/SignatureService.php` ·
+`app/Services/Rentals/{LeaseSigningStateService,LeaseCaptureService}.php` · `app/Models/RentalPortalSetting.php` +
+migration `2026_10_15_000300_…` · `RentalPortalSettingsController` · `AgencySetupWizardController` · `config/agency-onboarding-copy.php` ·
+`resources/views/corex/settings/rental-portal.blade.php` · `routes/web.php`.
+
+
+---
+
+## 17. "Unauthorized" after creating the portal password — a staff session in the same browser (7 Oct 2026, QA1)
+**Symptom (Johan, QA1).** Opened a tenant's personal link, entered the emailed code, was asked to choose a password, chose one
+and landed on "Unauthorized" — identically for the owner's link.
+
+**Cause (one sentence).** Sanctum decides who a browser request is by trying the staff `web` session before the portal's own, so
+in a browser that was also signed in as staff, the staff user answered for the portal's set-password call, and the portal
+refused it because that user is not a portal person (`ClientAuthController::setPassword` → 401 "Unauthorized.").
+In a clean browser the same path always worked (proved: `PortalLinkToHomeTest`, clean-browser cases).
+
+**Fix — the bug class, not the one call.**
+- New route middleware `client.auth` (`AuthenticateClientPortal`) replaces `auth:sanctum` on **every** client-portal route:
+  `/api/v1/client-auth/password/set`, the logged-in `/api/v1/client-auth/*` group and all of `/api/v1/client/*` (so the
+  rentals portal, matches, consent, testimonials, seller insights — tenant, owner and every other portal person). For the
+  duration of that request Sanctum is told to consult only the `client-web` session guard, then the bearer token (the
+  mobile app's path, unchanged); the setting is restored in `finally`, so staff and token APIs keep the default list.
+- A staff session therefore can neither answer for a portal request nor be disturbed by one. A staff session alone still
+  gets 401 from the portal API; a staff bearer token still gets 403 (`client.ability`).
+- **Portal sign-out / account deletion no longer ends the staff session.** They used to invalidate the whole session, which
+  signed a staff user in the same browser out. `ClientAuthController::endPortalSession()` removes only the portal login
+  (session key + guard user) and destroys the session only when no staff user is in it. It deliberately does **not** call
+  `SessionGuard::logout()`: that fires the global Logout event whose staff-only listeners
+  (`RevokeCommsGrantsOnLogout`, typed `User`) would 500 on a `ClientUser` — found by the test below.
+- **Existing logins need nothing.** Nothing was written wrongly: the failed call never set the password, so those
+  people simply open their link again (code, then choose a password). A login created from the lease screen
+  (Pending OTP) stays valid.
+- A new portal route must use `client.auth`, never a bare `auth:sanctum`.
+
+**Tests (`tests/Feature/RentalPortalAccess/PortalLinkToHomeTest.php`, 12):** the whole path over the real endpoints — personal link
+email → lookup → emailed code → verify → set password (activation token on that one call only) → portal home (`/me`, then the
+tenant's lease or the owner's property) — for tenant and owner, a brand-new login and an existing login, in a clean browser AND
+with a staff user already signed in (held in the cookie session, as a real browser holds it); plus: returning person signs in
+with the password in a staff browser; portal sign-out leaves the staff login in the session; a staff session alone and a staff
+bearer token never open the portal API. Every simulated request starts with cleared guards and the default `web` guard (in
+production each request is its own process; without this the test process leaks the previous request's user — and `Auth::shouldUse()`
+writes the default guard into config — which produced misleading 403s while the test was being built).
+
+---
+
+## 18. Paper-signed lease: the parties are emailed the copy and their portal link (7 Oct 2026, QA1 — Johan's ruling)
+**Ruling (Johan, 7 Oct 2026):** when a paper-signed (wet ink) lease is uploaded/attached, YES — the tenant(s) and owner get the lease
+copy by email and their portal link, same as the e-sign path, same rules.
+
+**What happens.** At the end of `LeaseCaptureService::capture()` with intent `paper_copy` — the only place a signed paper copy is
+attached (New Lease, the Renewal screen's "I already have the signed copy", the renewal upload and both APIs all go through it) —
+and after the lease has committed: (1) portal access is created for the parties (§16.4), then (2) `LeaseSignedCopyMailer::sendOnPaperAttach()`.
+- **Who receives** (as `SignatureService::sendCompletionEmails`): the lease's tenants and landlords, never the agent; **one mail per
+  distinct address** (a person who is both, or two tenants sharing an address, get one); a party with no email, or a placeholder
+  address, is skipped and **named in the tenancy log**.
+- **What:** the existing `SignedDocumentMail` — subject "Fully signed: Lease agreement — <address>", the signed copy attached under its
+  own file name **and its own type** (a photo or Word upload is no longer labelled PDF — `SignedDocumentMail` takes an optional
+  per-document `mime`; e-sign PDFs unchanged), and the per-person **"Your CoreX portal"** block under exactly the §16.4 rules
+  (automatic access on, that audience's portal on, real email, party of the lease).
+- **How (mail guard):** through `RentalMailDispatcher` as the agent who attached it — their own mailbox path, audited fallback to the shared
+  mailer, and the non-production redirect via the mail guard — never a plain `Mail::to()`.
+- **Logged:** one `lease_signed_copy_emailed` row in the tenancy log: who got it, who could not be reached, who has no email.
+- **No new setting:** the e-sign copy mail has none, Johan asked for "same as the e-sign path", and the portal block already follows the
+  agency's portal switches.
+
+**Never twice — the re-upload rule (reported to Johan).** `leases.signed_copy_emailed_at` is an atomic once-per-lease claim (`UPDATE … WHERE
+signed_copy_emailed_at IS NULL`, the same idea as `signature_templates.completion_emails_sent_at`), taken by the run that sends.
+- Double submit of the same screen: the capture key returns the existing lease before anything runs — nothing is mailed again.
+- Retry, or a different signed copy filed against the same lease later (a replacement): the claim is already set — **nobody is mailed
+  again.** Today the lease screens have no "replace the signed copy" action (a paper capture always makes a new lease or renewal term, each
+  with its own once-only mail), so this is a guard for any path added later; a corrected copy would have to be sent deliberately.
+- **Nothing delivered** (every address failed, or nobody has an email): the claim is **released** (or never taken), so the lease is not left
+  looking "sent" when nobody received it, and a later run can send. Partial delivery keeps the claim and names the failures in the log.
+- A mail fault never undoes the capture (best effort, after commit).
+
+**Tests (`LeasePaperCopyMailTest`, 16):** tenant and owner each get the copy + own link (agent never); access created first; tenancy-log row; one
+person on two roles = one mail listing both; two tenants one address = one mail; a party without an email skipped and named; nobody with an
+email = no mail, no claim; one portal off = copy without link; automatic access off = copy without link and no login; same screen twice; retry and
+a replaced copy; all-fail releases the claim and a later run sends; one failing address does not stop the rest; a renewal from a paper copy mails the
+renewal term's parties only; a photo upload keeps its own type; lease-only capture sends nothing.
+
+
+---
+
+## 19. The portal Documents area — signed lease agreement and distributed inspection reports (7 Oct 2026, QA1)
+**Trigger.** Johan, after retesting the portal links: *"We are a bit shy on data on these links? We have documents — so we can put the lease
+agreement here, we can put the inspection report here."* The Documents tab already existed for the tenant (names only, nothing openable, and
+only documents flagged by hand); the owner had no Documents tab in the web portal at all.
+
+**What each person sees — one list, built by `RentalPortalDocumentService` for both audiences, newest first, one row per document:**
+1. **Lease agreements** — the SIGNED agreement of every live lease the person is a party to (tenant: their `lease_tenants` rows; owner: every
+   lease on a property they own, earlier tenancies included — the owner already sees the occupancy history). "Signed" = signed and accepted
+   (`signed_at`), `signed` / `signed_on_paper`, or created from a completed signed agreement (`source` `esign_document` /
+   `uploaded_signed_copy`) **and** a filed document exists: the filed e-sign copy of the lease's envelope, else the attached wet-ink copy — the
+   same document `Lease::signedDocument()` names, read scope-free and agency-pinned. **A lease that is not signed is never shown** (a draft,
+   out for signing, awaiting the agent's approval, declined, voided, expired envelope). A signed renewal is **its own row** ("Lease renewal").
+2. **Inspection reports** — only reports that have been **distributed**, using cc6's definition (rental-inspections.md §47,
+   `RentalInspection::isDistributed()` = Completed, or an email copy logged as sent to a tenant/landlord): never a draft, one in progress, one
+   still in signing, or a cancelled one. Tenant: reports on their own lease(s); owner: reports on leases of their own properties. The row is the
+   signed PDF the completion step filed (`source_type` `rental_inspection_report`). The portal keeps **no rule of its own**: it calls
+   `RentalInspection::isDistributed()` (cc6, landed on QA1 the same day) and only adds "not cancelled". No inspection code was touched.
+   (`rental_inspections.lease_id` is required, so there is no lease-less inspection.)
+3. **Documents the agency shared on purpose** — the pre-existing `tenant_portal_visible` / `landlord_portal_visible` flag + contact attachment,
+   unchanged; merged into the same list (a document that is both a filed lease copy and flagged appears once, as the lease agreement).
+
+**What I chose where the spec was silent (reported to Johan).**
+- **Archived** lease → its documents AND its inspection reports are not shown: the standing rule (§6, 6 Oct) is that archived records are
+  invisible to the portal; the owner's reports follow their lease too. **Cancelled / ended / renewed** (not archived) → stay visible as history.
+- **Co-tenants** on one lease see the same lease documents (the list is per lease, not per contact record; one login across several contact
+  records unions them, §16).
+- **Owner** sees every signed lease and distributed report on their own properties, including earlier tenants' — the occupancy history they
+  already see; a tenant never sees another tenancy's documents or the owner's.
+- Soft-deleted documents never show; a document whose file is missing from disk stays listed but opening it is a clean 404.
+
+**Each row:** name (e.g. "Lease agreement — <address>", "Move-in inspection report — <address>"), type (+ subtype: Renewal / Move-in /
+Move-out / Interim / Ad hoc), date (signing date for a lease, completion date for a report), the property and the lease period it belongs to,
+**View** and **Download**. API `GET /api/v1/client/rentals/documents` and `…/landlord/documents` (existing keys `id, name, type, uploaded_at`
+kept for the mobile app; additive `kind, subtype, date, mime, size, belongs_to, view_url, download_url` + `meta`). Search (document name, type,
+property address, lease period), sort (newest first by default; name; type), filter (type, date range), pagination (25, max 100), real empty
+state (nothing yet) and a separate "no match — clear filters" state. The web portal shows one shared panel (`rentals/portal/_documents`) in the
+tenant's Documents tab and a new Documents tab for the owner.
+
+**Authorised downloads.** `GET /api/v1/client/rentals/documents/{document}/file` (and `…/landlord/documents/{document}/file`, `?download=1` to
+force a download): behind `client.auth` + `client.ability` + the audience's portal switch, and the id is looked up **in the caller's own list**
+(`findFor()` — the list and the file route share it), so an id that is not theirs — another party's, a draft, an archived lease's, a deleted
+document, another agency's, or one that does not exist — is a 404 with nothing leaked. No public URL, no storage path in any response. PDF and
+images open inline; anything else is always an attachment; `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. Every
+open/download writes `client_access_logs` (`document_viewed` / `document_downloaded`, document id, kind, role).
+
+**Reported, not changed:** the existing tenant/landlord API lists `ClientTenantRentalsController::inspections` / `ClientLandlordRentalsController::inspections` (via `RentalPortalScopeService::tenantInspections()` / `landlordInspections()`) return every non-archived inspection of the party's lease(s), drafts and ones still in signing included — the status filter §45.8 planned is not there. Outside this task, so unchanged; the Documents area does not use their output.
+
+**Not built (reported):** inventories, deposit/settlement schedules, notices, lease addenda that are not a separate lease, rent statements.
+
+**Tests — `tests/Feature/RentalPortalAccess/PortalDocumentsTest.php` (17):** a tenant sees exactly their signed leases (paper, e-signed renewal,
+cancelled-as-history), distributed reports on their leases and the shared document — and never a draft / out-for-signing lease, an archived
+lease, a deleted or unshared document, a previous tenant's or another property's lease or report, an in-progress / in-signing / draft /
+cancelled inspection or an archived lease's report; co-tenants see the same; "distributed" = completed or a sent copy; an owner sees their
+property's signed leases and reports (earlier tenancies included, archived excluded) and another owner only theirs; a party opens their own file
+(headers, bytes, audit rows); every cross-party / not-ready id is a 404 on both file routes (tenant↔owner, tenant↔tenant, owner↔owner,
+cross-agency, unknown id); no session or a staff session alone is 401; missing file = 404; image inline / Word as download; the portal switch
+closes the audience; search / sort / type / date / pagination / invalid filter; empty list; mobile keys kept; the page carries the panel for both audiences.

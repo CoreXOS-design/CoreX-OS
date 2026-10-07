@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Api\V1\Concerns\ResolvesPortalContact;
+use App\Http\Controllers\Api\V1\Concerns\ServesPortalDocuments;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
@@ -11,6 +12,7 @@ use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalFaultTypeService;
+use App\Services\Rentals\RentalPortalDocumentService;
 use App\Services\Rentals\RentalPortalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +26,7 @@ use Illuminate\Http\Request;
 class ClientTenantRentalsController extends Controller
 {
     use ResolvesPortalContact;
+    use ServesPortalDocuments;
 
     public function __construct(
         private readonly RentalPortalScopeService $scope,
@@ -72,21 +75,15 @@ class ClientTenantRentalsController extends Controller
         ])]);
     }
 
+    /** §19 — the tenant's Documents area: signed lease agreements, distributed inspection reports, documents the agency shared. */
     public function documents(Request $request): JsonResponse
     {
-        $contact = $this->resolvePortalContact($request);
-        if ($contact instanceof JsonResponse) {
-            return $contact;
-        }
+        return $this->portalDocumentList($request, RentalPortalDocumentService::ROLE_TENANT, 'client.rentals.documents.file');
+    }
 
-        return response()->json([
-            'documents' => $this->scope->tenantDocuments($contact)->map(fn ($doc) => [
-                'id' => $doc->id,
-                'name' => $doc->original_name,
-                'type' => $doc->documentType?->name,
-                'uploaded_at' => $doc->created_at?->toIso8601String(),
-            ])->values(),
-        ]);
+    public function documentFile(Request $request, int $document): \Symfony\Component\HttpFoundation\Response|JsonResponse
+    {
+        return $this->portalDocumentFile($request, RentalPortalDocumentService::ROLE_TENANT, $document);
     }
 
     public function inspections(Request $request): JsonResponse

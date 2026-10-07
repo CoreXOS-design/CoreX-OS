@@ -1,16 +1,17 @@
-{{-- Lead response (Johan, 2026-10-07; .ai/specs/lead-response-time.md) — shared by index / agent / branch.
-     Built exactly like the other sections: every figure is a button that calls drill() on the parent
-     buyersReport() component and opens the detail popup (the leads behind the number). Expects $leadResponse
-     (LeadResponseService::report()) and the parent x-data. Figures come from the ONE LeadResponseService
+{{-- Lead Response report body (Johan, 2026-10-07; .ai/specs/lead-response-time.md §5). Every figure is a button
+     that calls drill() on the parent buyersReport() component and opens the detail popup (the leads behind the
+     number). Expects $leadResponse (LeadResponseService::report()), $agentRows (the viewer's cohort) and the parent x-data. Figures come from the ONE LeadResponseService
      calculation — the popup lists the same per-lead results, so a number and its list cannot disagree. --}}
 @php
     $lr = $leadResponse;
     $lrSvc = app(\App\Services\LeadResponse\LeadResponseService::class);
     $lrc = $lr['company'];
     $fmtMin = fn ($v) => $v === null ? '—' : $lrSvc->formatMinutes((int) $v);
+    $phrase = $comparisonMeta['phrase'] ?? '';
+    // figure key (what the comparison is keyed by) for the table columns, in column order
+    $cmpKeys = ['received', 'in_target', 'late', 'waiting', 'avg', 'median'];
 @endphp
 <div class="mb-6">
-    <h2 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Lead response</h2>
     <p class="text-[11px] mb-3" style="color: var(--text-muted);">
         Enquiries from portals, the website and shared links, in this period. Target: first contact within {{ $lr['target'] }} min,
         counting {{ $lrSvc->hoursSummary($lr['hours']) }}. Contact = the "Contacted" action, a message sent, a link shared, or feedback on an appointment — a note alone does not count.
@@ -19,13 +20,13 @@
 
     <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         @foreach([
-            ['received', 'Leads received', $lrc['received']],
-            ['in_target', 'Responded in target', $lrc['in_target']],
-            ['late', 'Responded late', $lrc['late']],
-            ['waiting', 'Not yet contacted', $lrc['waiting']],
-            ['responded', 'Average response', $fmtMin($lrc['avg'])],
-            ['responded', 'Median response', $fmtMin($lrc['median'])],
-        ] as [$sub, $label, $val])
+            ['received', 'Leads received', $lrc['received'], 'received'],
+            ['in_target', 'Responded in target', $lrc['in_target'], 'in_target'],
+            ['late', 'Responded late', $lrc['late'], 'late'],
+            ['waiting', 'Not yet contacted', $lrc['waiting'], 'waiting'],
+            ['responded', 'Average response', $fmtMin($lrc['avg']), 'avg'],
+            ['responded', 'Median response', $fmtMin($lrc['median']), 'median'],
+        ] as [$sub, $label, $val, $cmpKey])
             <button type="button" @click="drill('lead_response', @js($label), null, '{{ $sub }}')"
                     class="group rounded-md px-3 py-3 text-left transition-colors"
                     style="background: var(--surface); border: 1px solid var(--border); cursor: pointer;"
@@ -37,6 +38,9 @@
                     <span class="text-[11px] opacity-0 group-hover:opacity-100 transition-opacity" style="color: var(--brand-icon, #0ea5e9);">view &rarr;</span>
                 </div>
                 <div class="text-lg font-semibold mt-0.5" style="color: var(--text-primary);">{{ is_int($val) ? number_format($val) : $val }}</div>
+                @if($comparison)
+                    <x-performance-delta :c="$comparison['company'][$cmpKey] ?? null" :phrase="$phrase" :minutes="in_array($cmpKey, ['avg', 'median'], true)" />
+                @endif
             </button>
         @endforeach
     </div>
@@ -65,13 +69,18 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @php $lrRows = collect($report['agents'])->filter(fn ($a) => ($lr['agents'][(int) $a['user_id']]['received'] ?? 0) > 0); @endphp
+                    @php $lrRows = collect($agentRows)->filter(fn ($a) => ($lr['agents'][(int) $a['user_id']]['received'] ?? 0) > 0); @endphp
                     @forelse($lrRows as $a)
                         @php $s = $lr['agents'][(int) $a['user_id']]; $uid = (int) $a['user_id']; @endphp
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td class="px-3 py-2 font-medium">{{ $a['name'] }}</td>
-                            @foreach([['received', $s['received']], ['in_target', $s['in_target']], ['late', $s['late']], ['waiting', $s['waiting']], ['responded', $fmtMin($s['avg'])], ['responded', $fmtMin($s['median'])]] as [$sub, $val])
-                                <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('lead_response', @js($a['name'] . ' — leads'), {{ $uid }}, '{{ $sub }}')">{{ is_int($val) ? number_format($val) : $val }}</button></td>
+                            @foreach([['received', $s['received']], ['in_target', $s['in_target']], ['late', $s['late']], ['waiting', $s['waiting']], ['responded', $fmtMin($s['avg'])], ['responded', $fmtMin($s['median'])]] as $ci => [$sub, $val])
+                                <td class="px-3 py-2 text-right">
+                                    <button type="button" class="underline" @click="drill('lead_response', @js($a['name'] . ' — leads'), {{ $uid }}, '{{ $sub }}')">{{ is_int($val) ? number_format($val) : $val }}</button>
+                                    @if($comparison)
+                                        <x-performance-delta :c="$comparison['agents'][$uid][$cmpKeys[$ci]] ?? null" :phrase="$phrase" :minutes="$ci >= 4" />
+                                    @endif
+                                </td>
                             @endforeach
                         </tr>
                     @empty
@@ -103,8 +112,13 @@
                     @forelse(collect($lr['sources'])->filter(fn ($s) => $s['received'] > 0) as $portal => $s)
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td class="px-3 py-2 font-medium">{{ $s['label'] }}</td>
-                            @foreach([['received', $s['received']], ['in_target', $s['in_target']], ['late', $s['late']], ['waiting', $s['waiting']], ['responded', $fmtMin($s['avg'])], ['responded', $fmtMin($s['median'])]] as [$sub, $val])
-                                <td class="px-3 py-2 text-right"><button type="button" class="underline" @click="drill('lead_response', @js($s['label'] . ' — leads'), null, '{{ $sub }}', null, '{{ $portal }}')">{{ is_int($val) ? number_format($val) : $val }}</button></td>
+                            @foreach([['received', $s['received']], ['in_target', $s['in_target']], ['late', $s['late']], ['waiting', $s['waiting']], ['responded', $fmtMin($s['avg'])], ['responded', $fmtMin($s['median'])]] as $ci => [$sub, $val])
+                                <td class="px-3 py-2 text-right">
+                                    <button type="button" class="underline" @click="drill('lead_response', @js($s['label'] . ' — leads'), null, '{{ $sub }}', null, '{{ $portal }}')">{{ is_int($val) ? number_format($val) : $val }}</button>
+                                    @if($comparison)
+                                        <x-performance-delta :c="$comparison['sources'][$portal][$cmpKeys[$ci]] ?? null" :phrase="$phrase" :minutes="$ci >= 4" />
+                                    @endif
+                                </td>
                             @endforeach
                         </tr>
                     @empty

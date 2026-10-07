@@ -133,7 +133,7 @@
             <label class="text-xs" style="color: var(--text-muted);">Type</label><br>
             <select name="type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach(['in' => 'In-inspection', 'interim' => 'Interim', 'out' => 'Out-inspection', 'ad_hoc' => 'Ad-hoc'] as $value => $label)
+                @foreach(['in' => 'In-inspection', 'ad_hoc' => 'Routine', 'interim' => 'Interim', 'out' => 'Out-inspection'] as $value => $label)
                     <option value="{{ $value }}" @selected(($filters['type'] ?? '') === $value)>{{ $label }}</option>
                 @endforeach
             </select>
@@ -193,7 +193,7 @@
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="rental-inspection-row-{{ $inspection->id }}">
                     <td class="px-4 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">{{ $inspection->lease?->tenantNames() ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ ucfirst(str_replace('_', '-', $inspection->type)) }}</td>
+                    <td class="px-4 py-2">{{ \App\Models\RentalInspection::typeLabel($inspection->type) }}</td>
                     <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
                     <td class="px-4 py-2">
                         {{ $inspection->scheduled_for?->format('Y-m-d') ?? $inspection->created_at?->format('Y-m-d') . ' (started)' }}

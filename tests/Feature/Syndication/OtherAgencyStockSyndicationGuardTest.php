@@ -141,7 +141,10 @@ class OtherAgencyStockSyndicationGuardTest extends TestCase
         $this->postJson(route('corex.properties.marketing.publish', $p), [
             'platforms' => ['facebook'],
             'copy'      => 'Great house!',
-        ])->assertStatus(422)
-          ->assertJson(['success' => false, 'error' => 'listing_draft']);
+        // Since 2026-10-07 (spec other-agency-stock.md §5c) this is refused FIRST by the explicit
+        // "Market Property" rule with a plain reason (403); the older listing_draft refusal in
+        // EnforcesMarketingReadiness stays behind it as defence in depth.
+        ])->assertStatus(403)
+          ->assertJson(['ok' => false, 'error' => \App\Services\Properties\OtherAgencyStockActionRules::reason('market_property')]);
     }
 }
