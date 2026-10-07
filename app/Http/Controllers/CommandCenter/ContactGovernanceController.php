@@ -154,8 +154,45 @@ class ContactGovernanceController extends Controller
             RegenerateBuyerMatchesJob::dispatch($agencyId, null, true);
         }
 
+        // Won/Lost buyers (Johan, 2026-10-07) — which Buyer Pipeline statuses take a buyer off
+        // Core Matches. Guarded by its own marker so a post that never rendered the group
+        // (e.g. an older cached form) can never wipe the saved choice.
+        if ($request->has('core_matches_excluded_buyer_states_present')) {
+            $this->saveExcludedBuyerStates($request, $agencyId);
+        }
+
         return redirect()->route('corex.settings', ['s' => 'core-matches'])
             ->with('success', 'Core Matches settings saved.');
+    }
+
+    /**
+     * Narrow saver for the Setup Wizard's Core Matches step (spec agency-onboarding-setup.md
+     * §6.1): touches ONLY the excluded-buyer-states choice, and only when the step actually
+     * rendered it. Same write path as the settings page (CoreMatchBuyerGate::saveExcludedStates).
+     */
+    public function updateCoreMatchesExcludedBuyerStates(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('command_center.settings'), 403);
+
+        if ($request->has('core_matches_excluded_buyer_states_present')) {
+            $this->saveExcludedBuyerStates($request, $this->resolveAgencyId());
+        }
+
+        return back();
+    }
+
+    private function saveExcludedBuyerStates(Request $request, int $agencyId): void
+    {
+        $request->validate([
+            'core_matches_excluded_buyer_states'   => 'nullable|array',
+            'core_matches_excluded_buyer_states.*' => ['string', 'in:' . implode(',', \App\Services\BuyerStateService::PIPELINE_STATES)],
+        ]);
+
+        \App\Services\Matching\CoreMatchBuyerGate::saveExcludedStates(
+            $agencyId,
+            (array) $request->input('core_matches_excluded_buyer_states', []),
+            auth()->id()
+        );
     }
 
     /** Sort + lower-case a status list so two differently-ordered/cased lists compare equal. */

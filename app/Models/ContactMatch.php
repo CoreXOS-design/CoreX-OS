@@ -385,6 +385,18 @@ class ContactMatch extends Model
         }
     }
 
+    /**
+     * Wishlists whose buyer is still "in play" for Core Matches — i.e. NOT in a Buyer
+     * Pipeline status the agency has excluded (default Won + Lost). The ONE query scope
+     * every Core Matches surface uses; the rule itself lives in CoreMatchBuyerGate.
+     */
+    public function scopeBuyerInPlay(Builder $q, ?int $agencyId = null): Builder
+    {
+        return \App\Services\Matching\CoreMatchBuyerGate::applyToMatchQuery(
+            $q, $agencyId, $q->getModel()->getTable() . '.contact_id'
+        );
+    }
+
     public function scopeNotSetAside(Builder $q): Builder
     {
         return $q->whereNull('set_aside_at');

@@ -972,6 +972,8 @@ return [
             ['controller' => SettingsController::class, 'method' => 'updateMatchesVisibilityScope'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesWaMessage'],
             ['controller' => SettingsController::class, 'method' => 'updateMatchesEmailMessage'],
+            // Won/Lost buyers — narrow saver, guarded by its own `_present` marker (spec §6.1).
+            ['controller' => \App\Http\Controllers\CommandCenter\ContactGovernanceController::class, 'method' => 'updateCoreMatchesExcludedBuyerStates'],
         ],
         'controls' => [
             ['key' => 'matches_show_on_properties', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
@@ -995,6 +997,12 @@ return [
              'label' => 'Email message template',
              'explain' => 'The message that pre-fills when an agent emails a match, for the buyers who don\'t have WhatsApp. Leave blank to let agents write their own each time.',
              'affects' => 'The text sitting in the email box when an agent contacts a matched buyer by email. They can always edit it before sending.'],
+            ['key' => 'core_matches_excluded_buyer_states', 'source' => 'core_matches', 'type' => 'multiselect',
+             'default' => ['won', 'lost'],
+             'options' => ['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost', 'won' => 'Won'],
+             'label' => 'Buyers who no longer get matches',
+             'explain' => 'When a buyer reaches one of the ticked Buyer Pipeline statuses, CoreX stops matching listings to them. "Won" and "Lost" are ticked as standard — a buyer who has bought, or walked away, is finished.',
+             'affects' => 'Whether a Won or Lost buyer still shows on the Core Matches screen, on a property\'s matching buyers, in new-listing alerts and in the daily match email. Move a buyer back to an active status in the pipeline and their matches return.'],
         ],
     ],
 

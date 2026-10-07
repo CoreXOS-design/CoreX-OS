@@ -152,6 +152,23 @@
                                 <option value="{{ $ov }}" @selected((string) $val === (string) $ov)>{{ $ol }}</option>
                             @endforeach
                         </select>
+                    @elseif ($type === 'multiselect')
+                        {{-- Tick any of a STATIC option map (value => label). Posts `key[]` plus a
+                             `key_present` marker, so "everything un-ticked" arrives as a real
+                             (empty) choice while a post that never rendered this control (the
+                             marker absent) leaves the saved value alone — spec §6.1. --}}
+                        @php $selectedOpts = array_map('strval', (array) ($val ?? [])); @endphp
+                        <input type="hidden" name="{{ $key }}_present" value="1">
+                        <div class="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+                            @foreach (($control['options'] ?? []) as $ov => $ol)
+                                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary,#0f172a);">
+                                    <input type="checkbox" name="{{ $key }}[]" value="{{ $ov }}"
+                                           @checked(in_array((string) $ov, $selectedOpts, true))
+                                           style="accent-color: var(--brand-button, #0ea5e9);">
+                                    {{ $ol }}
+                                </label>
+                            @endforeach
+                        </div>
                     @elseif ($type === 'user_multiselect')
                         {{-- Pick one or more of THIS agency's own people. The static
                              `select` option map above cannot express a live per-agency

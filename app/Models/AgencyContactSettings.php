@@ -34,6 +34,9 @@ class AgencyContactSettings extends Model
         // Core Matches shows. JSON array of status slugs; null/empty = the
         // code default (Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES).
         'core_matches_allowed_statuses',
+        // Buyer Pipeline statuses that take a buyer OFF Core Matches (Johan, 2026-10-07).
+        // JSON array of pipeline status slugs; NULL = code default [won, lost]; [] = exclude no one.
+        'core_matches_excluded_buyer_states',
         // AT-81 — days a contact may sit PENDING (consent-request sent, no reply)
         // before being lapsed to a no_response opt-out.
         'outreach_no_response_days',
@@ -72,6 +75,7 @@ class AgencyContactSettings extends Model
         'buyer_lost_days' => 'integer',
         'core_matches_working_window_days' => 'integer',
         'core_matches_allowed_statuses' => 'array',
+        'core_matches_excluded_buyer_states' => 'array',
         'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
@@ -143,6 +147,15 @@ class AgencyContactSettings extends Model
 
     /** Per-request cache of the resolved Core Matches allowed-status list, keyed by agency id. */
     protected static array $coreMatchAllowedStatusesCache = [];
+
+    /** Per-request cache of the resolved Core Matches excluded buyer states, keyed by agency id. */
+    protected static array $coreMatchExcludedBuyerStatesCache = [];
+
+    /**
+     * Buyer Pipeline statuses that take a buyer off Core Matches when an agency has not
+     * chosen its own (Johan, 2026-10-07): a buyer who has Won or is Lost is finished.
+     */
+    public const DEFAULT_CORE_MATCHES_EXCLUDED_BUYER_STATES = ['won', 'lost'];
 
     /**
      * Get settings for an agency, creating defaults if none exist.
@@ -268,6 +281,42 @@ class AgencyContactSettings extends Model
     public static function clearCoreMatchAllowedStatusesCache(): void
     {
         self::$coreMatchAllowedStatusesCache = [];
+    }
+
+    /**
+     * Buyer Pipeline statuses whose buyers do NOT appear in Core Matches. NULL column → the
+     * code default [won, lost]; a stored empty array is honoured as "exclude no one". Only
+     * known pipeline statuses survive, so a stale/odd stored value can never exclude by accident.
+     *
+     * @return string[]
+     */
+    public function coreMatchesExcludedBuyerStates(): array
+    {
+        $val = $this->core_matches_excluded_buyer_states;
+        if (! is_array($val)) {
+            return self::DEFAULT_CORE_MATCHES_EXCLUDED_BUYER_STATES;
+        }
+
+        return array_values(array_intersect(\App\Services\BuyerStateService::PIPELINE_STATES, array_map(fn ($s) => strtolower(trim((string) $s)), $val)));
+    }
+
+    /**
+     * Cached, READ-ONLY per-agency lookup of the excluded buyer states (mirrors
+     * coreMatchAllowedStatusesFor(): reachable from authenticated and queue paths alike,
+     * and a read must never insert a settings row).
+     *
+     * @return string[]
+     */
+    public static function coreMatchExcludedBuyerStatesFor(int $agencyId): array
+    {
+        return self::$coreMatchExcludedBuyerStatesCache[$agencyId]
+            ??= self::forAgencyReadOnly($agencyId)->coreMatchesExcludedBuyerStates();
+    }
+
+    /** Clear the per-request excluded-buyer-states cache (after a settings change / in tests). */
+    public static function clearCoreMatchExcludedBuyerStatesCache(): void
+    {
+        self::$coreMatchExcludedBuyerStatesCache = [];
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */
