@@ -33,6 +33,14 @@ class RentalListsWizardSaver extends Controller
         }
     }
 
+    /** §45.5 item (Build I-3) — the agency's words for how someone attended; same no-op-unless-marker discipline. */
+    public function inspectionAttendedAsLabels(Request $request): void
+    {
+        if ($request->has('attended_as_labels_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateAttendedAsLabels($request);
+        }
+    }
+
     /** §45.4 item 3 (Build I-2) — the agency's own room types; same no-op-unless-marker discipline as the lists above. */
     public function inspectionCustomRoomTypes(Request $request): void
     {

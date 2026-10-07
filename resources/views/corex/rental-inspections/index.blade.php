@@ -140,12 +140,20 @@
                 @endforeach
             </select>
         </div>
+        <div>
+            <label class="text-xs" style="color: var(--text-muted);">Attendance</label><br>
+            <select name="attendance" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <option value="">All</option>
+                <option value="incomplete" @selected(($filters['attendance'] ?? '') === 'incomplete')>Not fully recorded</option>
+                <option value="did_not_attend" @selected(($filters['attendance'] ?? '') === 'did_not_attend')>Someone did not attend</option>
+            </select>
+        </div>
         <label class="flex items-center gap-1.5 text-xs pb-2" style="color: var(--text-secondary);">
             <input type="checkbox" name="has_unresolved_discrepancy" value="1" @checked(!empty($filters['has_unresolved_discrepancy']))>
             Has unresolved discrepancy
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id']))
+        @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance']))
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -160,6 +168,7 @@
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('scheduled_for') }}" style="color: var(--text-muted);">Scheduled{{ $sortIndicator('scheduled_for') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('inspector') }}" style="color: var(--text-muted);">Inspector{{ $sortIndicator('inspector') }}</a></th>
+                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('attended') }}" style="color: var(--text-muted);">Attended{{ $sortIndicator('attended') }}</a></th>
                     <th class="text-left px-4 py-2">{{ $archived ? 'Archived' : 'Discrepancy' }}</th>
                     <th></th>
                 </tr>
@@ -178,6 +187,14 @@
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $inspection->inspector?->name ?? '—' }}</td>
+                    <td class="px-4 py-2" data-qa="attended-cell">
+                        {{-- §45.5 — attended of expected; ad-hoc checks and cancelled inspections have no attendance rule. --}}
+                        @if($inspection->type === 'ad_hoc' || $inspection->status === 'cancelled' || ! ($expectedCounts[$inspection->id] ?? 0))
+                            —
+                        @else
+                            {{ $attendedCounts[$inspection->id] ?? 0 }} of {{ $expectedCounts[$inspection->id] }}
+                        @endif
+                    </td>
                     <td class="px-4 py-2">
                         @if($archived)
                             {{ $inspection->archivedBy?->name ?? 'Unknown' }} — {{ $inspection->deleted_at?->format('Y-m-d') }}
@@ -207,7 +224,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="9" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                     @if($archived)
                         No archived inspections on this agency.
                     @elseif(!$hasAnyInspections)
