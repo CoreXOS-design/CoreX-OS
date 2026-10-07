@@ -6,6 +6,7 @@ use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -45,6 +46,36 @@ class Lease extends Model
     // just a new recognised value, no schema change.
     public const SOURCE_MIGRATED_TAKEON = 'migrated_takeon';
 
+    // LEASE-AGREEMENT BEGIN (leases.md §15.5 — Build L1). `signing_status` runs beside `status`
+    // (which keeps its meaning); it says where the lease's e-sign agreement is, never whether the
+    // lease is in force.
+    public const SIGNING_NOT_SENT = 'not_sent';
+    public const SIGNING_PREPARED = 'prepared';
+    public const SIGNING_OUT_FOR_SIGNING = 'out_for_signing';
+    public const SIGNING_AWAITING_AGENT_REVIEW = 'awaiting_agent_review';
+    public const SIGNING_SIGNED = 'signed';
+    public const SIGNING_DECLINED = 'declined';
+    public const SIGNING_VOIDED = 'voided';
+    public const SIGNING_EXPIRED = 'expired';
+    public const SIGNING_SIGNED_ON_PAPER = 'signed_on_paper';
+
+    public const SIGNING_STATUSES = [
+        self::SIGNING_NOT_SENT,
+        self::SIGNING_PREPARED,
+        self::SIGNING_OUT_FOR_SIGNING,
+        self::SIGNING_AWAITING_AGENT_REVIEW,
+        self::SIGNING_SIGNED,
+        self::SIGNING_DECLINED,
+        self::SIGNING_VOIDED,
+        self::SIGNING_EXPIRED,
+        self::SIGNING_SIGNED_ON_PAPER,
+    ];
+
+    // leases.source — how the lease came to exist (§2, §15.5/§15.6.5).
+    public const SOURCE_ESIGN_DOCUMENT = 'esign_document';
+    public const SOURCE_UPLOADED_SIGNED_COPY = 'uploaded_signed_copy';
+    // LEASE-AGREEMENT END
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -80,6 +111,21 @@ class Lease extends Model
         'move_out_date',
         'notice_outcome',
         'renewal_draft_flow_id',
+        // LEASE-AGREEMENT BEGIN (leases.md §15.10 M2 — Build L1)
+        'signing_status',
+        'signing_flow_id',
+        'signature_template_id',
+        'agreement_document_id',
+        'agreement_template_id',
+        'signed_at',
+        'accepted_at',
+        'accepted_by_user_id',
+        'agreement_confirmed_fingerprint',
+        'agreement_confirmed_at',
+        'agreement_confirmed_by_user_id',
+        'capture_key',
+        'signing_failure_note',
+        // LEASE-AGREEMENT END
     ];
 
     protected $casts = [
@@ -95,6 +141,11 @@ class Lease extends Model
         'migrated_next_escalation_date' => 'date',
         'migrated_opening_arrears' => 'decimal:2',
         'migrated_last_inspection_date' => 'date',
+        // LEASE-AGREEMENT BEGIN (leases.md §15.10 M2 — Build L1)
+        'signed_at' => 'datetime',
+        'accepted_at' => 'datetime',
+        'agreement_confirmed_at' => 'datetime',
+        // LEASE-AGREEMENT END
     ];
 
     /**
@@ -182,6 +233,81 @@ class Lease extends Model
     {
         return $this->hasMany(LeaseEscalation::class)->orderByDesc('effective_date');
     }
+
+    // LEASE-AGREEMENT BEGIN (leases.md §15.10 — Build L1)
+    /**
+     * What this lease's agreement says beyond rent and dates (leases.md §15.7.2). Not withTrashed —
+     * a soft-deleted terms row is "no terms"; LeaseAgreementTerms::forLease() restores it on write.
+     */
+    public function agreementTerms(): HasOne
+    {
+        return $this->hasOne(LeaseAgreementTerms::class);
+    }
+
+    /** The lease agreement template (docuperfect_templates) this lease's document was made from. */
+    public function agreementTemplate(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\Template::class, 'agreement_template_id');
+    }
+
+    /** The e-sign flow the launcher created for this lease (renewal drafts mirror it in renewal_draft_flow_id). */
+    public function signingFlow(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\Flow::class, 'signing_flow_id');
+    }
+
+    /** The e-sign envelope (signature_templates row) of this lease's agreement. */
+    public function signatureTemplate(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\SignatureTemplate::class, 'signature_template_id');
+    }
+
+    /** The in-flight (or signed) agreement document — kept apart from source_document_id until completion. */
+    public function agreementDocument(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\Document::class, 'agreement_document_id');
+    }
+
+    public function acceptedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'accepted_by_user_id');
+    }
+
+    /**
+     * §15.11 — the one accessor for "the signed copy of this lease": the filed e-sign PDF
+     * (documents.source_type='esign', source_id = the envelope), falling back to a signed paper copy
+     * (source_type='lease', source_id = this lease). Null when there is neither.
+     */
+    public function signedDocument(): ?\App\Models\Document
+    {
+        if ($this->signature_template_id) {
+            $filed = \App\Models\Document::where('source_type', 'esign')
+                ->where('source_id', $this->signature_template_id)
+                ->latest('id')
+                ->first();
+            if ($filed) {
+                return $filed;
+            }
+        }
+
+        return \App\Models\Document::where('source_type', 'lease')
+            ->where('source_id', $this->id)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §15.13 — while the agreement is out for signing or waiting for the agent's approval, the lease's
+     * agreement-governed fields change in the agreement, not here (one place to change a value).
+     */
+    public function isLockedForSigning(): bool
+    {
+        return in_array($this->signing_status, [
+            self::SIGNING_OUT_FOR_SIGNING,
+            self::SIGNING_AWAITING_AGENT_REVIEW,
+        ], true);
+    }
+    // LEASE-AGREEMENT END
 
     /**
      * Sets rental_amount to the new amount of the latest escalation whose
