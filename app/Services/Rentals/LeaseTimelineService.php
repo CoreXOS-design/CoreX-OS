@@ -175,7 +175,7 @@ class LeaseTimelineService
     private function inspectionEntries(Lease $lease): array
     {
         return $lease->inspections()->get()->map(function ($inspection) {
-            $label = ucfirst(str_replace('_', '-', $inspection->type)) . '-inspection';
+            $label = \App\Models\RentalInspection::typeName($inspection->type);
             $occurredAt = $inspection->completed_at ?? $inspection->scheduled_for ?? $inspection->created_at;
 
             return $this->entry(

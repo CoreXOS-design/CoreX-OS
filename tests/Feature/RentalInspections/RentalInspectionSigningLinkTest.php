@@ -536,13 +536,14 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->assertSame(30, RentalInspectionSetting::signingLinkExpiryDaysFor($this->agency->id));
     }
 
-    public function test_an_ad_hoc_inspection_has_no_signing_links(): void
+    public function test_a_routine_inspection_has_signing_links_like_every_other_type(): void
     {
-        $inspection = $this->inspection(RentalInspection::TYPE_AD_HOC);
+        // 7 Oct 2026, Johan: every type is signed — a Routine (ad_hoc) inspection included. (It used to have none.)
+        $inspection = $this->inspection(RentalInspection::TYPE_AD_HOC, readyToSign: false);
+        $this->assertTrue($this->links()->panel($inspection)['enabled']);
 
-        $this->assertFalse($this->links()->panel($inspection)['enabled']);
         $this->postJson(route('corex.rental-inspections.signing-links.issue', $inspection), ['party_role' => 'tenant', 'party_contact_id' => $this->tenant->id])
-            ->assertStatus(409)->assertJson(['reason' => 'not_signable_type']);
+            ->assertStatus(201);
     }
 
     public function test_a_party_who_already_has_an_outcome_recorded_gets_no_new_link(): void

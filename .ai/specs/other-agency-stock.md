@@ -439,6 +439,25 @@ Applied via `Property::scopeVisibleOtherAgencyStock($query, ?User $viewer = null
 - `ViewingPackController::searchProperties` — the ad-hoc picker (previously had NO status
   filter of any kind).
 
+### 6a. Where the settings live — navigation (2026-10-07, Johan: "cannot find other agency stock under company settings")
+
+The two settings (who can see Other Agency Stock; the import consent wording) are one card with one Save,
+`SettingsController::updateOtherAgencyStock`, reached from three places — all the same saver:
+
+1. **Company Settings → Other Agency Stock tab** (`/admin/company-settings#other-agency-stock`). Its own
+   tab in the tab bar (Company · Branding · Branches · **Other Agency Stock** · Website · Performance).
+   It used to be a card at the bottom of the Branches tab, beside the Data Isolation switch, so nobody
+   looking for it by name could find it. Save returns to this tab (the form posts
+   `return_fragment=other-agency-stock`; the controller allow-lists that one value and adds it as the
+   redirect fragment — a bare `back()` drops the fragment and used to land on the Company tab).
+2. **Settings → search rail** ("Search settings…", Agency group): an "Other Agency Stock" link that opens
+   the tab above. Shown only to users with `manage_performance_settings` (same gate as the page).
+3. **Setup Wizard → Properties step** (see above).
+
+Access is unchanged: route middleware + controller both require `manage_performance_settings`; the agency is
+the signed-in user's own (`effectiveAgencyId()`), never a posted id. Test:
+`tests/Feature/Admin/CompanySettingsOtherAgencyStockTabTest.php`.
+
 ## 7. Status-change gate
 
 `App\Services\Properties\OtherAgencyStockStatusGate::canChange(User $user, Property $property,

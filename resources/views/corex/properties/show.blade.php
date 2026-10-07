@@ -5366,7 +5366,8 @@
                                 <span class="text-xs font-semibold" style="color:var(--text-secondary);"
                                       title="Compares against this inspection's own recorded condition, room by room.">Next inspection:</span>
                                 <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
-                                    <option value="ad_hoc">Routine (mid-tenancy)</option>
+                                    <option value="ad_hoc">Routine — unplanned check</option>
+                                    <option value="interim">Interim — planned</option>
                                     <option value="out">Out</option>
                                 </select>
                                 <button type="button" data-qa="next-inspection" :disabled="nextBusy" @click="nextInspection(nextType)"
@@ -6431,6 +6432,8 @@
                 async maybeAutoPairPhotos() {
                     if (!this.autoPairPhotosEnabled) return;
                     if (!this.chainPredecessor || !this.chainTail) return;
+                    // §47 — a signed or sent inspection is locked: nothing pairs itself on page open (the server refuses it too).
+                    if (this.chainTail.status === 'completed' || this.chainTail.signed_locked) return;
                     const key = this.chainPredecessor.id + ':' + this.chainTail.id;
                     if (this._autoPairedForPair === key) return;
                     this._autoPairedForPair = key;
@@ -8971,7 +8974,7 @@
                 },
                 agentDisposition(section) {
                     const insp = this.currentInspection(section);
-                    return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
+                    return (insp?.signatures || []).find(s => s.party_role === 'agent' && !s.superseded_at) || null; // §47 — a signature voided by "Edit report" no longer counts
                 },
                 // §16 — one label, everywhere a disposition badge is shown, so
                 // wet-ink can never be mistaken for "Signed" (an e-signature).

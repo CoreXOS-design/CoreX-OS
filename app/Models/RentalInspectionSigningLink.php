@@ -49,7 +49,7 @@ class RentalInspectionSigningLink extends Model
         'last_sent_at', 'send_count', 'last_sent_channel', 'last_sent_to', 'last_send_status', 'last_send_error',
         'first_opened_at', 'last_opened_at', 'open_count',
         'outcome', 'outcome_at', 'signature_id',
-        'revoked_at', 'revoked_by_user_id', 'created_by_user_id',
+        'revoked_at', 'revoked_by_user_id', 'revoked_reason', 'created_by_user_id',
     ];
 
     protected $casts = [

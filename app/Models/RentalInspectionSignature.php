@@ -77,6 +77,7 @@ class RentalInspectionSignature extends Model
         'signed_ip',
         'signed_user_agent',
         'signed_report_fingerprint',
+        'voided_by_reopen_id',
     ];
 
     protected $casts = [
@@ -107,6 +108,17 @@ class RentalInspectionSignature extends Model
     public function supersededBy(): BelongsTo
     {
         return $this->belongsTo(self::class, 'superseded_by_signature_id');
+    }
+
+    /** §47 — the "Edit report" that voided this signature (null for a signature that still counts or was corrected another way). */
+    public function voidedByReopen(): BelongsTo
+    {
+        return $this->belongsTo(RentalInspectionReopen::class, 'voided_by_reopen_id');
+    }
+
+    public function isVoided(): bool
+    {
+        return $this->voided_by_reopen_id !== null;
     }
 
     public function isWetInk(): bool
@@ -284,6 +296,10 @@ class RentalInspectionSignature extends Model
                 $attributes['refusal_reason_note'] = null;
             }
         }
+
+        // §47 — whichever route recorded it (link, device, the agent's own screen, the PIN), the signature carries a
+        // fingerprint of the report as it stood when it was given.
+        $attributes['signed_report_fingerprint'] ??= $inspection->reportFingerprint();
 
         return self::create(array_merge($attributes, [
             'agency_id' => $inspection->agency_id,

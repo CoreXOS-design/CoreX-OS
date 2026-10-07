@@ -23,7 +23,7 @@
                 <tr>
                     <td>{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
                     <td>{{ $inspection->lease?->tenantNames() ?? '—' }}</td>
-                    <td>{{ ucfirst(str_replace('_', '-', $inspection->type)) }}</td>
+                    <td>{{ \App\Models\RentalInspection::typeLabel($inspection->type) }}</td>
                     <td>{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</td>
                     <td>{{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}</td>
                 </tr>

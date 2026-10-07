@@ -59,7 +59,7 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a tenant has to sign the out-inspection</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a tenant has to sign an inspection</label>
                     <input type="number" name="out_inspection_signing_window_days" value="{{ old('out_inspection_signing_window_days', $signingWindowDays) }}"
                            min="1" max="60" required
                            class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">

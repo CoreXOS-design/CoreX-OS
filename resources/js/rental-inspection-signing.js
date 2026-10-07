@@ -159,3 +159,74 @@ window.inspectionSigningLinks = function (cfg) {
         },
     };
 };
+
+// .ai/specs/rental-inspections.md §47 — the lock on a signed / sent report.
+//   • signed, not yet sent: "Edit report" — warns that ALL signatures are cleared, asks why, then voids them and reopens.
+//   • sent to the parties (completed / copies sent): never editable, by anyone — only "Start new inspection" is left.
+// State comes from the same panel feed as the Sign-by-link panel (GET …/signing-links → lock + reopened).
+// cfg: { inspectionId, base, canEdit, canStart, reloadOnChange }
+window.inspectionReportLock = function (cfg) {
+    return {
+        lock: null,
+        reopened: null,
+        confirming: false,
+        reason: '',
+        busy: false,
+        error: '',
+        notice: '',
+
+        csrf() { return document.querySelector('meta[name=csrf-token]')?.content || ''; },
+        get root() { return `${cfg.base}/${cfg.inspectionId}`; },
+
+        init() { this.load(); },
+
+        async request(method, url, body) {
+            const opts = { method, headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf(), 'X-Requested-With': 'XMLHttpRequest' } };
+            if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+            const res = await fetch(url, opts);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || ('That did not work (error ' + res.status + ').'));
+            return data;
+        },
+
+        async load() {
+            try {
+                const data = await this.request('GET', `${this.root}/signing-links`);
+                this.lock = data.lock;
+                this.reopened = data.reopened;
+            } catch (e) { /* the banner simply stays hidden */ }
+        },
+
+        get visible() {
+            return !!this.lock && (this.lock.signed_locked || this.lock.distributed || this.lock.replaces || this.lock.replaced_by || (this.reopened && this.reopened.resend_needed));
+        },
+
+        async reopen() {
+            this.error = '';
+            if (this.reason.trim().length < 3) { this.error = 'Please say why the report is being changed.'; return; }
+            this.busy = true;
+            try {
+                const data = await this.request('POST', `${this.root}/reopen`, { reason: this.reason });
+                this.notice = data.message;
+                this.confirming = false;
+                this.reason = '';
+                await this.load();
+                if (cfg.reloadOnChange) { window.location.reload(); } else { this.$dispatch('signing-links-changed'); }
+            } catch (e) { this.error = e.message; }
+            finally { this.busy = false; }
+        },
+
+        async startNew() {
+            this.error = '';
+            this.busy = true;
+            try {
+                const data = await this.request('POST', `${this.root}/replace`, {});
+                if (cfg.reloadOnChange) { window.location.href = data.url; return; }
+                this.notice = 'New inspection started — it replaces this one.';
+                await this.load();
+                this.$dispatch('signing-links-changed');
+            } catch (e) { this.error = e.message; }
+            finally { this.busy = false; }
+        },
+    };
+};

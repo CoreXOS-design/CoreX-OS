@@ -198,7 +198,7 @@ class RentalInspectionController extends Controller
         }
 
         $redirect = redirect()->route('corex.rental-inspections.show', $inspection)
-            ->with('success', ucfirst($type) . "-inspection scheduled for {$inspection->scheduled_for->format('d M Y')}.");
+            ->with('success', \App\Models\RentalInspection::typeName($type) . " scheduled for {$inspection->scheduled_for->format('d M Y')}.");
 
         return $warning ? $redirect->with('warning', $warning) : $redirect;
     }
@@ -447,7 +447,7 @@ class RentalInspectionController extends Controller
             $out['Status'] = ucfirst(str_replace('_', ' ', $status));
         }
         if ($type = $request->get('type')) {
-            $out['Type'] = ucfirst($type);
+            $out['Type'] = \App\Models\RentalInspection::typeLabel($type);
         }
         if ($df = $request->get('date_from')) {
             $out['Scheduled from'] = $df;
@@ -557,7 +557,7 @@ class RentalInspectionController extends Controller
         $rows = $inspections->map(fn (RentalInspection $i) => [
             $i->property?->buildDisplayAddress() ?? 'Unknown property',
             $i->lease?->tenantNames() ?? '',
-            ucfirst(str_replace('_', '-', $i->type)),
+            \App\Models\RentalInspection::typeLabel($i->type),
             ucfirst(str_replace('_', ' ', $i->status)),
             $i->scheduled_for?->format('Y-m-d') ?? '',
         ]);
@@ -577,7 +577,7 @@ class RentalInspectionController extends Controller
             'property', 'lease.tenants.contact',
             'observations.item.room', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
             'discrepancies.observations', 'discrepancies.resolvedBy', 'discrepancies.acceptedObservation',
-            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'createdBy', 'cancelledBy',
+            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'signatures.voidedByReopen.reopenedBy', 'createdBy', 'cancelledBy',
             // 2026-09-23 — the chain. previousInspection loaded one level
             // deep with its own observations so the comparison row below
             // needs no per-item query; nextInChain so the screen can hide

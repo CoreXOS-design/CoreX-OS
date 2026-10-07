@@ -106,7 +106,7 @@ class RentalInspectionScanController extends Controller
 
         // Audit H1 — a scan cannot write observations into a completed / cancelled inspection.
         try {
-            $rentalInspection->assertRecordable();
+            $rentalInspection->assertContentEditable();
         } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
             return redirect()
                 ->route('corex.rental-inspections.scans.review', [$rentalInspection, $scan])

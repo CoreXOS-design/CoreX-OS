@@ -163,14 +163,15 @@ final class RentalInspectionWorkflowTest extends TestCase
         $inspection->markCompleted();
     }
 
-    public function test_starting_the_signing_window_is_not_valid_for_an_ad_hoc_inspection(): void
+    public function test_starting_the_signing_window_is_valid_for_a_routine_inspection(): void
     {
-        // §15.3 (2026-09-20) — widened to BOTH in and out; TYPE_AD_HOC stays
-        // excluded, matching its existing lighter-weight lifecycle.
+        // 7 Oct 2026 (Johan): EVERY inspection type can be marked ready to sign and signed. §15.3 had excluded
+        // TYPE_AD_HOC (shown to people as "Routine"); that restriction is gone.
         $adHoc = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
 
-        $this->expectException(\LogicException::class);
         $adHoc->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $adHoc->fresh()->status);
     }
 
     public function test_an_in_inspection_can_now_start_its_own_signing_window(): void

@@ -87,6 +87,9 @@
                         ? ['key'=>'agency-setup', 'label'=>'Setup Guide', 'type'=>'link', 'href'=>route('corex.agency-setup.index'), 'keywords'=>'onboarding wizard guided introduction getting started']
                         : null,
                     ['key'=>'company',               'label'=>'Company Settings',      'type'=>'link', 'href'=>route('admin.company-settings'), 'keywords'=>'trading name address logo branches assignments performance vat'],
+                    ($u && $u->hasPermission('manage_performance_settings'))
+                        ? ['key'=>'company-other-agency-stock', 'label'=>'Other Agency Stock', 'type'=>'link', 'href'=>route('admin.company-settings') . '#other-agency-stock', 'keywords'=>'company settings imported stock another agency who can see consent wording import property24 private property']
+                        : null,
                     ($u && $u->hasPermission('agency.manage_access_authorization'))
                         ? ['key'=>'remote-access', 'label'=>'Remote Access', 'type'=>'section', 'keywords'=>'system owner consent authorization cross-agency switch']
                         : null,

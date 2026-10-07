@@ -22,6 +22,8 @@ class RentalInspectionSigningLinkMail extends BaseSignatureMail
         public string $expiresOn,
         public bool $canSign,
         public ?string $agentName = null,
+        // §47 — the report was changed after this person signed; their earlier signature was voided and the agent is resending.
+        public bool $reSign = false,
     ) {}
 
     public function envelope(): Envelope
@@ -29,7 +31,7 @@ class RentalInspectionSigningLinkMail extends BaseSignatureMail
         return new Envelope(
             from: $this->getFromAddress(),
             replyTo: $this->getReplyTo(),
-            subject: ($this->canSign ? 'Please review and sign: ' : 'Inspection report: ') . $this->inspectionLabel . ' — ' . $this->propertyAddress,
+            subject: ($this->reSign ? 'Changed report — please sign again: ' : ($this->canSign ? 'Please review and sign: ' : 'Inspection report: ')) . $this->inspectionLabel . ' — ' . $this->propertyAddress,
         );
     }
 

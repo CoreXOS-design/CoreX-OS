@@ -63,7 +63,7 @@
         <div class="for-signature-banner">For signature — this document is not yet complete</div>
     @endif
     <div class="cover">
-        <p class="muted" style="text-transform:uppercase; font-size:7.5pt; letter-spacing:0.5pt;">{{ ucfirst($inspection->type) }}-inspection report</p>
+        <p class="muted" style="text-transform:uppercase; font-size:7.5pt; letter-spacing:0.5pt;">{{ \App\Models\RentalInspection::typeName($inspection->type) }} report</p>
         <h1>{{ $inspection->property?->buildDisplayAddress() }}</h1>
         <p class="muted">
             {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
@@ -143,8 +143,8 @@
                 <thead>
                     <tr>
                         <th class="item-col">Item</th>
-                        <th class="prev-col">Previous{{ $inspection->previousInspection ? ' (' . ucfirst($inspection->previousInspection->type) . ')' : '' }}</th>
-                        <th class="cur-col">Current ({{ ucfirst($inspection->type) }})</th>
+                        <th class="prev-col">Previous{{ $inspection->previousInspection ? ' (' . \App\Models\RentalInspection::typeLabel($inspection->previousInspection->type) . ')' : '' }}</th>
+                        <th class="cur-col">Current ({{ \App\Models\RentalInspection::typeLabel($inspection->type) }})</th>
                         <th class="history-col">Full run</th>
                     </tr>
                 </thead>
