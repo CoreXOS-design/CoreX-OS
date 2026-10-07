@@ -57,57 +57,27 @@ final class RentalApplicationRentDepositPrecedenceTest extends TestCase
         ]);
     }
 
-    public function test_view_readonly_prefills_from_the_approved_amounts_when_present(): void
+    /**
+     * Johan, QA1, 2026-10-07 — SUPERSEDES the 2026-09-22 ruling this file was written for. The approved
+     * application screen no longer asks for rent, deposit or dates at all: choosing the property opens the
+     * lease screen (leases.md §15.3), which takes the terms pre-filled from the PROPERTY's rent. See
+     * LeaseFromApprovalTest for the pre-fill and the above-approved policy.
+     */
+    public function test_view_readonly_no_longer_carries_lease_terms_and_leads_to_the_lease_screen(): void
     {
         $contact = $this->contact('tenant-approved@example.co.za');
         $app = RentalApplication::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'contact_id' => $contact->id,
             'created_by_user_id' => $this->agent->id, 'status' => 'approved',
-            'approved_rental_amount' => 50000, 'approved_deposit_amount' => 50000,
+            'approved_rental_amount' => 10000, 'approved_deposit_amount' => 10000,
         ]);
 
         $resp = $this->actingAs($this->agent)->get(route('corex.rental-applications.show', $app));
 
         $resp->assertOk();
-        // Js::from() renders each value as its own single-quoted JS literal
-        // inside the x-data string (not double-quoted JSON — Laravel's Js::
-        // helper deliberately uses single quotes so it embeds cleanly into
-        // a double-quoted HTML attribute with no entity-encoding needed) —
-        // assert on the literal, not a loose "contains 50000" (which a
-        // stray thousand-count or id elsewhere on the page could also
-        // match). approved_rental_amount/approved_deposit_amount are
-        // decimal:2 casts, so Eloquent hands Js::from() the STRING
-        // "50000.00", not the bare number — this is the existing, already-
-        // correct behaviour (x-model on a number input coerces it fine),
-        // not something this fix changed.
-        $resp->assertSee("approvedRentalAmount: '50000.00'", false);
-        $resp->assertSee("approvedDepositAmount: '50000.00'", false);
-        $resp->assertSee("rentalAmount: '50000.00'", false);
-        $resp->assertSee("depositAmount: '50000.00'", false);
-        $resp->assertSee("rentalAmountSource: 'approved'", false);
-        $resp->assertSee("depositAmountSource: 'approved'", false);
-    }
-
-    public function test_view_readonly_has_no_approved_source_when_both_are_absent(): void
-    {
-        $contact = $this->contact('tenant-noapproval@example.co.za');
-        $app = RentalApplication::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'contact_id' => $contact->id,
-            'created_by_user_id' => $this->agent->id, 'status' => 'approved',
-            // approved_rental_amount / approved_deposit_amount left null —
-            // 'approved' is reachable with a null approved_rental_amount
-            // (e.g. a status set directly, or a pre-existing row from
-            // before this column existed) — the page must not crash or
-            // fabricate a source label for either field.
-        ]);
-
-        $resp = $this->actingAs($this->agent)->get(route('corex.rental-applications.show', $app));
-
-        $resp->assertOk();
-        $resp->assertSee('approvedRentalAmount: null', false);
-        $resp->assertSee('approvedDepositAmount: null', false);
-        $resp->assertSee('rentalAmountSource: null', false);
-        $resp->assertSee('depositAmountSource: null', false);
+        $resp->assertDontSee('name="rental_amount"', false);
+        $resp->assertDontSee('name="lease_start_date"', false);
+        $resp->assertSee('Continue to the lease');
     }
 
     private function authoriser(string $tier = 'ro'): User

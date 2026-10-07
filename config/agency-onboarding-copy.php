@@ -519,6 +519,8 @@ return [
             // require_checklist_complete is has()-guarded like every other
             // toggle above.
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateApprovalMode'],
+            // Johan, 2026-10-07 — lease rent above the approved amount. has()-guarded on its own field.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRentAboveApprovedMode'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireChecklistComplete'],
             // AT-445 — .ai/specs/rental-portal-access.md §7. One narrow saver
             // per toggle, same has()-guarded discipline as every other
@@ -872,6 +874,12 @@ return [
              'label' => 'Application approval',
              'explain' => 'Two step keeps the existing hand-off to a second authoriser. One step lets an agent who is already configured as a Reviewer or Override user approve or decline an application directly, without a separate hand-off — for agencies where the same person handles and decides applications.',
              'affects' => 'Whether the review screen shows "Submit for approval" (two step) or "Approve application"/"Decline application" directly (one step) to an agent who is also a configured Reviewer or Override user. Someone who is neither still always sees "Submit for approval".'],
+            // Johan, 2026-10-07 — QA1 rentals test: a tenant approved for R10,000 was leased at R11,400 unnoticed.
+            ['key' => 'rent_above_approved_mode', 'source' => 'rental_application', 'type' => 'select', 'default' => 'warn',
+             'options' => ['warn' => 'Warn and confirm — the agent confirms with a reason, which is logged', 'block' => 'Block — the lease cannot be above the approved amount'],
+             'label' => 'Lease rent above the approved amount',
+             'explain' => 'When a lease is created from an approved application, CoreX compares the lease rent to the amount the tenant was approved for. This decides what happens when the lease rent is higher.',
+             'affects' => 'Whether the agent can still create the lease after confirming a reason (logged on the lease history and the application audit trail), or CoreX refuses to create a lease above the approved amount.'],
             // AT-430 §3.6 — Johan: "the checklist does not block approval by
             // default." Off (default): the checklist (link below) stays a
             // working aid.

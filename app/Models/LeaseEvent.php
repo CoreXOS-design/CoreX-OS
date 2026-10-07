@@ -40,6 +40,8 @@ class LeaseEvent extends Model
     public const TYPE_SIGNED_NOT_ACTIVATED = 'signed_not_activated';
     public const TYPE_LEASE_SIGNED_ON_PAPER = 'lease_signed_on_paper';
     public const TYPE_LEASE_EDITED = 'lease_edited';
+    /** Johan, 2026-10-07 — lease rent above the amount the tenant was approved for, confirmed by the agent with a reason (or by the agency's own warn setting). */
+    public const TYPE_RENT_ABOVE_APPROVED_CONFIRMED = 'rent_above_approved_confirmed';
     // LEASE-AGREEMENT END
 
     protected $fillable = [

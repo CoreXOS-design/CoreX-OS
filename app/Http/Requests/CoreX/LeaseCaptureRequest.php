@@ -101,6 +101,7 @@ class LeaseCaptureRequest extends FormRequest
             'is_month_to_month' => ['nullable', 'boolean'],
             'lease_type' => ['nullable', 'string', 'max:40'],
             'activate_immediately' => ['nullable', 'boolean'],
+            'rent_above_approved_reason' => ['nullable', 'string', 'max:1000'],
             'agreement_id' => ['nullable', 'integer'],
             'signed_document' => $isPaper ? $this->documentUploadRule(20480) : ['nullable', 'file'],
         ];
@@ -159,8 +160,21 @@ class LeaseCaptureRequest extends FormRequest
             if (! $this->previousLease() && ! empty($data['rental_application_id']) && is_scalar($data['property_id'] ?? null)
                 && ! $validator->errors()->has('rental_application_id') && ! $validator->errors()->has('property_id')) {
                 $application = RentalApplication::query()->find($data['rental_application_id']);
-                if ($application && $application->property_id !== null && (int) $application->property_id !== (int) $data['property_id']) {
+                // An APPROVED application's property is chosen on the lease screen itself (it is re-pointed when
+                // the lease is created), so only an application still in progress is held to its own property.
+                if ($application && $application->status !== 'approved' && $application->property_id !== null && (int) $application->property_id !== (int) $data['property_id']) {
                     $validator->errors()->add('rental_application_id', 'That rental application is for a different property.');
+                }
+
+                // Johan, QA1, 2026-10-07 — a lease rent above what the tenant was approved for: the agency's
+                // policy decides (block, or warn-and-confirm with a reason). Never silent.
+                if ($application && ! $validator->errors()->has('rental_amount') && ($gap = $application->rentAboveApproved($data['rental_amount'] ?? null))) {
+                    $figures = 'approved for R' . number_format($gap['approved'], 2) . ' a month; the lease rent is R' . number_format($gap['rent'], 2);
+                    if ($gap['mode'] === 'block') {
+                        $validator->errors()->add('rental_amount', "This tenant was {$figures}, and your agency does not allow a lease above the approved amount.");
+                    } elseif (trim((string) ($data['rent_above_approved_reason'] ?? '')) === '') {
+                        $validator->errors()->add('rent_above_approved_reason', "This tenant was {$figures}. Give a reason to confirm it.");
+                    }
                 }
             }
         });
