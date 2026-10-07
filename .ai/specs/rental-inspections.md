@@ -7273,7 +7273,7 @@ Input space: party with no email/phone, tenant deleted after the invitation, two
 3. **Visible and retryable.** A "Copies sent" panel on the inspection page reads `signed_document_distribution_logs` (today write-only): party · address · sent/failed/skipped · when. A failed or skipped recipient raises an in-app alert to the inspector and a per-recipient **Resend**. `complete()` still never fails the completion because of mail, but it no longer swallows silently (`RecordingController.php:1538-1545`).
 4. **Trigger unchanged by design.** Completion stays an agent's deliberate click (auto-completing on the last signature would remove the review step); when every signature/attendance is in, the Complete button is highlighted with "Ready to complete". The auto-send fires once, on completion.
 5. **Signing roles for `interim` — RULED 6 Oct (Q7): all parties sign every inspection.** The agent, the tenant(s) AND the landlord sign incoming, interim and outgoing alike, because it is part of the legal documentation. Concretely the three-party completion guard (`RentalInspection.php:452,502-534`, which tests `in`/`out` today) also covers `interim`; wet-ink, refusal and attendance paths are identical to In/Out. **`ad_hoc` is not covered by the ruling** and stays exempt from signing as today — flagged here for Johan to confirm, not changed.
-6. **Remote signing link — NOT in this build.** A party who cannot attend signing later from their own device is I-9 (optional, §45.10); until then non-attendees follow the existing wet-ink/"awaiting wet-ink" path.
+6. **Remote signing link — NOT in this build (since built — §46).** A party who cannot attend signing later from their own device is I-9 (optional, §45.10); until then non-attendees follow the existing wet-ink/"awaiting wet-ink" path.
 7. **Deductions schedule seam:** `SignedDocumentDistributionService` gets an `extraAttachments()` seam so I-8 can attach the issued deductions schedule without a second send path.
 
 Wizard: copy addresses + the two toggles in the existing `auto_send_report_enabled` step row group. Scoping: copies' PDF is the private-disk file behind the guard; the public link is unchanged. Tests: tenant not created by the completing agent, landlord with no email, tenant listed also as landlord contact (one mail, correct role), two landlords, agency copy empty/one/many/duplicated, mail failure then resend, non-production redirect untouched. Files: `RentalInspection` (`distributionRecipients`, `distributionAgent`), `SignedDocumentDistributionService`, recording controller (`complete`, new `resendRecipient`), `RentalInspectionSetting` + settings + wizard, show blade panel, mail template.
@@ -7489,3 +7489,90 @@ Tests: `RentalInspectionReportRecordTest` (new) + the corrected `RentalInspectio
 - **Second agency:** each agency has its own row; another agency sees the defaults until it saves its own (tested).
 
 Tests: `RentalInspectionMoveOutLabelsTest`.
+
+---
+
+## 46. Signing an inspection by personal link, QR code, or on the agent's device — 7 Oct 2026 (cc6; Johan's instruction) — BUILT on QA1, one part held (§46.8)
+
+**Why.** Johan: *"get the report on a link that can be sent to all parties; they can peruse it and, when happy, sign electronically from the link and we record it. The agent is at the property and opened the link on their phone to do the inspection; the agent can share to the tenant who is at the property and they sign on their own phone, or sign on the agent's phone. Also: give the agent a QR code for the owner and for the tenant; the tenant scans it, the report opens and they can sign off."* This is what §45.6 item 6 / Q15 / I-9 called the remote signing link; Johan has now asked for it, so it is built. The signing rules of §15/§16/§45.5–45.6 are unchanged: agent, tenant(s) and landlord sign every in / interim / out inspection; attendance and "not present" are untouched; wet-ink is untouched.
+
+### 46.1 What existed before (measured, file:line on QA1 `e05e1dfb8`)
+
+| Question | Answer |
+|---|---|
+| Who signs, where | Tenants on the lease, the landlord (`Property::sellerOwnerContact()`), the agent — only on the agent's logged-in screen: a canvas pad for tenant/landlord, the PIN signature for the agent (§34). `RentalInspectionRecordingController::storeSignature` (`:1391`). |
+| How a signature is captured and stored | One `rental_inspection_signatures` row per party via `RentalInspectionSignature::capture()` (`:129-250`): disposition signed / refused / wet_ink / awaiting_wet_ink, PNG on the private disk (`storeCanvasImage()`), `recorded_by_user_id`. A correction supersedes the old row. It stored **no IP, device, typed name or "which link"**. |
+| Public report link | One token per inspection (`rental_inspections.public_token`, `RentalInspection.php:1202-1275`), shared by everyone, read-only, no sign step, expiry setting `public_link_expiry_days` (default 90), already dead when archived/cancelled (§44a). |
+| Per-party tokens | None. |
+| Completion and "copies sent" | A deliberate agent click on **Complete** (`markCompleted()`, then `RentalInspectionRecordingController::complete()` calls `RentalInspectionCopiesService::fileAndSend(autoOnly: true)`); the **Copies sent** panel reads the delivery log. |
+| Wet-ink | A scan is uploaded, or the party is marked "awaiting wet-ink" and the scan arrives later (`supersedeWetInk()`); Complete is refused while anyone is still awaiting paper. |
+
+### 46.2 The rules (decided here)
+
+- **One personal link per party**, per inspection: each tenant, the landlord, the agent. An unguessable 48-character token (`Str::random(48)`, unique index), stored as issued so the screen can show the same link again (copy / QR / WhatsApp) without sending a new one each time. Table `rental_inspection_signing_links` (migration `2026_10_14_100000`). A link is never deleted: revoking stamps `revoked_at`; replacing revokes the old row and issues a new one, so who-was-sent-what survives.
+- **A link shows only its own inspection.** The page is the SAME read-only report as the general public link (rooms, items, conditions, notes, photos, attendance, signatures) — `RentalInspectionPublicController::reportData()` is the single builder, so the two can never disagree — plus a **Sign** step at the end.
+- **When a party can sign.** Only while the inspection is **ready to sign** (`awaiting_signature` — exactly where the recording screen offers signing today), the agency has the setting on, the inspection is an in / interim / out (ad-hoc is not signed), the link is live (not revoked, not expired), the link has not already been used, and the party has no live signing outcome recorded another way (an agent who recorded a paper refusal first wins; a link then answers "already recorded"). Before ready-to-sign the party can read the report; the page says signing opens when the agent finishes. After completion a link stays a read-only view of the signed report until it expires or is revoked; it accepts nothing.
+- **The Sign step.** Type full name, draw signature, tick *I have read this inspection report*, optional comment. Or **decline / dispute** — which reuses the agency's own refusal reasons (§15.6: "Disputes the recorded condition", "Not present for the walkthrough", "Refused outright, no reason given", "Other" — or whatever the agency edited them to; "Other" needs a note); nothing new is invented. A decline is a `refused` disposition, a first-class outcome (§15.5), never an error.
+- **What is recorded** (columns on `rental_inspection_signatures`, migration `2026_10_14_100010`, all nullable so older rows read exactly as before): `signed_via` (`link` = the party's own phone; `agent_device` = signed on the agent's logged-in device), `signing_link_id`, `signed_on_device_by_user_id` (the agent), `signed_typed_name`, `read_confirmed_at`, `signer_comment`, `signed_ip`, `signed_user_agent`, `signed_report_fingerprint` (§46.8), plus the existing `disposition_recorded_at` as the date/time. Signing goes through `RentalInspectionSignature::capture()` itself, so every invariant (one disposition per party, a real PNG, never after completion) holds for a link signature too. The web report page (the general public link and the party links) shows "signed from their own link as <name>" / "signed on the agent's device as <name>" and the comment; the signed PDF is not changed (reported in §46.9).
+- **Signing twice is impossible**: the link row is locked inside the transaction; the second attempt is refused ("already used") and exactly one signature exists. A refused attempt (no signature drawn, box not ticked, bad image, name missing) records nothing and does not use the link up.
+- **The agent's link** opens the report read-only. The agent does **not** sign through a token: an unauthenticated link that signs *as the agent* would bypass the PIN that §34 deliberately requires. The page says so and offers "Open this inspection in CoreX"; the agent signs there as today (and only after every other party has an outcome — §15.2a unchanged). Flagged for Johan below.
+- **Completion is unchanged.** Link signatures do not complete the inspection; the agent still signs and presses **Complete**, `markCompleted()` still requires every tenant, the landlord and the agent, attendance is still required, and the completion copies go out exactly as today (`RentalInspectionCopiesService`). The "Ready to complete" pill now also turns green when a party signs from their phone, because the recording screen refreshes its signatures when the panel sees a change.
+- **A non-attendee can sign from a link.** Attendance is untouched (a party recorded "did not attend" still reads that way on the report); the signature row says it was signed from their own link. This is the remote signing Johan has asked for; it does not auto-record anything about attendance.
+- **Expiry** is an agency setting (default 30 days from the day the link is issued). Wrong, revoked, expired, archived and cancelled all give the one uniform "This link isn't available" page (§44a) — a stranger cannot tell which. Restoring an archived inspection revives its live links.
+
+### 46.3 Sending (agent side)
+
+`CoreX\RentalInspectionSigningLinkController`, all under `/corex/rental-inspections/{inspection}/signing-links` (the existing inspection route group — the module's own convention, like attendance and copies; not a new `/api/v1` namespace):
+
+| Action | Route | Permission |
+|---|---|---|
+| Panel (per-party status) | `GET …/signing-links` (`corex.rental-inspections.signing-links.index`) | `rental_inspections.view` + own/branch/agency scope |
+| Issue / copy / WhatsApp / QR / device marker | `POST …/signing-links` (`.issue`) | `rental_inspections.public_link` |
+| Email everyone | `POST …/signing-links/send-all` (`.send-all`) | `rental_inspections.public_link` |
+| Email (or resend) one | `POST …/signing-links/{link}/email` (`.email`) | `rental_inspections.public_link` |
+| Revoke | `POST …/signing-links/{link}/revoke` (`.revoke`) | `rental_inspections.public_link` |
+| QR (data URI of the link) | `GET …/signing-links/{link}/qr` (`.qr`) | `rental_inspections.public_link` |
+| Sign on this device | `GET`/`POST …/signing-links/{link}/device` (`.device`, `.device-submit`) | `rental_inspections.create` |
+
+No new permission key: sharing a signing link is the same act as sharing the public report link (`.public_link`), and signing on the agent's device is the same act as recording a signature (`.create`). Every action is scoped through `guardRentalRecordScope()` and a link must belong to the inspection in the URL (404 otherwise); another agency's user gets 403/404 and nothing is sent.
+
+- **Email** uses the agent's own mailbox through `SignedDocumentDistributionService::sendGenericMail()` — the same path as the scheduling mails — so in every non-production environment it is redirected to the configured test address (QA1: `can.assurance@gmail.com`). Neutral wording; the agency name and the agent's details come from the agent footer. A party with no email address is **skipped with a reason**, never silently dropped. **Email everyone** issues and emails every tenant and the landlord (not the agent), and reports per person.
+- **WhatsApp** opens `wa.me` with the link in the message (number normalised by the existing `WhatsAppNumberFormatter` with the contact's own dial code — not the SA-only normaliser); with no number it still opens so the agent can pick the chat. There is no server-side WhatsApp send in CoreX, so this is honest: it counts as "sent" when the agent opens it. **Copy link** likewise.
+- **Status per party** (chip + detail line): *Not sent* · *Sent* (by email to …, or WhatsApp/copied/QR) · *Opened* (first-opened time; an agent previewing while logged in does not count) · *Signed* (with time and how) · *Declined / disputed* · *Expired* · *Revoked*, with "Email failed: …" / "No email address on file." shown when relevant. A party recorded by another route (paper, in person) shows that outcome instead.
+- **Show QR** — next to each tenant/landlord: a full-screen white overlay on the agent's phone with that party's link as a large QR code; the tenant or owner scans it and the report opens on their own phone. The image encodes the link's URL and nothing else (asserted byte-for-byte in the tests). It sits on the **inspection page** and on the **property Inspections tab recording screen** (the phone screen), shown for any open inspection and hidden when the agency has the setting off or the inspection is ad-hoc.
+- **Sign on this device** — the agent hands over their own logged-in phone; the party sees the same report and Sign step; the submit goes through the agent's session (CSRF-protected, `.create`), so the record says `agent_device` and carries the agent's user id (also on the History row). Enabled only when the inspection is ready to sign.
+- **Live refresh.** The panel re-reads every 15 s while visible; when someone's outcome changes it tells the host screen (the recording screen re-fetches its data; the inspection page reloads), so a tenant signing on their own phone shows up on the agent's screen without a refresh.
+- **History.** New events: *Signing link sent*, *Signing link revoked*, *Signed from a link* (never the token).
+
+### 46.4 Public routes
+
+`/rental-inspection-sign/{token}` (page), `POST …/submit` (CSRF-exempt like the other token-gated public POSTs — the token is the credential and a lapsed session must not turn a signature into "this link has expired"; the agent's own device POST is **not** exempt), `GET …/report.pdf` (the same PDF the completion copies carry — "Download the report"), `GET …/signatures/{signature}/{kind}` (the token-authorised signature image, only for that link's own inspection). Rate limits: reading 60/min per link, the signing POST 10/min per link and address. `X-Robots-Tag`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` as on the public report.
+
+### 46.5 Settings (agency, with defaults, also in the Setup Wizard — CLAUDE.md #10a)
+
+`rental_inspection_settings.signing_link_enabled` (default **on**) and `signing_link_expiry_days` (default **30**) — migration `2026_10_14_100020`, nullable read-time-default pattern (`RentalInspectionSetting::signingLinkEnabledFor()` / `signingLinkExpiryDaysFor()`). Edited at Settings → Rental Inspections (the existing shared `update()` saver, both `has()`-guarded so a wizard step that renders only one cannot wipe the other) and in the Setup Wizard Rentals step (`config/agency-onboarding-copy.php`, each with "What it is" and "What this changes", values in `AgencySetupWizardController::currentValues()`).
+
+### 46.6 Screens and scoping (BUILD_STANDARD §1a)
+
+This is a panel on existing screens, not a new list screen or entity: no new list (so no new search/sort/filter), no new entity to archive (a link is revoked, never deleted — non-negotiable #1), and every endpoint enforces own/branch/agency at the query layer as above; a direct-URL id from another agency is refused, not merely unlinked.
+
+### 46.7 Files
+
+`database/migrations/2026_10_14_100000_create_rental_inspection_signing_links_table.php`, `…100010_add_link_signing_evidence_to_rental_inspection_signatures_table.php`, `…100020_add_signing_link_settings_to_rental_inspection_settings_table.php`; `app/Models/RentalInspectionSigningLink.php`; `app/Services/Rentals/RentalInspectionSigningLinkService.php`; `app/Exceptions/RentalInspectionSigningLinkException.php`; `app/Mail/Rentals/RentalInspectionSigningLinkMail.php` + `resources/views/emails/rentals/inspection-signing-link.blade.php`; `app/Http/Controllers/RentalInspectionSigningController.php` (public) and `CoreX/RentalInspectionSigningLinkController.php` (agent); `RentalInspectionPublicController` (report data extracted to `reportData()` — behaviour unchanged); `resources/views/rental-inspections/public/show.blade.php` + `partials/sign-section.blade.php`; `resources/views/corex/rental-inspections/partials/_signing-links.blade.php` + `resources/js/rental-inspection-signing.js` (imported in `app.js`); `corex/rental-inspections/show.blade.php` and `corex/properties/partials/rental-inspection-recording.blade.php` (one include each); `RentalInspection` (`reportFingerprint()`), `RentalInspectionSignature` (fillable/casts/constants), `RentalInspectionSetting`, `RentalInspectionAuditLog` (3 events); routes in `routes/web.php`; CSRF exception in `bootstrap/app.php`; two rate limiters in `AppServiceProvider`; settings page + `RentalInspectionSettingsController` + wizard config/values.
+
+### 46.8 HELD — "edited after a party signed" — spec is silent, Johan asked to be asked
+
+Johan: *"If the report is edited after a party signed, that party's signature is flagged as given on an earlier version and the agent is told (follow what the spec already says about edits after signing; if it is silent, stop and ask me)."* **The spec is silent**: §33 (`:5903`) records that an inspection in `awaiting_signature` renders and behaves exactly like draft — items, conditions, notes and photos stay editable — and says "whether an inspection should still be editable once `awaiting_signature` … is a real, separate product question, not raised or ruled on". Nothing in §15/§16/§45 ties a signature to a version of the report. So the flag is **not built**, and the question is put to Johan in the build report.
+
+What IS built so the answer can be applied without losing anything: every link signature stores `signed_report_fingerprint` — a SHA-256 of the report's content at that moment (every observation with its condition and note, every live photo, every room note, the overall notes; `RentalInspection::reportFingerprint()`). Whichever rule Johan picks, a signature already given can be checked against it; nothing is lost by waiting. The two business options are in the report.
+
+### 46.9 Reported, not changed
+
+- The general public link (`/rental-inspection-report/{token}`) remains read-only with no Sign step; party links are separate (a party link is revocable per person; the general link is one shared token).
+- The property tab's own in-person Sign buttons (canvas on the agent's device with no report view) are untouched; "Sign on this device" is the new, fuller version that shows the report first. Whether to retire the old buttons is Johan's call.
+- Photos on both public pages remain static public-disk URLs (§44a item 2) — unchanged.
+- The signed PDF's signature block does not print "signed from a link as <name>" or a signer's comment — only the web report page does. Not asked for; say if the PDF should carry it.
+
+### 46.10 Tests
+
+`tests/Feature/RentalInspections/RentalInspectionSigningLinkTest.php` — see the build report for the run.

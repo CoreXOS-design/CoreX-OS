@@ -1274,6 +1274,46 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             && $this->status !== self::STATUS_CANCELLED;
     }
 
+    /**
+     * §46 — a fingerprint of the report's content as it stands right now: every observation (item, condition, note),
+     * every live photo, every room note and the overall notes. Stored on a signature when a party signs from their
+     * link, so a later change to the report is detectable. Built from fresh scope-free queries so the value is the same
+     * whoever asks (a tenant with no login, an agent, a console command). Only the signature records it — whether and
+     * how a later change is acted on is not decided yet (spec §46.8).
+     */
+    public function reportFingerprint(): string
+    {
+        $observations = RentalInspectionObservation::withoutGlobalScopes()
+            ->where('rental_inspection_id', $this->id)
+            ->orderBy('id')
+            ->get(['id', 'rental_inspection_item_id', 'condition', 'notes'])
+            ->map(fn ($o) => [$o->id, $o->rental_inspection_item_id, $o->condition, $o->notes])
+            ->all();
+
+        // An item photo hangs off its observation; a room or tray photo carries the inspection id directly.
+        $observationIds = array_column($observations, 0);
+        $photos = RentalInspectionPhoto::withoutGlobalScopes()
+            ->where(function ($q) use ($observationIds) {
+                $q->where('rental_inspection_id', $this->id);
+                if ($observationIds) {
+                    $q->orWhereIn('rental_inspection_observation_id', $observationIds);
+                }
+            })
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+
+        $roomNotes = RentalInspectionRoomNote::withoutGlobalScopes()
+            ->where('rental_inspection_id', $this->id)
+            ->orderBy('id')
+            ->get(['id', 'property_room_id', 'note'])
+            ->map(fn ($n) => [$n->id, $n->property_room_id, $n->note])
+            ->all();
+
+        return hash('sha256', json_encode([$observations, $photos, $roomNotes, (string) $this->overall_notes]));
+    }
+
     // ── SignedDocumentDistributable (§41, 2026-09-28) ──────────────────
 
     public function distributionProperty(): ?Property
