@@ -39,7 +39,7 @@ final class AddressParser
     /**
      * @param  array<string, mixed>  $in
      * @return array{
-     *   street_number: ?string, street_core: ?string, street_type: ?string, street_name_clean: ?string,
+     *   street_number: ?string, street_core: ?string, street_type: ?string, street_name_clean: ?string, street_name_typed: ?string,
      *   unit_number: ?string, section_number: ?string, complex_name: ?string, scheme_number: ?string,
      *   erf_number: ?string, erf_portion: ?string, township: ?string, lpi_code: ?string,
      *   raw: ?string, status: string, notes: array<int,string>, conflicts: array<int,string>
@@ -111,6 +111,9 @@ final class AddressParser
         // ── street name / type ───────────────────────────────────────────────────────────────
         $core = $line['street']['core'] ?? null;
         $type = $line['street']['type'] ?? null;
+        // The street exactly as typed, number removed — what an EMPTY street_name column is filled with
+        // (the core/type pair is a match key: apostrophes dropped, "Saint" → "St", so it must never be displayed).
+        $typed = $core === null ? null : ($line['street']['text'] ?? null);
 
         // ── unit, section, complex, scheme ───────────────────────────────────────────────────
         $unit = $this->str($in['unit_number'] ?? null) ?? $line['unit'];
@@ -136,6 +139,7 @@ final class AddressParser
             'street_core'       => $core,
             'street_type'       => $type,
             'street_name_clean' => $core === null ? null : $this->display($core, $type),
+            'street_name_typed' => $typed,
             'unit_number'       => $unit,
             'section_number'    => $section,
             'complex_name'      => $complex,
@@ -211,7 +215,7 @@ final class AddressParser
      * beats a bare name ("Grindewald"). Segments that are just the suburb/town/province are dropped.
      *
      * @param  array<string, true>  $places
-     * @return array{street: ?array{number: ?string, core: ?string, type: ?string}, unit: ?string, complex: array<int,string>, liftedUnitFromComplex: ?string, conflicts: array<int,string>, notes: array<int,string>}
+     * @return array{street: ?array{number: ?string, core: ?string, type: ?string, text: string}, unit: ?string, complex: array<int,string>, liftedUnitFromComplex: ?string, conflicts: array<int,string>, notes: array<int,string>}
      */
     private function selectStreetLine(?string $text, array $places): array
     {
@@ -268,7 +272,7 @@ final class AddressParser
             }
         }
 
-        $out['street'] = ['number' => $best['number'], 'core' => $best['core'], 'type' => $best['type']];
+        $out['street'] = ['number' => $best['number'], 'core' => $best['core'], 'type' => $best['type'], 'text' => trim($best['rest'])];
 
         foreach ($streetCandidates as $c) {
             if ($c['index'] === $best['index'] || $c['rank'] === 1 && $c['core'] === $best['core']) {
