@@ -228,11 +228,38 @@
                 depositAmount: {{ Js::from(old('deposit_amount', $rentalApplication->approved_deposit_amount)) }},
                 rentalAmountSource: {{ Js::from($rentalApplication->approved_rental_amount !== null ? 'approved' : null) }},
                 depositAmountSource: {{ Js::from($rentalApplication->approved_deposit_amount !== null ? 'approved' : null) }},
+                {{-- Johan, QA1, 2026-10-07 — typed a street number that does not
+                     exist and the picker showed nothing at all, so it looked
+                     like no search was happening. searchLoading drives the
+                     'Searching…' row; searchedQuery (null until a search for
+                     the CURRENT text has come back) drives the 'No rental
+                     properties match' row; searchFailed a plain error row. A
+                     reply for text the agent has since changed is discarded,
+                     so a slow earlier reply can never overwrite the list. --}}
+                searchLoading: false,
+                searchedQuery: null,
+                searchFailed: false,
                 async search() {
-                    if (this.query.length < 2) { this.results = []; return; }
-                    const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(this.query));
-                    this.results = await res.json();
+                    const q = this.query.trim();
+                    if (q.length < 2) { this.results = []; this.searchedQuery = null; this.searchFailed = false; this.searchLoading = false; return; }
+                    this.searchLoading = true;
+                    try {
+                        const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } });
+                        const data = res.ok ? await res.json() : null;
+                        if (q !== this.query.trim()) return;
+                        this.searchFailed = !Array.isArray(data);
+                        this.results = this.searchFailed ? [] : data;
+                        this.searchedQuery = q;
+                    } catch (e) {
+                        if (q !== this.query.trim()) return;
+                        this.results = [];
+                        this.searchFailed = true;
+                        this.searchedQuery = q;
+                    } finally {
+                        if (q === this.query.trim()) this.searchLoading = false;
+                    }
                 },
+                resetSearchState() { this.searchedQuery = null; this.searchFailed = false; },
                 select(p) {
                     this.propertyId = p.id;
                     this.propertyLabel = p.label;
@@ -259,6 +286,9 @@
                     this.searching = false;
                     this.query = '';
                     this.results = [];
+                    this.searchedQuery = null;
+                    this.searchFailed = false;
+                    this.searchLoading = false;
                 },
              }">
             @if($tenantLinkedProperty)
@@ -327,7 +357,7 @@
                     </template>
                     <template x-if="searching">
                         <div class="relative" style="max-width: 22rem;">
-                            <input type="text" x-model="query" @input.debounce.300ms="search()" @keydown.escape="searching = false"
+                            <input type="text" x-model="query" @input="resetSearchState()" @input.debounce.300ms="search()" @keydown.escape="searching = false"
                                    placeholder="Search rental properties…" autofocus
                                    class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
                             <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
@@ -339,7 +369,10 @@
                                  property picker (resources/views/tools/
                                  pdf_splitter_review.blade.php): address + status
                                  badge, then ref + agent as a muted subtitle. --}}
-                            <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                            <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length || searchLoading || searchedQuery !== null">
+                                <div class="px-2 py-1.5 text-xs" style="color: var(--text-muted);" x-show="searchLoading && !results.length" data-test="rental-property-searching">Searching…</div>
+                                <div class="px-2 py-1.5 text-xs" style="color: var(--text-muted);" x-show="!searchLoading && searchedQuery !== null && !searchFailed && !results.length" data-test="rental-property-no-results" x-text="'No rental properties match \'' + searchedQuery + '\''"></div>
+                                <div class="px-2 py-1.5 text-xs" style="color: var(--ds-red, #dc2626);" x-show="!searchLoading && searchFailed" data-test="rental-property-search-failed">The search could not be completed. Please try again.</div>
                                 <template x-for="p in results" :key="p.id">
                                     <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
                                         <div class="flex items-center gap-1.5">
