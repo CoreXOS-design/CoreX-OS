@@ -10635,6 +10635,12 @@
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-medium" style="color: var(--text-primary);">{{ $buyer['name'] }}</span>
                                     <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style="background: {{ $statePill }}20; color: {{ $statePill }};">{{ $buyer['state'] ?? 'new' }}</span>
+                                    {{-- The buyer's PRIMARY agent — who the listing agent should talk to. Agent-facing
+                                         row only (this block is x-show="!sellerPreview"); the seller live link never
+                                         receives it (it only counts signals). --}}
+                                    <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-agent>
+                                        Agent: {{ $buyer['agent_name'] ?? 'Unassigned' }}
+                                    </span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" title="Match strength: {{ $tierLabel }} ({{ $buyer['match_score'] }}% fit to this property)" style="background: {{ $tierColour }}20; color: {{ $tierColour }};">{{ $buyer['match_score'] }}% · {{ $tierLabel }}</span>
