@@ -439,8 +439,11 @@ final class ReviewFlowTest extends TestCase
             ->get(route('presentations.review.show', $version->id));
 
         $resp->assertOk();
-        $resp->assertDontSee('data-included="1"', false);
-        $resp->assertSeeInOrder(['data-included="0"', 'data-included="0"'], false);
+        // Read the comp ROWS' own flags. The page's script also mentions the literal
+        // `[data-included="1"]` in a selector, so a blanket assertDontSee would match
+        // that text instead of a ticked row.
+        preg_match_all('/data-comp-id="\d+"\s+data-included="([01])"/', $resp->getContent(), $rowFlags);
+        $this->assertSame(['0', '0'], $rowFlags[1], 'both comp rows must render unticked when the selection is []');
         $this->assertSame([], $version->fresh()->included_comp_ids_json);
     }
 

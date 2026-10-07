@@ -57,9 +57,10 @@ final class RentalInspectionWetInkAwaitingTest extends TestCase
         ]);
         $this->actingAs($this->agent);
 
-        // Not globally seeded in a test DB — created directly, same
-        // convention DocumentTypeClassifierTest already uses.
-        DocumentType::create(['slug' => 'inspection_report', 'label' => 'Inspection Report', 'is_active' => true]);
+        // The schema snapshot already carries this global reference row (a bare
+        // create() hit the unique slug), while a bare test DB may not — so
+        // find-or-create, never a blind insert.
+        DocumentType::firstOrCreate(['slug' => 'inspection_report'], ['label' => 'Inspection Report', 'is_active' => true]);
 
         $this->property = Property::forceCreate([
             'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
