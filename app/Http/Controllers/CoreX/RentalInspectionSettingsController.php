@@ -50,7 +50,17 @@ class RentalInspectionSettingsController extends Controller
             // cc4 (owns the seeder that consumes roomTypeItemsFor()) before
             // building. allSpaceTypes is the SAME catalog the property
             // edit screen's space picker already uses, never duplicated.
-            'allSpaceTypes' => config('property-spaces.all_space_types', []),
+            'allSpaceTypes' => RentalInspectionSetting::knownRoomTypeKeysFor($agencyId),
+            // Display label per key — a standard type's key IS its label; an
+            // agency's own custom type has a generated key and a real label.
+            'roomTypeLabels' => collect(RentalInspectionSetting::knownRoomTypeKeysFor($agencyId))
+                ->mapWithKeys(fn ($key) => [$key => RentalInspectionSetting::roomTypeLabelFor($agencyId, $key)])->all(),
+            // §45.4 item 3 — the agency's own room types, archived included.
+            'customRoomTypes' => RentalInspectionSetting::customRoomTypesFor($agencyId),
+            // What each type's checklist is today (system default + any agency
+            // override) — "Customize a room type" starts from THIS, not from
+            // one generic list, so editing a Kitchen starts from the kitchen items.
+            'roomTypeCurrentItems' => RentalInspectionSetting::roomTypeItemDefaultsFor($agencyId),
             // RAW overrides only (not the merged view) — the edit form's
             // row list is exactly what this agency has customized; every
             // OTHER type stays on the standard baseline shown below as a
@@ -208,7 +218,7 @@ class RentalInspectionSettingsController extends Controller
                 ->withErrors(['room_type_item_defaults' => 'That did not save — please try again.']);
         }
 
-        $knownTypes = config('property-spaces.all_space_types', []);
+        $knownTypes = RentalInspectionSetting::knownRoomTypeKeysFor($agencyId);
         $submitted = $request->input('room_type_item_defaults', []);
 
         $defaults = [];
@@ -233,6 +243,45 @@ class RentalInspectionSettingsController extends Controller
     }
 
     /**
+     * §45.4 item 3 (Build I-2) — the agency's OWN room types ("Roof space",
+     * "DB board", "Pool house"). Own narrow saver, same discipline as the
+     * ones around it, and the one both this settings page and the Setup
+     * Wizard post to. The fold-in rules (generated key, archive-not-delete,
+     * duplicates skipped and reported, cap) live in
+     * RentalInspectionSetting::mergeCustomRoomTypes() so the two screens can
+     * never apply different ones. Removing a type here ARCHIVES it — rooms
+     * already filed under it keep it, it just stops being offered for new
+     * rooms, and ticking it back un-archives it.
+     */
+    public function updateCustomRoomTypes(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('custom_room_types_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['custom_room_types' => 'That did not save — please try again.']);
+        }
+
+        $merged = RentalInspectionSetting::mergeCustomRoomTypes(
+            RentalInspectionSetting::customRoomTypesFor($agencyId),
+            (array) $request->input('custom_room_types', []),
+        );
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['custom_room_types' => $merged['types']],
+        );
+
+        $redirect = redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Room types saved.');
+        if ($merged['skipped'] !== []) {
+            $redirect->with('warning', 'Not added: ' . collect($merged['skipped'])
+                ->map(fn ($s) => '"' . $s['label'] . '" (' . $s['reason'] . ')')->implode('; ') . '.');
+        }
+
+        return $redirect;
+    }
+
+    /**
      * §16.4, Johan 2026-09-21 on property 5792 — the default walking order
      * a NEW room's sort_order is computed from
      * (RentalInspectionSetting::defaultRoomSortOrderFor()). Own narrow
@@ -252,13 +301,15 @@ class RentalInspectionSettingsController extends Controller
                 ->withErrors(['room_type_walking_order' => 'That did not save — please try again.']);
         }
 
-        $catalog = config('property-spaces.all_space_types', []);
+        $catalog = RentalInspectionSetting::knownRoomTypeKeysFor($agencyId);
         $submitted = $request->input('room_type_walking_order', []);
 
         $order = array_values(array_intersect(is_array($submitted) ? $submitted : [], $catalog));
         $missing = array_values(array_diff($catalog, $order));
         if ($missing !== []) {
-            $order = array_merge($order, array_values(array_intersect(RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER, $missing)));
+            // Default-order types first, then anything else (an agency's own custom type has no default position).
+            $defaultMissing = array_values(array_intersect(RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER, $missing));
+            $order = array_merge($order, $defaultMissing, array_values(array_diff($missing, $defaultMissing)));
         }
 
         RentalInspectionSetting::updateOrCreate(

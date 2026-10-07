@@ -137,11 +137,10 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertSame('Bedroom', $room->type);
 
         $items = RentalInspectionItem::where('property_room_id', $room->id)->pluck('label')->all();
-        // 2026-09-21: Bedroom has its own transcribed-from-Retha's-form checklist
-        // (RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE), which supersedes
-        // the generic 5-item fallback for this type. Asserted against the constant
-        // itself so a future edit to that list can't silently drift this test again.
-        $this->assertEqualsCanonicalizing(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom'], $items);
+        // Build I-2 (§45.4): a Bedroom gets the floor-to-ceiling bedroom-family baseline.
+        // Asserted against the constant itself so a future edit to that list can't
+        // silently drift this test again.
+        $this->assertEqualsCanonicalizing(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bedroom'], $items);
     }
 
     /**
@@ -181,9 +180,9 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $room = PropertyRoom::where('property_id', $this->property->id)->where('label', $legacy->label)->first();
         $this->assertNotNull($room);
         $this->assertSame('Bedroom', $room->type);
-        // Same 2026-09-21 Bedroom-specific checklist as the manual-add path above —
+        // Same bedroom-family checklist as the manual-add path above —
         // asserted against the constant so a future edit can't silently drift this.
-        $this->assertSame(count(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom']), RentalInspectionItem::where('property_room_id', $room->id)->count());
+        $this->assertSame(count(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bedroom']), RentalInspectionItem::where('property_room_id', $room->id)->count());
     }
 
     public function test_assign_type_is_refused_for_an_item_that_already_has_a_room(): void

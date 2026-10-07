@@ -1,6 +1,7 @@
 {{-- Rentals step — the repeater lists an agency words for itself: refusal reasons,
      inspection condition states (+ the "All Good" baseline), photo-note
-     classifications, and inventory condition states.
+     classifications, inventory condition states, and (Build I-2) the agency's own
+     room types.
 
      Same repeater markup as the full settings screens (corex/settings/
      rental-inspections.blade.php, rental-inventory.blade.php), rendered inside the
@@ -12,11 +13,14 @@
          delegates when this partial's *_submitted marker is present
        - inventory_condition_states -> RentalInventorySettingsController::
          updateConditionStates (own field name: the wizard form is one combined form).
+       - custom_room_types -> via RentalListsWizardSaver, only when this partial's
+         custom_room_types_submitted marker is present; only ACTIVE types are rendered,
+         and the canonical saver archives (never deletes) a type removed here.
      Every list posts its own hidden marker so a post that never rendered this partial
      can never wipe or fail anything (agency-onboarding-setup.md §6.1).
 
      Vars: $wzRefusalPresets, $wzConditionStates, $wzBaselineConditionKey,
-           $wzPhotoClassifications, $wzInventoryConditionStates. --}}
+           $wzPhotoClassifications, $wzInventoryConditionStates, $wzCustomRoomTypes. --}}
 
 @php
     $wzBox = 'background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); border-radius:6px;';
@@ -118,6 +122,27 @@
             </div>
         </template>
         <button type="button" @click="classifications.push({ key: 'custom_' + Date.now(), label: '' })" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a type</button>
+    </div>
+
+    {{-- Your own room types (Build I-2, §45.4 item 3) --}}
+    <div class="p-4 space-y-2" style="{{ $wzBox }}" x-data="{ types: {{ Js::from(collect($wzCustomRoomTypes ?? [])->map(fn ($t) => ['key' => $t['key'], 'label' => $t['label']])->values()) }} }">
+        <input type="hidden" name="custom_room_types_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">Your own room types</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: rooms or areas you inspect that CoreX's 50 standard room types do not cover &mdash; for example a roof space, a DB board or a pool house. Leave this empty if the standard list is enough.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> The room-type choices offered when an agent adds a room to a property's inspection checklist, plus the room-type checklists and walking order in Settings. Removing one here only archives it &mdash; rooms already using it are not touched, and it can be restored from Settings.
+        </p>
+        <template x-for="(row, i) in types" :key="i">
+            <div class="flex items-center gap-2">
+                <input type="text" x-model="row.label" :name="`custom_room_types[${i}][label]`" maxlength="60" placeholder="Room type name"
+                       class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+                <input type="hidden" :name="`custom_room_types[${i}][key]`" :value="row.key">
+                <button type="button" @click="types.splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color:var(--ds-crimson,#e11d48);">Remove</button>
+            </div>
+        </template>
+        <button type="button" @click="types.push({ key: '', label: '' })" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a room type</button>
     </div>
 
     {{-- Inventory condition states --}}

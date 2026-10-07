@@ -199,6 +199,8 @@ class AgencySetupWizardController extends Controller
                 'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
+                // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
+                'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
                 // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
                 'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
                 // LEASE-AGREEMENT END

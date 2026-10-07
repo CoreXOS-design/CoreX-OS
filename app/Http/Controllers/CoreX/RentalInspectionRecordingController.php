@@ -174,7 +174,7 @@ class RentalInspectionRecordingController extends Controller
             'space_type' => [
                 Rule::requiredIf($request->input('kind') === RentalInspectionItem::KIND_SPACE),
                 'nullable', 'string', 'max:60',
-                Rule::in(config('property-spaces.all_space_types', [])),
+                Rule::in(RentalInspectionSetting::selectableRoomTypeKeysFor($property->agency_id)),
             ],
             'property_room_id' => [
                 Rule::requiredIf($request->input('kind') === 'item'),
@@ -244,7 +244,7 @@ class RentalInspectionRecordingController extends Controller
         abort_if($item->property_room_id !== null, 422, 'This space already has a room type.');
 
         $validated = $request->validate([
-            'space_type' => ['required', 'string', 'max:60', Rule::in(config('property-spaces.all_space_types', []))],
+            'space_type' => ['required', 'string', 'max:60', Rule::in(RentalInspectionSetting::selectableRoomTypeKeysFor($property->agency_id))],
         ]);
 
         $items = DB::transaction(function () use ($property, $item, $validated, $request) {

@@ -104,6 +104,79 @@ class RentalInspectionItem extends Model
         ]);
     }
 
+    /**
+     * §45.4 item 2 (Build I-2) — "Add missing standard items". A property's
+     * checklist is seeded ONCE and never re-reads the agency template (§19),
+     * so a room built before the template improved stays thin. This is the
+     * diff an agent confirms before anything changes: which of the agency's
+     * current default items for this room's type the room does not already
+     * have.
+     *
+     * A template item counts as already there if ANY item on the room — live
+     * or retired — carries the same label, compared case- and space-
+     * insensitively. Retired counts deliberately: an agent who retired "Skirting"
+     * made a decision, and a top-up must never quietly undo it. Those are
+     * returned as `present` so the screen can say so rather than hide them.
+     *
+     * @return array{missing: array<int, string>, present: array<int, string>}
+     */
+    public static function standardItemDiffFor(PropertyRoom $room): array
+    {
+        $norm = fn (string $s) => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+
+        $have = static::where('property_room_id', $room->id)->pluck('label')
+            ->map(fn ($l) => $norm((string) $l))->flip();
+
+        $missing = [];
+        $present = [];
+        $seen = [];
+        foreach (RentalInspectionSetting::roomTypeItemsFor($room->agency_id, (string) $room->type) as $label) {
+            $label = trim(preg_replace('/\s+/u', ' ', (string) $label));
+            $key = $norm($label);
+            if ($label === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            if ($have->has($key)) {
+                $present[] = $label;
+            } else {
+                $missing[] = $label;
+            }
+        }
+
+        return ['missing' => $missing, 'present' => $present];
+    }
+
+    /**
+     * §45.4 item 2 — apply the top-up for the labels the agent confirmed.
+     * Only labels that are STILL missing right now are added (recomputed
+     * server-side — a stale preview, a replayed request or a tampered label
+     * can never add anything that is not a current template item the room
+     * lacks), each through addToRoom(): appended after the room's last item,
+     * so existing items are never reordered, retired or touched, and no
+     * observation is read or written. Safe to repeat — a second call finds
+     * nothing missing and adds nothing.
+     *
+     * @param  array<int, string>  $confirmedLabels
+     * @return array<int, self> the items created
+     */
+    public static function addMissingStandardItems(PropertyRoom $room, array $confirmedLabels, User $by): array
+    {
+        $norm = fn (string $s) => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+        $confirmed = collect($confirmedLabels)->map(fn ($l) => $norm((string) $l))->flip();
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($room, $confirmed, $by, $norm) {
+            $created = [];
+            foreach (self::standardItemDiffFor($room)['missing'] as $label) {
+                if ($confirmed->has($norm($label))) {
+                    $created[] = self::addToRoom($room, $label, $by)->load('room');
+                }
+            }
+
+            return $created;
+        });
+    }
+
     /** Display text only — never touches history, observations reference item_id, not label. */
     public function rename(string $label): void
     {

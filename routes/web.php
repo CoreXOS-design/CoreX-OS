@@ -3110,6 +3110,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-inspections/room-type-order', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeWalkingOrder'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-order');
     // §17, Johan 2026-09-21, from Retha's real paper form — the condition vocabulary.
+    // INSPECTIONS I-2 BEGIN — §45.4 item 3, the agency's own room types.
+    Route::post('/settings/rental-inspections/custom-room-types', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateCustomRoomTypes'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.custom-room-types');
+    // INSPECTIONS I-2 END
     Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
     // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 — its own narrow
@@ -5306,6 +5310,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
         // is the explicit, agent-triggered one-click fix for a property's EXISTING
         // rooms; reorder persists the agent's own manual up/down moves.
+        // INSPECTIONS I-2 BEGIN — §45.4 item 2, "Add missing standard items": preview the diff, then add the confirmed ones.
+        Route::get('/{property}/rental-inspection-rooms/{room}/missing-standard-items', [\App\Http\Controllers\CoreX\RentalInspectionRoomChecklistController::class, 'missing'])->middleware('permission:rental_inspections.create')->whereNumber('room')->name('rental-inspection-rooms.missing-standard-items');
+        Route::post('/{property}/rental-inspection-rooms/{room}/missing-standard-items', [\App\Http\Controllers\CoreX\RentalInspectionRoomChecklistController::class, 'topUp'])->middleware('permission:rental_inspections.create')->whereNumber('room')->name('rental-inspection-rooms.add-missing-standard-items');
+        // INSPECTIONS I-2 END
         Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->middleware('permission:rental_inspections.create')->name('rental-inspection-rooms.apply-default-order');
         Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->middleware('permission:rental_inspections.create')->name('rental-inspection-rooms.reorder');
         // §20.15 — the two-panel compare view's "match photos" control.

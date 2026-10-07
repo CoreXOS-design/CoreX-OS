@@ -22,6 +22,12 @@
             {{ session('success') }}
         </div>
     @endif
+    @if(session('warning'))
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
+            {{ session('warning') }}
+        </div>
+    @endif
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
@@ -196,6 +202,72 @@
         </div>
     </form>
 
+    {{-- .ai/specs/rental-inspections.md §45.4 item 3 (Build I-2) — the agency's
+         OWN room types ("Roof space", "DB board", "Pool house"), on top of the 50
+         standard ones. A new type starts on the standard checklist until you give
+         it its own items in "Room type default items" below. "Archive" never
+         deletes: rooms already filed under a type keep it, the type just stops
+         being offered for new rooms, and "Restore" brings it back. A type's
+         internal key is generated once and never changes when it is renamed, so
+         renaming can never orphan an existing room. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.custom-room-types') }}" class="space-y-3"
+          x-data="{
+              rows: {{ Js::from(collect($customRoomTypes)->map(fn ($t) => ['key' => $t['key'], 'label' => $t['label'], 'archived' => $t['archived']])->values()) }},
+              addRow() { this.rows.push({ key: '', label: '', archived: false }); },
+              activeCount() { return this.rows.filter(r => !r.archived).length; },
+          }">
+        @csrf
+        <input type="hidden" name="custom_room_types_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Your own room types</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    CoreX offers 50 standard room types. If your inspections need one it does not list &mdash; a roof space, a
+                    DB board, a pool house &mdash; add it here and it appears in the room-type picker on every property, in the
+                    room-type checklists below and in the walking order. Archiving a type never touches rooms that already use it.
+                </p>
+
+                <template x-if="rows.length === 0">
+                    <p class="text-sm py-3" style="color: var(--text-muted);">
+                        You have not added any room types of your own yet &mdash; every property uses the 50 standard ones. Add one below if you need it.
+                    </p>
+                </template>
+
+                <template x-for="(row, i) in rows" :key="i">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="row.label" :name="`custom_room_types[${i}][label]`" maxlength="60"
+                               placeholder="Room type name" :readonly="row.archived"
+                               class="flex-1 rounded-md px-3 py-2 text-sm"
+                               :style="'border: 1px solid var(--border);' + (row.archived ? ' opacity:.55;' : '')">
+                        <input type="hidden" :name="`custom_room_types[${i}][key]`" :value="row.key">
+                        <input type="hidden" :name="`custom_room_types[${i}][archived]`" :value="row.archived ? '1' : '0'">
+                        <template x-if="row.archived">
+                            <span class="text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Archived</span>
+                        </template>
+                        <template x-if="row.key && !row.archived">
+                            <button type="button" @click="row.archived = true" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Archive</button>
+                        </template>
+                        <template x-if="row.key && row.archived">
+                            <button type="button" @click="row.archived = false" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--brand-button, #0ea5e9);">Restore</button>
+                        </template>
+                        <template x-if="!row.key">
+                            <button type="button" @click="rows.splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                        </template>
+                    </div>
+                </template>
+
+                <button type="button" @click="addRow()" class="corex-btn-outline text-xs">+ Add a room type</button>
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save room types</button>
+        </div>
+    </form>
+
     {{-- Johan, 2026-09-20 — "we should have a setting somewhere on rentals
          that defines room types and what gets added - ceiling, walls,
          floors, windows, doors - that should be a std. if its a patio as
@@ -208,13 +280,16 @@
     <form method="POST" action="{{ route('corex.settings.rental-inspections.room-type-defaults') }}" class="space-y-3"
           x-data="{
               standard: {{ Js::from($standardRoomTypeItems) }},
-              allTypes: {{ Js::from($allSpaceTypes) }},
+              allTypes: {{ Js::from(array_values(array_diff($allSpaceTypes, collect($customRoomTypes)->where('archived', true)->pluck('key')->all()))) }},
+              labels: {{ Js::from($roomTypeLabels) }},
+              current: {{ Js::from($roomTypeCurrentItems) }},
               rows: {{ Js::from(collect($roomTypeOverrides)->map(fn ($items, $type) => ['type' => $type, 'items' => $items])->values()) }},
               picking: '',
+              labelOf(type) { return this.labels[type] || type; },
               availableTypes() { return this.allTypes.filter(t => !this.rows.some(r => r.type === t)); },
               addType() {
                   if (!this.picking) return;
-                  this.rows.push({ type: this.picking, items: [...this.standard] });
+                  this.rows.push({ type: this.picking, items: [...(this.current[this.picking] || this.standard)] });
                   this.picking = '';
               },
               removeType(i) { this.rows.splice(i, 1); },
@@ -228,22 +303,25 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs" style="color: var(--text-muted);">
-                    Every room type starts with the standard checklist —
-                    <span x-text="standard.join(', ')"></span> — until you customize it here. A type
-                    that needs fewer or different items, like a patio, is edited below; anything not
-                    listed keeps the standard checklist automatically.
+                    Every room type starts with CoreX's standard floor-to-ceiling checklist for that kind of
+                    room (a kitchen gets its sink, stove and cupboards; a bathroom its bath, basin and toilet;
+                    anything else gets <span x-text="standard.join(', ')"></span>) until you customize it here.
+                    A type that needs fewer or different items is edited below &mdash; it starts from the
+                    items it has today. Anything not listed keeps the standard checklist automatically, and a
+                    change here only affects rooms added from now on (an agent adds the new items to an existing
+                    property's room with &ldquo;Add missing standard items&rdquo; on that room).
                 </p>
 
                 <template x-if="rows.length === 0">
                     <p class="text-sm py-3" style="color: var(--text-muted);">
-                        No room types customized yet — every room type uses the standard checklist above.
+                        No room types customized yet — every room type uses its standard checklist.
                     </p>
                 </template>
 
                 <template x-for="(row, i) in rows" :key="row.type">
                     <div class="rounded-md p-4 space-y-2" style="border:1px solid var(--border);">
                         <div class="flex items-center justify-between">
-                            <span class="text-sm font-semibold" style="color:var(--text-primary);" x-text="row.type"></span>
+                            <span class="text-sm font-semibold" style="color:var(--text-primary);" x-text="labelOf(row.type)"></span>
                             <button type="button" @click="removeType(i)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
                         </div>
                         <template x-for="(item, j) in row.items" :key="j">
@@ -266,7 +344,7 @@
                     <select x-model="picking" class="rounded-md px-3 py-2 text-sm" style="border:1px solid var(--border);">
                         <option value="">Customize a room type…</option>
                         <template x-for="type in availableTypes()" :key="type">
-                            <option :value="type" x-text="type"></option>
+                            <option :value="type" x-text="labelOf(type)"></option>
                         </template>
                     </select>
                     <button type="button" @click="addType()" class="corex-btn-outline text-xs" :disabled="!picking">+ Add</button>
@@ -289,7 +367,9 @@
          screen itself; this only sets where a newly added room starts. --}}
     <form method="POST" action="{{ route('corex.settings.rental-inspections.room-type-order') }}" class="space-y-3"
           x-data="{
-              order: {{ Js::from($roomTypeWalkingOrder) }},
+              order: {{ Js::from(array_values(array_diff($roomTypeWalkingOrder, collect($customRoomTypes)->where('archived', true)->pluck('key')->all()))) }},
+              labels: {{ Js::from($roomTypeLabels) }},
+              labelOf(type) { return this.labels[type] || type; },
               moveUp(i) { if (i === 0) return; const t = this.order[i - 1]; this.order[i - 1] = this.order[i]; this.order[i] = t; },
               moveDown(i) { if (i === this.order.length - 1) return; const t = this.order[i + 1]; this.order[i + 1] = this.order[i]; this.order[i] = t; },
           }">
@@ -308,7 +388,7 @@
                 </p>
                 <template x-for="(type, i) in order" :key="type">
                     <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
-                        <span class="text-sm" style="color:var(--text-primary);" x-text="(i + 1) + '. ' + type"></span>
+                        <span class="text-sm" style="color:var(--text-primary);" x-text="(i + 1) + '. ' + labelOf(type)"></span>
                         <div class="flex items-center gap-1">
                             <button type="button" @click="moveUp(i)" :disabled="i === 0"
                                     class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--text-secondary);">Move up</button>

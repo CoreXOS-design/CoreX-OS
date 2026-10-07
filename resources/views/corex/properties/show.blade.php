@@ -4831,6 +4831,7 @@
                     nextInspectionBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspections') }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
                     roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
+                    roomsMissingStandardBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspection-rooms') }}',
                     // §20.15 — compare view match/unmatch. Base only for the
                     // destroy route since it needs a match id appended at
                     // call time (the id is not known until a match exists).
@@ -5076,12 +5077,41 @@
                                 {{-- Johan: "the agent must be able to reorder rooms
                                      themselves and have it stick." --}}
                                 <div x-show="group.room" class="flex items-center gap-1">
+                                    {{-- §45.4 item 2 (Build I-2): bring THIS room up to the agency's
+                                         current standard checklist. Preview first, add only what the
+                                         agent confirms; existing items are never touched. --}}
+                                    <button type="button" :disabled="itemBusy" @click="previewTopUp(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--brand-button,#0ea5e9);">Add missing standard items</button>
                                     <button type="button" :disabled="itemBusy" @click="moveRoomUp(group.room)"
                                             class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move up</button>
                                     <button type="button" :disabled="itemBusy" @click="moveRoomDown(group.room)"
                                             class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move down</button>
                                 </div>
                             </div>
+                            <template x-if="group.room && topUp && topUp.roomId === group.room.id">
+                                <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    <p x-show="topUp.loading" class="text-xs" style="color:var(--text-muted);">Checking this room against your standard checklist…</p>
+                                    <p x-show="topUp.error" class="text-xs" style="color:var(--ds-crimson);" x-text="topUp.error"></p>
+                                    <template x-if="!topUp.loading && !topUp.error && topUp.missing.length === 0">
+                                        <p class="text-xs" style="color:var(--text-secondary);">This room already has every item on your standard checklist for its room type. Nothing to add.</p>
+                                    </template>
+                                    <template x-if="!topUp.loading && !topUp.error && topUp.missing.length > 0">
+                                        <div class="space-y-2">
+                                            <p class="text-xs font-semibold" style="color:var(--text-secondary);">These standard items are not on this room yet. Untick any you do not want, then add them. Items already on the room are not changed.</p>
+                                            <template x-for="label in topUp.missing" :key="label">
+                                                <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                                    <input type="checkbox" :value="label" x-model="topUp.chosen"> <span x-text="label"></span>
+                                                </label>
+                                            </template>
+                                            <p x-show="topUp.present.length" class="text-[11px]" style="color:var(--text-muted);">Already on this room, not added again: <span x-text="topUp.present.join(', ')"></span></p>
+                                            <button type="button" :disabled="itemBusy || !topUp.chosen.length" @click="applyTopUp()"
+                                                    class="px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                                    x-text="itemBusy ? 'Adding…' : 'Add ' + topUp.chosen.length + ' item' + (topUp.chosen.length === 1 ? '' : 's')"></button>
+                                        </div>
+                                    </template>
+                                    <button type="button" @click="topUp = null" class="text-xs font-semibold" style="color:var(--text-muted);">Close</button>
+                                </div>
+                            </template>
                             <template x-for="item in group.items" :key="item.id">
                                 <div class="flex items-center justify-between py-1.5 pl-3 flex-wrap gap-1" style="border-bottom:1px solid var(--border);">
                                     <template x-if="renamingItemId !== item.id">
@@ -5106,8 +5136,8 @@
                                             <div class="flex items-center gap-1">
                                                 <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
                                                     <option value="">Give it a room type…</option>
-                                                    @foreach(config('property-spaces.all_space_types', []) as $spaceType)
-                                                        <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                                    @foreach(\App\Models\RentalInspectionSetting::roomTypeOptionsFor($property->agency_id) as $roomTypeOption)
+                                                        <option value="{{ $roomTypeOption['key'] }}">{{ $roomTypeOption['label'] }}</option>
                                                     @endforeach
                                                 </select>
                                                 <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
@@ -5154,8 +5184,8 @@
                              so this picker renders server-side rather than trust it. --}}
                         <select x-show="newItem.kind === 'space'" x-model="newItem.space_type" class="prop-input" style="max-width:10rem;">
                             <option value="">Room type…</option>
-                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
-                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                            @foreach(\App\Models\RentalInspectionSetting::roomTypeOptionsFor($property->agency_id) as $roomTypeOption)
+                                <option value="{{ $roomTypeOption['key'] }}">{{ $roomTypeOption['label'] }}</option>
                             @endforeach
                         </select>
                         {{-- Which EXISTING room the item goes into — this is the control
@@ -7146,6 +7176,8 @@
 
                 itemError: '',
                 itemBusy: false,
+                // §45.4 item 2 — the open "Add missing standard items" preview, one room at a time.
+                topUp: null,
                 newItem: { kind: 'space', label: '', space_type: '', property_room_id: '' },
                 // 2026-09-21 — one pending room-type choice per legacy
                 // typeless item, keyed by item id (several can be mid-pick
@@ -7254,6 +7286,31 @@
                     try {
                         const result = await this._post(this.inspectionUrls.roomsApplyDefaultOrder, {});
                         this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                // §45.4 item 2 (Build I-2) — preview the difference, then add only what
+                // the agent ticked. The server recomputes the difference on apply, so a
+                // stale preview can never add anything that is no longer missing.
+                async previewTopUp(room) {
+                    if (this.topUp && this.topUp.roomId === room.id) { this.topUp = null; return; }
+                    this.itemError = '';
+                    this.topUp = { roomId: room.id, loading: true, missing: [], present: [], chosen: [], error: '' };
+                    try {
+                        const r = await this._compareViewerNoteRequest(`${this.inspectionUrls.roomsMissingStandardBase}/${room.id}/missing-standard-items`, 'GET');
+                        this.topUp = { roomId: room.id, loading: false, missing: r.missing, present: r.present, chosen: [...r.missing], error: '' };
+                    } catch (e) {
+                        this.topUp = { roomId: room.id, loading: false, missing: [], present: [], chosen: [], error: e.message };
+                    }
+                },
+                async applyTopUp() {
+                    if (!this.topUp || !this.topUp.chosen.length) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(`${this.inspectionUrls.roomsMissingStandardBase}/${this.topUp.roomId}/missing-standard-items`, { labels: this.topUp.chosen });
+                        this.items.push(...result.items);
+                        this.topUp = null;
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
                 },

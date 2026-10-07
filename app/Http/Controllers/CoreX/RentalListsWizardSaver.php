@@ -33,6 +33,14 @@ class RentalListsWizardSaver extends Controller
         }
     }
 
+    /** §45.4 item 3 (Build I-2) — the agency's own room types; same no-op-unless-marker discipline as the lists above. */
+    public function inspectionCustomRoomTypes(Request $request): void
+    {
+        if ($request->has('custom_room_types_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateCustomRoomTypes($request);
+        }
+    }
+
     public function inventoryConditionStates(Request $request): void
     {
         if ($request->has('inventory_condition_states_submitted')) {
