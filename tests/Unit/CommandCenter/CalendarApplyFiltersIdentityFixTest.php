@@ -9,7 +9,8 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventClassSetting;
 use App\Models\CommandCenter\CalendarEventInvitation;
 use App\Models\User;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -38,19 +39,17 @@ use Tests\TestCase;
  *       in the SAME test, over the SAME result set, so a fix that leaks can't
  *       hide behind a passing "sees the right thing" assertion alone.
  *
- * DB-execution approach: tried the normal RefreshDatabase route first (a bare
- * `_TriggerProbeTest` against real migrate:fresh) — still fails with ERROR 1419
- * on this box as of this run; cc5's fix had not yet propagated here. Falls back
- * to the same hand-built-schema approach as the last two tasks: only the tables
- * applyFilters()'s actual call chain touches are created directly via
- * Schema::create() (calendar_events, calendar_event_invitations,
- * calendar_event_class_settings, properties, agencies — no artisan migrate),
- * then the REAL, unmodified (except for this fix) CalendarController::
- * applyFilters() is invoked via reflection (it's `private`, called from 10
- * sites in the same class — not changed to `protected` for this test, to keep
- * the shipped diff to exactly the 4-site swap and nothing else).
+ * DB-execution approach: RefreshDatabase against the REAL calendar_events /
+ * calendar_event_invitations / calendar_event_class_settings / agencies tables
+ * (rolled back per test) — no raw DDL. This file used to DROP and re-create those
+ * tables by hand (a workaround for an old migrate:fresh trigger error); inside a
+ * lane's persistent test schema that destroyed tables every later test file needed.
+ * The REAL, unmodified (except for this fix) CalendarController::applyFilters() is
+ * invoked via reflection (it's `private`, called from 10 sites in the same class —
+ * not changed to `protected` for this test, to keep the shipped diff to exactly the
+ * 4-site swap and nothing else).
  *
- * calendar_event_class_settings is a new table for this test (not needed by
+ * calendar_event_class_settings is seeded for this test (not needed by
  * the dismiss-reason or scopeVisibleTo tests) because applyFilters() runs the
  * full CalendarVisibilityResolver::canSee() chain, not just the scope filter —
  * and canSee() returns false with NO matching class-settings row for any
@@ -61,17 +60,44 @@ use Tests\TestCase;
  */
 final class CalendarApplyFiltersIdentityFixTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const AGENCY_ID = 555002;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->buildSchema();
+        // The events use made-up user/branch ids whose parent rows are irrelevant to
+        // what is proved here, so foreign-key checks are off for this connection
+        // (restored in tearDown). The agency row below is real.
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
+
+        DB::table('agencies')->insert([
+            'id' => self::AGENCY_ID, 'name' => 'Test Agency', 'slug' => 'test-agency-'.self::AGENCY_ID,
+        ]);
+
+        // One global (agency_id=null) row, visible to 'all' roles on every
+        // colour, so class-based visibility never blocks the scope/identity
+        // behaviour this test actually exercises. Find-or-update, not create: the
+        // row may already exist and (agency_id, event_class) is unique.
+        CalendarEventClassSetting::withoutGlobalScopes()->updateOrCreate(
+            ['agency_id' => null, 'event_class' => 'viewing'],
+            [
+                'is_active' => true,
+                'event_nature' => 'actionable',
+                'green_days' => 7, 'amber_days' => 2, 'red_days' => 0, 'show_days' => 365,
+                'green_visibility' => ['all'], 'amber_visibility' => ['all'], 'red_visibility' => ['all'],
+                'green_notifications' => [], 'amber_notifications' => [], 'red_notifications' => [],
+                'daily_digest_enabled' => false, 'daily_digest_roles' => [],
+                'label' => 'Viewing', 'actor_role' => 'both', 'completion_behaviour' => 'freeform',
+                'occupies_time' => true, 'autofill_buyers' => false,
+            ]
+        );
     }
 
     protected function tearDown(): void
     {
-        $this->dropSchema();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
         parent::tearDown();
     }
 
@@ -254,123 +280,5 @@ final class CalendarApplyFiltersIdentityFixTest extends TestCase
             'is_recurring' => false,
             'agency_id' => self::AGENCY_ID,
         ], $overrides));
-    }
-
-    private function dropSchema(): void
-    {
-        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        Schema::dropIfExists('calendar_event_class_settings');
-        Schema::dropIfExists('calendar_event_invitations');
-        Schema::dropIfExists('calendar_events');
-        Schema::dropIfExists('properties');
-        Schema::dropIfExists('agencies');
-        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1');
-    }
-
-    private function buildSchema(): void
-    {
-        $this->dropSchema();
-
-        Schema::create('properties', function ($table) {
-            $table->id();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('agencies', function ($table) {
-            $table->id();
-            $table->string('name')->nullable();
-        });
-        \Illuminate\Support\Facades\DB::table('agencies')->insert(['id' => self::AGENCY_ID, 'name' => 'Test Agency']);
-
-        Schema::create('calendar_events', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('created_by_id')->nullable();
-            $table->string('event_type', 50)->nullable();
-            $table->string('category', 80)->nullable();
-            $table->string('title', 255);
-            $table->text('description')->nullable();
-            $table->dateTime('event_date');
-            $table->dateTime('end_date')->nullable();
-            $table->boolean('all_day')->default(true);
-            $table->string('priority', 20)->default('normal');
-            $table->string('status', 20)->default('pending');
-            $table->string('colour', 7)->nullable();
-            $table->string('source_type')->nullable();
-            $table->unsignedBigInteger('source_id')->nullable();
-            $table->unsignedBigInteger('property_id')->nullable();
-            $table->unsignedBigInteger('contact_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->json('reminder_offsets')->nullable();
-            $table->json('reminders_sent')->nullable();
-            $table->boolean('is_recurring')->default(false);
-            $table->string('recurrence_rule', 255)->nullable();
-            $table->unsignedBigInteger('parent_event_id')->nullable();
-            $table->json('metadata')->nullable();
-            $table->string('dismissal_reason_code', 50)->nullable();
-            $table->text('dismissal_reason_notes')->nullable();
-            $table->timestamps();
-            $table->softDeletes();
-        });
-
-        Schema::create('calendar_event_invitations', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('event_id');
-            $table->unsignedBigInteger('invitee_user_id');
-            $table->unsignedBigInteger('inviter_user_id')->nullable();
-            $table->string('status', 20)->default('pending');
-            $table->timestamp('response_at')->nullable();
-            $table->text('response_notes')->nullable();
-            $table->json('conflict_at_invite')->nullable();
-            $table->timestamp('notified_at')->nullable();
-            $table->timestamp('acknowledged_at')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('calendar_event_class_settings', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->string('event_class', 60);
-            $table->boolean('is_active')->default(true);
-            $table->string('event_nature', 20)->nullable();
-            $table->unsignedSmallInteger('green_days')->default(7);
-            $table->unsignedSmallInteger('amber_days')->default(2);
-            $table->unsignedSmallInteger('red_days')->default(0);
-            $table->unsignedSmallInteger('show_days')->nullable();
-            $table->json('green_visibility')->nullable();
-            $table->json('amber_visibility')->nullable();
-            $table->json('red_visibility')->nullable();
-            $table->json('green_notifications')->nullable();
-            $table->json('amber_notifications')->nullable();
-            $table->json('red_notifications')->nullable();
-            $table->boolean('daily_digest_enabled')->default(false);
-            $table->json('daily_digest_roles')->nullable();
-            $table->string('label', 100)->nullable();
-            $table->string('description', 255)->nullable();
-            $table->boolean('allow_multiple_properties')->default(false);
-            $table->string('actor_role', 20)->nullable();
-            $table->string('completion_behaviour', 20)->nullable();
-            $table->boolean('occupies_time')->default(true);
-            $table->boolean('autofill_buyers')->default(false);
-            $table->timestamps();
-        });
-
-        // One global (agency_id=null) row, visible to 'all' roles on every
-        // colour, so class-based visibility never blocks the scope/identity
-        // behaviour this test actually exercises.
-        CalendarEventClassSetting::create([
-            'agency_id' => null,
-            'event_class' => 'viewing',
-            'is_active' => true,
-            'event_nature' => 'actionable',
-            'green_days' => 7, 'amber_days' => 2, 'red_days' => 0, 'show_days' => 365,
-            'green_visibility' => ['all'], 'amber_visibility' => ['all'], 'red_visibility' => ['all'],
-            'green_notifications' => [], 'amber_notifications' => [], 'red_notifications' => [],
-            'daily_digest_enabled' => false, 'daily_digest_roles' => [],
-            'label' => 'Viewing', 'actor_role' => 'both', 'completion_behaviour' => 'freeform',
-            'occupies_time' => true, 'autofill_buyers' => false,
-        ]);
     }
 }

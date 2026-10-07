@@ -180,6 +180,73 @@ final class TrackedPropertyAddress extends Model
     }
 
     /**
+     * Every stored `suburb_normalised` string that is the SAME suburb as the
+     * given one by spelling alone (2026-10-07): the normalised form itself,
+     * its "Saint" / "St" twin ("saint michaels on sea" == "st michaels on
+     * sea" — 222 + 741 real QA1 rows that were never being compared), and the
+     * rest of any configured alias group. Used as `whereIn('suburb_normalised',
+     * …)` so the rows already stored need no backfill. Spelling only — a
+     * NEIGHBOURING suburb (Uvongo / Uvongo Beach) is NOT in this list; see
+     * neighbouringSuburbKeys().
+     *
+     * @return array<int,string>
+     */
+    public static function suburbSpellingKeys(?string $suburb): array
+    {
+        $n = self::normaliseSuburb($suburb);
+        if ($n === null) {
+            return [];
+        }
+        $keys = [$n];
+        if (preg_match('/^st (.+)$/', $n, $m)) {
+            $keys[] = 'saint ' . $m[1];
+        } elseif (preg_match('/^saint (.+)$/', $n, $m)) {
+            $keys[] = 'st ' . $m[1];
+        }
+        foreach ((array) config('property-suburb-aliases.groups', []) as $group) {
+            if (in_array($n, (array) $group, true)) {
+                $keys = array_merge($keys, (array) $group);
+            }
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    /**
+     * Normalised names of the suburbs Property24 lists as the neighbours of
+     * this one (`p24_suburbs.surrounding_ids`) — "Uvongo" ↔ "Uvongo Beach".
+     * They are two real Property24 suburbs (different ids, ~1,100 and ~300
+     * properties on QA1) that share streets, so they can never be treated as
+     * the same place; the matcher uses them only to say "possible match,
+     * agent confirms". Empty when the suburb is not on the list or is
+     * ambiguous (same name in several provinces and no coordinates to pick one).
+     *
+     * @return array<int,string>
+     */
+    public static function neighbouringSuburbKeys(?string $suburb, ?float $lat = null, ?float $lng = null): array
+    {
+        if (! filled($suburb)) {
+            return [];
+        }
+        try {
+            $own = \App\Models\P24Suburb::lookup((string) $suburb, null, $lat, $lng);
+            $ids = $own ? array_filter((array) $own->surrounding_ids) : [];
+            if ($ids === []) {
+                return [];
+            }
+            $mine = self::suburbSpellingKeys($suburb);
+
+            return \App\Models\P24Suburb::whereIn('p24_id', $ids)->pluck('name')
+                ->map(fn ($name) => self::normaliseSuburb((string) $name))
+                ->filter()
+                ->reject(fn ($key) => in_array($key, $mine, true))
+                ->unique()->values()->all();
+        } catch (\Throwable $e) {
+            return []; // an unreadable suburb list must never break a capture
+        }
+    }
+
+    /**
      * Township vs. marketing/informal suburb name (Johan's known open fault:
      * "Three Hills" vs "Leisure Bay" — real KZN South Coast data, same general
      * area, two completely different strings by plain normalisation). There is

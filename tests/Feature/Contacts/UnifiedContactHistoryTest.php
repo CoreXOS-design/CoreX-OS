@@ -286,6 +286,12 @@ final class UnifiedContactHistoryTest extends TestCase
 
     private function ensureLeadNotificationEventType(): int
     {
+        // The schema snapshot already carries this reference row (key is unique) — reuse it.
+        $existing = DB::table('notification_event_types')->where('key', 'lead.portal_received')->value('id');
+        if ($existing) {
+            return (int) $existing;
+        }
+
         return (int) DB::table('notification_event_types')->insertGetId([
             'key' => 'lead.portal_received', 'pillar' => 'contact', 'label' => 'Portal lead received',
             'default_enabled' => 1, 'threshold_unit' => 'none', 'supports_in_app' => 1,

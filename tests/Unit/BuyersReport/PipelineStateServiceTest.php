@@ -7,9 +7,9 @@ namespace Tests\Unit\BuyersReport;
 use App\Services\BuyersReport\BuyersReportScope;
 use App\Services\BuyersReport\PipelineStateService;
 use App\Services\Performance\Period;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -22,17 +22,22 @@ use Tests\TestCase;
  */
 final class PipelineStateServiceTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const AGENCY_ID = 9301;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->buildSchema();
+        // Real tables, rolled back by RefreshDatabase. The rows below use made-up
+        // agency/branch/user ids whose parent rows are irrelevant to what is proved
+        // here, so foreign-key checks are off for this connection (restored in tearDown).
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
     }
 
     protected function tearDown(): void
     {
-        $this->dropSchema();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
         parent::tearDown();
     }
 
@@ -95,8 +100,8 @@ final class PipelineStateServiceTest extends TestCase
 
         $now = Carbon::now();
         DB::table('buyer_state_transitions')->insert([
-            ['contact_id' => $buyer, 'agency_id' => self::AGENCY_ID, 'from_state' => 'new', 'to_state' => 'warm', 'occurred_at' => $now->copy()->subDays(2)],
-            ['contact_id' => $buyer, 'agency_id' => self::AGENCY_ID, 'from_state' => 'warm', 'to_state' => 'cold', 'occurred_at' => $now->copy()->subDays(40)], // outside period
+            ['contact_id' => $buyer, 'agency_id' => self::AGENCY_ID, 'from_state' => 'new', 'to_state' => 'warm', 'reason' => 'auto_recompute', 'occurred_at' => $now->copy()->subDays(2)],
+            ['contact_id' => $buyer, 'agency_id' => self::AGENCY_ID, 'from_state' => 'warm', 'to_state' => 'cold', 'reason' => 'auto_recompute', 'occurred_at' => $now->copy()->subDays(40)], // outside period
         ]);
 
         $scope = new BuyersReportScope(self::AGENCY_ID, BuyersReportScope::LEVEL_AGENCY);
@@ -111,64 +116,19 @@ final class PipelineStateServiceTest extends TestCase
 
     private function seedUser(int $id, string $name): void
     {
-        DB::table('users')->insert(['id' => $id, 'agency_id' => self::AGENCY_ID, 'name' => $name, 'is_active' => 1, 'role' => 'agent']);
+        DB::table('users')->insert([
+            'id' => $id, 'agency_id' => self::AGENCY_ID, 'name' => $name, 'email' => "agent{$id}@example.test",
+            'password' => 'x', 'is_active' => 1, 'role' => 'agent',
+        ]);
     }
 
     private function seedBuyer(int $id, ?int $agentId, ?string $state): int
     {
         DB::table('contacts')->insert([
-            'id' => $id, 'agency_id' => self::AGENCY_ID, 'agent_id' => $agentId,
+            'id' => $id, 'agency_id' => self::AGENCY_ID, 'agent_id' => $agentId, 'branch_id' => 1,
             'is_buyer' => 1, 'buyer_state' => $state, 'first_name' => "Buyer $id", 'last_name' => '',
         ]);
 
         return $id;
-    }
-
-    private function dropSchema(): void
-    {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        Schema::dropIfExists('buyer_state_transitions');
-        Schema::dropIfExists('contacts');
-        Schema::dropIfExists('users');
-        DB::statement('SET FOREIGN_KEY_CHECKS=1');
-    }
-
-    private function buildSchema(): void
-    {
-        $this->dropSchema();
-
-        Schema::create('users', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->string('name')->nullable();
-            $table->string('role', 40)->nullable();
-            $table->boolean('is_active')->default(1);
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('contacts', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('agent_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->boolean('is_buyer')->default(0);
-            $table->string('buyer_state', 20)->nullable();
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->timestamp('last_activity_at')->nullable();
-            $table->timestamp('last_contacted_at')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('buyer_state_transitions', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id');
-            $table->unsignedBigInteger('contact_id');
-            $table->string('from_state', 20)->nullable();
-            $table->string('to_state', 20)->nullable();
-            $table->string('reason', 30)->nullable();
-            $table->timestamp('occurred_at');
-        });
     }
 }
