@@ -74,6 +74,9 @@ class Lease extends Model
     // leases.source — how the lease came to exist (§2, §15.5/§15.6.5).
     public const SOURCE_ESIGN_DOCUMENT = 'esign_document';
     public const SOURCE_UPLOADED_SIGNED_COPY = 'uploaded_signed_copy';
+
+    /** §15.13 — shown on the edit panel and returned by update() while isLockedForSigning(). */
+    public const LOCKED_FOR_SIGNING_MESSAGE = 'This agreement is out for signing. Change values in the agreement — CoreX will ask you to confirm them at approval.';
     // LEASE-AGREEMENT END
 
     protected $fillable = [
@@ -294,6 +297,31 @@ class Lease extends Model
             ->where('source_id', $this->id)
             ->latest('id')
             ->first();
+    }
+
+    /**
+     * §15.13 — what the Leases list's "Agreement" filter, the status sub-label and the export call each
+     * signing state, in plain words. `not_sent` is a real state ("no agreement requested") but is never
+     * shown as a sub-label — most leases are plain leases.
+     */
+    public const SIGNING_LABELS = [
+        self::SIGNING_NOT_SENT => 'Not sent',
+        self::SIGNING_PREPARED => 'Being prepared',
+        self::SIGNING_OUT_FOR_SIGNING => 'Out for signing',
+        self::SIGNING_AWAITING_AGENT_REVIEW => 'Needs my approval',
+        self::SIGNING_SIGNED => 'Signed',
+        self::SIGNING_SIGNED_ON_PAPER => 'Signed on paper',
+        self::SIGNING_DECLINED => 'Declined',
+        self::SIGNING_VOIDED => 'Voided',
+        self::SIGNING_EXPIRED => 'Expired',
+    ];
+
+    /** The sub-label shown under a lease's status badge, or null for a lease with no agreement requested. */
+    public function signingStatusLabel(): ?string
+    {
+        $status = (string) ($this->signing_status ?? self::SIGNING_NOT_SENT);
+
+        return $status === self::SIGNING_NOT_SENT ? null : (self::SIGNING_LABELS[$status] ?? null);
     }
 
     /**

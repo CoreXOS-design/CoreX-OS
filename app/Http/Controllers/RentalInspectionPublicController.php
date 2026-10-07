@@ -48,6 +48,7 @@ class RentalInspectionPublicController extends Controller
         // forwarded link would otherwise get AgencyScope-filtered nulls
         // (property = null) and a 500.
         $unscoped = fn ($q) => $q->withoutGlobalScopes();
+        $agencyOnly = fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class);
         $inspection->load([
             'property' => $unscoped,
             'lease' => $unscoped,
@@ -62,6 +63,12 @@ class RentalInspectionPublicController extends Controller
             'signatures' => $unscoped,
             'signatures.partyContact' => $unscoped,
             'roomNotes' => $unscoped,
+            // §45.3 (Build I-1) — room-level ("general") photos and every photo's own note. Only the
+            // AGENCY scope is lifted (an unauthenticated caller has no agency context); SoftDeletes
+            // stays on, so an archived photo — e.g. one removed as "wrong property" — never appears here.
+            'photos' => $agencyOnly,
+            'photos.note' => $agencyOnly,
+            'observations.photos.note' => $agencyOnly,
         ]);
 
         $agencyId = $inspection->property?->agency_id;
@@ -114,10 +121,30 @@ class RentalInspectionPublicController extends Controller
             ->groupBy('property_room_id')
             ->map(fn ($notes) => $notes->sortByDesc('created_at')->first());
 
+        // §45.3 — a room's general condition photos (tagged to the room, no single item). A room with
+        // ONLY such photos and/or a room note, but no graded item, must still appear on the report.
+        $roomPhotos = $inspection->photos
+            ->filter(fn ($p) => $p->property_room_id !== null && $p->rental_inspection_observation_id === null)
+            ->groupBy('property_room_id');
+
+        $extraRoomIds = $roomPhotos->keys()->merge($roomNotes->keys())
+            ->filter(fn ($id) => $id !== null && ! $rows->has($id))
+            ->unique()->values();
+        $extraRooms = $extraRoomIds->isEmpty()
+            ? collect()
+            : \App\Models\PropertyRoom::withoutGlobalScopes()->whereIn('id', $extraRoomIds)->get()->keyBy('id');
+        foreach ($extraRoomIds as $extraId) {
+            // An empty row list is a real, renderable section (heading + photos + note) — see the view.
+            $rows->put($extraId, collect());
+        }
+
         return $this->privateHeaders(response()->view('rental-inspections.public.show', [
             'inspection' => $inspection,
             'rows' => $rows,
             'roomNotes' => $roomNotes,
+            'roomPhotos' => $roomPhotos,
+            'extraRooms' => $extraRooms,
+            'photoNoteLabels' => collect(RentalInspectionSetting::photoNoteClassificationsFor($agencyId))->pluck('label', 'key'),
             'signatureRows' => $inspection->signatureSummaryRows(),
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,

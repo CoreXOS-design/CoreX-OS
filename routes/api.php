@@ -489,6 +489,13 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/leases/{lease}/tenancy-log', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyLog'])
             ->middleware('permission:leases.view')->name('v1.leases.tenancy-log');
 
+        // LEASE-CAPTURE BEGIN (leases.md §15.15 — Build L2): the single capture screen's JSON mirror. The mode
+        // (new lease / renewal) is read from the body (`previous_lease_id`) and its permission is checked by the
+        // request itself — leases.create for a new lease, leases.renew for a renewal.
+        Route::post('/leases/capture', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'store'])
+            ->middleware('permission:leases.view')->name('v1.leases.capture');
+        // LEASE-CAPTURE END
+
         // .ai/specs/rental-renewals.md §10 — JSON mirror of the Lease Hub's
         // renewal/one-click-outcome web actions, for Andre's mobile app.
         Route::middleware('permission:leases.renew')->prefix('leases/{lease}/renewal')->group(function () {

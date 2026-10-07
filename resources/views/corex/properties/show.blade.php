@@ -6655,8 +6655,14 @@
                     return typeLabel + '-inspection';
                 },
                 compareViewerInspectionDate(side) {
+                    // §45.3 — the PHOTO's own capture time (per photo, both sides), not just the
+                    // inspection's booked date. Falls back to the inspection's date for a pane with no
+                    // photo, and to completed/created for an inspection that was never scheduled.
+                    const photo = this.compareViewerCurrentPhoto(side);
+                    if (photo && photo.taken_caption) return photo.taken_caption;
                     const insp = this.compareViewerInspectionFor(side);
-                    return insp ? (insp.scheduled_for || '') : '';
+                    if (!insp) return '';
+                    return insp.scheduled_for || String(insp.completed_at || insp.created_at || '').slice(0, 10);
                 },
                 compareViewerPaneInspectionLabel(side) {
                     const insp = this.compareViewerInspectionFor(side);
@@ -8554,6 +8560,9 @@
 
                 // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────
                 lifecycleError: '',
+                // §45.3 (Build I-1) — the server's list of checklist items still ungraded when a
+                // complete / send-for-signature attempt was refused. Cleared on every new attempt.
+                ungradedItems: [],
                 discForm: {},
                 discBusy: {},
                 // FIX, 2026-09-27 — same root cause as isMarkGoodBusy()/
@@ -8597,9 +8606,36 @@
                     });
                 },
 
+                // §45.3 — the refused attempt's ungraded_items grouped by room for the checklist panel
+                // under the Complete button. Group order = the server's own (room walking order).
+                ungradedRoomGroups() {
+                    const groups = [];
+                    const byKey = {};
+                    for (const m of this.ungradedItems) {
+                        const key = m.room_id ? 'r' + m.room_id : 'general';
+                        if (!byKey[key]) {
+                            byKey[key] = { key: key, roomId: m.room_id || null, label: m.room_label || 'General', items: [] };
+                            groups.push(byKey[key]);
+                        }
+                        byKey[key].items.push(m.item_label);
+                    }
+                    return groups;
+                },
+                jumpToUngradedRoom(section, roomId) {
+                    const group = this.roomGroups().find(g => (g.room ? g.room.id : null) === (roomId || null));
+                    if (group) this.scrollToInspectionRoom(section, group, false);
+                },
+                _noteUngradedItems(section, e) {
+                    this.ungradedItems = (e && e.data && e.data.ungraded_items) ? e.data.ungraded_items : [];
+                    this.ungradedItems.forEach(m => {
+                        if (m.room_id) this.roomOpenOverride[section + '_' + m.room_id] = true;
+                    });
+                },
+
                 async completeInspection(section) {
                     const insp = this.currentInspection(section);
                     this.lifecycleError = '';
+                    this.ungradedItems = [];
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
                         // §32, 2026-09-28 — was Object.assign(insp, updated),
@@ -8613,7 +8649,7 @@
                         // Nothing types into these three directly, so a
                         // plain merge (no snapshot/unchanged check) is safe.
                         this._mergeFields(insp, updated, ['status', 'completed_at', 'fault_report_deadline_at']);
-                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section, e); }
+                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section, e); this.jumpToMissingRequiredNotes(section, e); }
                 },
 
                 async startAwaitingSignature(section) {
@@ -8622,13 +8658,14 @@
                     // and the existing out-section UI share one method.
                     const insp = this.currentInspection(section || 'out');
                     this.lifecycleError = '';
+                    this.ungradedItems = [];
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
                         // §32, 2026-09-28 — same reasoning as completeInspection()
                         // just above: RentalInspection::startAwaitingSignature()
                         // only ever touches these two.
                         this._mergeFields(insp, updated, ['status', 'signing_deadline_at']);
-                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section || 'out', e); }
+                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section || 'out', e); this.jumpToMissingRequiredNotes(section || 'out', e); }
                 },
 
                 // §17 — the header block. x-model binds straight to

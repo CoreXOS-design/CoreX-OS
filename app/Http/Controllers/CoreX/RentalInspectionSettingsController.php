@@ -92,6 +92,7 @@ class RentalInspectionSettingsController extends Controller
             // on completion, defaults ON.
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
             'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
+            'allItemsRequiredToComplete' => RentalInspectionSetting::allItemsRequiredToCompleteFor($agencyId),
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
             // §43 — schedule/reschedule/cancel notifications.
             'notifyTenantEnabled' => RentalInspectionSetting::notifyTenantFor($agencyId),
@@ -124,6 +125,7 @@ class RentalInspectionSettingsController extends Controller
             // Both has()-guarded below (agency-onboarding-setup.md §6.1) —
             // nullable so a caller that never renders them still saves.
             'require_notes_blocks_progression' => ['nullable', 'boolean'],
+            'all_items_required_to_complete' => ['nullable', 'boolean'],
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
         ]);
 
@@ -138,6 +140,10 @@ class RentalInspectionSettingsController extends Controller
         // page and wizard alike), so has() distinguishes "off" from "not rendered".
         if ($request->has('require_notes_blocks_progression')) {
             $attributes['require_notes_blocks_progression'] = $request->boolean('require_notes_blocks_progression');
+        }
+        // §45.3 (Build I-1) — same hidden-0-then-checkbox control, same has() guard.
+        if ($request->has('all_items_required_to_complete')) {
+            $attributes['all_items_required_to_complete'] = $request->boolean('all_items_required_to_complete');
         }
         // Blank/absent leaves the stored value (and therefore the model's own
         // default) alone; a number saves.

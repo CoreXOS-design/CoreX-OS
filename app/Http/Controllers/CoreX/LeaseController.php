@@ -5,11 +5,12 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ExportsRentalList;
+use App\Http\Controllers\Concerns\HandlesLeaseCapture;
 use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
+use App\Http\Requests\CoreX\LeaseCaptureRequest;
 use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\LeaseEscalation;
-use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
@@ -20,7 +21,6 @@ use App\Services\Rentals\RentalDocumentPdfService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -33,6 +33,7 @@ class LeaseController extends Controller
 {
     use AuthorizesRentalRecordScope;
     use ExportsRentalList;
+    use HandlesLeaseCapture;
     use SearchesQualifyingRentalProperties;
 
     /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
@@ -129,7 +130,7 @@ class LeaseController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
+            'filters' => $request->only(['q', 'status', 'agreement', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
             'filteredProperty' => $filteredProperty,
             'tileCounts' => $tileCounts,
             'resolvedScope' => $resolvedScope,
@@ -181,6 +182,14 @@ class LeaseController extends Controller
             $query->where('leases.status', $status);
         }
 
+        // LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L2): the "Agreement" filter — where the lease's own
+        // agreement is (not sent / being prepared / out for signing / needs my approval / signed / …).
+        $agreement = $request->get('agreement');
+        if (is_string($agreement) && array_key_exists($agreement, Lease::SIGNING_LABELS)) {
+            $query->where('leases.signing_status', $agreement);
+        }
+        // LEASE-AGREEMENT END
+
         if ($propertyId = $request->get('property_id')) {
             $query->where('leases.property_id', $propertyId);
         }
@@ -210,7 +219,7 @@ class LeaseController extends Controller
      * actually have a lease visible to this user (leases.md §7's own
      * scopeVisibleTo(), same scope as the list query itself), never every
      * rental property. Distinct from the create screen's own property
-     * `<select>` (leases/create.blade.php), which deliberately keeps
+     * `<select>` (now the type-to-search picker in leases/capture.blade.php), which deliberately keeps
      * offering every rental property, unchanged.
      */
     public function searchProperties(Request $request): JsonResponse
@@ -265,6 +274,9 @@ class LeaseController extends Controller
         if ($status = $request->get('status')) {
             $out['Status'] = ucfirst($status);
         }
+        if (is_string($agreement = $request->get('agreement')) && isset(Lease::SIGNING_LABELS[$agreement])) {
+            $out['Agreement'] = Lease::SIGNING_LABELS[$agreement];
+        }
         if ($request->boolean('expiring_soon')) {
             $out['Expiring soon'] = 'Yes';
         }
@@ -305,7 +317,7 @@ class LeaseController extends Controller
             ->orderBy('leases.end_date')
             ->get();
 
-        $headers = ['Property', 'Tenant(s)', 'Landlord', 'Status', 'Start', 'End', 'Rent'];
+        $headers = ['Property', 'Tenant(s)', 'Landlord', 'Status', 'Start', 'End', 'Rent', 'Agreement status', 'Signed on'];
         $rows = $leases->map(fn (Lease $lease) => [
             $lease->property?->buildDisplayAddress() ?? 'Unknown property',
             $lease->tenantNames(),
@@ -314,6 +326,8 @@ class LeaseController extends Controller
             $lease->start_date?->format('Y-m-d') ?? '',
             $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : ''),
             number_format((float) $lease->rental_amount, 2),
+            Lease::SIGNING_LABELS[$lease->signing_status ?? Lease::SIGNING_NOT_SENT] ?? 'Not sent',
+            $lease->signed_at?->format('Y-m-d') ?? '',
         ]);
 
         $filename = 'leases-' . now()->format('Y-m-d');
@@ -346,16 +360,18 @@ class LeaseController extends Controller
             ? $this->pickableRentalProperties($request)->find($oldPropertyId)
             : null;
 
-        return view('corex.leases.create', [
-            'property' => $property,
-            'oldProperty' => $oldProperty,
-            'oldTenants' => $this->oldTenantSeed($request),
-            'rentalApplication' => $rentalApplication,
-            // .ai/specs/rental-property-tab.md §5, Part 4 — same agency-editable
-            // list as the property screen's Lease Type select; one source of
-            // truth for both, replacing this form's own hardcoded array.
-            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
-        ]);
+        // leases.md §15.2 (Build L2) — one capture screen for a new lease and a renewal.
+        return view('corex.leases.capture', array_merge(
+            $this->leaseCaptureScreen($request->user(), null, $rentalApplication),
+            [
+                'mode' => 'new',
+                'lease' => null,
+                'property' => $property,
+                'oldProperty' => $oldProperty,
+                'oldTenants' => $this->oldTenantSeed($request),
+                'rentalApplication' => $rentalApplication,
+            ]
+        ));
     }
 
     /**
@@ -396,74 +412,15 @@ class LeaseController extends Controller
         return $seed;
     }
 
-    public function store(Request $request): RedirectResponse
+    /**
+     * leases.md §15.2 / §15.4 (Build L2) — "Create lease only", "Create lease & prepare for signing" and the
+     * signed paper copy all land here; validation is LeaseCaptureRequest (every §7.2/§7.3 rule of the old
+     * store() — a rental property the user may see, same-agency tenants — plus the agreement details), the
+     * write is LeaseCaptureService, one transaction.
+     */
+    public function store(LeaseCaptureRequest $request): RedirectResponse
     {
-        $validated = $request->validate([
-            // Only a rental property this user may see (own/branch/agency) — the SAME
-            // query as the picker. A sale listing, another agent's/branch's/agency's
-            // property and a made-up id all fail identically (nothing to enumerate).
-            'property_id' => ['bail', 'required', 'integer', function (string $attribute, mixed $value, \Closure $fail) use ($request) {
-                if (! $this->pickableRentalProperties($request)->whereKey($value)->exists()) {
-                    $fail('Please choose a property from the list.');
-                }
-            }],
-            'rental_amount' => ['required', 'numeric', 'min:0'],
-            'deposit_amount' => ['nullable', 'numeric', 'min:0'],
-            'start_date' => ['required', 'date'],
-            'end_date' => ['nullable', 'date', 'after:start_date'],
-            'is_month_to_month' => ['nullable', 'boolean'],
-            'lease_type' => ['nullable', 'string', 'max:40'],
-            // Same-agency only — a bare exists: would accept any agency's row.
-            'rental_application_id' => ['nullable', Rule::exists('rental_applications', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
-            'tenant_contact_ids' => ['required', 'array', 'min:1'],
-            'tenant_contact_ids.*' => [Rule::exists('contacts', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
-            'activate_immediately' => ['nullable', 'boolean'],
-        ], [
-            'property_id.required' => 'Please choose a property from the list.',
-            'property_id.integer' => 'Please choose a property from the list.',
-        ]);
-
-        // Validated above against the picker's own query, so this resolves.
-        $property = $this->pickableRentalProperties($request)->findOrFail($validated['property_id']);
-        $user = $request->user();
-
-        // The linked application must be for THIS property (audit M6/L2).
-        if (!empty($validated['rental_application_id'])) {
-            $application = RentalApplication::findOrFail($validated['rental_application_id']);
-            if ($application->property_id !== null && (int) $application->property_id !== (int) $property->id) {
-                return back()->withInput()->withErrors(['rental_application_id' => 'That rental application is for a different property.']);
-            }
-        }
-
-        $lease = Lease::create([
-            'agency_id' => $property->agency_id,
-            'branch_id' => $property->branch_id,
-            'property_id' => $property->id,
-            'status' => Lease::STATUS_DRAFT,
-            'rental_amount' => $validated['rental_amount'],
-            'deposit_amount' => $validated['deposit_amount'] ?? null,
-            'start_date' => $validated['start_date'],
-            'end_date' => $validated['end_date'] ?? null,
-            'is_month_to_month' => (bool) ($validated['is_month_to_month'] ?? false),
-            'lease_type' => $validated['lease_type'] ?? null,
-            'source' => !empty($validated['rental_application_id']) ? 'rental_application' : 'manual',
-            'rental_application_id' => $validated['rental_application_id'] ?? null,
-            'created_by_user_id' => $user->id,
-        ]);
-
-        foreach ($validated['tenant_contact_ids'] as $index => $contactId) {
-            LeaseTenant::create([
-                'lease_id' => $lease->id,
-                'contact_id' => $contactId,
-                'is_primary' => $index === 0,
-            ]);
-        }
-
-        if ($request->boolean('activate_immediately')) {
-            app(LeaseActivationService::class)->activate($lease);
-        }
-
-        return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease created.');
+        return $this->runLeaseCapture($request, null);
     }
 
     /**
@@ -587,6 +544,14 @@ class LeaseController extends Controller
     public function update(Request $request, Lease $lease): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        // LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L2): while the agreement is out for signing the
+        // agreement-governed fields change in the agreement, not here — one place to change a value. The
+        // edit panel shows them read-only with the same words; this refuses a forged update.
+        if ($lease->isLockedForSigning()) {
+            return back()->withErrors(['lease' => Lease::LOCKED_FOR_SIGNING_MESSAGE]);
+        }
+        // LEASE-AGREEMENT END
 
         $validated = $request->validate([
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
