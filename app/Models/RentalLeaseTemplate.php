@@ -59,8 +59,8 @@ class RentalLeaseTemplate extends Model
     // LEASE-AGREEMENT BEGIN (leases.md §15.10 — Build L1)
     /**
      * Whether this row may be used by $agencyId for the lease process (§15.12.4): an agency only ever
-     * uses a row it owns. The template-level checks (owned, e-sign, mapped, signing places) are the
-     * guard's — see LeaseAgreementTemplateGuard; Build L0 fills it.
+     * uses a row it owns, and the template and its field map must pass the guard
+     * (see LeaseAgreementTemplateGuard).
      */
     public function isUsableBy(int $agencyId): bool
     {
@@ -68,7 +68,7 @@ class RentalLeaseTemplate extends Model
             && (int) $this->agency_id === $agencyId
             && $this->template !== null
             && app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)
-                ->problemsFor($this->template, $agencyId) === [];
+                ->problemsFor($this->template, $agencyId, (array) ($this->field_map ?? [])) === [];
     }
     // LEASE-AGREEMENT END
 

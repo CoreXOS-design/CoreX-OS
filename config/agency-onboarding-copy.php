@@ -410,7 +410,15 @@ return [
         // owner's ruling 2026-09-30, moved IN from the "Pending" list in
         // agency-onboarding-setup.md §5.1. Each list posts its own *_submitted
         // marker and saves through RentalListsWizardSaver / the canonical savers.
-        'partial' => ['agency-setup.steps.rentals-field-config', 'agency-setup.steps.rentals-inspection-lists'],
+        'partial' => [
+            'agency-setup.steps.rentals-field-config',
+            'agency-setup.steps.rentals-inspection-lists',
+            // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): an information row with a link — the agency's
+            // own lease agreement. It has no saver and posts no field, so there is nothing for a partial-step
+            // post to wipe (agency-onboarding-setup.md §6.1 is satisfied by absence).
+            'agency-setup.steps.rentals-lease-agreement',
+            // LEASE-AGREEMENT END
+        ],
         'savers' => [
             // Johan, 2026-09-22 (property 4283) — update() now also carries
             // default_deposit_months (§6.1: nullable + has()-guarded, NOT

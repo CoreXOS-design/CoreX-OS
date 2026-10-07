@@ -19,6 +19,10 @@ class PerformanceController extends Controller
     {
         $period = $request->get('period', now()->format('Y-m'));
         $user = Auth::user();
+        // Scope-report fix (2026-10-07): this is the BRANCH-wide page; the route
+        // only checks `view_performance`, which every agent holds. A viewer whose
+        // performance_report.view is 'own' must not see the whole branch.
+        abort_unless($user && app(\App\Services\Performance\PerformanceReportScopeResolver::class)->canOpenBranchPages($user), 403);
         $branchId = (int)($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
 
         // Existing rollup service (do NOT change weights system)

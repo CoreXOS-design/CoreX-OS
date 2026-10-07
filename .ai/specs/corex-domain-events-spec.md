@@ -358,6 +358,7 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | `Webinars\WebinarRegistered` | Someone registered for a webinar through the public form on the CoreX website | `registration`, `wasReissue` | `WebinarRegistrationService::register()` (PRIMARY only), **after commit**, not fired inside the cooldown | audit only — see note 4 |
 | `Webinars\WebinarReminderSent` | A registrant's pre-webinar reminder was queued | `registration` | `SendWebinarReminders`, immediately after `reminder_sent_at` is stamped | audit |
 | `Webinars\WebinarJoinLinkSent` | A registrant was queued the webinar's joining link | `registration` | `WebinarApiController::sendJoinLink()`, immediately after `join_link_sent_at` is stamped, **inside the send transaction** | audit only — see note 4 |
+| `Docuperfect\TemplateAgencyAssigned` | An e-sign template with no owning agency is given one (`php artisan templates:assign-agency`) — the one-time repair that lets an agency link its own lease agreement | `templateId`, `templateName`, `previousAgencyId`, `agencyId` | `AssignTemplateToAgency` command (Lease e-sign Build L0, 7 Oct 2026) | audit only (the `domain_event_log` row is the record of the repair). Spec: `.ai/specs/leases.md` §15.12.4 |
 
 **Demo and Webinar events — four things that differ from the rest of the catalogue** (specs: `.ai/specs/demo-access-control.md` §7, `.ai/specs/webinar-registration.md` §6.5):
 

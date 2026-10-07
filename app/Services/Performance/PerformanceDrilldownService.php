@@ -24,11 +24,17 @@ class PerformanceDrilldownService
     private const APPOINTMENT_CATEGORIES = ['viewing', 'listing_presentation', 'property_evaluation', 'meeting'];
 
     /** Resolve the in-scope agent ids for this agency (company / one branch / one agent). */
-    public function cohort(int $agencyId, ?int $branchId, ?int $agentId): array
+    public function cohort(int $agencyId, ?int $branchId, ?int $agentId, ?PerformanceScope $ceiling = null): array
     {
         $q = DB::table('users')->where('agency_id', $agencyId)->where('is_active', 1)->whereNull('deleted_at');
         if ($agentId !== null) $q->where('id', $agentId);
         elseif ($branchId !== null) $q->where('branch_id', $branchId);
+        // The viewer's own entitlement, ANDed on top (see PerformanceScope).
+        if ($ceiling?->ceilingLevel === PerformanceScope::CEILING_OWN) {
+            $ceiling->ceilingUserId !== null ? $q->where('id', $ceiling->ceilingUserId) : $q->whereRaw('1 = 0');
+        } elseif ($ceiling?->ceilingLevel === PerformanceScope::CEILING_BRANCH) {
+            $ceiling->ceilingBranchId !== null ? $q->where('branch_id', $ceiling->ceilingBranchId) : $q->whereRaw('1 = 0');
+        }
         return $q->pluck('id')->map(fn ($i) => (int) $i)->all();
     }
 

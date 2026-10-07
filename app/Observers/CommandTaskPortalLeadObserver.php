@@ -67,6 +67,12 @@ class CommandTaskPortalLeadObserver
                 'property_id'           => $property?->id,
                 'listing_reference'     => $property?->id, // PP uses external ref = property id
             ];
+            // PP's own enquiry id (webhook `leadId`), when the webhook recorded it on the task —
+            // the same key PpLeadService::isDuplicate() reads, so the webhook and the pull
+            // recognise each other's rows (2026-10-07 idempotency fix).
+            if (!empty($task->metadata['pp_lead_id'])) {
+                $raw['__corex_lead_id'] = (string) $task->metadata['pp_lead_id'];
+            }
 
             $lead = new PortalLead([
                 'agency_id'                => $task->agency_id,

@@ -29,6 +29,7 @@
         comparison: {{ Illuminate\Support\Js::from($comparison) }},
         branchUrlBase: @js($branchUrlBase),
         agentUrlBase: @js($agentUrlBase),
+        branchLinks: {{ ($canOpenBranchPages ?? true) ? 'true' : 'false' }},
         drilldownBase: @js($drilldownBase),
         currentPreset: @js($preset),
         hasCustomDates: {{ $hasCustomDates ? 'true' : 'false' }},
@@ -245,7 +246,8 @@
                     <template x-for="b in branchDisplay()" :key="b.key">
                         <tr style="border-top:1px solid var(--border);">
                             <td class="px-2 py-1.5 whitespace-nowrap">
-                                <a :href="branchUrl(b.key)" class="no-underline" style="color:var(--brand-icon, #0ea5e9);" x-text="b.label"></a>
+                                <a x-show="branchLinks" :href="branchUrl(b.key)" class="no-underline" style="color:var(--brand-icon, #0ea5e9);" x-text="b.label"></a>
+                                <span x-show="!branchLinks" x-text="b.label"></span>
                             </td>
                             <template x-for="m in metrics" :key="m.key">
                                 <td :class="isMoney(m.key) ? 'num-money' : 'num-qty'"
@@ -490,6 +492,7 @@ function agencyReport(cfg) {
         },
         branchUrlBase: cfg.branchUrlBase,
         agentUrlBase: cfg.agentUrlBase,
+        branchLinks: cfg.branchLinks !== false,
         drilldownBase: cfg.drilldownBase,
         currentPreset: cfg.currentPreset || 'this_month',
         hasCustomDates: !!cfg.hasCustomDates,
@@ -690,6 +693,8 @@ function agencyReport(cfg) {
         drillOpen: false, drillLoading: false, drillError: '', drillTitle: '',
         drillColumns: [], drillRows: [],
         drill(metric, level, id, title) {
+            // A viewer with no branch pages (own-only) drills a branch row as company: the server clamps it to their own rows anyway.
+            if (level === 'branch' && !this.branchLinks) { level = 'company'; }
             this.drillOpen = true; this.drillLoading = true; this.drillError = '';
             this.drillTitle = title || metric; this.drillColumns = []; this.drillRows = [];
             const sep = this.drilldownBase.includes('?') ? '&' : '?';
