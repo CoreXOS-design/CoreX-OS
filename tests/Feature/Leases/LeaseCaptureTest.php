@@ -31,9 +31,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
- * .ai/specs/leases.md §15.2–§15.6, §15.18 (Build L2) — the ONE capture screen for a new lease and a renewal,
- * the lease-only path, the signed paper copy, and "Create lease & prepare for signing" up to (not including)
- * opening the signing document, which is Build L3a's.
+ * .ai/specs/leases.md §15.2–§15.6, §15.18 (Builds L2 + L3a) — the ONE capture screen for a new lease and a
+ * renewal, the lease-only path, the signed paper copy, and "Create lease & prepare for signing" through to the
+ * agent landing on the prepared agreement (Fill & review) — the gate, the fixed signing order, nothing sent.
  *
  * Mirrors reality (BUILD_STANDARD §5/§5a): a wet-ink-signed predecessor, two drafts for one tenant on one
  * property, the same capture submitted twice, an already-active property, each optional field omitted, the
@@ -415,29 +415,118 @@ final class LeaseCaptureTest extends TestCase
 
     // ═══ button (b) — "Create lease & prepare for signing", up to the point the document would open (L3a) ═══
 
-    public function test_prepare_for_signing_with_everything_present_creates_the_lease_and_stops_without_a_document(): void
+    public function test_prepare_for_signing_with_everything_present_creates_the_lease_and_opens_the_agreement_on_fill_and_review(): void
     {
         $row = $this->linkAgreement($this->agency, ['adults' => ['field' => 'a', 'required' => true], 'pets' => ['field' => 'p']]);
+        $this->makeSignable();
 
         $response = $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload([
             'intent' => 'lease_and_sign', 'agreement_id' => $row->id, 'agreement' => ['adults' => '2'],
         ]));
 
         $lease = Lease::firstOrFail();
-        $response->assertRedirect(route('corex.leases.show', $lease));
-        $this->assertStringContainsString('no document was made', (string) session('success'));
+        $flow = Flow::firstOrFail();
+        $response->assertRedirect(route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => 5]));
+        $this->assertStringContainsString('Nothing has been sent to anyone yet', (string) session('success'));
         $this->assertSame(Lease::STATUS_DRAFT, $lease->status, 'never activated by (b)');
         $this->assertSame((int) $row->docuperfect_template_id, (int) $lease->agreement_template_id, 'remembers which agreement it is for');
-        $this->assertSame(Lease::SIGNING_NOT_SENT, $lease->signing_status, 'nothing is prepared, so nothing says so');
-        $this->assertNull($lease->signing_flow_id);
-        $this->assertSame(0, Flow::count(), 'no e-sign document is created in this build');
+        $this->assertSame(Lease::SIGNING_PREPARED, $lease->signing_status);
+        $this->assertSame($flow->id, $lease->signing_flow_id);
+        $this->assertSame($lease->id, $flow->lease_id);
+        $this->assertSame(5, $flow->current_step);
         $this->assertSame(2, LeaseAgreementTerms::firstOrFail()->adults);
-        $this->assertStringContainsString('signing document not prepared yet', LeaseEvent::where('lease_id', $lease->id)->value('description'));
+        $this->assertSame(['agent', 'tenant', 'landlord'], array_column($flow->step_data['recipients']['recipients'], 'role'), 'always agent → tenant → landlord');
+        $this->assertStringContainsString('prepared for signing', LeaseEvent::where('lease_id', $lease->id)->orderBy('id')->value('description'));
+    }
+
+    public function test_prepare_for_signing_with_a_signer_gap_creates_nothing_lists_it_with_a_link_and_keeps_the_input(): void
+    {
+        $this->linkAgreement($this->agency);
+        // No landlord on the property, and the tenant has no ID number.
+
+        $response = $this->actingAs($this->admin)->from(route('corex.leases.create'))
+            ->post(route('corex.leases.store'), $this->payload(['intent' => 'lease_and_sign']));
+
+        $response->assertRedirect(route('corex.leases.create'));
+        $response->assertSessionHas('capture_gaps', fn (array $gaps) => collect($gaps)->pluck('label')->contains('A landlord linked to the property')
+            && collect($gaps)->pluck('label')->contains('Thandi Nkosi (tenant) — ID or passport number')
+            && collect($gaps)->every(fn ($g) => ! empty($g['fix_url'])));
+        $this->assertSame(0, Lease::count(), 'rolled back — nothing created');
+        $this->assertSame(0, LeaseTenant::count());
+        $this->assertSame(0, Flow::count());
+
+        // The screen shows the list with its links and keeps what was typed.
+        $html = $this->actingAs($this->admin)->withSession(['capture_gaps' => [['key' => 'landlord', 'label' => 'A landlord linked to the property', 'fix_url' => 'https://x.test/fix']]])
+            ->get(route('corex.leases.create'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="capture-gaps"', $html);
+        $this->assertStringContainsString('A landlord linked to the property', $html);
+        $this->assertStringContainsString('href="https://x.test/fix"', $html);
+    }
+
+    public function test_the_who_signs_panel_and_the_party_check_name_what_each_signer_still_needs(): void
+    {
+        $this->linkAgreement($this->agency);
+        $noEmail = $this->makeContact($this->agency, 'Lerato', 'Mokoena');
+        $noEmail->update(['email' => null]);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.create'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="signers-panel"', $html);
+
+        $this->actingAs($this->admin)->getJson(route('corex.leases.party-check', ['property_id' => $this->property->id, 'tenant_ids' => [$noEmail->id, $this->tenant->id]]))
+            ->assertOk()
+            ->assertJsonPath('property_chosen', true)
+            ->assertJsonPath('landlord_missing', true)
+            ->assertJsonPath('landlord_url', route('corex.properties.show', ['property' => $this->property->id, 'tab' => 'contacts']))
+            ->assertJsonPath('tenants.0.name', 'Lerato Mokoena')
+            ->assertJsonPath('tenants.0.needs', ['email address', 'ID or passport number'])
+            ->assertJsonPath('tenants.1.needs', ['ID or passport number']);
+
+        $this->makeSignable();
+        $this->actingAs($this->admin)->getJson(route('corex.leases.party-check', ['property_id' => $this->property->id, 'tenant_ids' => [$this->tenant->id]]))
+            ->assertJsonPath('landlord_missing', false)
+            ->assertJsonPath('landlords.0.needs', [])
+            ->assertJsonPath('tenants.0.needs', []);
+    }
+
+    public function test_the_party_check_only_names_this_agencys_own_contacts_and_a_property_it_may_see(): void
+    {
+        $rivalContact = $this->makeContact($this->rival, 'Rival', 'Tenant');
+        $rivalBranch = Branch::withoutGlobalScopes()->where('agency_id', $this->rival->id)->first() ?? Branch::create(['agency_id' => $this->rival->id, 'name' => 'Karoo']);
+        $rivalAgent = User::factory()->create(['agency_id' => $this->rival->id, 'branch_id' => $rivalBranch->id, 'role' => 'admin']);
+        $rivalProperty = $this->makeProperty($this->rival, $rivalBranch, $rivalAgent);
+
+        $this->actingAs($this->admin)->getJson(route('corex.leases.party-check', ['property_id' => $rivalProperty->id, 'tenant_ids' => [$rivalContact->id]]))
+            ->assertOk()
+            ->assertJsonPath('property_chosen', false)
+            ->assertJsonPath('tenants', []);
+    }
+
+    public function test_the_commission_percentage_is_asked_for_only_when_the_agencys_lease_carries_a_service_fee(): void
+    {
+        $this->property->update(['commission_percent' => 10]);
+        $this->linkAgreement($this->agency, ['agent_service_fee' => ['field' => 'service_fee']]);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.create', ['property_id' => $this->property->id]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('name="agreement[commission_percent]"', $html);
+        $this->assertStringContainsString('Letting commission (%)', $html);
+        $this->assertStringContainsString('"commission_percent":"10', $this->alpineConfig($html), 'starts at the property\'s own');
+    }
+
+    public function test_an_agency_whose_lease_has_no_service_fee_is_never_asked_for_a_commission(): void
+    {
+        $this->linkAgreement($this->agency);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.create'))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('name="agreement[commission_percent]"', $html);
+        $this->assertStringNotContainsString('Letting commission', $html);
     }
 
     public function test_prepare_for_signing_ignores_the_activate_tick(): void
     {
         $this->linkAgreement($this->agency);
+        $this->makeSignable();
 
         $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['intent' => 'lease_and_sign', 'activate_immediately' => '1']))
             ->assertSessionHasNoErrors();
@@ -473,6 +562,7 @@ final class LeaseCaptureTest extends TestCase
     public function test_a_required_detail_of_zero_counts_as_filled_in(): void
     {
         $this->linkAgreement($this->agency, ['max_other_persons' => ['field' => 'o', 'required' => true]]);
+        $this->makeSignable();
 
         $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['intent' => 'lease_and_sign', 'agreement' => ['max_other_persons' => '0']]))
             ->assertSessionHasNoErrors();
@@ -695,9 +785,10 @@ final class LeaseCaptureTest extends TestCase
         $this->assertSame('One cat', $current->agreementTerms->fresh()->pets, 'the previous term keeps what it was signed with');
     }
 
-    public function test_renewal_prepare_for_signing_checks_the_required_details_and_stops_without_a_document(): void
+    public function test_renewal_prepare_for_signing_checks_the_required_details_then_opens_a_new_agreement_for_the_new_term(): void
     {
         $this->linkAgreement($this->agency, ['pets' => ['field' => 'p', 'required' => true]]);
+        $this->makeSignable();
         $current = $this->activeLease(['source' => 'uploaded_signed_copy']);
 
         $this->actingAs($this->admin)->from(route('corex.leases.renewal.create', $current))
@@ -711,9 +802,16 @@ final class LeaseCaptureTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $new = Lease::where('previous_lease_id', $current->id)->firstOrFail();
+        $flow = Flow::firstOrFail();
         $this->assertSame(Lease::STATUS_DRAFT, $new->status);
         $this->assertStringContainsString('Renewal created.', (string) session('success'));
-        $this->assertSame(0, Flow::count());
+        $this->assertSame($new->id, $flow->lease_id, 'a NEW agreement for the NEW term');
+        $this->assertSame(Lease::SIGNING_PREPARED, $new->signing_status);
+        $this->assertSame($flow->id, $new->renewal_draft_flow_id, 'the older renewal pointer is kept');
+        $this->assertSame(['agent', 'tenant', 'landlord'], array_column($flow->step_data['recipients']['recipients'], 'role'));
+        $this->assertSame('9500.00', $flow->step_data['details']['monthly_rental']);
+        $this->assertSame(Lease::SIGNING_NOT_SENT, $current->fresh()->signing_status, 'the term being renewed is left alone');
+        $this->assertSame(Lease::STATUS_ACTIVE, $current->fresh()->status);
     }
 
     public function test_a_signed_paper_copy_on_a_renewal_activates_it_and_files_the_copy(): void
@@ -792,6 +890,58 @@ final class LeaseCaptureTest extends TestCase
         // Replayed: the same lease, no duplicate.
         $this->actingAs($this->admin)->postJson('/api/v1/leases/capture', $this->payload(['capture_key' => 'api-1']))->assertCreated();
         $this->assertSame(1, Lease::count());
+    }
+
+    public function test_the_api_prepares_the_agreement_and_points_at_fill_and_review(): void
+    {
+        $this->linkAgreement($this->agency);
+        $this->makeSignable();
+
+        $response = $this->actingAs($this->admin)->postJson('/api/v1/leases/capture', $this->payload(['intent' => 'lease_and_sign']));
+
+        $flow = Flow::firstOrFail();
+        $response->assertCreated()
+            ->assertJsonPath('signing_status', 'prepared')
+            ->assertJsonPath('redirect_url', route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => 5]));
+    }
+
+    public function test_the_api_lists_a_signer_gap_with_its_fix_link_and_creates_nothing(): void
+    {
+        $this->linkAgreement($this->agency);
+
+        $this->actingAs($this->admin)->postJson('/api/v1/leases/capture', $this->payload(['intent' => 'lease_and_sign']))
+            ->assertStatus(422)
+            ->assertJsonPath('missing.0.key', 'landlord')
+            ->assertJsonPath('missing.0.fix_url', route('corex.properties.show', ['property' => $this->property->id, 'tab' => 'contacts']));
+        $this->assertSame(0, Lease::count());
+        $this->assertSame(0, Flow::count());
+    }
+
+    public function test_the_api_reports_where_a_leases_agreement_stands(): void
+    {
+        $this->linkAgreement($this->agency);
+        $this->makeSignable();
+        $this->actingAs($this->admin)->postJson('/api/v1/leases/capture', $this->payload(['intent' => 'lease_and_sign']))->assertCreated();
+        $lease = Lease::firstOrFail();
+        $flow = Flow::firstOrFail();
+
+        $this->actingAs($this->admin)->getJson('/api/v1/leases/' . $lease->id . '/signing')
+            ->assertOk()
+            ->assertJsonPath('signing_status', 'prepared')
+            ->assertJsonPath('signing_status_label', 'Being prepared')
+            ->assertJsonPath('signers.0.role', 'agent')
+            ->assertJsonPath('signers.1.role', 'tenant')
+            ->assertJsonPath('signers.2.role', 'landlord')
+            ->assertJsonPath('continue_url', route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => 5]));
+    }
+
+    public function test_the_api_status_of_another_agencys_lease_is_a_404(): void
+    {
+        $rivalBranch = Branch::create(['agency_id' => $this->rival->id, 'name' => 'Karoo']);
+        $rivalAgent = User::factory()->create(['agency_id' => $this->rival->id, 'branch_id' => $rivalBranch->id, 'role' => 'admin', 'is_active' => true]);
+        $lease = Lease::create($this->leaseAttributes());
+
+        $this->actingAs($rivalAgent)->getJson('/api/v1/leases/' . $lease->id . '/signing')->assertNotFound();
     }
 
     public function test_the_api_answers_409_with_a_code_when_no_lease_agreement_is_linked(): void
@@ -954,6 +1104,18 @@ final class LeaseCaptureTest extends TestCase
         LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $this->tenant->id, 'is_primary' => true]);
 
         return $lease;
+    }
+
+    /**
+     * Everything the signing gate needs on the default fixtures: the tenant has an ID number and the property
+     * has a landlord with an email and an ID number.
+     */
+    private function makeSignable(): void
+    {
+        $this->tenant->update(['id_number' => '8002025009081']);
+        $landlord = $this->makeContact($this->agency, 'Pieter', 'Botha');
+        $landlord->update(['id_number' => '7001015009087']);
+        \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $this->property->id, 'role' => 'landlord']);
     }
 
     private function makeProperty(Agency $agency, Branch $branch, User $agent): Property

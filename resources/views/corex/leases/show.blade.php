@@ -74,6 +74,9 @@
             <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
+                @if($lease->signingStatusLabel())
+                    <span class="ds-badge ds-badge-info" data-qa="header-signing-status">Agreement: {{ $lease->signingStatusLabel() }}</span>
+                @endif
                 @if($leaseStateMarker)
                     <span class="ds-badge ds-badge-info">{{ $leaseStateMarker }}</span>
                 @endif
@@ -355,9 +358,23 @@
             @if($nextStep)
                 <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);">
                     <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}</span>
-                    <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
+                    {{-- leases.md §15.13 — a step with nothing to click is a statement; "Prepare again" is a form post. --}}
+                    @if(empty($nextStep['route_name']))
+                        {{-- statement only --}}
+                    @elseif(!empty($nextStep['post']))
+                        <form method="POST" action="{{ route($nextStep['route_name'], $nextStep['route_param']) }}">
+                            @csrf
+                            <button type="submit" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</button>
+                        </form>
+                    @else
+                        <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
+                    @endif
                 </div>
             @endif
+
+            {{-- LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L3a) --}}
+            @include('corex.leases._agreement-card')
+            {{-- LEASE-AGREEMENT END --}}
 
             @include('corex.leases._job-cards-panel', ['jobCards' => $jobCards])
 

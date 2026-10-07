@@ -111,17 +111,33 @@ final class RentalInspectionComparisonServiceTest extends TestCase
         $this->assertSame(RentalInspectionComparisonService::UNCHANGED, $rows->first()['classification']);
     }
 
-    public function test_moving_to_good_is_improved(): void
+    public function test_moving_to_a_calmer_state_is_improved(): void
     {
+        // §45.7a (Build I-7): "improved" is read from the agency's severity buckets, no longer "moved TO the literal good".
+        // damaged (red) -> good (blue) is a real improvement under the default vocabulary.
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'fair', 'Scuffed on move-in.');
+        $this->observe($in, $item, 'damaged', 'Scuffed on move-in.');
         $this->observe($out, $item, 'good');
 
         $rows = $this->service->compareItems($out);
 
         $this->assertSame(RentalInspectionComparisonService::IMPROVED, $rows->first()['classification']);
+    }
+
+    public function test_fair_to_good_is_a_difference_to_look_at_not_an_improvement_because_both_are_calm(): void
+    {
+        // §45.7a: same severity bucket (fair and good are both blue in the default vocabulary) but a different state is
+        // "Different from move-in" — marked for the agent, never auto-called better or worse. This used to read IMPROVED
+        // purely because the outgoing value was the literal 'good'.
+        $item = $this->item();
+        $in = $this->inInspection();
+        $out = $this->outInspection();
+        $this->observe($in, $item, 'fair');
+        $this->observe($out, $item, 'good');
+
+        $this->assertSame(RentalInspectionComparisonService::DECLINED, $this->service->compareItems($out)->first()['classification']);
     }
 
     public function test_moving_away_from_good_is_declined(): void

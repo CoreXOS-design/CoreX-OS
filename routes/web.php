@@ -3144,6 +3144,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-pair-photos');
     // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo note's
     // classification vocabulary.
+    // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
+    Route::post('/settings/rental-inspections/attended-as-labels', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAttendedAsLabels'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.attended-as-labels');
     Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
@@ -3523,6 +3526,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // this user may see (not only ones that already have a lease). Before /{lease}.
         Route::get('/search-rental-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchRentalProperties'])
             ->middleware('permission:leases.create')->name('corex.leases.search-rental-properties');
+        // LEASE-CAPTURE BEGIN (leases.md §15.3 — Build L3a): the capture screen's landlord panel + per-tenant hints.
+        // Static path — must sit before /{lease}.
+        Route::get('/party-check', [\App\Http\Controllers\CoreX\LeaseController::class, 'partyCheck'])
+            ->middleware('permission:leases.view')->name('corex.leases.party-check');
+        // LEASE-CAPTURE END
         Route::get('/{lease}',[\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3530,6 +3538,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.create')->name('corex.leases.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
+        // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
+        Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
+            ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');
+        // LEASE-CAPTURE END
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
@@ -3783,6 +3795,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // §41, 2026-09-28 — the manual "Resend report" path (confirm modal
         // lists the recipients first). Same permission as completing —
         // an agent who could complete the inspection can resend its report.
+        // §45.5 (Build I-3) — who attended, and the invitations given off the system. Child of the bound
+        // {rentalInspection}; every write needs record_attendance (correcting someone else's record
+        // additionally needs resolve_discrepancy — checked in the controller).
+        Route::get('/{rentalInspection}/attendance', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'show'])
+            ->name('corex.rental-inspections.attendance.show');
+        Route::post('/{rentalInspection}/attendance', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'store'])
+            ->middleware('permission:rental_inspections.record_attendance')->name('corex.rental-inspections.attendance.store');
+        // Withdrawing is a POST (the recording screen's JSON client only POSTs); the row is kept, marked withdrawn.
+        Route::post('/{rentalInspection}/attendance/{attendance}/withdraw', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'withdraw'])
+            ->middleware('permission:rental_inspections.record_attendance')->name('corex.rental-inspections.attendance.withdraw');
+        Route::post('/{rentalInspection}/attendance-invitations', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'storeInvitation'])
+            ->middleware('permission:rental_inspections.record_attendance')->name('corex.rental-inspections.attendance.invitations.store');
         Route::post('/{rentalInspection}/resend-report', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resendReport'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-report');
         // §45.6 (Build I-4) — re-send the completed report to ONE recipient from the "Copies sent" panel.

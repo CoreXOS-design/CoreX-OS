@@ -33,6 +33,7 @@ use Tests\TestCase;
 final class RentalInspectionWetInkAwaitingTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
 
     private const TEST_SIGNATURE_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
@@ -200,6 +201,7 @@ final class RentalInspectionWetInkAwaitingTest extends TestCase
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
         ])->assertStatus(201);
+        $this->recordAttendanceForEveryParty($inspection);
 
         $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
@@ -218,6 +220,7 @@ final class RentalInspectionWetInkAwaitingTest extends TestCase
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('awaiting a paper signature');
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
     }
 

@@ -494,6 +494,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionPhotoNoteClassifications'],
             // §45.4 item 3 (Build I-2) — the agency's own room types; no-op unless this step's marker was posted.
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionCustomRoomTypes'],
+            // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection; no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionAttendedAsLabels'],
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inventoryConditionStates'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateCreditBureau'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantedLabel'],

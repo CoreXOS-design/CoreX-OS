@@ -533,6 +533,33 @@
         </div>
     </form>
 
+    {{-- §45.5 (Build I-3) — the agency's own words for how someone attended an inspection. The four ways
+         are fixed by the attendance record; only the labels are yours. A blank label keeps its default. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.attended-as-labels') }}" class="space-y-3">
+        @csrf
+        <input type="hidden" name="attended_as_labels_submitted" value="1">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">How someone attended an inspection</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The wording used on the attendance record, the signed report and the report link. The four ways are fixed; reword each to match your own paperwork.
+                </p>
+                @foreach(\App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS as $attendedKey => $attendedDefault)
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs w-40" style="color: var(--text-muted);">{{ $attendedDefault }} (default)</span>
+                        <input type="text" name="attended_as_labels[{{ $attendedKey }}]" maxlength="60" value="{{ old('attended_as_labels.' . $attendedKey, $attendedAsLabels[$attendedKey]) }}"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save wording</button>
+        </div>
+    </form>
+
     {{-- §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
          setting, default ON." Filing to the property is never optional
          (this toggle only governs the automatic EMAIL); the manual

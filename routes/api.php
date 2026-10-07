@@ -494,6 +494,9 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // request itself — leases.create for a new lease, leases.renew for a renewal.
         Route::post('/leases/capture', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'store'])
             ->middleware('permission:leases.view')->name('v1.leases.capture');
+        // Build L3a (§15.15): where a lease's agreement stands — status, signers in signing order, what is still missing.
+        Route::get('/leases/{lease}/signing', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'signing'])
+            ->middleware('permission:leases.view')->name('v1.leases.signing');
         // LEASE-CAPTURE END
 
         // .ai/specs/rental-renewals.md §10 — JSON mirror of the Lease Hub's

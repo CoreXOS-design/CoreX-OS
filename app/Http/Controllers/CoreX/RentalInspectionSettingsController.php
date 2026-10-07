@@ -88,6 +88,8 @@ class RentalInspectionSettingsController extends Controller
             // AT-433 Part C — the photo note's classification vocabulary
             // (Defect/Wear and tear/Reference by default).
             'photoNoteClassifications' => RentalInspectionSetting::photoNoteClassificationsFor($agencyId),
+            // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
+            'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
             // §41, 2026-09-28, Johan's ruling — auto-send the signed report
             // on completion, defaults ON.
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
@@ -493,6 +495,38 @@ class RentalInspectionSettingsController extends Controller
         RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Report copy settings saved.');
+    }
+
+    /**
+     * §45.5 (Build I-3) — the agency's own words for HOW someone attended an inspection. The four keys
+     * (in person / on behalf of the party / co-occupant / other) are fixed by the attendance record; only
+     * the labels are the agency's. Same `_submitted`-marker discipline as the other list savers, so a
+     * wizard post that never rendered this list cannot wipe it; a blank label simply keeps its default.
+     */
+    public function updateAttendedAsLabels(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('attended_as_labels_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['attended_as_labels' => 'That did not save — please try again.']);
+        }
+
+        $submitted = (array) $request->input('attended_as_labels', []);
+        $labels = [];
+        foreach (array_keys(RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS) as $key) {
+            $label = trim((string) ($submitted[$key] ?? ''));
+            if ($label !== '') {
+                $labels[$key] = mb_substr($label, 0, 60);
+            }
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['attended_as_labels' => $labels === [] ? null : $labels],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Attendance wording saved.');
     }
 
     /**

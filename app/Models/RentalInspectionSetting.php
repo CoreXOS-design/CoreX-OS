@@ -387,6 +387,7 @@ class RentalInspectionSetting extends Model
         'baseline_condition_key',
         'require_notes_blocks_progression',
         'all_items_required_to_complete',
+        'attended_as_labels',
         'omr_mark_threshold',
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
@@ -421,6 +422,7 @@ class RentalInspectionSetting extends Model
         'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
         'all_items_required_to_complete' => 'boolean',
+        'attended_as_labels' => 'array',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
@@ -516,6 +518,40 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('all_items_required_to_complete');
 
         return $value !== null ? (bool) $value : self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
+    }
+
+    /**
+     * §45.5 (Build I-3) — the words for HOW someone attended an inspection. The four keys are fixed
+     * (RentalInspectionAttendance::attendedAsKeys()); only the labels are the agency's own. These
+     * defaults are neutral placeholders — the printed wording is Johan's call (§45.11).
+     */
+    public const DEFAULT_ATTENDED_AS_LABELS = [
+        'self' => 'In person',
+        'representative' => 'On behalf of the party',
+        'co_occupant' => 'Co-occupant',
+        'other' => 'Other',
+    ];
+
+    /** @return array<string, string> key => label, always all four keys */
+    public static function attendedAsLabelsFor(?int $agencyId): array
+    {
+        $stored = null;
+        if ($agencyId) {
+            $stored = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('attended_as_labels');
+            $stored = is_string($stored) ? json_decode($stored, true) : $stored;
+        }
+
+        $labels = self::DEFAULT_ATTENDED_AS_LABELS;
+        if (is_array($stored)) {
+            foreach ($labels as $key => $default) {
+                $candidate = isset($stored[$key]) && is_string($stored[$key]) ? trim($stored[$key]) : '';
+                if ($candidate !== '') {
+                    $labels[$key] = $candidate;
+                }
+            }
+        }
+
+        return $labels;
     }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int

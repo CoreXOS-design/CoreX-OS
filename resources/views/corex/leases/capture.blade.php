@@ -46,6 +46,11 @@
         'monthToMonth' => (bool) old('is_month_to_month'),
         'propertyStatus' => $property ? $property->statusBadge() : (($oldProperty ?? null)?->statusBadge() ?? ''),
         'showPaper' => old('intent') === 'paper_copy',
+        // leases.md §15.3 (Build L3a) — the landlord panel and per-tenant hints.
+        'partyUrl' => route('corex.leases.party-check'),
+        'signersOn' => $canPrepare && $agreementReady,
+        'fixedPropertyId' => $isRenew ? $lease->property_id : null,
+        'fixedTenantIds' => $isRenew ? $lease->tenants->sortByDesc('is_primary')->pluck('contact_id')->filter()->values()->all() : [],
     ];
 
     $settingsLink = route('corex.rental-lease-templates.index');
@@ -53,7 +58,8 @@
     $onlyLabel = $isRenew ? 'Renew lease only' : 'Create lease only';
 @endphp
 <div class="p-6 max-w-2xl mx-auto space-y-4"
-     x-data="leaseCaptureForm('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from($oldTenants ?? []) }}, {{ \Illuminate\Support\Js::from($propertyPickerConfig) }}, {{ \Illuminate\Support\Js::from($captureCfg) }})">
+     x-data="leaseCaptureForm('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from($oldTenants ?? []) }}, {{ \Illuminate\Support\Js::from($propertyPickerConfig) }}, {{ \Illuminate\Support\Js::from($captureCfg) }})"
+     x-init="refreshSigners()">
     <div>
         <h1 class="text-lg font-semibold">{{ $isRenew ? 'Renew this lease' : 'New Lease' }}</h1>
         @if($isRenew)
@@ -72,6 +78,18 @@
                 <ul>
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
+        @if(session('capture_gaps'))
+            {{-- "Create lease & prepare for signing" found something missing: nothing was created; each item links to where it is fixed. --}}
+            <div class="text-xs p-2 rounded space-y-1" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-qa="capture-gaps">
+                <p class="font-medium">Still needed before the agreement can be prepared:</p>
+                <ul class="list-disc pl-4">
+                    @foreach(session('capture_gaps') as $gap)
+                        <li>{{ $gap['label'] }}@if(!empty($gap['fix_url'])) — <a href="{{ $gap['fix_url'] }}" class="underline" target="_blank" rel="noopener">fix it</a>@endif</li>
                     @endforeach
                 </ul>
             </div>
@@ -214,6 +232,7 @@
 
         @if($agreementReady)
             @include('corex.leases._agreement-fields')
+            @include('corex.leases._signers-panel')
             @include('corex.leases._signing-checklist')
         @endif
 
@@ -301,6 +320,38 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
         propertyAttempted: false,
         highlighted: -1,
         propertySeq: 0,
+        // The landlord panel / per-tenant hints (leases.md §15.3, Build L3a).
+        signersOn: !!cfg.signersOn,
+        partyUrl: cfg.partyUrl || '',
+        fixedPropertyId: cfg.fixedPropertyId || null,
+        fixedTenantIds: cfg.fixedTenantIds || [],
+        signers: { loaded: false, landlords: [], tenants: [], landlordMissing: false, landlordUrl: null },
+        signersSeq: 0,
+        async refreshSigners() {
+            if (!this.signersOn) { return; }
+            const propertyId = this.fixedPropertyId || this.propertyId || '';
+            const tenantIds = this.fixedTenantIds.length ? this.fixedTenantIds : this.selected.map(function (t) { return t.id; });
+            const seq = ++this.signersSeq;
+            try {
+                const url = new URL(this.partyUrl, window.location.origin);
+                if (propertyId) { url.searchParams.set('property_id', propertyId); }
+                if (this.agreementId) { url.searchParams.set('agreement_id', this.agreementId); }
+                tenantIds.forEach(function (id) { url.searchParams.append('tenant_ids[]', id); });
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) { throw new Error('HTTP ' + res.status); }
+                const data = await res.json();
+                if (seq !== this.signersSeq) { return; }
+                this.signers = {
+                    loaded: !!data.property_chosen,
+                    landlords: data.landlords || [],
+                    tenants: data.tenants || [],
+                    landlordMissing: !!data.landlord_missing,
+                    landlordUrl: data.landlord_url || null,
+                };
+            } catch (e) {
+                // A failed look-up never blocks the form — the server checks everything again on submit.
+            }
+        },
         missing() {
             const required = (this.requiredByAgreement || {})[this.agreementId] || [];
             return required.filter(function (f) { return String((this.vals[f.key] === undefined || this.vals[f.key] === null) ? '' : this.vals[f.key]).trim() === ''; }.bind(this));
@@ -317,6 +368,7 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             this.propertyId = '';
             this.propertyStatus = '';
             this.propertyError = '';
+            this.refreshSigners();
             this.highlighted = -1;
             this.propertySeq++;
             this.propertySearching = false;
@@ -357,6 +409,11 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             this.propertyId = p.id;
             this.propertyQuery = p.label;
             this.propertyStatus = p.status || '';
+            // The letting commission % starts at this property's own, unless the agent already typed one.
+            if (Object.prototype.hasOwnProperty.call(this.vals, 'commission_percent') && String(this.vals.commission_percent || '').trim() === '' && p.commission_percent != null) {
+                this.vals.commission_percent = String(p.commission_percent);
+            }
+            this.refreshSigners();
             this.propertyResults = [];
             this.propertyOpen = false;
             this.propertySearched = false;
@@ -418,9 +475,11 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             this.selected.push(contact);
             this.query = '';
             this.results = [];
+            this.refreshSigners();
         },
         remove(idx) {
             this.selected.splice(idx, 1);
+            this.refreshSigners();
         },
     };
 }

@@ -550,6 +550,153 @@ final class LeaseHubTest extends TestCase
         $response->assertSee('Nothing recorded yet on this tenancy');
     }
 
+    // ═══ leases.md §15.13 (Build L3a) — the agreement on the hub ═══
+
+    /** The "Record outcome" step used to open a renewal form that no longer carries the outcomes (cc5 L2 finding). */
+    public function test_record_outcome_lands_on_the_hub_with_the_month_to_month_dialog_open(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'status' => Lease::STATUS_ACTIVE, 'start_date' => now()->subYear()->toDateString(), 'end_date' => now()->subDays(5)->toDateString(),
+        ]));
+        \App\Models\RentalInspection::create([
+            'agency_id' => $agency->id, 'lease_id' => $lease->id, 'property_id' => $property->id,
+            'type' => \App\Models\RentalInspection::TYPE_IN, 'status' => \App\Models\RentalInspection::STATUS_COMPLETED, 'completed_at' => now()->subMonths(11),
+        ]);
+
+        $nextStep = app(LeaseHubService::class)->nextStep($lease->fresh());
+
+        self::assertSame('Record outcome', $nextStep['label']);
+        self::assertSame('corex.leases.show', $nextStep['route_name']);
+        self::assertSame(['lease' => $lease->id, 'action' => 'month-to-month'], $nextStep['route_param']);
+
+        // The page that link opens really does open the month-to-month dialog for this lease (not a no-op ?action).
+        self::assertSame('month-to-month', \App\Services\Rentals\LeaseActionDialogResolver::resolve($lease->fresh(), 'month-to-month', false, null));
+
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $this->actingAs($user)->get(route($nextStep['route_name'], $nextStep['route_param']))->assertOk();
+    }
+
+    public function test_the_next_step_for_each_signing_state_of_a_draft_lease(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $other = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $template = \App\Models\Docuperfect\Template::create(['name' => 'Lease', 'render_type' => 'pdf', 'is_esign' => true]);
+        $flow = \App\Models\Docuperfect\Flow::create(['type' => 'esign', 'template_id' => $template->id, 'user_id' => $agent->id, 'current_step' => 5, 'status' => 'active', 'step_data' => []]);
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['signing_status' => Lease::SIGNING_PREPARED, 'signing_flow_id' => $flow->id]));
+        $hub = app(LeaseHubService::class);
+
+        // Prepared: the agent who owns the flow is taken straight back into it; anyone else is told whose it is.
+        $mine = $hub->nextStep($lease->fresh(), $agent);
+        self::assertSame('Verify and sign the agreement', $mine['label']);
+        self::assertSame('docuperfect.esign.step', $mine['route_name']);
+        self::assertSame(['flow' => $flow->id, 'step' => 5], $mine['route_param']);
+        $theirs = $hub->nextStep($lease->fresh(), $other);
+        self::assertSame('Agreement prepared by ' . $agent->name, $theirs['label']);
+        self::assertNull($theirs['route_name']);
+
+        // Out for signing: a statement naming who it is waiting for (nothing to click).
+        $lease->update(['signing_status' => Lease::SIGNING_OUT_FOR_SIGNING]);
+        self::assertNull($hub->nextStep($lease->fresh(), $agent)['route_name']);
+        self::assertStringStartsWith('Agreement out for signing', $hub->nextStep($lease->fresh(), $agent)['label']);
+
+        // Signed but still a draft (another lease is active, or the details await confirmation).
+        $lease->update(['signing_status' => Lease::SIGNING_SIGNED]);
+        self::assertSame('Signed — activate', $hub->nextStep($lease->fresh(), $agent)['label']);
+
+        // A failed agreement offers the one click that fixes it — a form post, not a link.
+        foreach ([Lease::SIGNING_DECLINED => 'declined', Lease::SIGNING_VOIDED => 'cancelled', Lease::SIGNING_EXPIRED => 'expired'] as $status => $word) {
+            $lease->update(['signing_status' => $status]);
+            $step = $hub->nextStep($lease->fresh(), $agent);
+            self::assertSame("Agreement {$word} — prepare again", $step['label']);
+            self::assertSame('corex.leases.signing.prepare-again', $step['route_name']);
+            self::assertTrue($step['post']);
+        }
+
+        // No agreement at all: exactly what it always was.
+        $lease->update(['signing_status' => Lease::SIGNING_NOT_SENT]);
+        self::assertSame('Activate lease', $hub->nextStep($lease->fresh(), $agent)['label']);
+    }
+
+    public function test_awaiting_the_agents_approval_points_at_the_review_screen_of_the_document(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $document = \App\Models\Docuperfect\Document::create(['name' => 'Lease', 'document_type' => 'agreement', 'owner_id' => $agent->id, 'agency_id' => $agency->id, 'web_template_data' => ['merged_html' => '<p>x</p>']]);
+        $envelope = \App\Models\Docuperfect\SignatureTemplate::create([
+            'agency_id' => $agency->id, 'document_id' => $document->id, 'document_hash' => str_repeat('a', 64),
+            'status' => \App\Models\Docuperfect\SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL, 'created_by' => $agent->id,
+        ]);
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'signing_status' => Lease::SIGNING_AWAITING_AGENT_REVIEW, 'signature_template_id' => $envelope->id, 'agreement_document_id' => $document->id,
+        ]));
+
+        $step = app(LeaseHubService::class)->nextStep($lease->fresh(), $agent);
+
+        self::assertSame('Approve the signed agreement', $step['label']);
+        self::assertSame('docuperfect.signatures.review', $step['route_name']);
+        self::assertSame($document->id, $step['route_param']);
+    }
+
+    public function test_a_lease_whose_agreement_is_out_is_not_a_signed_lease_yet(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $draft = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['signing_status' => Lease::SIGNING_OUT_FOR_SIGNING]));
+        $signed = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['signing_status' => Lease::SIGNING_SIGNED, 'signed_at' => now(), 'status' => Lease::STATUS_ACTIVE]));
+        $paper = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['signing_status' => Lease::SIGNING_SIGNED_ON_PAPER, 'status' => Lease::STATUS_ACTIVE, 'source' => Lease::SOURCE_UPLOADED_SIGNED_COPY]));
+        $hub = app(LeaseHubService::class);
+
+        self::assertSame('current', collect($hub->lifecycle($draft->fresh()))->keyBy('key')['lease_signed']['state']);
+        self::assertSame('done', collect($hub->lifecycle($signed->fresh()))->keyBy('key')['lease_signed']['state']);
+        self::assertSame('done', collect($hub->lifecycle($paper->fresh()))->keyBy('key')['lease_signed']['state']);
+    }
+
+    public function test_the_hub_shows_the_agreement_card_with_the_signers_in_signing_order_and_the_header_status(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'name' => 'Agnes Agent']);
+        $other = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $template = \App\Models\Docuperfect\Template::create(['name' => 'Our residential lease', 'render_type' => 'pdf', 'is_esign' => true]);
+        $flow = \App\Models\Docuperfect\Flow::create(['type' => 'esign', 'template_id' => $template->id, 'user_id' => $agent->id, 'current_step' => 5, 'status' => 'active', 'step_data' => []]);
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, [
+            'signing_status' => Lease::SIGNING_PREPARED, 'signing_flow_id' => $flow->id, 'agreement_template_id' => $template->id,
+        ]));
+        $tenant = $this->makeContact($agency, $branch, 'Thandi', 'Nkosi');
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        $landlord = $this->makeContact($agency, $branch, 'Pieter', 'Botha');
+        \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $property->id, 'role' => 'landlord']);
+
+        $html = $this->actingAs($agent)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
+
+        self::assertStringContainsString('data-qa="agreement-card"', $html);
+        self::assertStringContainsString('Our residential lease', $html);
+        self::assertStringContainsString('Agreement: Being prepared', $html);
+        self::assertStringContainsString('data-qa="agreement-continue"', $html);
+        $order = [strpos($html, 'Agnes Agent'), strpos($html, 'Thandi Nkosi', strpos($html, 'agreement-signers')), strpos($html, 'Pieter Botha', strpos($html, 'agreement-signers'))];
+        self::assertSame($order, collect($order)->sort()->values()->all(), 'agent, then the tenant, then the landlord');
+
+        // Someone else who opens the lease is told whose it is — there is no link they could not use.
+        $html = $this->actingAs($other)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
+        self::assertStringContainsString('Owned by Agnes Agent', $html);
+        self::assertStringNotContainsString('data-qa="agreement-continue"', $html);
+    }
+
+    public function test_a_failed_agreement_shows_prepare_again_on_the_card_and_a_lease_with_no_agreement_shows_no_card(): void
+    {
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $declined = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['signing_status' => Lease::SIGNING_DECLINED]));
+        $plain = Lease::create($this->baseLeaseAttributes($agency, $branch, $property));
+
+        $html = $this->actingAs($agent)->get(route('corex.leases.show', $declined))->assertOk()->getContent();
+        self::assertStringContainsString('data-qa="agreement-prepare-again"', $html);
+        self::assertStringContainsString(route('corex.leases.signing.prepare-again', $declined), $html);
+
+        $html = $this->actingAs($agent)->get(route('corex.leases.show', $plain))->assertOk()->getContent();
+        self::assertStringNotContainsString('data-qa="agreement-card"', $html);
+    }
+
     /** @return array{0: Agency, 1: Branch, 2: Property} */
     private function makeAgencyBranchProperty(): array
     {

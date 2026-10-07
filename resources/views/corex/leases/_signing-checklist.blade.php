@@ -2,7 +2,8 @@
     .ai/specs/leases.md §15.3 (Build L2) — the "Needed for signing" panel: updates as the agent types and lists
     exactly which of the agreement details the agency's own lease marks required are still blank. Shown only
     when the lease agreement marks something required and the user may prepare agreements. (Contact gaps —
-    landlord, a tenant's email or ID — are checked when the signing document is prepared, Build L3a.)
+    landlord, a tenant's email or ID — show in the "Who signs" panel (_signers-panel) and are checked again,
+    with a link to fix each, when the signing document is prepared.)
     Included by capture.blade.php inside the capture form (Alpine scope: leaseCaptureForm).
 --}}
 @if($canPrepare && collect($requiredByAgreement)->flatten(1)->isNotEmpty())

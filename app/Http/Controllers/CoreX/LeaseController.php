@@ -15,7 +15,11 @@ use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
+use App\Services\Rentals\LeaseAgreementTemplateGuard;
+use App\Services\Rentals\LeaseAgreementValuesReader;
+use App\Services\Rentals\LeaseCaptureService;
 use App\Services\Rentals\LeaseHubService;
+use App\Services\Rentals\LeaseSigningLauncher;
 use App\Services\Rentals\LeaseTimelineService;
 use App\Services\Rentals\RentalDocumentPdfService;
 use Illuminate\Http\JsonResponse;
@@ -261,7 +265,51 @@ class LeaseController extends Controller
 
         return response()->json($properties->map(fn (Property $p) => $p->toSearchResult([
             'ref' => $p->property_number,
+            // leases.md §15.12.5 #22 — the letting commission % the capture screen starts from.
+            'commission_percent' => $p->commission_percent,
         ])));
+    }
+
+    /**
+     * leases.md §15.3 / §15.4 (Build L3a) — what the capture screen's landlord panel and per-tenant hints show:
+     * the property's landlord(s) and the chosen tenant(s), each with what is still missing before the agreement can
+     * be prepared (an email, an ID or passport number) and a link to the contact. Names and "what is missing"
+     * only — never the values. The property is the SAME scoped query as the picker; contacts are the agency's own.
+     */
+    public function partyCheck(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $launcher = app(LeaseSigningLauncher::class);
+        $agencyId = $user->effectiveAgencyId();
+
+        $state = app(LeaseCaptureService::class)->agreementStateFor((int) $agencyId);
+        $agreement = $state['agreements']->firstWhere('id', (int) $request->query('agreement_id')) ?? $state['agreements']->first();
+        $map = $agreement ? app(LeaseAgreementValuesReader::class)->normaliseMap((array) ($agreement->field_map ?? [])) : [];
+
+        $property = $request->integer('property_id') > 0
+            ? $this->pickableRentalProperties($request)->find($request->integer('property_id'))
+            : null;
+
+        $present = fn (Contact $c, string $prefix) => [
+            'id' => $c->id,
+            'name' => $c->full_name ?: ('Contact #' . $c->id),
+            'needs' => array_values($launcher->contactNeeds($c, $prefix, $map)),
+            'url' => route('corex.contacts.show', $c),
+        ];
+
+        $landlords = $launcher->landlordsOf($property);
+        $ids = array_values(array_unique(array_filter(array_map('intval', array_filter((array) $request->query('tenant_ids', []), 'is_scalar')))));
+        $tenants = $ids === []
+            ? collect()
+            : Contact::query()->where('agency_id', $agencyId)->whereIn('id', $ids)->get()->sortBy(fn (Contact $c) => array_search($c->id, $ids, true));
+
+        return response()->json([
+            'property_chosen' => (bool) $property,
+            'landlord_missing' => $property !== null && $landlords->isEmpty(),
+            'landlord_url' => $property ? route('corex.properties.show', ['property' => $property->id, 'tab' => 'contacts']) : null,
+            'landlords' => $landlords->map(fn (Contact $c) => $present($c, 'landlord'))->values(),
+            'tenants' => $tenants->map(fn (Contact $c) => $present($c, 'tenant'))->values(),
+        ]);
     }
 
     /** Human-readable active-filter summary for the print-list header/export filename — shared shape across all four rental lists. */
@@ -362,7 +410,7 @@ class LeaseController extends Controller
 
         // leases.md §15.2 (Build L2) — one capture screen for a new lease and a renewal.
         return view('corex.leases.capture', array_merge(
-            $this->leaseCaptureScreen($request->user(), null, $rentalApplication),
+            $this->leaseCaptureScreen($request->user(), null, $rentalApplication, $property ?? $oldProperty),
             [
                 'mode' => 'new',
                 'lease' => null,
@@ -466,7 +514,9 @@ class LeaseController extends Controller
             // Johan, 2026-09-22 — agency-configurable, hidden by default.
             'showLeaseType' => \App\Models\LeaseSetting::showLeaseTypeFieldFor($lease->agency_id),
             'lifecycle' => $hubService->lifecycle($lease),
-            'nextStep' => $hubService->nextStep($lease),
+            'nextStep' => $hubService->nextStep($lease, $user),
+            // leases.md §15.13 (Build L3a) — the hub's "Agreement" card; null for a lease with no agreement.
+            'agreementCard' => app(LeaseSigningLauncher::class)->cardFor($lease, $user),
             'openItemCounts' => $hubService->openItemCounts($lease),
             'landlords' => $lease->landlordContacts(),
             // .ai/specs/rental-renewals.md §19 — the notice dialogs' "Show
@@ -570,6 +620,44 @@ class LeaseController extends Controller
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease updated.');
     }
 
+    /**
+     * leases.md §15.13 (Build L3a) — "Prepare again": after the agreement was declined, voided or expired, open a
+     * fresh agreement for the SAME lease, pre-filled from what the lease already holds — nothing is typed twice.
+     * The same gate and guard as the capture screen's second button; anything still missing is listed with a link.
+     */
+    public function prepareAgain(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $user = $request->user();
+        abort_unless($user->hasPermission('leases.create') || $user->hasPermission('leases.renew'), 403);
+
+        if (! $user->hasPermission('access_docuperfect') || ! $user->hasPermission('create_docuperfect_docs')) {
+            return back()->withErrors(['lease' => 'You do not have access to prepare agreements.']);
+        }
+        if ($lease->status !== Lease::STATUS_DRAFT
+            || ! in_array($lease->signing_status, [Lease::SIGNING_DECLINED, Lease::SIGNING_VOIDED, Lease::SIGNING_EXPIRED], true)) {
+            return back()->withErrors(['lease' => 'This lease agreement cannot be prepared again.']);
+        }
+
+        $ready = app(LeaseAgreementTemplateGuard::class)->readyAgreementsFor((int) $lease->agency_id);
+        $agreement = $ready->firstWhere('docuperfect_template_id', (int) $lease->agreement_template_id) ?? $ready->first();
+        if (! $agreement) {
+            return back()->withErrors(['lease' => 'Your agency has not set up a lease agreement that can be used. An administrator sets one up under Settings → Rental lease agreements.']);
+        }
+
+        try {
+            $flow = app(LeaseSigningLauncher::class)->launch($lease, $agreement, $user);
+        } catch (\App\Exceptions\Rentals\LeaseCaptureIncompleteException $e) {
+            return back()->withErrors($e->errors())->with('capture_gaps', $e->missing);
+        } catch (\App\Exceptions\Rentals\NoLeaseAgreementLinkedException $e) {
+            return back()->withErrors(['lease' => $e->getMessage()]);
+        }
+
+        return redirect(app(LeaseSigningLauncher::class)->landingUrl($flow))
+            ->with('success', 'The lease agreement is ready — check it, then sign. Nothing has been sent to anyone yet.');
+    }
+
     public function activate(Request $request, Lease $lease): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
@@ -603,6 +691,11 @@ class LeaseController extends Controller
         // draft cancelled before activation never touched the property, so
         // there is nothing to restore.
         $wasActive = $lease->status === Lease::STATUS_ACTIVE;
+
+        // leases.md §15.13 (Build L3a) — a lease cancelled while its agreement is open takes the agreement with it:
+        // the document is cancelled in e-sign in the same action (its waiting parties are told), a flow nobody
+        // has sent is abandoned.
+        app(LeaseSigningLauncher::class)->closeOpenAgreement($lease, $request->user(), $validated['cancel_reason']);
 
         $lease->update([
             'status' => Lease::STATUS_CANCELLED,

@@ -190,6 +190,12 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         return $this->hasMany(RentalInspectionRoomNote::class);
     }
 
+    /** §45.5 (Build I-3) — every attendance record, superseded ones included; use ->live() for what counts. */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(RentalInspectionAttendance::class);
+    }
+
     public function signatures(): HasMany
     {
         return $this->hasMany(RentalInspectionSignature::class);
@@ -319,6 +325,24 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 fn (RentalInspectionItem $a, RentalInspectionItem $b) => $a->id <=> $b->id,
             ])
             ->values();
+    }
+
+    /**
+     * §45.5 (Build I-3) — every EXPECTED party (each lease tenant, each invited landlord, the inspector)
+     * must have a recorded attendance outcome — attended or did not attend — before an in/out (later
+     * interim) inspection completes. Never ad_hoc. This is a record-keeping rule, not a setting: it only
+     * asks that the outcome be written down. It does not stop anyone from not attending.
+     */
+    private function guardAttendanceRecorded(string $action): void
+    {
+        if ($this->type === self::TYPE_AD_HOC) {
+            return;
+        }
+
+        $missing = app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->missingParties($this);
+        if ($missing !== []) {
+            throw new \App\Exceptions\RentalInspectionAttendanceMissingException($action, $missing);
+        }
     }
 
     /**
@@ -570,6 +594,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         }
         $this->guardUngradedItems('complete');
         $this->guardMissingRequiredNotes('complete');
+        $this->guardAttendanceRecorded('complete');
 
         if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT, self::TYPE_INTERIM], true)) {
             $outstanding = $this->outstandingSignatories();
@@ -1332,6 +1357,18 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 && ($contactId === null || (int) $s->party_contact_id === (int) $contactId)
         );
 
+        // §45.5 (Build I-3) — the party's recorded attendance outcome travels with its signature row, so a
+        // party who did not attend reads "No signature — did not attend" rather than "Refused to sign".
+        // Uses the already-loaded relation when a caller preloaded it (the public report page loads it
+        // scope-free — the token is the authority there), otherwise a fresh query.
+        $liveAttendances = ($this->relationLoaded('attendances') ? $this->attendances : $this->attendances()->get())
+            ->filter(fn (RentalInspectionAttendance $a) => $a->superseded_at === null);
+        $attendanceFor = fn (string $partyRole, ?int $contactId = null, ?int $userId = null) => $liveAttendances->first(
+            fn (RentalInspectionAttendance $a) => $a->party_role === $partyRole
+                && ($contactId === null || (int) $a->party_contact_id === (int) $contactId)
+                && ($userId === null || (int) $a->party_user_id === (int) $userId)
+        );
+
         $rows = [];
 
         foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
@@ -1339,6 +1376,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 'role' => 'Tenant',
                 'name' => $leaseTenant->contact?->full_name,
                 'signature' => $liveSignatureFor(RentalInspectionSignature::PARTY_TENANT, $leaseTenant->contact_id),
+                'attendance' => $attendanceFor(RentalInspectionAttendance::PARTY_TENANT, $leaseTenant->contact_id),
                 'not_required' => false,
             ];
         }
@@ -1348,13 +1386,18 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             'role' => 'Landlord',
             'name' => $landlord?->full_name,
             'signature' => $landlord ? $liveSignatureFor(RentalInspectionSignature::PARTY_LANDLORD, $landlord->id) : null,
+            'attendance' => $landlord ? $attendanceFor(RentalInspectionAttendance::PARTY_LANDLORD, $landlord->id) : null,
             'not_required' => ! $landlord,
         ];
 
+        // §45.5 — the report names the INSPECTOR who attended (falling back to whoever created the
+        // inspection), not always the creator.
+        $agent = $this->inspector ?? $this->createdBy;
         $rows[] = [
             'role' => 'Agent',
-            'name' => $this->createdBy?->name,
+            'name' => $agent?->name,
             'signature' => $liveSignatureFor(RentalInspectionSignature::PARTY_AGENT),
+            'attendance' => $agent ? $attendanceFor(RentalInspectionAttendance::PARTY_AGENT, null, $agent->id) : null,
             'not_required' => false,
         ];
 
@@ -1446,8 +1489,16 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         // every other photo attribute; 'photos.note'/'observations.photos.note'
         // nested eager-loads so it's present in this same response without a
         // second round-trip, matching roomNotes' own reasoning just above.
-        $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+        // §45.5 (Build I-3) — each inspection the tab renders carries its attendance board (expected
+        // parties, recorded outcomes, invitation lines) so the panel needs no second round-trip.
+        $withBoard = function (?self $insp) {
+            $insp?->setAttribute('attendance_board', app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->board($insp));
+
+            return $insp;
+        };
+
+        $withDetail = fn (string $type) => $withBoard(self::currentFor($property, $type)
+            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']));
 
         $outInspection = $withDetail(self::TYPE_OUT);
         // 2026-09-20 fix — deliberately NOT $outInspection above. That value
@@ -1480,8 +1531,8 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         $rawPredecessor = $rawChainTail
             ? ($rawChainTail->previousInspection ?? self::inferredPredecessorFor($rawChainTail))
             : null;
-        $chainTail = $chainDetail($rawChainTail);
-        $chainPredecessor = $chainDetail($rawPredecessor);
+        $chainTail = $withBoard($chainDetail($rawChainTail));
+        $chainPredecessor = $withBoard($chainDetail($rawPredecessor));
 
         // §20.15 — the two-panel compare view. Both sides deliberately use
         // completed-inclusive lookups (mostRecentFor()/compareRightFor()),

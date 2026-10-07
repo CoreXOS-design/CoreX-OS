@@ -1419,6 +1419,9 @@ class RentalInspectionRecordingController extends Controller
             'wet_ink_file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
             'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
             'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
+            // §45.5 (Build I-3) — a representative signing on the party's own row. Checked against the
+            // attendance record in RentalInspectionSignature::capture().
+            'signed_by_name' => ['nullable', 'string', 'max:191'],
         ]);
 
         if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
@@ -1444,6 +1447,7 @@ class RentalInspectionRecordingController extends Controller
                 'party_contact_id' => $validated['party_contact_id'] ?? null,
                 'refusal_reason_preset' => $validated['refusal_reason_preset'] ?? null,
                 'refusal_reason_note' => $validated['refusal_reason_note'] ?? null,
+                'signed_by_name' => $validated['signed_by_name'] ?? null,
                 'recorded_by_user_id' => $request->user()->id,
             ];
         } else {
@@ -1598,6 +1602,8 @@ class RentalInspectionRecordingController extends Controller
             $rentalInspection->startAwaitingSignature();
         } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
             return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
+        } catch (\App\Exceptions\RentalInspectionAttendanceMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_attendance' => $e->missingParties], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
@@ -1633,6 +1639,8 @@ class RentalInspectionRecordingController extends Controller
             $rentalInspection->markCompleted();
         } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
             return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
+        } catch (\App\Exceptions\RentalInspectionAttendanceMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_attendance' => $e->missingParties], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
