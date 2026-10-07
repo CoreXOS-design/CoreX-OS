@@ -9,7 +9,8 @@ use App\Models\CommandCenter\CalendarEventAuditEntry;
 use App\Models\User;
 use App\Http\Controllers\CommandCenter\CalendarController;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -32,63 +33,38 @@ use Tests\TestCase;
  *     the ACTING user (not the event's owner) as performed_by_user_id and the
  *     correct calendar_event_id.
  *
- * DB-execution approach: this worktree's MySQL user (nexus@localhost) cannot
- * run `migrate:fresh` / RefreshDatabase at all right now — log_bin_trust_
- * function_creators is OFF server-wide and nexus lacks SUPER, so ANY migration
- * that creates a MySQL trigger (e.g. the contact-audit trigger, unrelated to
- * calendar) fails with ERROR 1419 before a single calendar table is touched.
- * That is shared infrastructure and out of this task's scope to change.
- *
- * Rather than fall back to a pure SQL-compilation test, this test hand-builds
- * ONLY the tables this code path actually touches (calendar_events,
- * calendar_event_audit_log, plus the two tiny tables their global scopes/
- * traits reference: properties, agencies) directly via Schema::create() in
- * the granted throwaway test schema — bypassing artisan migrate entirely, so
- * the blocked trigger migration is never reached. Every assertion below runs
- * real INSERT/UPDATE/SELECT statements through the REAL, unmodified
- * CalendarController::dismiss()/complete(), CalendarEvent::markDismissed(),
- * and RecurrenceEditService — not a reimplementation.
- *
- * The intended full end-to-end feature test (RefreshDatabase, real routes,
- * real HTTP) is NOT written here — that belongs in
- * tests/Feature/CommandCenter/ once the infra gotcha is fixed. This test
- * is deliberately narrower but genuinely executes the shipped code.
+ * DB-execution approach: RefreshDatabase against the REAL calendar_events /
+ * calendar_event_audit_log / properties / agencies tables (rolled back per test) —
+ * no raw DDL. This file used to DROP and re-create those four tables by hand (a
+ * workaround for an old migrate:fresh trigger error); inside a lane's persistent test
+ * schema that destroyed tables every later test file needed. Every assertion below
+ * runs real INSERT/UPDATE/SELECT statements through the REAL, unmodified
+ * CalendarController::dismiss()/complete(), CalendarEvent::markDismissed(), and
+ * RecurrenceEditService — not a reimplementation.
  */
 final class CalendarDismissReasonAuditTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const AGENCY_ID = 555001;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->buildSchema();
+        // The events use made-up user/branch ids whose parent rows are irrelevant to
+        // what is proved here, so foreign-key checks are off for this connection
+        // (restored in tearDown). The agency row below is real.
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
+
+        DB::table('agencies')->insert([
+            'id' => self::AGENCY_ID, 'name' => 'Test Agency', 'slug' => 'test-agency-'.self::AGENCY_ID,
+        ]);
     }
 
     protected function tearDown(): void
     {
-        $this->dropSchema();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
         parent::tearDown();
-    }
-
-    /**
-     * hfc_dash_test_78 is a designated throwaway test schema (regex-enforced
-     * by Tests\TestCase::setUp()) that has, in this environment, been left in
-     * a partial state by an EARLIER unrelated `migrate:fresh` attempt that
-     * aborted mid-script at the blocked trigger migration (see class docblock)
-     * — real tables with real FKs pointing at a real `calendar_events` may
-     * already exist from that aborted run. FK checks are disabled only around
-     * this test's own drop/create of its four tables so that debris is never
-     * a reason this test can't manage its own schema; nothing outside those
-     * four table names is touched.
-     */
-    private function dropSchema(): void
-    {
-        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        Schema::dropIfExists('calendar_event_audit_log');
-        Schema::dropIfExists('calendar_events');
-        Schema::dropIfExists('properties');
-        Schema::dropIfExists('agencies');
-        \Illuminate\Support\Facades\DB::statement('SET FOREIGN_KEY_CHECKS=1');
     }
 
     // ── (1) Dismiss WITH a reason: persisted AND surfaced ──────────────────
@@ -282,71 +258,5 @@ final class CalendarDismissReasonAuditTest extends TestCase
             'agency_id' => self::AGENCY_ID,
             'branch_id' => self::AGENCY_ID,
         ], $overrides));
-    }
-
-    private function buildSchema(): void
-    {
-        $this->dropSchema();
-
-        // Minimal — only satisfies LivePropertyScope's whereExists subquery
-        // (fires on every calendar_events query regardless of property_id).
-        Schema::create('properties', function ($table) {
-            $table->id();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        // Minimal — exactly one row so BelongsToAgency's single-agency test
-        // fallback stamps agency_id the same way it would on a fresh dev DB.
-        Schema::create('agencies', function ($table) {
-            $table->id();
-            $table->string('name')->nullable();
-        });
-        \Illuminate\Support\Facades\DB::table('agencies')->insert(['id' => self::AGENCY_ID, 'name' => 'Test Agency']);
-
-        Schema::create('calendar_events', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('created_by_id')->nullable();
-            $table->string('event_type', 50)->nullable();
-            $table->string('category', 80)->nullable();
-            $table->string('title', 255);
-            $table->text('description')->nullable();
-            $table->dateTime('event_date');
-            $table->dateTime('end_date')->nullable();
-            $table->boolean('all_day')->default(true);
-            $table->string('priority', 20)->default('normal');
-            $table->string('status', 20)->default('pending');
-            $table->string('colour', 7)->nullable();
-            $table->string('source_type')->nullable();
-            $table->unsignedBigInteger('source_id')->nullable();
-            $table->unsignedBigInteger('property_id')->nullable();
-            $table->unsignedBigInteger('contact_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->json('reminder_offsets')->nullable();
-            $table->json('reminders_sent')->nullable();
-            $table->boolean('is_recurring')->default(false);
-            $table->string('recurrence_rule', 255)->nullable();
-            $table->unsignedBigInteger('parent_event_id')->nullable();
-            $table->json('metadata')->nullable();
-            $table->string('dismissal_reason_code', 50)->nullable();
-            $table->text('dismissal_reason_notes')->nullable();
-            $table->timestamps();
-            $table->softDeletes();
-        });
-
-        Schema::create('calendar_event_audit_log', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('calendar_event_id');
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->string('action');
-            $table->json('old_values')->nullable();
-            $table->json('new_values')->nullable();
-            $table->unsignedBigInteger('performed_by_user_id')->nullable();
-            $table->unsignedBigInteger('on_behalf_of_user_id')->nullable();
-            $table->timestamp('performed_at');
-            $table->text('notes')->nullable();
-            $table->timestamps();
-        });
     }
 }
