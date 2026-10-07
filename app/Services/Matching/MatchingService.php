@@ -239,6 +239,7 @@ class MatchingService
         $query = ContactMatch::query()
             ->active()
             ->where('agency_id', $property->agency_id)
+            ->buyerInPlay((int) $property->agency_id) // a Won/Lost buyer (agency setting) has no Core Matches
             ->countable((int) $property->agency_id); // AT-71 — exclude uncountable (empty) wishlists
 
         $this->applyHardFilters($query, $property);
@@ -259,6 +260,7 @@ class MatchingService
         $candidates = ContactMatch::query()
             ->active()
             ->where('agency_id', $property->agency_id)
+            ->buyerInPlay((int) $property->agency_id) // a Won/Lost buyer (agency setting) has no Core Matches
             ->countable((int) $property->agency_id); // AT-71 — exclude uncountable (empty) wishlists
 
         $this->applyHardFilters($candidates, $property);

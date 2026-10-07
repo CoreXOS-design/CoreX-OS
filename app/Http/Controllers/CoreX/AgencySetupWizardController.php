@@ -576,6 +576,12 @@ class AgencySetupWizardController extends Controller
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // Core Matches — which Buyer Pipeline statuses take a buyer off Core Matches.
+                // Explicit per-key match (spec §6.2): never fall through to an Agency column.
+                'core_matches' => match ($key) {
+                    'core_matches_excluded_buyer_states' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->coreMatchesExcludedBuyerStates(),
+                    default => $control['default'] ?? null,
+                },
                 // Bug found 2026-09-20 (cc4, while wiring rental_work_orders'
                 // display case): 'rental_inspections' originally had NO arm at
                 // all, so both of its controls fell through to `default =>

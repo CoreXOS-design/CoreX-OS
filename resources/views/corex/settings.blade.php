@@ -1123,6 +1123,27 @@
                         </div>
                     </div>
 
+                    {{-- Won / Lost buyers (Johan, 2026-10-07) — a buyer whose Buyer Pipeline status
+                         is ticked here has no Core Matches anywhere (board, property page, alerts,
+                         digest, mobile). Moving them back to an active status brings them back. --}}
+                    <div class="pt-3 border-t" style="border-color:var(--border);">
+                        <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">No Core Matches for buyers in these pipeline statuses</p>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">A buyer in a ticked status is hidden from Core Matches everywhere; move them back to an active status and their matches return.</p>
+                        <input type="hidden" name="core_matches_excluded_buyer_states_present" value="1">
+                        <div class="flex flex-wrap gap-4">
+                            @php
+                                $excludedCoreMatchBuyerStates = $coreMatchesSettings->coreMatchesExcludedBuyerStates();
+                            @endphp
+                            @foreach(\App\Services\BuyerStateService::PIPELINE_STATES as $pipelineState)
+                                <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                    <input type="checkbox" name="core_matches_excluded_buyer_states[]" value="{{ $pipelineState }}"
+                                           {{ in_array($pipelineState, $excludedCoreMatchBuyerStates, true) ? 'checked' : '' }}>
+                                    {{ ucfirst($pipelineState) }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
                     <div class="flex justify-end pt-2">
                         <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                     </div>
