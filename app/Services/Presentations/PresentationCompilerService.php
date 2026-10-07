@@ -18,6 +18,9 @@ use App\Models\PresentationVersion;
  */
 class PresentationCompilerService
 {
+    /** after_value.reason on the comp_unavailable rows written when a regenerate drops a pick. */
+    public const REASON_NOT_IN_REGENERATED_SET = 'not_in_regenerated_set';
+
     public function __construct(
         private PresentationBlueprintService $blueprint = new PresentationBlueprintService(),
         private HoldingCostService           $holdingCost = new HoldingCostService(),
@@ -160,18 +163,47 @@ class PresentationCompilerService
             $createPayload['ai_summary_prompt_hash']     = $previousVersion->ai_summary_prompt_hash;
         }
 
+        $remap = null;
         if ($latestVersion) {
             $createPayload['included_competitor_ids_json'] = $latestVersion->included_competitor_ids_json;
             // The comps were usually just re-hydrated (fresh rows, new ids)
             // before this compile — carry each pick onto the fresh copy of the
             // same sale instead of copying ids that now point at retired rows.
-            $createPayload['included_comp_ids_json']        = \App\Support\Presentations\CompSelectionCarryForward::remap(
+            // A stored [] comes out as null (all comps): an empty selection is
+            // never a valid state, it would leave the presentation without a price.
+            $remap = \App\Support\Presentations\CompSelectionCarryForward::remap(
                 $presentation->id,
                 $latestVersion->included_comp_ids_json,
-            )['ids'];
+            );
+            $createPayload['included_comp_ids_json'] = $remap['ids'];
         }
 
-        return PresentationVersion::create($createPayload);
+        $version = PresentationVersion::create($createPayload);
+
+        // A pick whose sale is not in the fresh pull is genuinely gone. It is
+        // dropped (the rest of the selection stands) but NOT silently: one
+        // comp_unavailable row per dropped pick, so the Review screen can tell
+        // the agent why the headline moved (presentation 87: -17% unannounced).
+        if ($remap !== null && $remap['dropped'] !== []) {
+            foreach ($remap['dropped'] as $droppedId) {
+                \App\Models\AgentOverride::create([
+                    'agency_id'               => $version->agency_id ?? $presentation->agency_id,
+                    'presentation_version_id' => $version->id,
+                    'user_id'                 => $compiledBy,
+                    'override_type'           => \App\Models\AgentOverride::TYPE_COMP_UNAVAILABLE,
+                    'target_id'               => (string) $droppedId,
+                    'before_value'            => ['is_included' => true],
+                    'after_value'             => ['is_included' => false, 'reason' => self::REASON_NOT_IN_REGENERATED_SET],
+                ]);
+            }
+            \Illuminate\Support\Facades\Log::warning('[PRES-WARN] regenerate dropped comp picks whose sale is not in the fresh pull', [
+                'presentation_id' => $presentation->id,
+                'version_id'      => $version->id,
+                'dropped_ids'     => $remap['dropped'],
+            ]);
+        }
+
+        return $version;
     }
 
     /**

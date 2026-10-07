@@ -55,6 +55,16 @@ final class SnapshotLinkService
             throw new \InvalidArgumentException("Invalid mode '{$mode}'.");
         }
 
+        // The one place every share / send path creates a seller link — so the
+        // one place to refuse a presentation that has no price (Johan,
+        // 2026-10-07). A teaser unlocks the full page on lead capture, so it is
+        // gated too.
+        $target = \App\Models\PresentationVersion::withoutGlobalScopes()->find($versionId);
+        $price  = PresentationPriceReadiness::forDocument($presentation, $target);
+        if (!$price['ready']) {
+            throw new PresentationPriceMissingException((string) $price['reason'], (string) $price['message']);
+        }
+
         $expiresAt = $this->resolveExpiry($presentation, $options['expires_at'] ?? null);
 
         return PresentationSnapshotLink::create([

@@ -325,6 +325,10 @@ final class ConditionAdjustmentTest extends TestCase
             'price' => 1_000_000, 'condition_level_id' => $good->id,
         ]);
         $version = $this->seedPresentationWithVersion($agencyId, $user->id, $property);
+        // Confirm & Generate needs comparable sales to freeze a price (AlwaysHasPriceTest).
+        $this->seedSoldCompsForPercentiles($version->presentation_id, $agencyId, [
+            900_000, 900_000, 1_000_000, 1_100_000, 1_100_000,
+        ]);
 
         $this->actingAs($user)
             ->post(route('presentations.analysis.confirm', $version->presentation_id))

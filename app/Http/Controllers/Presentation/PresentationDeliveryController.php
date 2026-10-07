@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Presentation;
 use App\Models\PresentationDelivery;
 use App\Services\Presentations\PresentationDeliveryService;
+use App\Services\Presentations\PresentationPriceReadiness;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,16 @@ final class PresentationDeliveryController extends Controller
 
         $data = $this->validatePayload($request);
 
+        // Nothing is previewed as sendable for a presentation that has no price.
+        $price = $this->priceCheck($presentation);
+        if (!$price['ready']) {
+            return response()->json([
+                'recipients' => [],
+                'valid'      => false,
+                'errors'     => ['presentation' => $price['message']],
+            ]);
+        }
+
         $batch = $this->svc->prepareDeliveryBatch($presentation, $data['recipients'], [
             'default_mode'       => $data['default_mode']    ?? 'full',
             'default_channel'    => $data['default_channel'] ?? 'email',
@@ -55,6 +66,16 @@ final class PresentationDeliveryController extends Controller
         $this->guardAgency($request, $presentation);
 
         $data = $this->validatePayload($request);
+
+        // A seller is never sent a presentation without a price (Johan, 2026-10-07).
+        $price = $this->priceCheck($presentation);
+        if (!$price['ready']) {
+            return response()->json([
+                'ok'            => false,
+                'price_missing' => true,
+                'errors'        => ['presentation' => $price['message']],
+            ], 422);
+        }
 
         $batch = $this->svc->prepareDeliveryBatch($presentation, $data['recipients'], [
             'default_mode'       => $data['default_mode']    ?? 'full',
@@ -115,6 +136,15 @@ final class PresentationDeliveryController extends Controller
     }
 
     // ── Internals ───────────────────────────────────────────────────────────
+
+    /** The shared price check, on the version a send would use (the latest). */
+    private function priceCheck(Presentation $presentation): array
+    {
+        return PresentationPriceReadiness::forDocument(
+            $presentation,
+            PresentationPriceReadiness::latestVersion($presentation),
+        );
+    }
 
     private function validatePayload(Request $request): array
     {

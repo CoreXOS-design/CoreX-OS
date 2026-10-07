@@ -24,9 +24,11 @@ use App\Models\PresentationSoldComp;
  *     so two retired picks of an identical sale do not collapse into one.
  *   - a retired id with no live counterpart is dropped (genuinely gone).
  *   - a NON-empty selection that maps to nothing at all becomes null, never
- *     []: [] means the agent deliberately unticked everything, and we must not
- *     manufacture that decision on their behalf. An already-empty selection
- *     stays [] (that WAS the agent's decision).
+ *     [] — we must not manufacture an empty pool on the agent's behalf.
+ *   - an already-empty [] also comes out as null (2026-10-07, "a presentation
+ *     must always have a price"): the Review screen no longer lets an agent
+ *     leave nothing ticked, so a stored [] is a leftover blank, not a decision.
+ *     CompSelectionRepair reads it the same way.
  */
 class CompSelectionCarryForward
 {
@@ -41,7 +43,7 @@ class CompSelectionCarryForward
         }
         $ids = array_values(array_unique(array_map('intval', $ids)));
         if ($ids === []) {
-            return ['ids' => [], 'remapped' => [], 'dropped' => []];
+            return ['ids' => null, 'remapped' => [], 'dropped' => []];
         }
 
         $live = PresentationSoldComp::query()
