@@ -31,6 +31,11 @@ Schedule::command('signatures:send-reminders')->dailyAt('08:00');
 // Spec: .ai/specs/webinar-registration.md §6.4
 Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 
+// .ai/specs/leases.md §5.3 — Johan, 7 Oct 2026: a lease that reached its end date with no notice to vacate and no renewal
+// on record goes month-to-month on its own. Runs BEFORE the 06:00 expiry check so a lease that has just switched is not
+// also flagged as overdue.
+Schedule::command('leases:auto-month-to-month')->dailyAt('05:30')->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 

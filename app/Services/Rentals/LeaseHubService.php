@@ -136,10 +136,9 @@ class LeaseHubService
         }
 
         if ($lease->end_date && $lease->status === Lease::STATUS_ACTIVE && now()->gt($lease->end_date) && !$lease->hasActiveNotice() && !$lease->renewed_lease_id) {
-            // The lease has ended with no outcome on file. The outcomes (month-to-month, notices) live in the Lease
-            // actions menu, not on the renewal form this used to open — land on the hub with the month-to-month
-            // dialog open (the other outcomes are one click away in the same menu).
-            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'month-to-month']];
+            // The lease has ended with no outcome on file. The outcomes (renewed / month-to-month / ended) live in the
+            // Lease actions menu — land on the hub with that menu open, showing all of them (Johan, 7 Oct 2026).
+            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'outcomes']];
         }
 
         return null;

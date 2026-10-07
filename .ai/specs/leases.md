@@ -431,6 +431,23 @@ control is not wired to any actual notification-sending logic yet regardless of 
 
 ---
 
+### 5.3 Automatic month-to-month — built, 7 Oct 2026 (Johan's ruling)
+
+**The ruling.** When a lease reaches its end date and **no notice to vacate has been recorded** and **no renewal has been recorded**, the lease changes to month-to-month **automatically**. That is the correct behaviour. (It supersedes the 4 Oct 2026 "expiry is never automatic" for this one transition only: the lease stays `active`, nothing is expired, and `CheckLeaseExpiry` itself still never writes lease state.)
+
+**What exists, checked first.** `CheckLeaseExpiry` (`signatures:check-lease-expiry`, daily 06:00) only alerts. Month-to-month existed only as the agent's own action (`LeaseRenewalService::recordMonthToMonth`, logged, reversible). Nothing switched a lease on its own.
+
+**What is built.**
+- **Command `leases:auto-month-to-month`** (`AutoMonthToMonthLeases`), scheduled **daily 05:30** — before the 06:00 expiry check, so a lease that has just switched is not also flagged overdue. `--dry-run` lists what would switch and changes nothing; `--lease=ID` restricts a real run to one lease. Agency by agency, never one bulk query.
+- **`LeaseAutoMonthToMonthService`** — *due* means: `status = active`, not archived, not already month-to-month, has an end date, `end_date <= today − N days` where **N is the agency's setting**, **`notice_date` is null** (a notice from the tenant or the landlord, any outcome), **`renewed_lease_id` is null**, and **no renewal term is in flight** (no draft chained to it by `previous_lease_id` — which includes a renewal whose agreement is out for e-signing, one signed but not yet active, and one just started; a renewal the agent cancelled is not a renewal). The same conditions are re-checked under a row lock at the moment of the switch, so a notice or renewal recorded a moment earlier always wins.
+- **The switch is exactly the agent's own "Goes month-to-month"**: `is_month_to_month = true`, `end_date` cleared. The lease stays `active`; the property keeps its status (§12.5.3); nothing else moves.
+- **Logged** on the tenancy history as a `month_to_month_set` line with no actor ("Lease went month-to-month automatically — it ended on 31 Oct 2027 with no notice to vacate and no renewal on record"), the old end date and the grace in its metadata. **The agent is told** in-app (`LeaseMonthToMonthNotice`, database; to the agent who created the lease, else the property's agent), with how to undo it.
+- **Idempotent**: a month-to-month lease is never a candidate again; running it twice changes nothing and tells nobody twice. **Not fought**: if the agent reverses it, the lease has no end date and is never a candidate again.
+- **Agency setting** `lease_settings.month_to_month_after_end_days` (nullable = default; **default 1 = the day after the end date**; 0–365; 0 switches on the end date itself). On Settings → Leases ("Automatic month-to-month") **and** in the Setup Wizard leases step (rule #10a) with its explanation; the saver is the existing `LeaseSettingsController::update`, `has()`-guarded (§6.1) so a wizard post that does not carry it never wipes it.
+- **"Record outcome" (§12.2 next-step card)** now opens the Lease actions menu itself, showing every outcome (renewed / month-to-month / ended — the notices) instead of jumping to the month-to-month box: `?action=outcomes` on the Lease Hub (a URL action, valid only on an active lease; it opens the menu, never a dialog).
+
+**Not done / by design.** There is no on/off switch (only the timing): Johan ruled the behaviour correct; a switch can be added if an agency ever needs one. Reversing an automatic switch does not restore the old end date (the agent then records the real outcome) — restoring it would have the next run switch it again. **The scheduler is not running on QA1 or Staging**, so there the command is run by hand (see the build report).
+
 ## 6. Migration — "replace, not extend," nothing deleted
 
 Every one of the 58 `rentals` rows, and every `lease_records`/`rental_properties` row that genuinely
@@ -1135,7 +1152,7 @@ previously queried `Docuperfect\LeaseRecord` (2 test-artifact rows) — the real
 hang off) got no automated expiry alert at all. Fixed: the command now queries `Lease` directly
 (`withoutGlobalScopes()`, explicit — console commands run with no authenticated user so `AgencyScope`
 is already a no-op here, same as `LeaseSetting`'s own existing convention, but made explicit rather
-than relied-on). **Expiry is never automatic (Johan's ruling, corrected 2026-10-04 after an
+than relied-on). **Expiry is never automatic — and since 7 Oct 2026 the one thing that IS automatic is the switch to month-to-month, by a SEPARATE command (§5.3); this command still never writes lease state (Johan's ruling, corrected 2026-10-04 after an
 unscoped verification run of an earlier version of this command auto-flipped three real QA1
 leases to `expired`)** — a lease whose `end_date` has passed stays `active` and is only ever
 FLAGGED, via the same alert, for the agent to record the real outcome (renewed / month-to-month /

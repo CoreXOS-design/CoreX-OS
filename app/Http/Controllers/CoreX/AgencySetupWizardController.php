@@ -627,6 +627,8 @@ class AgencySetupWizardController extends Controller
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
+                    // Johan, 7 Oct 2026 — leases.md §5.3.
+                    'month_to_month_after_end_days' => LeaseSetting::monthToMonthAfterEndDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one

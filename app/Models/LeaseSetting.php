@@ -46,6 +46,9 @@ class LeaseSetting extends Model
     // legal minimum CoreX enforces; an agency-configurable sensible default.
     public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
 
+    /** Johan, 7 Oct 2026 — a lease goes month-to-month this many days after its end date (1 = the day after). */
+    public const DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS = 1;
+
     // .ai/specs/rental-renewals.md §15 (GATE 2, approved 2026-10-04) — each
     // transition is independently toggle-able, default ON.
     public const DEFAULT_AUTO_READVERTISE_ON_NOTICE = true;
@@ -66,6 +69,7 @@ class LeaseSetting extends Model
         'show_lease_type_field',
         'default_deposit_months',
         'tenant_notice_period_days',
+        'month_to_month_after_end_days',
         'auto_readvertise_on_notice',
         'auto_restore_status_on_lease_ended',
         'auto_restore_status_on_lease_cancelled',
@@ -78,6 +82,7 @@ class LeaseSetting extends Model
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
         'tenant_notice_period_days' => 'integer',
+        'month_to_month_after_end_days' => 'integer',
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
         'auto_restore_status_on_lease_cancelled' => 'boolean',
@@ -126,6 +131,18 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->tenant_notice_period_days ?? self::DEFAULT_TENANT_NOTICE_PERIOD_DAYS;
+    }
+
+    /** Days after a lease's end date before it goes month-to-month on its own (leases.md §5.3). */
+    public static function monthToMonthAfterEndDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->month_to_month_after_end_days ?? self::DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS;
     }
 
     public static function autoReadvertiseOnNoticeFor(?int $agencyId): bool

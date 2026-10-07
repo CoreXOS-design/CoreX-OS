@@ -105,7 +105,7 @@
             @endpermission
             @permission('leases.renew')
                 @if(in_array($lease->status, ['draft', 'active'], true))
-                    <div x-data="{ open: false }" class="relative">
+                    <div x-data="{ open: {{ $openDialog === 'outcomes' ? 'true' : 'false' }} }" class="relative" data-qa="lease-actions-menu">
                         <button type="button" @click="open = !open" @click.outside="open = false" class="corex-btn-outline text-xs">Lease actions &#9662;</button>
                         <div x-show="open" x-cloak class="absolute right-0 z-10 mt-1 w-64 rounded-md p-1 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,.15);">
                             @if($lease->status === 'active')
