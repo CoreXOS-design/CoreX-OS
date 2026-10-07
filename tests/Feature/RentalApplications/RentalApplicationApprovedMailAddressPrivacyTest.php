@@ -238,8 +238,16 @@ final class RentalApplicationApprovedMailAddressPrivacyTest extends TestCase
             "Street address '{$streetLine}' leaked into the applicant approval email {$where}."
         );
 
-        foreach (['suburb' => $property->suburb, 'town' => $property->town, 'city' => $property->city] as $field => $value) {
+        // QA1, 2026-10-07 — Johan (via the conductor): each suggested property
+        // line now shows its SUBURB ("3 Bedroom Apartment / Flat" alone tells a
+        // tenant nothing). Suburb is deliberately no longer forbidden here; the
+        // street line (above) and the town/city, where they differ from the
+        // suburb, still must not appear.
+        foreach (['town' => $property->town, 'city' => $property->city] as $field => $value) {
             self::assertNotEmpty($value, "Fixture setup error: property {$field} must not be blank for this assertion to be meaningful.");
+            if (strcasecmp((string) $value, (string) $property->suburb) === 0) {
+                continue;
+            }
             self::assertStringNotContainsString(
                 (string) $value,
                 $haystack,

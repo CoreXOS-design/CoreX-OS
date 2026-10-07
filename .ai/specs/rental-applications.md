@@ -14842,3 +14842,35 @@ arithmetic check someone prunes later.
 Months()`), `resources/views/corex/rental-applications/review.blade.php`
 (`calculatedStatementMonths()`), `tests/Feature/RentalApplications/
 RentalApplicationRound11DecimalAndStatementMonthsTest.php` (new test).
+
+## Approval email — clickable properties, suburb, rentable-only selection (QA1, 2026-10-07)
+
+Johan, testing application 438 on QA1: the approval email listed the suggested properties as dead
+text, with no suburb, and one of them was a "1 Bedroom Commercial Property". Changes:
+
+- **Every suggested property is a link** (descriptor, and a "View this property →" line) to the
+  property's public, view-only listing page — `public.agency.properties.show`, the page the
+  listing-share-link spec names — built from the application's OWN agency slug (multi-agency: no
+  fixed slug, no HFC wording). `RentalApplicationApprovedMail::content()` builds the cards.
+- **Each line shows the suburb** (`suburb`, falling back to `town`). This amends the 2026-09-17
+  "never carries a street address" rule above only in that **suburb is now allowed**; the street
+  address (street number + name) and the town/city where different from the suburb still never
+  appear. The linked public page itself shows the listing as advertised (its headline can carry a
+  street, as flagged on 2026-09-17) — that page is the property's public face, not this email.
+- **"View all properties that match"** button → the tenant's own shared wishlist page
+  (`shared.match`), shown only when the contact has an active, countable rental wishlist
+  (`RentalApplicationPropertyMatcher::viewAllUrl()`); absent otherwise rather than pointing at an
+  unfiltered or someone else's list.
+- **Selection** (`RentalApplicationPropertyMatcher::pick()`, both the wishlist and the no-wishlist
+  branch): rental listings only, still on the market, **residential** unless the application's
+  linked property is itself non-residential (an application has no other commercial marker),
+  approved amount stays the hard ceiling, and the listing must be marketable — the page the email
+  links to refuses to show anything else. Residential = category empty/"Residential" AND property
+  type not commercial/industrial/retail/office/warehouse/farm/vacant/land/plot — both columns,
+  because 33 QA1 rental rows are filed category Residential with type "Commercial Property".
+- Photo: the email shows none today and still does not.
+- Files: `app/Mail/RentalApplicationApprovedMail.php`,
+  `resources/views/emails/rental-application-approved.blade.php`,
+  `app/Services/RentalApplications/RentalApplicationPropertyMatcher.php`; tests
+  `RentalApplicationApprovedMailLinksTest` (new) and `RentalApplicationApprovedMailAddressPrivacyTest`
+  (suburb no longer forbidden).
