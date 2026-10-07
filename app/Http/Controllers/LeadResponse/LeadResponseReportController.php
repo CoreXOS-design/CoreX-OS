@@ -26,7 +26,7 @@ class LeadResponseReportController extends Controller
 {
     public function index(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, LeadResponseService $svc)
     {
-        $data = $this->build($request, $periods, $scopeResolver, $svc);
+        $data = $this->build($request, $periods, $scopeResolver, $svc, withComparison: true);
 
         $q = array_filter([
             'scope' => $data['scope']->level, 'branch_id' => $data['scope']->branchId, 'user_id' => $data['scope']->userId,
@@ -34,6 +34,7 @@ class LeadResponseReportController extends Controller
         ], fn ($v) => $v !== null && $v !== '');
         $data['drilldownBase'] = route('lead-response-report.drilldown') . '?' . http_build_query($q);
         $data['presets'] = PeriodResolver::PRESETS;
+        $data['compareModes'] = PeriodResolver::COMPARE_MODES;
 
         return view('lead-response-report.index', $data);
     }
@@ -102,7 +103,7 @@ class LeadResponseReportController extends Controller
 
     private function printData(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, LeadResponseService $svc): array
     {
-        $data = $this->build($request, $periods, $scopeResolver, $svc);
+        $data = $this->build($request, $periods, $scopeResolver, $svc, withComparison: true);
         $data['branding'] = \App\Models\Agency::publicBrandingFor($data['scope']->agencyId);
         $data['generatedAt'] = now();
 
@@ -113,7 +114,7 @@ class LeadResponseReportController extends Controller
      * Scope comes ONLY from the resolver; the cohort is the agents inside that scope; the figures are the one
      * calculation over that cohort.
      */
-    private function build(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, LeadResponseService $svc): array
+    private function build(Request $request, PeriodResolver $periods, BuyersReportScopeResolver $scopeResolver, LeadResponseService $svc, bool $withComparison = false): array
     {
         $requestedLevel = $request->filled('scope') ? (string) $request->query('scope') : null;
         $requestedBranchId = $request->filled('branch_id') ? (int) $request->query('branch_id') : null;
@@ -138,7 +139,15 @@ class LeadResponseReportController extends Controller
             default => 'Whole agency',
         };
 
+        $current = $svc->report($scope->agencyId, $period, $userIds);
+        [$comparison, $comparisonMeta, $compareMode] = $withComparison
+            ? $this->resolveComparison($request, $periods, $svc, $scope->agencyId, $period, $userIds, $current)
+            : [null, null, 'off'];
+
         return [
+            'compareMode'     => $compareMode,
+            'comparison'      => $comparison,
+            'comparisonMeta'  => $comparisonMeta,
             'scope'           => $scope,
             'scopeLabel'      => $scopeLabel,
             'scopeLabelShort' => $scopeLabelShort,
@@ -147,7 +156,7 @@ class LeadResponseReportController extends Controller
             'periodLabel'     => $period->label,
             'userIds'         => $userIds,
             'agentRows'       => $agents->map(fn ($a) => ['user_id' => (int) $a->id, 'name' => $a->name])->values()->all(),
-            'leadResponse'    => $svc->report($scope->agencyId, $period, $userIds),
+            'leadResponse'    => $current,
         ];
     }
 
@@ -167,5 +176,48 @@ class LeadResponseReportController extends Controller
         }
 
         return [$period, $preset];
+    }
+
+    /**
+     * Same wiring as the Buyers Report / Performance & ROI report (PeriodResolver::resolveComparison, same modes,
+     * same meta + phrase), over the SAME already-clamped cohort — the comparison period can never reach a wider set
+     * of agents than the current one. An invalid custom range fails soft to "off" with the message flashed.
+     *
+     * @return array{0: ?array, 1: ?array, 2: string}
+     */
+    private function resolveComparison(Request $request, PeriodResolver $periods, LeadResponseService $svc, int $agencyId, Period $period, array $userIds, array $current): array
+    {
+        $mode = (string) $request->query('compare', 'off');
+        if (! in_array($mode, PeriodResolver::COMPARE_MODES, true)) {
+            $mode = 'off';
+        }
+
+        try {
+            $comparePeriod = $periods->resolveComparison($mode, $period, $request->query('compare_start'), $request->query('compare_end'));
+        } catch (\InvalidArgumentException $e) {
+            session()->flash('compare_error', $e->getMessage());
+
+            return [null, null, 'off'];
+        }
+
+        if ($comparePeriod === null) {
+            return [null, null, $mode];
+        }
+
+        $comparison = $svc->compare($current, $svc->report($agencyId, $comparePeriod, $userIds));
+
+        return [$comparison, [
+            'period'          => $comparePeriod->toArray(),
+            'mode'            => $mode,
+            'unequal_length'  => $period->lengthInDays() !== $comparePeriod->lengthInDays(),
+            'period_days'     => $period->lengthInDays(),
+            'comparison_days' => $comparePeriod->lengthInDays(),
+            'phrase'          => match ($mode) {
+                'previous'       => 'vs previous period',
+                'same_last_year' => 'vs same period last year',
+                'custom'         => 'vs ' . $comparePeriod->label,
+                default          => 'vs comparison period',
+            },
+        ], $mode];
     }
 }

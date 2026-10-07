@@ -23,19 +23,42 @@
                     <button type="button" onclick="window.location.href = leadResponseExportUrl('{{ route('lead-response-report.pdf') }}')"
                             class="text-xs font-medium px-3 py-1.5 rounded-md" style="border: 1px solid var(--border); color: #fff; background: var(--brand-icon, #0ea5e9);">Download PDF</button>
                 </div>
-                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets])
+                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
             </div>
         </div>
     </div>
 
     @if(session('period_error'))
-        <div class="text-xs rounded-md px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ session('period_error') }}</div>
+        <div class="text-xs px-3 py-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a);">{{ session('period_error') }}</div>
+    @endif
+    @if(session('compare_error'))
+        <div class="text-xs px-3 py-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); color: var(--ds-crimson, #c41e3a);">Comparison range: {{ session('compare_error') }}</div>
+    @endif
+    {{-- Period comparison (Johan, 2026-10-07) — same banner as the Performance & ROI report: what it is compared to,
+         and a plain warning when the two ranges are not the same length. --}}
+    @if($comparisonMeta)
+        <div class="text-xs px-3 py-2 rounded flex items-center justify-between gap-3 flex-wrap"
+             style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
+            <span>Comparing to <strong style="color:var(--text-primary);">{{ $comparisonMeta['period']['label'] }}</strong> &middot; for response time, lower is better</span>
+            @if($comparisonMeta['unequal_length'])
+                <span style="color:var(--ds-amber, #f59e0b); font-weight:600;">
+                    Unequal-length ranges — comparing {{ $comparisonMeta['period_days'] }} days to {{ $comparisonMeta['comparison_days'] }} days. Totals are not like-for-like.
+                </span>
+            @endif
+        </div>
     @endif
 
     @include('lead-response-report._figures')
 
     @include('buyers-report._drilldown-modal')
 </div>
+<style>
+    /* The delta line the Performance & ROI report draws (same classes, same size). */
+    .report-delta { display: block; font-size: 9px; line-height: 1.3; font-weight: 500; white-space: nowrap; }
+    .report-delta-good { color: var(--ds-green, #059669); }
+    .report-delta-bad { color: var(--ds-crimson, #c41e3a); }
+    .report-delta-neutral { color: var(--text-muted); }
+</style>
 <script>
     // Print / PDF carry whatever scope, period and custom dates are in the URL right now.
     function leadResponseExportUrl(base) {
