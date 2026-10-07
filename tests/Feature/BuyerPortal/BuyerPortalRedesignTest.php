@@ -136,6 +136,10 @@ class BuyerPortalRedesignTest extends TestCase
         $prop = $this->makeProperty();
         $this->cacheMatch($contact->id, $prop->id, 100, 'perfect');
         $token = $this->link($contact->id);
+        // A card only shows a photo when the original actually exists on disk (a missing original renders the
+        // placeholder, never a broken image) — so give the fixture a real file.
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('properties/1/photo.jpg', 'x');
 
         $res = $this->get("/buyer/portal/{$token}");
 
@@ -209,7 +213,7 @@ class BuyerPortalRedesignTest extends TestCase
 
         $this->get("/buyer/portal/{$token}")
             ->assertStatus(410)
-            ->assertSee('no longer active', false);
+            ->assertSee("this link isn't active any more");
     }
 
     /**

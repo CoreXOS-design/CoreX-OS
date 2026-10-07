@@ -27,13 +27,20 @@ class AiUsageDashboardTest extends TestCase
     protected function tearDown(): void
     {
         PermissionService::clearCache();
+        \App\Models\Role::clearCache(); // the roles row was flipped to is_owner inside a rolled-back transaction
         parent::tearDown();
     }
 
     public function test_dashboard_renders_ledger_totals_and_source_breakdown(): void
     {
         $agency = Agency::create(['name' => 'Dash Co', 'slug' => 'dash-co', 'ai_monthly_budget_zar' => 100]);
-        $user = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
+        // The route is owner_only (platform spend across agencies) — an agency admin is correctly refused, so
+        // sign in as the System Owner (the roles row carries is_owner, which is not mass-assignable).
+        $ownerRole = \App\Models\Role::firstOrCreate(['name' => 'super_admin'], ['label' => 'System Owner', 'sort_order' => 1]);
+        $ownerRole->is_owner = true;
+        $ownerRole->save();
+        \App\Models\Role::clearCache();
+        $user = User::factory()->create(['agency_id' => null, 'role' => 'super_admin']);
 
         AiUsageEvent::create([
             'agency_id' => $agency->id, 'source' => AiUsageEvent::SOURCE_MIC_NARRATIVE,

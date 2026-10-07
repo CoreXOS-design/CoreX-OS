@@ -25,7 +25,7 @@ final class CommissionSettingAuditTrailTest extends TestCase
 
     private function agencyAndAdmin(): array
     {
-        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty']);
+        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty-' . \Illuminate\Support\Str::random(6)]);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
         $user = User::factory()->create([
             'agency_id' => $agency->id,
@@ -71,7 +71,7 @@ final class CommissionSettingAuditTrailTest extends TestCase
         CommissionSetting::forAgency($agency->id)->update(['commission_split_agent' => 80]);
 
         $this->actingAs($admin)
-            ->post('/settings/commission', $this->payload(['commission_split_agent' => 70]))
+            ->post(route('corex.settings.commission.update'), $this->payload(['commission_split_agent' => 70]))
             ->assertRedirect();
 
         $entry = CommissionSettingAuditEntry::where('agency_id', $agency->id)->latest('performed_at')->first();
@@ -92,7 +92,7 @@ final class CommissionSettingAuditTrailTest extends TestCase
         $before = CommissionSettingAuditEntry::where('agency_id', $agency->id)->count();
 
         $this->actingAs($admin)
-            ->post('/settings/commission', $this->payload())
+            ->post(route('corex.settings.commission.update'), $this->payload())
             ->assertRedirect();
 
         $after = CommissionSettingAuditEntry::where('agency_id', $agency->id)->count();
@@ -108,7 +108,7 @@ final class CommissionSettingAuditTrailTest extends TestCase
         CommissionSetting::forAgency($agencyB->id)->update(['commission_split_agent' => 80]);
 
         $this->actingAs($adminA)
-            ->post('/settings/commission', $this->payload(['commission_split_agent' => 65]))
+            ->post(route('corex.settings.commission.update'), $this->payload(['commission_split_agent' => 65]))
             ->assertRedirect();
 
         $this->assertSame(1, CommissionSettingAuditEntry::where('agency_id', $agencyA->id)->count());

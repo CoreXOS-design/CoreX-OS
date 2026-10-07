@@ -193,21 +193,39 @@ final class BuyerLedProspectingTest extends TestCase
         ], $extra));
     }
 
+    /**
+     * AT-246 region model: a region is a set of TOWNS (towns.region), each pointing at a P24 city
+     * (towns.p24_city_id); the region's suburbs are the P24 suburbs filed under those cities. (The older
+     * town_suburbs name-mapping table is no longer what the filter reads.)
+     */
     private function town(int $agencyId, string $name, string $region): int
     {
+        $countryId = (int) DB::table('p24_countries')->insertGetId([
+            'p24_id' => random_int(1, 9999999), 'name' => 'South Africa ' . Str::random(3), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $provinceId = (int) DB::table('p24_provinces')->insertGetId([
+            'p24_id' => random_int(1, 9999999), 'p24_country_id' => $countryId, 'name' => 'KZN ' . Str::random(3),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $cityId = (int) DB::table('p24_cities')->insertGetId([
+            'p24_id' => random_int(1, 9999999), 'p24_province_id' => $provinceId, 'name' => $name . ' ' . Str::random(3),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         return (int) DB::table('towns')->insertGetId([
             'agency_id' => $agencyId, 'name' => $name,
             'slug' => Str::slug($name) . '-' . Str::random(4),
-            'region' => $region,
+            'region' => $region, 'p24_city_id' => $cityId,
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
     private function townSuburb(int $agencyId, int $townId, string $suburb): void
     {
-        DB::table('town_suburbs')->insert([
-            'agency_id' => $agencyId, 'town_id' => $townId,
-            'suburb_name' => $suburb, 'suburb_normalised' => strtolower(trim($suburb)),
+        $cityId = (int) DB::table('towns')->where('id', $townId)->value('p24_city_id');
+        DB::table('p24_suburbs')->insert([
+            'p24_id' => random_int(1, 9999999), 'p24_city_id' => $cityId, 'name' => $suburb,
+            'slug' => Str::slug($suburb) . '-' . Str::random(5), 'p24_verified_at' => now(),
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }

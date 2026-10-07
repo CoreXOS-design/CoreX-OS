@@ -38,7 +38,7 @@ final class P24LeadFirstPullWindowTest extends TestCase
                 return ['success' => true, 'data' => ['leads' => []]];
             });
 
-        return new P24LeadService($api, Mockery::mock(TrackedPropertyMatchOrCreateService::class));
+        return new P24LeadService($api, app(TrackedPropertyMatchOrCreateService::class)); // final class — use the real one (an empty pull never reaches it)
     }
 
     public function test_first_pull_reaches_back_the_full_configured_window(): void
@@ -65,7 +65,8 @@ final class P24LeadFirstPullWindowTest extends TestCase
         $captured = null;
         $this->serviceCapturing($captured)->pullLeads(null);
 
-        $daysBack = Carbon::parse($captured)->diffInDays(now());
+        // Carbon 3's diffInDays() is fractional (29.000002 by the time `now()` is re-read) — whole days is the contract.
+        $daysBack = (int) floor(Carbon::parse($captured)->diffInDays(now()));
         $this->assertLessThanOrEqual(29, $daysBack, 'Window must never exceed P24 v53 30-day ceiling.');
         $this->assertGreaterThanOrEqual(29, $daysBack, 'A large config value should clamp up to 29, not fall back.');
     }

@@ -17,7 +17,8 @@ class MetricProviderRegistryTest extends TestCase
     {
         $providers = app(MetricProviderRegistry::class)->all();
 
-        $this->assertCount(12, $providers);
+        // 13 since AT-366 (2026-08-14) added the real-registration/commission-gross provider.
+        $this->assertCount(13, $providers);
 
         $keys = array_map(fn ($p) => $p->key(), $providers);
         $this->assertSame($keys, array_values(array_unique($keys)), 'Provider keys must be unique.');
