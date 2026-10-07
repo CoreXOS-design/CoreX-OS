@@ -60,6 +60,10 @@ class PendingAttachmentService
 
             // AT-59: an ingested comm for the contact advances last_contacted_at.
             $contact->touchLastContacted($comm->occurred_at);
+            if ($pending->direction === \App\Models\Communications\Communication::DIRECTION_OUTBOUND) {
+                // Lead response time: a message that actually went out is a genuine first contact.
+                $contact->recordAgentContact('message', $comm->occurred_at, $comm->owner_user_id);
+            }
         }
 
         $pending->update(['purged_at' => now(), 'purged_reason' => 'attached_to_archive']);

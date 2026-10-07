@@ -245,9 +245,15 @@ SSH into the server, then:
 ```
 
 The script prints a numbered step list as it runs. **Watch for
-`✅ DEPLOY OK` at the end.** If you see `❌ DEPLOY FAILED`, jump to
-§6 Rollback immediately — do NOT panic, do NOT press anything, the
-site is in maintenance mode and the pre-deploy backup is intact.
+`✅ DEPLOY OK` at the end.** The script ends in exactly one of four ways
+(exit code in brackets — full detail in §4a):
+
+| Ending | Site | What you do |
+|---|---|---|
+| `✅ DEPLOY OK` (0) | up | Nothing. Go to §5. |
+| `⚠️ DEPLOY COMPLETED WITH WARNINGS` (3) | **up** | Code + DB landed. A queue-worker check could not be confirmed; the warning names the worker and the command to fix it. |
+| `🚨 DEPLOYED, BUT VERIFICATION FAILED` (4) | **up** | Code + DB landed but a post-deploy check failed (named in the banner). Decide now: fix forward or §6 rollback. |
+| `❌ DEPLOY FAILED` (1) | depends on the step — the failure report says | Steps 1–3: released automatically. Steps 4–9: **held in maintenance on purpose** → §6. Step 10 onward: released automatically. |
 
 ### What the 12 steps do (plain English)
 
@@ -261,10 +267,64 @@ site is in maintenance mode and the pre-deploy backup is intact.
 | 6. Reference seeders | Runs the 13 reference seeders explicitly (one `--class=` call each). Demo seeders are NEVER touched. | DB may be partially seeded. Go to §6 Rollback. |
 | 7. Frontend build | `npm ci && npm run build` — rebuilds the JS/CSS bundle. | Code is the new version but assets are stale. Restore assets via rollback. |
 | 8. Caches + opcache | Clears every Laravel cache (config, route, view, app, events, compiled), re-caches them for prod performance, and reloads PHP-FPM so its opcache picks up the new code. | Stale code may continue to serve. Re-run the deploy or manually flush. |
-| 9. Queue workers | Sends `queue:restart` to Laravel, then auto-detects the queue worker manager (supervisord or systemd) and restarts it. | New notification/job classes won't fire. Re-run or restart the workers manually. |
-| 10. Verify | (a) HEAD matches `origin/<branch>`. (b) Every reference table has ≥ 1 row. (c) Compiled views recompile cleanly. **Any of these failing = automatic rollback.** | Trap fires → see §6 Rollback. |
-| 11. Up | Lifts maintenance mode — traffic resumes. | Run `php artisan up` manually. |
+| 9. Queue workers *(script step 10)* | Sends `queue:restart`, then restarts this environment's worker pool (supervisord or systemd) and **verifies** it with a bounded retry; stragglers are kicked by name. Re-checked as *stable* after the site is up. **Never aborts the deploy and never keeps the site in maintenance** — a problem becomes a named warning (exit 3). | Warning names the worker; run `sudo supervisorctl restart <name>` (§4a). |
+| 10. Verify *(script step 11)* | (a) HEAD matches `origin/<branch>`. (b) Every reference table has ≥ 1 row. (c) Compiled views recompile cleanly. All three always run; a failure is **named in the banner and exit 4** — the site still comes up (the DB is already migrated, so keeping users out undoes nothing). **There is no automatic rollback**; rolling back is your decision (§6). | See §6 if you decide to roll back. |
+| 11. Up *(script step 12)* | Lifts maintenance mode — traffic resumes. Also done by the script's EXIT trap if anything above went wrong at step 10 or later. | Run `php artisan up` manually. |
 | 12. Summary | Logs the success message with the deploy SHA, backup file path, worker mechanism, and timestamp. Tags the deploy in git for easy reference. | n/a |
+
+---
+
+### 4a. Maintenance mode, queue workers, and what the exit code means
+
+**Maintenance is released by an EXIT trap, decided by how far the deploy got** (not by
+which line happened to fail):
+
+| Where it failed | Maintenance | Why |
+|---|---|---|
+| Steps 1–3 (pre-flight, backup, going down) | released automatically | Nothing has changed; lifting it restores the pre-deploy state. |
+| Steps 4–9 (pull → migrate → seeders → build → caches) | **held ON** | Code and/or DB may be half-changed; new code on a half-migrated schema is worse than a 503. The failure report prints the rollback commands (§6). |
+| Step 10 onward (workers, verify, up) | **always released** | Migrated, built, cached. Locking users out undoes nothing. Problems are reported loudly (exit 3/4), not by holding the site down. |
+
+The trap also runs on Ctrl-C, SIGTERM and **SIGHUP** (a dropped ssh session), with the same
+policy. If the trap itself cannot lift maintenance it prints `COULD NOT LIFT MAINTENANCE MODE`
+and the exact command.
+
+**Why the worker step used to fail (2026-10-07, root cause).** While the site is in
+maintenance, Laravel's *paused* worker loop calls `stopIfNecessary()` without a start time, so
+the `--max-time=3600` test becomes "host uptime ≥ 3600 s" — always true on a host that has
+been up an hour. Every `queue:work --max-time=…` worker therefore **exits 0 about 1.5 s after
+it starts, and supervisor respawns it, for the whole maintenance window** (~450 exits a
+minute on Staging; visible in `/var/log/supervisor/supervisord.log` as
+`exited: corex-worker-staging_… (exit status 0; expected)`, only between `artisan down` and
+`artisan up`). `supervisorctl restart` racing that churn intermittently returns **exit 7 /
+`ERROR (abnormal termination)`** when a worker dies inside supervisor's 1 s start window; under
+`set -e` that aborted the deploy at step 10 with the site down (3 of the 9 Staging deploys in
+the log that reached step 10). It is harmless to jobs (nothing is processed in maintenance) and not a code fault.
+
+**What the script does now** (STEP 10, in order): `queue:restart` signal (failure = warning);
+restart each pool in this environment (`corex-worker-staging*` / `corex-worker-live*` only —
+never another environment's), **tolerating exit 7**; poll `supervisorctl status` up to
+`WORKER_SETTLE_ATTEMPTS` (4) × `WORKER_WAIT_INTERVAL` (5 s), restarting any `FATAL`/`STOPPED`
+worker by name, treating `RUNNING`/`STARTING` as healthy while paused-worker churn makes a
+stable uptime unprovable, and treating a pool that lists *fewer* programs than before as
+unhealthy. After `artisan up` (no churn any more) it checks again for **RUNNING ≥ 3 s** with up
+to `WORKER_WAIT_ATTEMPTS` (8) polls. Any failure is a named warning → exit 3. The wait knobs
+can be overridden from `/etc/hfc-deploy.env`. No new sudo grants are needed (only `status` and
+`restart`; all calls are `sudo -n`).
+
+**If you get exit 3:** read the `⚠ WARNING:` lines (they name the worker + state), then
+`sudo supervisorctl status | grep corex-worker-<env>` and `sudo supervisorctl restart <name>`.
+The site is already serving traffic on the new code.
+
+**Not fixed here (infrastructure decision, not a script change):** the churn itself comes from
+`--max-time=3600` in `/etc/supervisor/conf.d/*.conf` combined with the framework behaviour
+above. Dropping `--max-time` (and recycling workers by `--max-jobs`/`--memory` instead) would
+remove it; that changes how long workers live and is the owner's call.
+
+**Test it without deploying:** `bash scripts/tests/deploy-sh-failure-paths.sh` runs the real
+`deploy.sh` text against fake `git/php/supervisorctl/…` in a sandbox and asserts the policy
+above for 12 failure scenarios (58 checks). `DEPLOY_UNDER_TEST=<old copy>` runs the same suite
+against another version (it fails 33 of the 58 on the pre-fix script, as it should).
 
 ---
 
@@ -295,6 +355,8 @@ If `❌ DEPLOY FAILED` appears, OR post-deploy verification finds a
 problem, restore from the pre-deploy backup taken in step 2. The site
 is in maintenance mode for the entire rollback — users see a 503,
 which is what we want.
+
+> Only reached when you choose it: the script no longer rolls back by itself, and steps 10+ leave the site UP (§4a). Steps 4–9 hold maintenance as described above.
 
 ### 6a. Code-only rollback (NO destructive migrations in this deploy)
 
@@ -424,3 +486,4 @@ deploy from the staging shell" mistakes).
 |---|---|---|
 | 2026-06-02 | DEPLOY-1 | Initial v1. Replaces the legacy four-line deploy script. |
 | 2026-06-02 | DEPLOY-2 | Backup now dumps as the app's `DB_USERNAME` from `.env` (e.g. `nexus`) instead of MySQL root. Optional `MYSQL_BACKUP_USER` override for hosts with a dedicated backup user. Added `BACKUP_MODE` (`offsite` default / `local` for staging-only) — `local` is HARD-REFUSED for production. |
+| 2026-10-07 | cc1 | Worker-restart fix. Root cause documented (§4a): `--max-time` workers exit every ~1.5 s while the site is in maintenance, so `supervisorctl restart` intermittently exits 7. STEP 10 now tolerates it and verifies with a bounded retry (+ a stable re-check after `up`); maintenance is released by an EXIT trap by policy (held only for steps 4–9); exit codes 3/4 added; verify failures no longer leave the site down. Failure-path test harness `scripts/tests/deploy-sh-failure-paths.sh`. |

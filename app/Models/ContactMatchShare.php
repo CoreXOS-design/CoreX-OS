@@ -119,6 +119,8 @@ class ContactMatchShare extends Model
 
             $match?->loadMissing('contact');
             $match?->contact?->touchLastContacted($this->confirmed_at);
+            // Lead response time: a confirmed link share is a genuine first contact.
+            $match?->contact?->recordAgentContact('shared_link', $this->confirmed_at, $this->shared_by_user_id);
 
             return $this;
         });

@@ -207,6 +207,9 @@
     {{-- AT-366-E — company buyer-activity summary --}}
     @includeWhen(isset($buyer), 'performance.agency-report._buyer-summary')
 
+    {{-- Lead response (Johan, 2026-10-07) — same calculation + drill-down as the Buyers Report. --}}
+    @includeWhen(isset($leadResponse), 'performance.agency-report._lead-response')
+
     {{-- Branch rollup (sortable, drillable) — contained horizontal scroll (fix #1) --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">By branch</h2>
@@ -692,7 +695,7 @@ function agencyReport(cfg) {
         // ---- #9 drilldown modal ----
         drillOpen: false, drillLoading: false, drillError: '', drillTitle: '',
         drillColumns: [], drillRows: [],
-        drill(metric, level, id, title) {
+        drill(metric, level, id, title, extra) {
             // A viewer with no branch pages (own-only) drills a branch row as company: the server clamps it to their own rows anyway.
             if (level === 'branch' && !this.branchLinks) { level = 'company'; }
             this.drillOpen = true; this.drillLoading = true; this.drillError = '';
@@ -700,6 +703,7 @@ function agencyReport(cfg) {
             const sep = this.drilldownBase.includes('?') ? '&' : '?';
             let url = this.drilldownBase + sep + 'metric=' + encodeURIComponent(metric) + '&level=' + encodeURIComponent(level);
             if (id !== null && id !== undefined && id !== '') url += '&id=' + encodeURIComponent(id);
+            if (extra) url += '&' + extra;
             fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(r => { if (!r.ok) throw new Error(r.status === 404 ? 'Detail view is coming soon.' : 'Could not load the detail (' + r.status + ').'); return r.json(); })
                 .then(d => { this.drillTitle = d.title || this.drillTitle; this.drillColumns = d.columns || []; this.drillRows = d.rows || []; })

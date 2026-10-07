@@ -2281,6 +2281,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/settings/leave-visibility', [CommandCenterContactGovernanceController::class, 'updateLeaveVisibility'])->middleware('permission:command_center.settings')->name('command-center.settings.leave-visibility.update');
         // Core Matches settings — moved to main Settings, 2026-09-29 (own section, own save action).
         Route::put('/settings/core-matches', [CommandCenterContactGovernanceController::class, 'updateCoreMatches'])->middleware('permission:command_center.settings')->name('command-center.settings.core-matches.update');
+        // Lead response time — target minutes + per-weekday counting hours (Settings → Lead response; also the Setup Wizard's Contacts step).
+        Route::put('/settings/lead-response', [CommandCenterContactGovernanceController::class, 'updateLeadResponse'])->middleware('permission:command_center.settings')->name('command-center.settings.lead-response.update');
         Route::patch('/settings/rules/{rule}/toggle', [CommandCenterSettingsController::class, 'toggleRule'])->name('command-center.settings.toggle-rule');
         Route::post('/settings/expectations', [CommandCenterSettingsController::class, 'storeExpectation'])->name('command-center.settings.store-expectation');
         Route::delete('/settings/expectations/{expectation}', [CommandCenterSettingsController::class, 'destroyExpectation'])->name('command-center.settings.destroy-expectation');
