@@ -42,6 +42,8 @@
     <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary);">What happened to buyers</h2>
     @include('buyers-report._tiles')
 
+    @include('buyers-report._lead-response')
+
     @include('buyers-report._needs-attention')
 
     @include('buyers-report._agent-table')

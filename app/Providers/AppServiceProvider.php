@@ -406,6 +406,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Listeners\Document\FileSupportingBatchOnSplitterCompletion::class,
         );
 
+        // Lead response time (Johan, 2026-10-07) — a genuine contact with a contact stamps their open portal
+        // enquiries with the first response. Spec: .ai/specs/lead-response-time.md.
+        Event::listen(
+            \App\Events\Contact\ContactContactedByAgent::class,
+            \App\Listeners\LeadResponse\RecordLeadFirstResponse::class,
+        );
+
         // The domain-event logging family — every one of these was discovery-only.
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Mandate\LogMandateEvent::class);
