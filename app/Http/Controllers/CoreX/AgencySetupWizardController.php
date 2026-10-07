@@ -200,6 +200,8 @@ class AgencySetupWizardController extends Controller
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
                 // §45.5 (Build I-3) — key => label for how someone attended an inspection.
                 'wzAttendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($agency->id),
+                // §45.14 — key => label for the three move-out classifications.
+                'wzMoveOutClassificationLabels' => \App\Models\RentalInspectionSetting::moveOutClassificationLabelsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
                 // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
                 'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
