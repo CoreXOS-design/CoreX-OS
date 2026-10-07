@@ -170,6 +170,13 @@
                         </div>
                     </div>
                     @permission('outreach.compose')
+                        @if(!empty($possibleMatches))
+                            {{-- Decision 2 (structured address matching): a property that is only a POSSIBLE match is
+                                 already on file — never "Promote" silently; the agent answers same / different. --}}
+                            <div class="mt-2">
+                                @include('corex.deeds-capture._possible-matches', ['tp' => $tp, 'possible' => $possibleMatches, 'promoteAction' => route('corex.tracked-properties.promote', $tp)])
+                            </div>
+                        @else
                         <form method="POST" action="{{ route('corex.tracked-properties.promote', $tp) }}" class="mt-2">
                             @csrf
                             <button type="submit"
@@ -179,6 +186,7 @@
                                 Promote to Stock
                             </button>
                         </form>
+                        @endif
                     @endpermission
                 @endif
 
