@@ -191,6 +191,9 @@
                     <td class="px-4 py-2">
                         @if($showArchived)
                             <span class="ds-badge ds-badge-muted">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                Was {{ $lease->archived_from_status ?: $lease->status }}@if($lease->archive_reason) — {{ \Illuminate\Support\Str::limit($lease->archive_reason, 80) }}@endif
+                            </div>
                         @else
                             <span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ ucfirst($lease->status) }}</span>
                             @if($lease->signingStatusLabel())
@@ -203,12 +206,13 @@
                     <td class="px-4 py-2">R{{ number_format((float) $lease->rental_amount, 2) }}</td>
                     <td class="px-4 py-2 text-right">
                         @if($showArchived)
-                            @permission('leases.create')
-                            <form method="POST" action="{{ route('corex.leases.restore', $lease->id) }}" class="inline">
+                            {{-- Bringing a draft/active tenancy back needs the cancel permission (leases.md §3.8). --}}
+                            @if(auth()->user()->hasPermission('leases.create') && (!in_array($lease->archived_from_status ?: $lease->status, ['draft', 'active'], true) || auth()->user()->hasPermission('leases.cancel')))
+                            <form method="POST" action="{{ route('corex.leases.restore', $lease->id) }}" class="inline" onsubmit="return confirm('Restore this lease?');">
                                 @csrf
-                                <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                                <button type="submit" class="corex-btn-outline text-xs" data-test="lease-restore-button">Restore</button>
                             </form>
-                            @endpermission
+                            @endif
                         @else
                             <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">View</a>
                         @endif

@@ -15,6 +15,7 @@ use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
+use App\Services\Rentals\LeaseArchiveService;
 use App\Services\Rentals\LeaseAgreementTemplateGuard;
 use App\Services\Rentals\LeaseAgreementValuesReader;
 use App\Services\Rentals\LeaseCaptureService;
@@ -850,15 +851,48 @@ class LeaseController extends Controller
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Escalation recorded.');
     }
 
+    /**
+     * leases.md §3.8 — Archive: a reason is required; an active or draft lease is cancelled with it (the property is
+     * released); every status can be archived. Archiving a lease that ends a tenancy needs the cancel permission.
+     */
+    public function archive(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $validated = $request->validate([
+            'archive_reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        $this->abortUnlessMayArchive($request, $lease->status);
+
+        try {
+            app(LeaseArchiveService::class)->archive($lease, $request->user(), $validated['archive_reason']);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withInput()->withErrors($e->errors())->with('error', collect($e->errors())->flatten()->first());
+        }
+
+        return redirect()->route('corex.leases.index')->with('success', 'Lease archived. Find it again under "Show archived".');
+    }
+
+    /**
+     * Kept for existing callers (a bare DELETE): the same archive, with a default reason when none is sent — so a
+     * direct DELETE can no longer hide an ACTIVE lease and leave its property let (leases.md §3.8).
+     */
     public function destroy(Request $request, Lease $lease): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
-        if (!$lease->isDeletable()) {
-            return back()->withErrors(['lease' => 'This lease has escalation history and cannot be deleted — cancel it instead.']);
-        }
+        $validated = $request->validate([
+            'archive_reason' => ['nullable', 'string', 'max:500'],
+        ]);
 
-        $lease->delete();
+        $this->abortUnlessMayArchive($request, $lease->status);
+
+        try {
+            app(LeaseArchiveService::class)->archive($lease, $request->user(), $validated['archive_reason'] ?? 'Archived');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withErrors($e->errors())->with('error', collect($e->errors())->flatten()->first());
+        }
 
         return redirect()->route('corex.leases.index')->with('success', 'Lease archived.');
     }
@@ -868,8 +902,22 @@ class LeaseController extends Controller
         $leaseModel = Lease::withTrashed()->findOrFail($lease);
         $this->guardRentalRecordScope($leaseModel, 'leases', $leaseModel->branch_id);
 
-        $leaseModel->restore();
+        // A lease that was active or a draft comes back as one — bringing a tenancy back needs the cancel permission.
+        $this->abortUnlessMayArchive($request, $leaseModel->archived_from_status ?: $leaseModel->status);
+
+        try {
+            app(LeaseArchiveService::class)->restore($leaseModel, $request->user());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withErrors($e->errors())->with('error', collect($e->errors())->flatten()->first());
+        }
 
         return redirect()->route('corex.leases.show', $leaseModel)->with('success', 'Lease restored.');
+    }
+
+    private function abortUnlessMayArchive(Request $request, ?string $status): void
+    {
+        if (in_array($status, [Lease::STATUS_DRAFT, Lease::STATUS_ACTIVE], true)) {
+            abort_unless($request->user()->hasPermission('leases.cancel'), 403);
+        }
     }
 }

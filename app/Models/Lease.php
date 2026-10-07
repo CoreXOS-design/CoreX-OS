@@ -99,6 +99,9 @@ class Lease extends Model
         'cancelled_at',
         'cancelled_by_user_id',
         'cancel_reason',
+        'archived_by_user_id',
+        'archive_reason',
+        'archived_from_status',
         'migrated_from_table',
         'migrated_from_id',
         // rental-takeon-import.md §6 — read-only, display-only facts about

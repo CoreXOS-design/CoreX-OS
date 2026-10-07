@@ -3585,6 +3585,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/cancel-draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'cancelDraft'])->name('corex.leases.renewal.cancel-draft');
         });
 
+        // leases.md §3.8 — Archive (with a reason) and Restore. The bare DELETE below does the same archive.
+        Route::post('/{lease}/archive', [\App\Http\Controllers\CoreX\LeaseController::class, 'archive'])
+            ->middleware('permission:leases.create')->name('corex.leases.archive');
         Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])
             ->middleware('permission:leases.create')->name('corex.leases.destroy');
         Route::post('/{lease}/restore', [\App\Http\Controllers\CoreX\LeaseController::class, 'restore'])

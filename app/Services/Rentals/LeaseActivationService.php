@@ -49,7 +49,9 @@ class LeaseActivationService
                 ]);
             }
 
+            // An archived lease (deleted_at set) never blocks a new one, whatever status it carries (leases.md §3.8).
             $currentlyActive = Lease::withoutGlobalScopes()
+                ->whereNull('deleted_at')
                 ->where('property_id', $lockedProperty->id)
                 ->where('status', Lease::STATUS_ACTIVE)
                 ->where('id', '!=', $lease->id)
@@ -107,7 +109,7 @@ class LeaseActivationService
      * portal-sync code: Property::isOnMarket() already reads
      * OFF_MARKET_STATUSES, which already contains `let_out`.
      */
-    private function flipPropertyToLeasedOut(Property $property, Lease $lease): void
+    public function flipPropertyToLeasedOut(Property $property, Lease $lease): void
     {
         $leasedOutStatus = 'let_out';
 
