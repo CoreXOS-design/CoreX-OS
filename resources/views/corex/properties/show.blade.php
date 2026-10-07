@@ -4424,7 +4424,7 @@
                         <label class="prop-label">Main Water Valve Location</label>
                         <input type="text" name="rental_main_water_valve_location" form="prop-update-form" value="{{ old('rental_main_water_valve_location', $property->rental_main_water_valve_location) }}" placeholder="e.g. outside, left of the front door" maxlength="255" class="prop-input">
                         @if($property->rental_main_water_valve_photo_path)
-                            <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-2 rounded-md max-h-32">
+                            <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-1 rounded-md max-h-14">
                         @endif
                         <input type="file" name="rental_main_water_valve_photo" form="prop-update-form" accept="image/*" class="mt-2 text-sm">
                     </div>
@@ -4432,7 +4432,7 @@
                         <label class="prop-label">DB Board Location</label>
                         <input type="text" name="rental_db_board_location" form="prop-update-form" value="{{ old('rental_db_board_location', $property->rental_db_board_location) }}" placeholder="e.g. garage, back wall" maxlength="255" class="prop-input">
                         @if($property->rental_db_board_photo_path)
-                            <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-2 rounded-md max-h-32">
+                            <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-1 rounded-md max-h-14">
                         @endif
                         <input type="file" name="rental_db_board_photo" form="prop-update-form" accept="image/*" class="mt-2 text-sm">
                     </div>
@@ -4620,10 +4620,17 @@
                      validation, its own DB transaction, the same
                      authorizeProperty() OWN/BRANCH/AGENCY scoping every other
                      property write already uses. --}}
-                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" enctype="multipart/form-data" class="space-y-4">
+                {{-- Johan, QA1, 2026-10-07 — compact: four label-over-input columns that line up, no spare padding.
+                     Scoped to this form only (the .rental-compact overrides below). --}}
+                <style>
+                    .rental-compact .prop-label { margin-bottom: 2px; font-size: 11px; }
+                    .rental-compact .prop-input, .rental-compact .prop-select { padding-top: 4px; padding-bottom: 4px; font-size: 12px; min-height: 30px; }
+                    .rental-compact .rc-check { min-height: 30px; }
+                </style>
+                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" enctype="multipart/form-data" class="space-y-2 rental-compact">
                     @csrf
                     @method('PUT')
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2 items-end">
                         <div>
                             {{-- .ai/specs/rental-property-tab.md §3, Part 3
                                  (Johan, 2026-09-21) — ONE price type, ONE
@@ -4650,20 +4657,35 @@
                                 @endforeach
                             </select>
                         </div>
-                        <div>
-                            <label class="prop-label">Lease Start Date</label>
-                            <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
-                        </div>
-                        <div>
-                            <label class="prop-label">Lease End Date</label>
-                            <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
-                        </div>
+                        {{-- Johan, QA1, 2026-10-07 — ONE source of truth. While a lease is active these show ITS dates,
+                             read-only and not posted (the lease owns them; change them on the lease). Only with no active
+                             lease are they this property's own editable dates (also the portal "available from" date,
+                             rental-renewals.md §19), so two places can never hold different dates. --}}
+                        @if($activeLease)
+                            <div>
+                                <label class="prop-label">Lease Start Date</label>
+                                <input type="date" value="{{ $activeLease->start_date?->format('Y-m-d') }}" disabled class="prop-input prop-field-date" style="color-scheme: light dark;" title="From the active lease" data-test="property-lease-start-from-lease">
+                            </div>
+                            <div>
+                                <label class="prop-label">Lease End Date</label>
+                                <input type="date" value="{{ $activeLease->end_date?->format('Y-m-d') }}" disabled class="prop-input prop-field-date" style="color-scheme: light dark;" title="{{ $activeLease->end_date ? 'From the active lease' : ($activeLease->is_month_to_month ? 'Month-to-month' : 'No end date on the lease') }}" data-test="property-lease-end-from-lease">
+                            </div>
+                        @else
+                            <div>
+                                <label class="prop-label">Lease Start Date</label>
+                                <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="prop-label">Lease End Date</label>
+                                <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                            </div>
+                        @endif
                         {{-- .ai/specs/rental-renewals.md §19 — whether Lease Start
                              Date (reused as "available from") reaches Property24/
                              Private Property. Also offered as a one-off tick on the
                              Lease Hub's notice dialogs, which persists onto this
                              same setting. --}}
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="show_available_from_on_portals" name="show_available_from_on_portals" value="1" {{ old('show_available_from_on_portals', $property->show_available_from_on_portals) ? 'checked' : '' }} class="rounded">
                             <label for="show_available_from_on_portals" class="prop-label !mb-0">Show available-from date on portals</label>
                         </div>
@@ -4690,7 +4712,7 @@
                             </select>
                         </div>
                         @endif
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                             <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>
                         </div>
@@ -4712,19 +4734,19 @@
                             <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         {{-- .ai/specs/rentals-faults-work-orders.md §3 --}}
-                        <div>
+                        <div class="col-span-2">
                             <label class="prop-label">Main Water Valve Location</label>
                             <input type="text" name="rental_main_water_valve_location" value="{{ old('rental_main_water_valve_location', $property->rental_main_water_valve_location) }}" placeholder="e.g. outside, left of the front door" maxlength="255" class="prop-input">
                             @if($property->rental_main_water_valve_photo_path)
-                                <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-2 rounded-md max-h-32">
+                                <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-1 rounded-md max-h-14">
                             @endif
                             <input type="file" name="rental_main_water_valve_photo" accept="image/*" class="mt-2 text-sm">
                         </div>
-                        <div>
+                        <div class="col-span-2">
                             <label class="prop-label">DB Board Location</label>
                             <input type="text" name="rental_db_board_location" value="{{ old('rental_db_board_location', $property->rental_db_board_location) }}" placeholder="e.g. garage, back wall" maxlength="255" class="prop-input">
                             @if($property->rental_db_board_photo_path)
-                                <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-2 rounded-md max-h-32">
+                                <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-1 rounded-md max-h-14">
                             @endif
                             <input type="file" name="rental_db_board_photo" accept="image/*" class="mt-2 text-sm">
                         </div>
@@ -4744,15 +4766,15 @@
                             <label class="prop-label">Availability Date</label>
                             <input type="date" name="occupation_date" value="{{ old('occupation_date', $property->occupation_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_water_included_settled" name="water_included" value="1" {{ old('water_included', $property->water_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_water_included_settled" class="prop-label !mb-0">Water Included</label>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_electricity_included_settled" name="electricity_included" value="1" {{ old('electricity_included', $property->electricity_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_electricity_included_settled" class="prop-label !mb-0">Electricity Included</label>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_levies_included_settled" name="levies_included" value="1" {{ old('levies_included', $property->levies_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_levies_included_settled" class="prop-label !mb-0">Levies Included</label>
                         </div>
@@ -4770,7 +4792,7 @@
                                 $cfValue = old($cfOldKey, $property->rental_details_custom_field_values[$customField->key] ?? null);
                             @endphp
                             @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_YES_NO)
-                                <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-2 rc-check">
                                     {{-- Hidden + checkbox, not a bare checkbox — an unticked
                                          box must still submit "0" so a REQUIRED yes/no field
                                          is answered (explicitly No), not merely absent. --}}
