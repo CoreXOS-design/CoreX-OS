@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Validator;
 
 class BuyerDetailController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     /**
      * AT-363 — inline accordion page size. The agent sees the matches in
      * place, capped per fetch with a "Load more" append rather than one
@@ -404,6 +406,9 @@ class BuyerDetailController extends Controller
 
     public function markLost(Request $request, Contact $contact)
     {
+        // Same rule as every contact write: an assistant may view a colleague's buyer, not mark them lost.
+        $this->authorizeContact($contact);
+
         $data = $request->validate([
             'reason_code' => 'required|string|max:50',
             'notes' => 'nullable|string|max:2000',

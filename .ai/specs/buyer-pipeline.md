@@ -21,6 +21,15 @@ receive the buyer's lead, changed afterwards only by a user by hand (see `contac
   history (who / when / from / to). Same popup as Core Matches ("Move buyer").
 - Nothing else on the pipeline reassigns; there is no bulk reassign.
 
+## Drag-to-Lost and the assistant rule (2026-10-07, Johan)
+- Dragging a card to **Lost** opens the shared Mark-Lost dialog on the board (reason required; notes and
+  "what did the buyer say" optional; same endpoint and validation as the buyer page and Core Matches). Cancel
+  closes it and the card has not moved. `PATCH …/state` no longer accepts `lost` (422): a buyer can only
+  become Lost with a recorded reason.
+- Move actions (`state`, `mark-lost`, "Move to another agent") apply the assistant rule: an assistant who can
+  see a colleague's buyer cannot move, lose or reassign them (403, and no drag handle / button on that card).
+  Tests: `tests/Feature/CoreMatches/BuyerPipelineLostAndAssistantTest.php`.
+
 ## Acceptance
 Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`
 (`test_the_buyer_pipeline_offers_move_to_another_agent_to_managers_only` and the move tests).
