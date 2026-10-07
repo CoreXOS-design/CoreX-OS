@@ -331,8 +331,10 @@ being worked. Six rulings, all now the spec:
 
 1. Only a branch manager or admin can move a buyer between agents. Ever. An
    agent can never reassign a buyer, including to themselves, by any route.
-2. A note added, the Last Contacted button, a message sent, and a live link
-   shared all reset the working clock.
+2. The Last Contacted button, "Contacted and note", a message sent, and a live
+   link shared reset the working clock. **A plain note does NOT** — amended
+   2026-10-07 (Johan), see "The working clock" below; this SUPERSEDES the
+   original wording "a note added … resets the working clock".
 3. The board is OPEN — assigned agent, first-lead time, last contact, and
    contact notes are visible to everyone.
 4. Live links stay LIVE for the buyer — one permanent link, always current
@@ -496,15 +498,25 @@ it already unifies email + WhatsApp (one `communications` table/model) with
 the manual "Last Contacted" button's own `contacted_marked_at`, via
 `Contact::recomputeLastContacted()`.
 
-Two NEW triggers added, both calling the existing
-`Contact::touchLastContacted()`:
+One NEW trigger added, calling the existing `Contact::touchLastContacted()`:
 
 - **A live link shared** — `ContactMatchShare::record()` (new).
-- **A note added** — hooked via observer on `ContactNote`'s creation
-  (applies to notes generally, not scoped to notes added specifically from
-  a future Core Matches screen — narrower scoping would need new
-  context-tagging plumbing that's out of scope for this build; flagged as
-  an interpretation, not a silent decision).
+
+> **RULING 2026-10-07 (Johan, 07:08) — SUPERSEDES the earlier ruling that any note resets "Last Contacted".**
+> Verbatim: "Only 'Contacted and note' moves it. 'Note only' could be anything and does not mean the
+> contact was contacted; 'Contacted and note' means it."
+>
+> The original build hooked an observer on `ContactNote` creation (`ContactNoteObserver`) so EVERY note,
+> from any screen/API/import/system writer, called `touchLastContacted()`. **That observer is deleted.**
+> Now: a note — contact screen, Core Matches "+ Note" popup, buyer pipeline notes tab, mobile API
+> (`MobileContactNotesController::notesStore`), quick-pick-only note (including the "Contacted" quick pick),
+> edit of a note, and every system-generated note (dead-end flag, "Not selling", opt-out, CSV import) —
+> NEVER moves `last_contacted_at` or `contacted_marked_at`. The ONE note-driven mover is the explicit
+> "Contacted and note" / "Add note & mark contacted" action: `ContactNoteController::store()` with
+> `mark_contacted=1` → `Contact::markContacted()` (AT-372). Real outbound communication captured by CoreX
+> and a confirmed live-link share are unchanged. The "Contacted X ago" chip on Core Matches and the contact
+> lists therefore reflects only real contact. Test: `tests/Feature/Contacts/NoteOnlyDoesNotMarkContactedTest.php`.
+> Existing data was NOT rewritten (see the 2026-10-07 report).
 
 **"A message sent"** needed no new hook — an outbound, sent communication
 already triggers `recomputeLastContacted()` via
@@ -928,8 +940,8 @@ remains (history; the board no longer depends on it).
   colours; renders nothing when the buyer has no pipeline status.
 * "+ Note" button next to the name opens ONE page-level modal with "Note only" / "Contacted and note", posting to the
   contact screen's own endpoint `ContactNoteController::store` (`redirect_to=back` returns to the same board, filters intact).
-  "Note only" still resets Last Contacted / the working clock (any note does — `ContactNoteObserver`, earlier ruling) but records
-  no explicit "contacted" mark. "Contacted and note" = `mark_contacted=1` → also `Contact::markContacted()` (sets
+  "Note only" does NOT move Last Contacted / the working clock (Johan, 2026-10-07 — supersedes the earlier "any note resets it";
+  the `ContactNoteObserver` is gone) and records no explicit "contacted" mark. "Contacted and note" = `mark_contacted=1` → `Contact::markContacted()` (sets
   `contacted_marked_at`; last contacted = later of latest sent message and that mark) — identical to the contact screen. The button shows only where the store would succeed: `access_contacts`,
   the contact bound under its normal ContactScope, and `canMutateContact()` (assistants). The existing read-only "N notes"
   popup stays and shows the same notes.
