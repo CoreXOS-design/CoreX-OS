@@ -126,7 +126,7 @@ Before/after counts per status; per reason (suburb unresolved / numbers disagree
 
 ## 9. Settings (admin-only, defaults, NOT in the Setup Wizard)
 
-Page `/settings/prospecting/address-matching` (inside the Prospecting Setup group, permission `prospecting_setup.manage`, agency admin). Stored in `address_match_settings`.
+Page `/corex/settings/prospecting/address-matching` (inside the Prospecting Setup group, permission `prospecting_setup.manage`, agency admin). Stored in `address_match_settings`.
 
 | Setting | Default | Range |
 |---|---|---|
@@ -169,7 +169,7 @@ Merging duplicate property records (decision 3); the Pull-as-my-own-listing flow
 | 6 | Other consumers: `DeedsCaptureLinkService`, `ContactAddressPropertyGuard`, `MapPinService` fold, `MicPropertyReconciliationService`, `PropertyCmaPropagationService`, `ProspectingStockMatchService` pass 2 — each with its own test file | landed (QA1) |
 | 7 | Backfill command `address:backfill-structured` (dry run first; QA/local/testing only) + QA1 dry run and run | command landed (QA1); QA1 run — see the build report |
 | 8 | Review list + settings page (navigation, permission, CRUD standard) | landed (QA1) |
-| 9 | Extension 3.9.0 | — |
+| 9 | Extension 3.9.0 | landed (QA1) |
 | 10 | QA1 walkthrough for Johan + final report | — |
 
 ### 14.1 What the build found and decided on the way (steps 2–5)
@@ -180,6 +180,8 @@ Merging duplicate property records (decision 3); the Pull-as-my-own-listing flow
 - **Promote (decision 2)** is enforced inside `promoteToStock()` (`$askOnPossible`) so every agent-facing promote — Deeds screen and MIC — asks; programmatic callers (the rental take-on import) behave as before. `$linkToPropertyId` carries the agent's "same — this one".
 - **The structured layer sits beside the raw columns** — `street_core` / `street_type` are new, `street_name` is never rewritten; only EMPTY existing columns are filled (`street_number`, `unit_number`, `complex_name`, `scheme_number`, `erf_portion`, `erf_number`, `properties.p24_suburb_id`).
 - `SuburbResolver` memoisation is off by default (a stale memo could hand back an id from a row that no longer exists; `properties.p24_suburb_id` has a foreign key) and on only inside the backfill.
+
+- **"Nothing to read" is not "could not read".** A record that holds no address text at all (the ~32,000 Property24 / PrivateProperty captures carry a suburb and nothing else) gets an EMPTY parse status, not `unparseable`; the admin Address Review list therefore holds only addresses that exist and could not be read. Found by the QA1 dry run (32,234 of 39,998 captured rows would otherwise have been listed).
 
 ### 14.2 Step 6 — what each consumer does differently now
 

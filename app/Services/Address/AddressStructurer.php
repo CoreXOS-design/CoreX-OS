@@ -70,6 +70,13 @@ final class AddressStructurer
             $parsed['conflicts'][] = 'suburb_unresolved';
         }
 
+        // No address text held at all (a portal listing only ever carries a suburb) is not an address CoreX failed to read:
+        // nothing to review, so the status stays empty and the row never reaches the admin Address Review list.
+        if ($parsed['status'] === 'unparseable' && $parsed['raw'] === null) {
+            $parsed['status'] = null;
+            $parsed['notes'] = [];
+        }
+
         return $parsed;
     }
 

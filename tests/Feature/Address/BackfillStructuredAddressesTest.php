@@ -191,9 +191,18 @@ final class BackfillStructuredAddressesTest extends TestCase
 
     public function test_an_unreadable_row_is_marked_unparseable_not_skipped_or_deleted(): void
     {
-        $p = $this->legacyProperty(['street_name' => null, 'suburb' => '']);
+        $p = $this->legacyProperty(['street_name' => '1575', 'suburb' => 'Leisure Bay']);
         $this->artisan('address:backfill-structured', ['--model' => 'properties'])->assertSuccessful();
         $this->assertSame('unparseable', $this->row('properties', $p->id)->address_parse_status);
+    }
+
+    public function test_a_suburb_only_row_has_nothing_to_read_so_it_never_reaches_the_review_list(): void
+    {
+        // The 32,000 Property24 / PrivateProperty captures on QA1 carry a suburb and nothing else.
+        $p = $this->legacyProperty(['street_name' => null, 'suburb' => 'Durban North']);
+        $this->artisan('address:backfill-structured', ['--model' => 'properties'])->assertSuccessful();
+        $this->assertNull($this->row('properties', $p->id)->address_parse_status);
+        $this->assertSame('durban north', mb_strtolower((string) $this->row('properties', $p->id)->suburb));
     }
 
     public function test_an_unknown_suburb_is_review_and_the_suburb_text_is_untouched(): void

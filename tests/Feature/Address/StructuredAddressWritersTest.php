@@ -120,7 +120,7 @@ class StructuredAddressWritersTest extends TestCase
     {
         $p = $this->property();
         $this->assertNotNull($p->id);
-        $this->assertSame('unparseable', $p->fresh()->address_parse_status);
+        $this->assertNull($p->fresh()->address_parse_status, 'no address text held = nothing to read, so nothing for the review list');
     }
 
     public function test_an_unresolvable_suburb_never_blocks_the_save_and_is_marked_review(): void

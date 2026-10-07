@@ -143,6 +143,9 @@ final class BackfillStructuredAddresses extends Command
                     $updates['lpi_code'] = $refLpi; // the column itself is filled (it was empty)
                 }
                 $status = $updates['address_parse_status'] ?? null;
+                if (array_key_exists('address_parse_status', $updates) && $status === null) {
+                    $this->stats[$table]['status_none'] = ($this->stats[$table]['status_none'] ?? 0) + 1; // no address text held — nothing to read
+                }
                 if ($status !== null) {
                     $this->stats[$table]['status_' . $status] = ($this->stats[$table]['status_' . $status] ?? 0) + 1;
                     if ($status !== 'parsed' && count($this->reviewSample) < 12) {

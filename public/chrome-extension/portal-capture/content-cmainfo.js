@@ -859,6 +859,12 @@
         scheme_number:     property.scheme_no,
         section_number:    property.section_number,
         erf_number:        property.erf_no || null,
+        // v3.9.0 (structured address matching) — read by label on the CMA page since 3.4, never sent until now.
+        // The LPI code carries the erf + portion + township; the server reads them out of it.
+        lpi_code:          property.lpi_code || null,
+        cma_street_number: property.cma_street_number || null,
+        situated_at:       property.situated_at || null,
+        estate:            property.estate || null,
         address:           property.address || property.situated_at || null,
         street_number:     street.number,
         street_name:       street.name,
@@ -1601,6 +1607,11 @@
         scheme_number:     p.scheme_no,
         section_number:    p.section_number,
         erf_number:        p.erf_no || null,
+        // v3.9.0 — same four fields as the pre-check payload above (kept in sync by hand).
+        lpi_code:          p.lpi_code || null,
+        cma_street_number: p.cma_street_number || null,
+        situated_at:       p.situated_at || null,
+        estate:            p.estate || null,
         address:           p.address || p.situated_at || null,
         street_number:     street.number,
         street_name:       street.name,
@@ -1771,6 +1782,33 @@
     return 'Other property on this street in CoreX (different number): ' + names.join('; ');
   }
 
+  // v3.9.0 — plain words for the columns the server's scorer reports (structured address matching, spec §7).
+  const COLUMN_WORDS = { lpi: 'LPI code', erf: 'erf', portion: 'portion', scheme: 'scheme', unit: 'unit', suburb: 'suburb', street: 'street', number: 'street number', type: 'street type', gps: 'GPS' };
+
+  /** "street number, street, suburb" from the scorer's matched_on list; '' when the server sent none (older server). */
+  function describeMatchedOn(match) {
+    const list = match && Array.isArray(match.matched_on) ? match.matched_on : [];
+    const words = list.map((c) => COLUMN_WORDS[c]).filter(Boolean);
+    return words.length ? 'Matched on: ' + words.join(', ') : '';
+  }
+
+  /** "✓ street number · ✓ street · ≈ suburb (neighbouring)" — one verdict per column the server compared. */
+  function describeColumns(match) {
+    const cols = match && match.columns && typeof match.columns === 'object' ? match.columns : null;
+    if (!cols) return '';
+    const parts = [];
+    ['lpi', 'erf', 'portion', 'scheme', 'unit', 'number', 'street', 'type', 'suburb'].forEach((key) => {
+      const verdict = cols[key];
+      if (!verdict || (verdict === 'missing' && key !== 'suburb')) return;
+      let mark = '–';
+      if (verdict === 'agree') mark = '✓';
+      else if (verdict === 'differ' || verdict === 'differ_number' || verdict === 'differ_scheme_number') mark = '≠';
+      else if (verdict === 'neighbour' || verdict === 'partial' || verdict === 'compatible' || verdict === 'one_side') mark = '≈';
+      parts.push(mark + ' ' + COLUMN_WORDS[key] + (key === 'suburb' && verdict === 'neighbour' ? ' (neighbouring suburb)' : '') + (key === 'unit' && verdict === 'one_side' ? ' (unit on one side only)' : ''));
+    });
+    return parts.join(' · ');
+  }
+
   function showDuplicateBanner(precheck) {
     return new Promise((resolve) => {
       injectStyles();
@@ -1778,13 +1816,16 @@
 
       const match = (precheck.matches && precheck.matches[0]) || null;
       const confident = precheck.status === 'exists';
+      // An ADDRESS-based possible match carries the scorer's per-column verdicts; an owner-name possible match does not
+      // and keeps the plain 3.8 banner (Pull anyway / Cancel).
+      const addressPossible = !confident && !!(match && match.columns && typeof match.columns === 'object');
 
       const el = document.createElement('div');
       el.id = BANNER_ID;
 
       const title = document.createElement('span');
       title.className = 'corex-deeds-banner-title';
-      title.textContent = confident ? 'Already in CoreX' : 'Possible match in CoreX';
+      title.textContent = confident ? 'Already in CoreX' : (addressPossible ? 'Possible match — is this the same property?' : 'Possible match in CoreX');
       el.appendChild(title);
 
       const body = document.createElement('span');
@@ -1802,23 +1843,54 @@
       }
       el.appendChild(body);
 
+      // v3.9.0 — exact: say what it was matched on; possible: show each compared column with its verdict.
+      const detail = confident ? describeMatchedOn(match) : (addressPossible ? describeColumns(match) : '');
+      if (detail) {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'corex-deeds-banner-body';
+        detailEl.textContent = detail;
+        el.appendChild(detailEl);
+      }
+
       const actions = document.createElement('div');
       actions.className = 'corex-deeds-banner-actions';
 
-      if (match && match.deeplink) {
-        const openLink = document.createElement('a');
-        openLink.textContent = 'Open in CoreX';
-        openLink.href = match.deeplink;
-        openLink.target = '_blank';
-        openLink.rel = 'noopener';
-        actions.appendChild(openLink);
-      }
+      if (addressPossible) {
+        // "Yes, same — open it" opens the record and does NOT capture (no R3 spent); "No, different — continue the
+        // capture" carries on exactly like Pull anyway. Both are logged (confirmed_same / pulled_anyway).
+        const yes = match.deeplink ? document.createElement('a') : document.createElement('button');
+        yes.textContent = 'Yes, same — open it';
+        if (match.deeplink) {
+          yes.href = match.deeplink;
+          yes.target = '_blank';
+          yes.rel = 'noopener';
+        } else {
+          yes.type = 'button';
+        }
+        yes.addEventListener('click', () => { removePrecheckBanner(); resolve('same'); });
+        actions.appendChild(yes);
 
-      const pullBtn = document.createElement('button');
-      pullBtn.type = 'button';
-      pullBtn.textContent = 'Pull anyway';
-      pullBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
-      actions.appendChild(pullBtn);
+        const no = document.createElement('button');
+        no.type = 'button';
+        no.textContent = 'No, different — continue the capture';
+        no.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+        actions.appendChild(no);
+      } else {
+        if (match && match.deeplink) {
+          const openLink = document.createElement('a');
+          openLink.textContent = 'Open in CoreX';
+          openLink.href = match.deeplink;
+          openLink.target = '_blank';
+          openLink.rel = 'noopener';
+          actions.appendChild(openLink);
+        }
+
+        const pullBtn = document.createElement('button');
+        pullBtn.type = 'button';
+        pullBtn.textContent = 'Pull anyway';
+        pullBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+        actions.appendChild(pullBtn);
+      }
 
       const cancelBtn = document.createElement('button');
       cancelBtn.type = 'button';
@@ -1970,8 +2042,10 @@
 
       if (precheck.status === 'exists' || precheck.status === 'possible_match') {
         setStatus(null);
-        proceed = await showDuplicateBanner(precheck);
-        logPrecheckDecision(preCheckPayload.source_ref, precheck, proceed ? 'pulled_anyway' : 'cancelled');
+        const outcome = await showDuplicateBanner(precheck);
+        proceed = outcome === true;
+        // 'same' = the agent confirmed it is the property CoreX already holds: no capture, no R3 spent.
+        logPrecheckDecision(preCheckPayload.source_ref, precheck, outcome === 'same' ? 'confirmed_same' : (proceed ? 'pulled_anyway' : 'cancelled'));
       } else {
         proceed = true; // not_found — already logged server-side in checkDuplicate(); nothing to confirm
         sameStreetNote = describeSameStreet(precheck);
