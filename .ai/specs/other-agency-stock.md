@@ -311,6 +311,16 @@ A preview/confirm step shows the extracted fields (address, price, beds/baths/ga
 photo count, source agency/agent) before the POST fires, so the agent can catch a bad
 extraction before it becomes a property.
 
+### 5b. Other Agency Stock can never be duplicated (2026-10-07, Johan — QA1 property 21174)
+
+The property page's **Duplicate** action was live on an Other Agency Stock property (a copy would be a second, editable,
+syndicate-able version of another agency's listing). Now:
+
+- **Button**: disabled, with the hover reason "Other Agency Stock is another agency's listing and can't be duplicated. To use it again, import the portal listing again." (`Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON`).
+- **Server**: `PropertyController::duplicate()` and `changeType()` (a duplicate + archive) refuse it — redirect back with the reason, or **403 JSON** for an API-style caller — and `makeClone()` itself throws, so no present or future caller can clone it. `Property::canBeDuplicated()` is the one check.
+- **No other path exists** today: there is no bulk-duplicate on the properties list and no API duplicate route (the one clone route is `corex.properties.duplicate`). A route-table test fails if a second property-cloning route is ever added without extending this guard.
+- Tests: `tests/Feature/Properties/OtherAgencyStockNoDuplicateTest.php` (button + route + JSON + change-type + clone builder + normal property still duplicates).
+
 ## 6. Visibility — a role setting, no hardcoding
 
 `agencies.other_agency_stock_visible_roles` (nullable JSON `string[]`) — a direct column, not a
