@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Schema;
  *   - DERIVED (street_core, street_type, township, lpi_code, address_parse_status/note, tracked
  *     p24_suburb_id/p24_city_id, address_raw once): recomputed when an address source column changed.
  *   - EXISTING columns that are EMPTY (street_number, unit_number, complex_name, scheme_number,
- *     erf_portion, properties.p24_suburb_id): filled ONLY while empty. Nothing already holding a value is
+ *     erf_portion, properties.street_name, properties.p24_suburb_id): filled ONLY while empty. Nothing already holding a value is
  *     ever overwritten — an agent's correction, a form's P24 choice and the raw `street_name` all stand.
  */
 final class AddressStructurer
@@ -148,6 +148,13 @@ final class AddressStructurer
             if ($this->empty($m, $col) && ($s[$col] ?? null) !== null) {
                 $set($col, $s[$col]);
             }
+        }
+
+        // A property typed as free text ("12 Beach Road") has its NUMBER lifted above, so its street NAME must be
+        // lifted with it: PropertyObserver derives `address` from the parts, and a number without its street
+        // collapses the address to "12". Properties only — tracked rows normalise street_name on their own save.
+        if ($m->getTable() === 'properties' && $this->empty($m, 'street_name') && ($s['street_name_typed'] ?? null) !== null) {
+            $set('street_name', $s['street_name_typed']);
         }
 
         return $out;

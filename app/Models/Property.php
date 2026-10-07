@@ -1116,16 +1116,18 @@ class Property extends Model
         // portal-scrape rows + LocationGrouper composites via the same
         // composite key shape they all share (see PropertyAddressKey).
         static::saving(function (Property $property) {
+            // Structured address layer (.ai/specs/structured-address-matching.md §5): the one parser
+            // writes street_core/street_type/status and fills only EMPTY street_number/street_name/unit/complex/P24 suburb.
+            // Absorbs its own failures — a save never fails because of it. Runs FIRST so the normalised
+            // caches below are built from the street name it may just have filled.
+            app(\App\Services\Address\AddressStructurer::class)->apply($property);
+
             if ($property->isDirty('suburb') || $property->suburb_normalised === null) {
                 $property->suburb_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseSuburb($property->suburb);
             }
             if ($property->isDirty('street_name') || $property->street_name_normalised === null) {
                 $property->street_name_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseStreet($property->street_name);
             }
-            // Structured address layer (.ai/specs/structured-address-matching.md §5): the one parser
-            // writes street_core/street_type/status and fills only EMPTY street_number/unit/complex/P24 suburb.
-            // Absorbs its own failures — a save never fails because of it.
-            app(\App\Services\Address\AddressStructurer::class)->apply($property);
         });
     }
 
