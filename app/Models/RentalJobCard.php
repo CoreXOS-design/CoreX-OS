@@ -802,8 +802,7 @@ class RentalJobCard extends Model
 
     public function scopeVisibleTo(Builder $query, User $user, ?string $requestedScope = null): Builder
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_job_cards');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_job_cards', $requestedScope);
 
         if ($scope === 'all') {
             return $query;

@@ -533,7 +533,7 @@ class RentalApplicationAuthorisationController extends Controller
         // amount on the agent's own read-only screen). Same shape as
         // decline()'s own message below: "{Decision} — {contact} …".
         return redirect()->route('corex.rental-applications.authorisation.index')
-            ->with('success', 'Approved — ' . $rentalApplication->contact->full_name . ' for R'
+            ->with('success', 'Approved — ' . ($rentalApplication->contact?->full_name ?: 'the applicant') . ' for R'
                 . number_format((float) $validated['approved_rental_amount'], 2)
                 . ($isSubjectToFica ? ', subject to FICA verification' : '') . '. Saved.');
     }
@@ -649,7 +649,7 @@ class RentalApplicationAuthorisationController extends Controller
         // shorter than approve's — the SHAPE is what has to match, not the
         // field count; an amount-shaped placeholder here would be a lie.
         return redirect()->route('corex.rental-applications.authorisation.index')
-            ->with('success', 'Declined — ' . $rentalApplication->contact->full_name . '. Saved.');
+            ->with('success', 'Declined — ' . ($rentalApplication->contact?->full_name ?: 'the applicant') . '. Saved.');
     }
 
     /**

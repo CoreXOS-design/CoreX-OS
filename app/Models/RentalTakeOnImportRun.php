@@ -75,8 +75,7 @@ class RentalTakeOnImportRun extends Model
      */
     public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rentals_take_on_import');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rentals_take_on_import', $requestedScope);
 
         if ($scope === 'all') {
             return $query;

@@ -760,8 +760,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_inspections');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_inspections', $requestedScope);
 
         if ($scope === 'all') {
             return $query;

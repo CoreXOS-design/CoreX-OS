@@ -597,8 +597,7 @@ class Lease extends Model
      */
     public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'leases');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'leases', $requestedScope);
 
         if ($scope === 'all') {
             return $query;

@@ -1007,10 +1007,19 @@ class RentalApplication extends Model
         return $this->status === 'under_assessment' && $this->submitted_for_approval_at !== null;
     }
 
-    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
+    /**
+     * Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property().
+     *
+     * Also bypasses ContactScope (the user's own contact-list visibility): whether a
+     * user may reach THIS application is decided by RentalApplication::scopeVisibleTo()
+     * and the authoriser guards, and anyone who may open or decide an application
+     * necessarily sees who applied. Left in, a reviewer/branch manager who is allowed to
+     * decide another agent's application got a null contact and a 500 on `->full_name`.
+     * AgencyScope still applies.
+     */
     public function contact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class)->withTrashed();
+        return $this->belongsTo(Contact::class)->withTrashed()->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
     }
 
     /** Same reasoning as contact() above. */
