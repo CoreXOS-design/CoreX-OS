@@ -10,6 +10,7 @@ use App\Models\PlatformEsign\Template;
 use App\Services\PlatformEsign\EsignService;
 use App\Services\PlatformEsign\MergeFields;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -29,6 +30,22 @@ class OwnerController extends Controller
         abort_unless($u && $u->isOwnerRole(), 403);
 
         return $u;
+    }
+
+    /** A query-string value as a trimmed string — an array (?q[]=x) or other junk can never reach a comparison that would 500. */
+    private function qs(Request $request, string $key, string $default = ''): string
+    {
+        $v = $request->query($key, $default);
+
+        return is_scalar($v) ? trim((string) $v) : $default;
+    }
+
+    /** A YYYY-MM-DD date from the query string, or null. */
+    private function qsDate(Request $request, string $key): ?string
+    {
+        $v = $this->qs($request, $key);
+
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
     }
 
     // ── Hub ────────────────────────────────────────────────────────────────
@@ -51,10 +68,10 @@ class OwnerController extends Controller
     public function templates(Request $request)
     {
         $this->owner($request);
-        $q = trim((string) $request->query('q'));
-        $state = $request->query('state', 'active');
-        $sort = $request->query('sort', 'name');
-        $dir = $request->query('dir', $sort === 'updated' ? 'desc' : 'asc') === 'desc' ? 'desc' : 'asc';
+        $q = $this->qs($request, 'q');
+        $state = $this->qs($request, 'state', 'active');
+        $sort = $this->qs($request, 'sort', 'name');
+        $dir = $this->qs($request, 'dir', $sort === 'updated' ? 'desc' : 'asc') === 'desc' ? 'desc' : 'asc';
 
         $query = Template::query();
         if ($state === 'archived') {
@@ -65,10 +82,10 @@ class OwnerController extends Controller
         if ($q !== '') {
             $query->where('name', 'like', '%' . $q . '%');
         }
-        if (($kind = $request->query('kind')) && isset(Template::KINDS[$kind])) {
+        if (($kind = $this->qs($request, 'kind')) !== '' && isset(Template::KINDS[$kind])) {
             $query->where('kind', $kind);
         }
-        if (in_array($source = $request->query('source'), ['web', 'pdf'], true)) {
+        if (in_array($source = $this->qs($request, 'source'), ['web', 'pdf'], true)) {
             $query->where('source', $source);
         }
         $col = ['name' => 'name', 'kind' => 'kind', 'version' => 'version', 'updated' => 'updated_at'][$sort] ?? 'name';
@@ -197,6 +214,7 @@ class OwnerController extends Controller
         abort_unless($template->isPdf(), 404);
         $data = $request->validate([
             'fields' => 'present|array|max:300',
+            'fields.*.id' => 'nullable|integer',
             'fields.*.page_index' => 'required|integer|min:0',
             'fields.*.x' => 'required|numeric', 'fields.*.y' => 'required|numeric',
             'fields.*.w' => 'required|numeric', 'fields.*.h' => 'required|numeric',
@@ -212,7 +230,8 @@ class OwnerController extends Controller
     {
         $this->owner($request);
         abort_unless($template->isPdf() && $page >= 0 && $page < $template->page_count, 404);
-        $path = $this->svc->pagePath('platform-esign/templates/' . $template->id, $page);
+        // The template's current (versioned) folder — a replaced PDF lives in a new folder, the previous one is archived.
+        $path = $this->svc->pagePath(dirname((string) $template->pdf_path), $page);
         abort_unless(Storage::disk(EsignService::DISK)->exists($path), 404);
 
         return response()->file(Storage::disk(EsignService::DISK)->path($path), ['Cache-Control' => 'private, max-age=300']);
@@ -223,10 +242,12 @@ class OwnerController extends Controller
     public function documents(Request $request)
     {
         $this->owner($request);
-        $q = trim((string) $request->query('q'));
-        $status = $request->query('status', '');
-        $sort = $request->query('sort', 'sent');
-        $dir = $request->query('dir', 'desc') === 'asc' ? 'asc' : 'desc';
+        $q = $this->qs($request, 'q');
+        $status = $this->qs($request, 'status');
+        $sort = $this->qs($request, 'sort', 'sent');
+        $dir = $this->qs($request, 'dir', 'desc') === 'asc' ? 'asc' : 'desc';
+        $from = $this->qsDate($request, 'from');
+        $to = $this->qsDate($request, 'to');
 
         $query = Document::with(['agency', 'signers']);
         if ($status === 'archived') {
@@ -241,10 +262,10 @@ class OwnerController extends Controller
                     ->orWhereHas('signers', fn ($s) => $s->where('name', 'like', "%$q%")->orWhere('email', 'like', "%$q%"));
             });
         }
-        if ($from = $request->query('from')) {
+        if ($from) {
             $query->whereDate('sent_at', '>=', $from);
         }
-        if ($to = $request->query('to')) {
+        if ($to) {
             $query->whereDate('sent_at', '<=', $to);
         }
         $col = ['title' => 'title', 'status' => 'status', 'sent' => 'sent_at', 'completed' => 'completed_at'][$sort] ?? 'sent_at';
@@ -253,7 +274,7 @@ class OwnerController extends Controller
         return view('platform-esign.documents.index', [
             'docs' => $query->paginate(25)->withQueryString(),
             'q' => $q, 'status' => $status, 'sort' => $sort, 'dir' => $dir,
-            'from' => $request->query('from'), 'to' => $request->query('to'),
+            'from' => $from, 'to' => $to,
         ]);
     }
 
@@ -280,6 +301,7 @@ class OwnerController extends Controller
             'title' => 'nullable|string|max:255',
             'sequential' => 'nullable|boolean',
             'expiry_days' => 'required|integer|min:1|max:90',
+            'submission_token' => 'nullable|string|max:64',
             'signers' => 'required|array',
             'signers.*.role_key' => 'required|string',
             'signers.*.name' => 'required|string|max:255',
@@ -291,11 +313,29 @@ class OwnerController extends Controller
         $data['sequential'] = $request->boolean('sequential');
         $tpl = Template::findOrFail($data['template_id']);
         abort_if($tpl->isWebdoc(), 404); // web documents are sent from the Subscription Agreement screen
+
+        // Double-submit protection: the form carries a one-off token; a second POST with the same token (double click, back + resubmit)
+        // never creates a second contract or sends a second set of emails. Without a token, an identical send within 30 seconds is the same.
+        $fingerprint = 'platform-esign:send:' . ($data['submission_token'] ?? sha1(json_encode([$u->id, $data['template_id'], $data['agency_id'] ?? null,
+            $data['title'] ?? null, collect($data['signers'])->map(fn ($s) => strtolower(trim($s['email'])))->sort()->values()->all()])));
+        $ttl = !empty($data['submission_token']) ? 600 : 30;
+        if (!Cache::add($fingerprint, 0, $ttl)) {
+            $existing = (int) Cache::get($fingerprint);
+
+            return $existing
+                ? redirect()->route('platform-esign.documents.show', $existing)->with('success', 'This contract was already sent.')
+                : back()->withInput()->withErrors(['send' => 'This contract is already being sent — give it a moment.']);
+        }
         try {
             $doc = $this->svc->send($tpl, $data, $request->file('attachments', []), $u->id);
         } catch (\DomainException $e) {
+            Cache::forget($fingerprint); // nothing was sent: let them correct it and try again
             return back()->withInput()->withErrors(['send' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            Cache::forget($fingerprint);
+            throw $e;
         }
+        Cache::put($fingerprint, $doc->id, $ttl);
         $this->svc->inviteDue($doc, $u->id);
 
         return redirect()->route('platform-esign.documents.show', $doc->id)->with('success', 'Sent for signing.');
@@ -317,7 +357,8 @@ class OwnerController extends Controller
                 $agreements = app(\App\Services\PlatformEsign\Agreement\AgreementService::class);
                 $document->status === 'completed' ? $agreements->reissueAccess($document, $u->id) : $agreements->resend($document, $u->id);
             } else {
-                $this->svc->resend($document, $u->id, (int) $request->input('expiry_days', 14));
+                $days = $request->validate(['expiry_days' => 'nullable|integer|min:1|max:90'])['expiry_days'] ?? 14;
+                $this->svc->resend($document, $u->id, (int) $days);
             }
         } catch (\DomainException $e) {
             return back()->withErrors(['action' => $e->getMessage()]);
@@ -341,20 +382,24 @@ class OwnerController extends Controller
 
     public function reseal(Request $request, Document $document)
     {
-        $this->owner($request);
+        $u = $this->owner($request);
         try {
-            $this->svc->reseal($document);
+            // An already-sealed document is refused unless the owner explicitly forces it (audit-logged, previous copy kept).
+            $this->svc->reseal($document, $request->boolean('force'), $u->id);
         } catch (\DomainException $e) {
             return back()->withErrors(['action' => $e->getMessage()]);
         }
 
-        return back()->with('success', 'Sealed copy rebuilt.');
+        return back()->with('success', $request->boolean('force') ? 'Sealed copy rebuilt; the previous copy is kept as a superseded version.' : 'Sealed copy rebuilt.');
     }
 
     public function download(Request $request, Document $document)
     {
         $u = $this->owner($request);
         abort_unless($document->sealed_pdf_path && Storage::disk(EsignService::DISK)->exists($document->sealed_pdf_path), 404);
+        if (!$this->svc->sealedIntact($document, $u->id)) {
+            return back()->withErrors(['action' => 'The signed PDF on file does not match the fingerprint recorded when it was sealed, so it was not served. This has been logged on the document.']);
+        }
         if ($document->isWebdoc()) {
             $this->svc->log($document, 'signed_copy_downloaded', 'Signed PDF downloaded inside Platform E-Sign', null, $u->id, $request->ip());
         }

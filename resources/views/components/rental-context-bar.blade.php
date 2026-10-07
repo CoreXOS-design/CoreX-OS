@@ -55,7 +55,8 @@
 
         $chips = [
             'property' => ['label' => 'Property' . ($propertyTrashed ? ' (archived)' : ''), 'route' => $propertyTrashed ? null : route('corex.properties.show', $property), 'count' => null],
-            'lease' => ['label' => 'Lease' . ($leaseTrashed ? ' (archived)' : ''), 'route' => $lease ? ($leaseTrashed ? null : route('corex.leases.show', $lease)) : ($propertyTrashed ? null : route('corex.leases.index', ['property_id' => $property->id])), 'count' => null],
+            // leases.md §15.13 (Build L3a) — the chip carries the agreement's signing state once there is one.
+            'lease' => ['label' => 'Lease' . ($leaseTrashed ? ' (archived)' : '') . ($lease?->signingStatusLabel() ? ' · ' . $lease->signingStatusLabel() : ''), 'route' => $lease ? ($leaseTrashed ? null : route('corex.leases.show', $lease)) : ($propertyTrashed ? null : route('corex.leases.index', ['property_id' => $property->id])), 'count' => null],
             'application' => ['label' => 'Application', 'route' => $lease?->rental_application_id ? route('corex.rental-applications.show', $lease->rental_application_id) : null, 'count' => null],
             'inspections' => ['label' => 'Inspections', 'route' => route('corex.rental-inspections.index', array_filter(['lease_id' => $lease?->id, 'property_id' => $property->id])), 'count' => $inspectionsCount],
             'faults' => ['label' => 'Faults', 'route' => route('corex.rental-fault-reports.index', array_filter(['lease_id' => $lease?->id, 'property_id' => $property->id])), 'count' => $faultsCount],

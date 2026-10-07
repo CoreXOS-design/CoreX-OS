@@ -163,6 +163,10 @@ class LeaseRenewalController extends Controller
             return back()->withErrors($e->errors());
         }
 
+        // leases.md §15.13 (Build L3a) — a renewal draft whose lease agreement is still open: the agreement is
+        // closed with it (an unsent flow abandoned, an envelope already out cancelled in e-sign).
+        app(\App\Services\Rentals\LeaseSigningLauncher::class)->closeOpenAgreement($lease->fresh(), $request->user(), $validated['cancel_reason']);
+
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Renewal draft cancelled.');
     }
 

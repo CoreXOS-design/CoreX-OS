@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Services\PlatformEsign\Agreement\AgreementReminders;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 
 /** Expires lapsed Subscription Agreement links and sends the agency / countersign reminders (spec §11.14). Scheduled hourly. */
 class PlatformEsignRemindAgreements extends Command
@@ -14,7 +15,18 @@ class PlatformEsignRemindAgreements extends Command
     public function handle(AgreementReminders $reminders): int
     {
         $dry = (bool) $this->option('dry-run');
-        $r = $reminders->run($dry);
+        // One run at a time, wherever it was started from (scheduler, a manual run, a second server): an overlapping run would remind twice.
+        $lock = Cache::lock('platform-esign:remind-agreements', 900);
+        if (!$lock->get()) {
+            $this->warn('Another run of platform-esign:remind-agreements is already in progress — nothing done.');
+
+            return self::SUCCESS;
+        }
+        try {
+            $r = $reminders->run($dry);
+        } finally {
+            $lock->release();
+        }
         foreach ($r['lines'] as $line) {
             $this->line($line);
         }

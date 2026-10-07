@@ -1419,6 +1419,9 @@ class RentalInspectionRecordingController extends Controller
             'wet_ink_file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
             'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
             'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
+            // §45.5 (Build I-3) — a representative signing on the party's own row. Checked against the
+            // attendance record in RentalInspectionSignature::capture().
+            'signed_by_name' => ['nullable', 'string', 'max:191'],
         ]);
 
         if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
@@ -1444,6 +1447,7 @@ class RentalInspectionRecordingController extends Controller
                 'party_contact_id' => $validated['party_contact_id'] ?? null,
                 'refusal_reason_preset' => $validated['refusal_reason_preset'] ?? null,
                 'refusal_reason_note' => $validated['refusal_reason_note'] ?? null,
+                'signed_by_name' => $validated['signed_by_name'] ?? null,
                 'recorded_by_user_id' => $request->user()->id,
             ];
         } else {
@@ -1598,6 +1602,8 @@ class RentalInspectionRecordingController extends Controller
             $rentalInspection->startAwaitingSignature();
         } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
             return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
+        } catch (\App\Exceptions\RentalInspectionAttendanceMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_attendance' => $e->missingParties], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
@@ -1633,19 +1639,21 @@ class RentalInspectionRecordingController extends Controller
             $rentalInspection->markCompleted();
         } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
             return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
+        } catch (\App\Exceptions\RentalInspectionAttendanceMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_attendance' => $e->missingParties], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
+        // §45.6 (Build I-4) — a failure to send never undoes the completion, but it is no longer swallowed: the inspector
+        // is alerted and the per-recipient outcome is readable in the "Copies sent" panel.
+        $copies = app(\App\Services\Rentals\RentalInspectionCopiesService::class);
         try {
-            $this->fileAndMaybeEmailReport($rentalInspection, $pdfService, $distributionService, autoOnly: true);
+            $copies->fileAndSend($rentalInspection, autoOnly: true);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Rental inspection completion distribution failed', [
-                'inspection_id' => $rentalInspection->id,
-                'error' => $e->getMessage(),
-            ]);
+            $copies->alertSendFailed($rentalInspection, $e);
         }
 
         return response()->json($rentalInspection->fresh());
@@ -1672,50 +1680,14 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => 'This inspection is not yet completed.'], 409);
         }
 
-        $results = $this->fileAndMaybeEmailReport($rentalInspection, $pdfService, $distributionService, autoOnly: false, triggeredBy: $request->user());
+        $all = app(\App\Services\Rentals\RentalInspectionCopiesService::class)
+            ->fileAndSend($rentalInspection, autoOnly: false, triggeredBy: $request->user());
 
-        return response()->json(['results' => $results]);
-    }
-
-    /**
-     * Shared by complete() (auto path) and resendReport() (manual path) so
-     * the two can never drift on WHAT gets filed/emailed — only whether
-     * the auto_send_report_enabled gate applies (auto path only) and
-     * which mode/triggering user gets logged.
-     *
-     * @return array<int, array{role:string, email:string, status:string, message_id:?string, error:?string}>
-     */
-    private function fileAndMaybeEmailReport(
-        RentalInspection $rentalInspection,
-        \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
-        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
-        bool $autoOnly,
-        ?User $triggeredBy = null,
-    ): array {
-        $distributionService->ensurePublicLink($rentalInspection);
-        $pdf = $pdfService->generate($rentalInspection);
-        $pdfBytes = $pdf->output();
-        $filename = $pdfService->filenameFor($rentalInspection);
-
-        $distributionService->fileToProperty($rentalInspection, $pdfBytes, $filename);
-
-        if ($autoOnly && ! RentalInspectionSetting::autoSendReportEnabledFor($rentalInspection->agency_id)) {
-            return [];
-        }
-
-        $pdfPath = tempnam(sys_get_temp_dir(), 'insp-report-') . '.pdf';
-        file_put_contents($pdfPath, $pdfBytes);
-
-        try {
-            return $distributionService->emailParties(
-                $rentalInspection,
-                $pdfPath,
-                $filename,
-                mode: $autoOnly ? 'auto' : 'manual',
-                triggeredBy: $triggeredBy,
-            );
-        } finally {
-            @unlink($pdfPath);
-        }
+        // The Inspections tab's Resend popover lists one line per ADDRESS; a party with no address (a `skipped` row)
+        // has none, so it is returned separately and shown in the inspection page's "Copies sent" panel instead.
+        return response()->json([
+            'results' => array_values(array_filter($all, fn ($r) => $r['status'] !== 'skipped')),
+            'skipped' => array_values(array_filter($all, fn ($r) => $r['status'] === 'skipped')),
+        ]);
     }
 }

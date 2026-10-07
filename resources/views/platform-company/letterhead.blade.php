@@ -2,7 +2,8 @@
      Optional values are OMITTED, never printed as an empty label. Spec: .ai/specs/platform-company-profile.md §4. --}}
 @php
     $pdf = $context === 'pdf';
-    $logo = $pdf ? $c->logoDataUri() : $c->logoUrl();
+    // $inline (default true): a PDF embeds the logo bytes; the on-screen preview of the PDF layout passes false and uses the URL instead.
+    $logo = ($pdf && ($inline ?? true)) ? $c->logoDataUri() : $c->logoUrl();
     $lgPx = $c->logoSizePx(760);   // the one letterhead logo rule (PlatformCompany): fixed height, never upscaled, ≤45% of the header
     $lgPt = $c->logoBoxPt();
     $trading = trim((string) $c->trading_name);

@@ -363,6 +363,90 @@ final class ReviewFlowTest extends TestCase
         ]);
     }
 
+    // ── Regenerate must not empty the agent's picks (presentation 213 / v505, 2026-10-07) ──
+
+    /** Re-hydration soft-deletes every comp and inserts fresh copies of the
+     *  same sales under new ids. The picks must follow the sale, not the id. */
+    public function test_show_carries_picks_onto_rehydrated_copies_of_the_same_sale(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $version = $this->seedPresentationWithVersion($agencyId, $user->id);
+        $old = $this->seedComps($agencyId, $version->presentation_id, 3);
+        $version->forceFill(['included_comp_ids_json' => [$old[0]->id, $old[2]->id]])->save();
+
+        $fresh = $this->rehydrate($old);
+
+        $this->actingAs($user)
+            ->get(route('presentations.review.show', $version->id))
+            ->assertOk();
+
+        $this->assertSame([$fresh[0]->id, $fresh[2]->id], $version->fresh()->included_comp_ids_json);
+        // Same sale, new row — not an "unavailable" event.
+        $this->assertDatabaseMissing('agent_overrides', [
+            'presentation_version_id' => $version->id,
+            'override_type'           => AgentOverride::TYPE_COMP_UNAVAILABLE,
+        ]);
+    }
+
+    public function test_compile_carries_picks_onto_rehydrated_copies_of_the_same_sale(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $version = $this->seedPresentationWithVersion($agencyId, $user->id);
+        $old = $this->seedComps($agencyId, $version->presentation_id, 3);
+        $version->forceFill(['included_comp_ids_json' => [$old[1]->id, $old[2]->id]])->save();
+
+        $fresh = $this->rehydrate($old);
+
+        $this->actingAs($user);
+        $next = (new \App\Services\Presentations\PresentationCompilerService())
+            ->compile($version->presentation_id, $user->id);
+
+        $this->assertSame([$fresh[1]->id, $fresh[2]->id], $next->fresh()->included_comp_ids_json);
+    }
+
+    /** When every pick is genuinely gone the set falls back to "all comps",
+     *  never to [] — [] would blank the CMA tiles on the agent's behalf. */
+    public function test_show_falls_back_to_all_comps_when_every_pick_is_gone(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $version = $this->seedPresentationWithVersion($agencyId, $user->id);
+        $comps = $this->seedComps($agencyId, $version->presentation_id, 3);
+        $version->forceFill(['included_comp_ids_json' => [$comps[0]->id]])->save();
+        $comps[0]->delete();
+
+        $this->actingAs($user)
+            ->get(route('presentations.review.show', $version->id))
+            ->assertOk();
+
+        $this->assertNull($version->fresh()->included_comp_ids_json);
+        $this->assertDatabaseHas('agent_overrides', [
+            'presentation_version_id' => $version->id,
+            'override_type'           => AgentOverride::TYPE_COMP_UNAVAILABLE,
+            'target_id'               => (string) $comps[0]->id,
+        ]);
+    }
+
+    /** [] = the agent unticked everything. The checkboxes must say so —
+     *  they used to render all ticked while the tiles computed from nothing. */
+    public function test_show_renders_an_empty_selection_as_unticked(): void
+    {
+        [$agencyId, $user] = $this->seedAgencyAndUser();
+        $version = $this->seedPresentationWithVersion($agencyId, $user->id);
+        $this->seedComps($agencyId, $version->presentation_id, 2);
+        $version->forceFill(['included_comp_ids_json' => []])->save();
+
+        $resp = $this->actingAs($user)
+            ->get(route('presentations.review.show', $version->id));
+
+        $resp->assertOk();
+        // Read the comp ROWS' own flags. The page's script also mentions the literal
+        // `[data-included="1"]` in a selector, so a blanket assertDontSee would match
+        // that text instead of a ticked row.
+        preg_match_all('/data-comp-id="\d+"\s+data-included="([01])"/', $resp->getContent(), $rowFlags);
+        $this->assertSame(['0', '0'], $rowFlags[1], 'both comp rows must render unticked when the selection is []');
+        $this->assertSame([], $version->fresh()->included_comp_ids_json);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     /** @return array{0:int,1:User} */
@@ -422,6 +506,17 @@ final class ReviewFlowTest extends TestCase
             'review_status'     => PresentationVersion::REVIEW_AWAITING,
             'awaiting_review_at'=> now(),
         ], $versionOverrides));
+    }
+
+    /** Mimic MicSnapshotHydrator: retire every comp, insert fresh copies
+     *  of the same sales (new ids, identical sale fingerprint). */
+    private function rehydrate(\Illuminate\Support\Collection $old): \Illuminate\Support\Collection
+    {
+        $fresh = $old->map(fn (PresentationSoldComp $c) => PresentationSoldComp::create(
+            collect($c->getAttributes())->except(['id', 'deleted_at'])->all()
+        ));
+        $old->each(fn (PresentationSoldComp $c) => $c->delete());
+        return $fresh->values();
     }
 
     /** @return \Illuminate\Support\Collection<PresentationSoldComp> */

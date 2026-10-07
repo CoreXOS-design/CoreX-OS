@@ -11,6 +11,7 @@ use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
 use App\Services\PermissionService;
+use App\Models\RentalInspectionPlannedDate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -310,7 +311,7 @@ class RentalCommandCentreService
      * bindings. Returns null for a tile with no predicate ('all', or an
      * unknown key) — the caller treats null as "always true."
      */
-    private function tilePredicateSql(string $tile, string $today, string $windowEnd, array $activeStatuses): ?array
+    private function tilePredicateSql(string $tile, string $today, string $windowEnd, array $activeStatuses, array $dueNowPropertyIds = []): ?array
     {
         $activeStatusesLower = array_map(fn ($s) => strtolower(trim((string) $s)), $activeStatuses) ?: ['__none__'];
         $activeStatusPlaceholders = implode(',', array_fill(0, count($activeStatusesLower), '?'));
@@ -336,7 +337,13 @@ class RentalCommandCentreService
             // record count shown alongside this property count.
             'open_faults' => ['open_faults_count > 0', []],
             'open_work_orders' => ['open_work_orders_count > 0', []],
-            'inspections_due' => ['(open_inspections_count > 0 OR (active_lease_id IS NOT NULL AND active_lease_completed_in_inspections = 0))', []],
+            // §45.7 (Build I-5) — "inspections due" is: something already open, OR a property with an In/Out inspection
+            // due or overdue (worked out from the leases, tenancy-chain aware), OR an open loaded interim date within its
+            // lead window or overdue. Never a future one. The property ids come from RentalInspectionDueService — the
+            // one definition shared with the needs-action queue and the Due tab — so the tile, its list and the queue agree.
+            'inspections_due' => $dueNowPropertyIds === []
+                ? ['(open_inspections_count > 0)', []]
+                : ['(open_inspections_count > 0 OR id IN (' . implode(',', array_fill(0, count($dueNowPropertyIds), '?')) . '))', array_values($dueNowPropertyIds)],
             default => null,
         };
     }
@@ -364,9 +371,10 @@ class RentalCommandCentreService
 
         $selects = ['COUNT(*) as agg_all'];
         $bindings = [];
+        $dueNowPropertyIds = app(RentalInspectionDueService::class)->dueNowPropertyIds((int) $agencyId);
 
         foreach (self::TILE_KEYS_FOR_AGGREGATE as $key) {
-            [$sql, $predicateBindings] = $this->tilePredicateSql($key, $today, $windowEnd, $activeStatuses);
+            [$sql, $predicateBindings] = $this->tilePredicateSql($key, $today, $windowEnd, $activeStatuses, $dueNowPropertyIds);
             $selects[] = "SUM(CASE WHEN {$sql} THEN 1 ELSE 0 END) as agg_{$key}";
             $bindings = array_merge($bindings, $predicateBindings);
         }
@@ -470,7 +478,10 @@ class RentalCommandCentreService
         $windowEnd = now()->addDays($windowDays)->toDateString();
         $activeStatuses = LeaseSetting::activeRentalStatusesFor($agencyId);
 
-        $predicate = $this->tilePredicateSql($tile, $today, $windowEnd, $activeStatuses);
+        $predicate = $this->tilePredicateSql(
+            $tile, $today, $windowEnd, $activeStatuses,
+            $tile === 'inspections_due' ? app(RentalInspectionDueService::class)->dueNowPropertyIds((int) $agencyId) : []
+        );
         if ($predicate) {
             [$sql, $bindings] = $predicate;
             $query->whereRaw($sql, $bindings);
@@ -718,40 +729,64 @@ class RentalCommandCentreService
             ]);
         });
 
-        // E — active lease with no completed in-inspection.
-        $this->applyPropertyIdScope(
-            $applyQueueFilters(
-                Lease::query()->where('status', Lease::STATUS_ACTIVE)
-                    ->whereNotExists(function ($sub) {
-                        $sub->selectRaw(1)->from('rental_inspections')
-                            ->whereColumn('rental_inspections.lease_id', 'leases.id')
-                            ->whereNull('rental_inspections.deleted_at')
-                            ->where('rental_inspections.type', RentalInspection::TYPE_IN)
-                            ->where('rental_inspections.status', RentalInspection::STATUS_COMPLETED);
-                    }),
-                'start_date'
-            )->with('property'),
-            $user,
-            $scope,
-            'property_id'
-        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today) {
+        // E — inspections due (§45.7, Build I-5). The old rule ("active lease with no completed in-inspection") is now the
+        // In rule below, plus a move-out rule and a loaded-interim-date rule. All three come from
+        // RentalInspectionDueService, so the queue, the "inspections due" tile and the Due tab never disagree, and only
+        // items that are DUE WITHIN THEIR LEAD WINDOW OR OVERDUE appear — never a future one. The viewer's own/branch/agency
+        // scope is applied to the lease query itself (the property scope below), not filtered afterwards.
+        $dueService = app(RentalInspectionDueService::class);
+        $inRange = function ($date) use ($dateFrom, $dateTo) {
+            $d = $date->toDateString();
+
+            return (! $dateFrom || $d >= $dateFrom) && (! $dateTo || $d <= $dateTo);
+        };
+        $dueItems = $dueService->inOutItemsFor(
+            $agencyId,
+            function ($leaseQuery) use ($propertyId, $user, $scope) {
+                $leaseQuery->when($propertyId, fn ($q) => $q->where('leases.property_id', $propertyId));
+                $this->applyPropertyIdScope($leaseQuery, $user, $scope, 'leases.property_id');
+            },
+            $today
+        )->filter(fn (array $i) => $i['state'] !== RentalInspectionDueService::STATE_UPCOMING && $inRange($i['due_on']));
+
+        $dueItems->each(function (array $item) use (&$items, $today) {
+            /** @var Lease $lease */
+            $lease = $item['lease'];
+            $isIn = $item['type'] === RentalInspectionDueService::TYPE_IN;
             $items->push([
-                'type' => 'start_inspection',
-                'urgency' => 3,
-                'age_days' => $lease->start_date ? (int) abs($today->diffInDays($lease->start_date)) : 0,
-                'item_date' => $lease->start_date,
+                'type' => $isIn ? 'start_inspection' : 'start_out_inspection',
+                'urgency' => $item['state'] === RentalInspectionDueService::STATE_OVERDUE ? 2 : 3,
+                'age_days' => (int) abs($today->diffInDays($item['due_on'])),
+                'item_date' => $item['due_on'],
                 'property' => $lease->property,
                 'lease' => $lease,
-                'label' => 'Start inspection',
+                'label' => $isIn ? 'Start inspection' : 'Start move-out inspection',
                 'detail' => 'Tenant: ' . $lease->tenantNames(),
-                // AT-444/AT-441 follow-up (2026-10-05) — RentalInspectionController::
-                // create() (cc1/AT-439) now pre-selects from lease_id/property_id
-                // (landed on origin/QA1 the same day this follow-up was built).
-                // Both passed: lease_id resolves via the controller's own
-                // Lease::visibleTo() scoped lookup (preferred), property_id as
-                // the fallback this queue already carried.
+                // AT-444/AT-441 follow-up (2026-10-05) — RentalInspectionController::create() pre-selects from
+                // lease_id/property_id (+ type); lease_id resolves through the controller's own Lease::visibleTo().
                 'route' => 'corex.rental-inspections.create',
-                'route_params' => ['property_id' => $lease->property_id, 'lease_id' => $lease->id],
+                'route_params' => ['property_id' => $lease->property_id, 'lease_id' => $lease->id, 'type' => $item['type']],
+            ]);
+        });
+
+        $plannedQuery = $dueService->plannedDueNowQuery($agencyId, $today)
+            ->when($propertyId, fn ($q) => $q->where('rental_inspection_planned_dates.property_id', $propertyId))
+            ->when($dateFrom, fn ($q) => $q->whereDate('rental_inspection_planned_dates.planned_on', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->whereDate('rental_inspection_planned_dates.planned_on', '<=', $dateTo))
+            ->with(['property' => fn ($q) => $q->withoutGlobalScopes(), 'lease' => fn ($q) => $q->withoutGlobalScopes()->with('tenants.contact')]);
+        $this->applyPropertyIdScope($plannedQuery, $user, $scope, 'rental_inspection_planned_dates.property_id');
+        $plannedQuery->get()->each(function (RentalInspectionPlannedDate $date) use (&$items, $today) {
+            $items->push([
+                'type' => 'interim_inspection_due',
+                'urgency' => $date->planned_on->lt($today) ? 2 : 3,
+                'age_days' => (int) abs($today->diffInDays($date->planned_on)),
+                'item_date' => $date->planned_on,
+                'property' => $date->property,
+                'lease' => $date->lease,
+                'label' => $date->status === RentalInspectionPlannedDate::STATUS_BOOKED ? 'Interim booked' : 'Interim inspection',
+                'detail' => 'Loaded date ' . $date->planned_on->format('j M Y') . ($date->note ? ' — ' . $date->note : ''),
+                'route' => 'corex.rental-inspections.due',
+                'route_params' => [],
             ]);
         });
 

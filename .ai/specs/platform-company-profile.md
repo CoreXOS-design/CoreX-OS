@@ -67,7 +67,8 @@ via Role Manager) — `routes/web.php:4667-4675`, same as Platform E-Sign. Sideb
 * `platform_company` — exactly one row (`singleton` TINYINT UNIQUE DEFAULT 1, enforced by the DB and by
   `PlatformCompany::current()`): legal_name, trading_name, registration_number, vat_registered, vat_number,
   directors (json `[{name,title}]`), physical_address, postal_address, email_general, email_support,
-  email_accounts, phones (json `[{label,number}]`), websites (json `[url]`), strap_line, letterhead_footer,
+  email_accounts, **send_from_address, send_from_name** (migration `2026_10_06_150100_add_sender_to_platform_company` — the From of every Platform E-Sign /
+  Subscription Agreement email, see §3a), phones (json `[{label,number}]`), websites (json `[url]`), strap_line, letterhead_footer,
   email_signature_html, bank_details (**encrypted** json), logo_id, `version` (optimistic lock), timestamps.
   Seeded **in the migration** (so every environment has it): RR Technologies (Pty) Ltd; trading CoreX OS; reg
   2026 / 444132 / 07; not VAT registered; directors Johan Reichel, Andre Roets; 3123 San Lameer, R61 Lower South
@@ -78,6 +79,19 @@ via Role Manager) — `routes/web.php:4667-4675`, same as Platform E-Sign. Sideb
   `public/images/corex-os-logo.svg` (the CoreX OS wordmark — the repo had no logo file, only the CSS wordmark).
 * `platform_company_audit` — who / when / action / `changes` json `{field:{from,to}}`. Bank details are logged
   as "changed" with no values.
+
+## 3a. Sending address and sender name (`send_from_address`, `send_from_name`)
+The From of **every** Platform E-Sign mail (all six mailables use `SendsFromPlatformCompany`, which calls `PlatformCompany::mailFrom()`) is the
+company's own sending address and name — never the box-wide `MAIL_FROM_*`, which belongs to whichever agency the install was first set up
+for. Replies go to the person who sent the agreement (Reply-To). It is operational, so it is **not** pinned to a sent document (reminders
+always use today's address). On the page: "Sending address" and "Sender name", both required, in Company details.
+* **Validation (syntax only — saving must work offline, so no DNS/MX lookup):** the address is trimmed, lower-cased, an RFC email, max 255,
+  and a bare mailbox — no display name, `<` `>` `"` `,` `;` or whitespace smuggled into it. The sender name is max 150 and cannot contain control
+  characters (line breaks), `<`, `>` or `"` (Symfony's `Address` already strips CR/LF; this refuses them up front).
+* **Domain warning (advisory, never blocks a save):** if the address's domain is not the install's mail domain (`MAIL_FROM_ADDRESS`) or app host
+  (or a parent/child of either), the field shows "The sending address is on X, which is not the domain this system sends mail from …" —
+  mail from a domain that is not set up to send for CoreX is the usual cause of refused or spam-foldered agreement emails.
+* Falls back to the seeded address/name only if the stored address is not a valid email (cannot happen through the page).
 
 ## 4. The interface other lanes call (STABLE — do not rename)
 
@@ -113,15 +127,45 @@ previous version) · Company details · Letterhead (strap line, footer text, liv
 signature (editor + preview + "use standard") · Bank details (optional, encrypted) · History.
 **Search/sort/filter/pagination:** only the History list is a list — newest first, 25 per page, filter by
 action; empty state "No changes recorded yet". **CRUD:** a single-record settings page has no Create/Archive
-by design; logos follow Create (upload) / Read / Replace / Archive-by-supersession (never deleted) / Restore.
+by design; logos follow Create (upload) / Read / Replace / Archive-by-supersession (never deleted) / Restore. Restoring the logo that is
+already current says "already the current one" and writes no audit row.
 **Scoping:** platform-wide, owner only; agencies never reach it. Validation, trimming, optimistic-lock
 (`version`) and transaction-wrapped saves per BUILD_STANDARD §2–4.
+**Layout (restyled 2026-10-06, Johan chose "Settings sidebar"):** a left sidebar lists the six sections and
+stays in view while the page scrolls; only the selected section is shown. The sections are hidden, not removed,
+so there is still ONE form and ONE Save for details/letterhead/signature/bank, and edits survive switching
+sections. Logo (own upload/restore forms, applies immediately) and History (read-only) hide the save bar. The
+live preview (screen, PDF, email signature) opens in a slide-in panel from the save bar. The section to open
+is, in order: the section holding the first server validation error, the `#pc-…` URL hash (history filter and
+old links), the section the user saved from, then Logo. A required field left empty in a hidden section opens
+that section before the browser reports it. No field, route, validation or permission changed.
 
 ## 6. Security notes
 * SVG logo is sanitised on upload (no script, event attributes, `javascript:`, `foreignObject`, external refs)
   and streamed with `nosniff` + a locked-down CSP. The public logo route exposes only the logo (not sensitive).
-* The signature HTML is sanitised server-side (allow-list of tags/attributes; `javascript:`/`data:` URLs
-  stripped except the CoreX logo data-URI) before it is stored and again before it is rendered.
+* **The public logo route does not serve every version.** `/platform-company/logo` (no `l`) is the current logo; `?l=N` is served only
+  when N is 0 (built-in), the current logo, or a version pinned by a Platform E-Sign document snapshot (`company_snapshot.logo_id`, so
+  already-sent emails keep rendering). Any other uploaded version — a superseded or mistaken upload — answers 404 and cannot be found by
+  counting ids. Versioned responses are `immutable` for a year (a version's bytes never change), which keeps mail-image proxies off the
+  throttle. Logos are not deleted: a mistaken upload is withdrawn from the public URL simply by uploading/restoring another logo, because
+  only the current and document-pinned versions are public. (A dedicated "archive this version" button is not built — it needs its own
+  route; not requested.)
+* **Upload limits (decompression bomb):** PNG/JPG at most 2 MB **and** 2000 × 2000 px (a small file can decode to a huge bitmap); at least
+  64 × 32 px. For PDFs a raster logo longer than 1000 px on its longest side is downscaled in memory when embedded
+  (`logoDataUri()`); the stored original is untouched.
+* **Preview payload:** the live-preview JSON and the page's initial preview reference the logo by URL (`letterheadHtml('pdf', false)`),
+  never as base64 — a refresh is a few KB. Only real PDF rendering (`letterheadHtml('pdf')`) embeds the bytes.
+* **Input shape:** a non-text value posted to a text field (`legal_name[]=x`) reads as blank and fails the normal rules with a 422, never a
+  500. A director row with a title but no name, or a phone row with a label but no number, is kept so validation says so ("Each director
+  needs a name"); only a fully blank row is dropped.
+* The signature HTML is sanitised server-side (`App\Support\Platform\SafeHtml::clean` — allow-list of tags/attributes) before it is stored
+  and again before it is rendered. Links: `http`, `https`, `mailto`, `tel` or relative only (any other scheme, however obfuscated with entities,
+  tabs or newlines, is dropped). **Images: remote `http(s)` images are stripped (they are tracking pixels); only the CoreX logo route
+  (`/platform-company/logo`, on this site's own host) or an inline `data:image/(png|jpeg|gif|webp);base64` image of at most ~300 KB survives;
+  every other `data:` URL is removed.** `style` attributes are rebuilt from an allow-list of properties (colour, font, text, spacing, border,
+  width/height, display …) — CSS escapes such as `\75rl(` are DECODED before checking, so they cannot hide a `url(`; `position`, `float`,
+  `z-index`, `background` shorthands and anything with `url(`/`expression(`/`@import` are dropped. Comments and processing instructions are removed.
+  The same sanitiser (profile `wording`) guards the Subscription Agreement wording — see agency-timeline-and-platform-esign.md §11.14.
 * Bank details: `encrypted` cast; never written to the audit log in clear; never part of the letterhead.
 
 ## 7. Consumers / hard-coded leftovers
@@ -149,6 +193,8 @@ at their send. Resend / reminders reuse the pinned snapshot. Agreements sent bef
 when the migration ran; a document with no snapshot (should not occur) falls back to the live record.
 
 ## 7b. Logo on the contract letterhead
+> Superseded by §4a: the display height is 60 px / 45 pt and the width cap is 45% of the header; the paragraph below is the original wording.
+
 Screen sheets and PDFs (sealed, wet-ink download, attestation) show the pinned logo at a **fixed 40 px / 34 pt height** with the company
 block (name, address, contact line) beside it. PDF width follows the logo's own proportions, capped at 190 pt (a very wide logo is scaled down
 keeping its proportions so it can never squeeze the company block); screen uses `object-fit: contain` inside a 220 px cap. With no uploaded
@@ -168,13 +214,21 @@ logo the built-in CoreX OS wordmark is used (`public/images/corex-os-logo.svg`).
 5. Every save writes an audit row; a failed save leaves nothing behind (no half-saved row, no orphan file).
 6. A stale form (someone saved in between) is refused with a plain message, not overwritten.
 7. Platform E-Sign emails carry the company signature.
+8. Every Platform E-Sign email is sent From the company's sending address and sender name (§3a); an address with a display name, brackets,
+   commas or spaces, or a sender name with line breaks / `<` `>` `"`, is refused with a plain message; a sending address on another domain
+   shows a warning but saves.
+9. `/platform-company/logo?l=N` serves only the built-in, current or document-pinned logo versions; any other id is a 404.
+10. A logo over 2000 px on either side is refused with no file left behind; the PDF embeds a bounded version; the preview JSON carries
+    no base64 image.
+11. `legal_name[]=x`-style input is a validation error, not a server error; a director/phone row with a title/label but no name/number
+    is reported; restoring the current logo does not claim it was restored.
 
 ## 4a. Letterhead logo sizing — one rule everywhere (cc2, 2026-10-06, follow-up after the Staging promo)
 Whatever logo is uploaded, it is displayed by ONE rule (`PlatformCompany::logoSizePx()` / `logoBoxPt()` / `logoMetrics()`):
 - **fixed display height** — 60px on screen, 45pt in the PDFs (the same height); **width follows the logo's shape**;
 - **never wider than 45% of the header** (then scaled down together, keeping its shape) so it can never squeeze the company details beside it;
 - **never upscaled past its own size** (a 40×20 px image is shown at 40×20 px, not blown up);
-- **crisp in the PDFs**: a raster logo is embedded at its full resolution and scaled down by DomPDF; an SVG stays vector.
+- **crisp in the PDFs**: a raster logo is embedded at up to 1000 px on its longest side (larger ones are downscaled in memory first, uploads are capped at 2000 × 2000 px) and scaled down by DomPDF; an SVG stays vector.
 Used by: the agreement sheets (recipient page, owner preview, RR countersign screen), the agreement and attestation PDF headers (`AgreementCompany::logoBoxPt()` delegates here), `/legal`, the email signature block, and the company page letterhead previews (web and PDF).
 The company page shows the uploaded image's pixel size and a recommendation: the logo on its own, landscape about 3:1 (e.g. 900 × 300 px), trimmed tight with no empty space, transparent PNG / white background or SVG, at least 300 px tall, up to 2 MB — not a whole letterhead page with the address on it.
 The rule never crops: if an uploaded image has large empty margins (or contains the whole letterhead), the mark simply looks small — that is reported to the owner, not silently trimmed.

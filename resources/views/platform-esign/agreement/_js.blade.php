@@ -84,7 +84,8 @@
             if (initial && cur !== '' && cur !== s) { touched[t] = true; }
             if (!touched[t] && s !== '' && cur !== s) { setVal(t, s); if (t !== 'branches_start') { pending[t] = s; } }
         });
-        var today = (function () { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); })();
+        // The server's date (Africa/Johannesburg) — never the browser clock/timezone, so the printed date always agrees with the signing time.
+        var today = C.today || (function () { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); })();
         ['sig_date', 'm_date'].forEach(function (k) { if (els(k).length && !val(k)) { setVal(k, today); pending[k] = today; } });
         if (els('m_day').length && !val('m_day')) { setVal('m_day', '1'); pending.m_day = '1'; }
     }
@@ -92,9 +93,16 @@
     // ── autosave (recipient) ───────────────────────────────────────────────
     var pending = {}, saveTimer = null, saving = false, rev = C.rev || 0, statusEl = $('#savestate');
     function setState(t) { if (statusEl) statusEl.textContent = t; }
-    function queue() { if (mode !== 'form') return; clearTimeout(saveTimer); setState('Saving…'); saveTimer = setTimeout(flush, 700); }
+    var dead = false; // the link or the session is gone: stop retrying, tell the person once, keep what was typed on screen
+    function deadMessage(status) {
+        return status === 419 ? 'This page has been open too long and its session has ended. Reload the page to carry on — what you entered earlier is saved.'
+            : 'This link is no longer valid — it may have been replaced by a newer email from us. Open the latest email we sent you, then carry on there.';
+    }
+    function goDead(status) { dead = true; setState('Not saved — reload the page'); toast(deadMessage(status), 15000); }
+    function restore(batch) { Object.keys(batch).forEach(function (k) { if (!(k in pending)) pending[k] = batch[k]; }); }
+    function queue() { if (mode !== 'form' || dead) return; clearTimeout(saveTimer); setState('Saving…'); saveTimer = setTimeout(flush, 700); }
     function flush() {
-        if (mode !== 'form') return Promise.resolve();
+        if (mode !== 'form' || dead) return Promise.resolve();
         if (saving) { saveTimer = setTimeout(flush, 400); return Promise.resolve(); }
         var keys = Object.keys(pending); if (!keys.length) { setState('All changes saved'); return Promise.resolve(); }
         var batch = pending; pending = {}; saving = true;
@@ -102,13 +110,16 @@
             saving = false;
             if (r.status === 200) { rev = r.body.rev; setState('Saved ' + (r.body.saved_at || '')); if (Object.keys(pending).length) queue(); }
             else if (r.status === 409) {
+                // Another window saved first. Take its values only for boxes this window did not touch; what was in flight (and anything typed since)
+                // is kept and saved again on top of the new revision — a conflict never throws typed entries away.
                 rev = r.body.rev; var v = r.body.values || {};
-                Object.keys(v).forEach(function (k) { if (!(k in pending)) setVal(k, v[k]); });
-                batch = {}; setState('Updated from another window'); toast(r.body.message || 'This agreement was updated in another window.', 6000); recalcAll();
+                Object.keys(v).forEach(function (k) { if (!(k in batch) && !(k in pending)) setVal(k, v[k]); });
+                restore(batch); setState('Updated from another window — your latest entries were kept'); toast((r.body.message || 'This agreement was updated in another window.') + ' Your latest entries were kept.', 6000); recalcAll(); queue();
             }
-            else { Object.keys(batch).forEach(function (k) { if (!(k in pending)) pending[k] = batch[k]; }); setState('Not saved — ' + (r.body.message || 'check your connection')); if (r.body.message) toast(r.body.message, 6000); }
+            else if (r.status === 419 || r.status === 404) { restore(batch); goDead(r.status); }
+            else { restore(batch); setState('Not saved — ' + (r.body.message || 'check your connection')); if (r.body.message) toast(r.body.message, 6000); }
             outstanding();
-        }).catch(function () { saving = false; Object.keys(batch).forEach(function (k) { if (!(k in pending)) pending[k] = batch[k]; }); setState('Not saved — offline? Retrying…'); saveTimer = setTimeout(flush, 4000); });
+        }).catch(function () { saving = false; restore(batch); setState('Not saved — offline? Retrying…'); saveTimer = setTimeout(flush, 4000); });
     }
     function recalcAll() { calc(); applyMirrors(false); paintMirrors(); paintFollow(); outstanding(); }
 
@@ -260,7 +271,9 @@
         }
         p.then(function (r) {
             if (r.status === 200 && r.body.redirect) { window.location.href = r.body.redirect; return; }
+            if (r.body && typeof r.body.rev === 'number') { rev = r.body.rev; } // a refused submit stored what was typed and moved the revision on
             sbtn.disabled = false; setState('');
+            if (r.status === 419 || r.status === 404) { goDead(r.status); return; }
             if (r.body.errors) { showErrors(r.body.errors); toast(r.body.message || 'Some details still need attention.', 6000); } else { toast(r.body.message || 'Could not submit. Please try again.', 6000); }
         }).catch(function () { sbtn.disabled = false; toast('Could not reach the server — your entries are saved. Try again.', 6000); });
     });
@@ -302,6 +315,6 @@
     if (mode === 'form') { calc(); paintMirrors(); paintFollow(); } // the other screens show the server's own figures — they have no entries to recalculate from
     paintInitials(); outstanding();
     if (mode === 'form' && Object.keys(pending).length) { queue(); }
-    window.addEventListener('beforeunload', function () { if (mode === 'form' && Object.keys(pending).length) { navigator.sendBeacon && 0; } });
+    window.addEventListener('beforeunload', function (e) { if (mode === 'form' && (Object.keys(pending).length || saving)) { e.preventDefault(); e.returnValue = ''; } });
 })();
 </script>

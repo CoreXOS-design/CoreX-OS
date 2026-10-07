@@ -55,6 +55,11 @@ final class RentalInventoryDistributionTest extends TestCase
     {
         parent::setUp();
         \Illuminate\Support\Facades\Auth::logout();
+        // Outside production the distribution service suppresses every send unless
+        // a redirect address is configured (the QA box has none in its .env), so a
+        // test that expects a send must set the one permitted test address itself.
+        // Mail::fake() below still intercepts everything: nothing can leave the box.
+        config(['mail.non_production_redirect' => 'can.assurance@gmail.com']);
 
         $this->agency = Agency::create(['name' => 'Distribution Test Agency', 'slug' => 'dist-test-' . uniqid()]);
         $this->branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);

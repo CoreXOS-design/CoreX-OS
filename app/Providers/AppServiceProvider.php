@@ -265,6 +265,9 @@ class AppServiceProvider extends ServiceProvider
         // RentalInspectionController is cc1's file (off limits); an
         // observer reacts to the state change itself, no controller edit.
         \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionCompletionObserver::class);
+        // INSPECTIONS I-5 BEGIN — a loaded interim date follows the inspection booked from it (§45.7).
+        \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionPlannedDateObserver::class);
+        // INSPECTIONS I-5 END
         CommandTask::observe(CommandTaskObserver::class);
         CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
 
@@ -1040,6 +1043,22 @@ class AppServiceProvider extends ServiceProvider
             $by = ($key instanceof \App\Models\AgencyApiKey) ? ('key:' . $key->getKey()) : ('ip:' . $request->ip());
 
             return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by($by);
+        });
+
+        // Platform E-Sign public signing links (audit C-L1). The stock `throttle:60,1` keys by IP alone, so every such route shared ONE
+        // bucket per IP (an office sharing a connection, or one signer scrolling a 60-page PDF, starved everyone). Keyed per token + IP,
+        // with a generous per-IP ceiling behind it; the page-image route has its own, higher, limiter.
+        \Illuminate\Support\Facades\RateLimiter::for('platform-esign-sign', function (\Illuminate\Http\Request $request) {
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(60)->by('pe-sign:' . $request->route('token') . '|' . $request->ip()),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(300)->by('pe-sign-ip:' . $request->ip()),
+            ];
+        });
+        \Illuminate\Support\Facades\RateLimiter::for('platform-esign-asset', function (\Illuminate\Http\Request $request) {
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(300)->by('pe-asset:' . $request->route('token') . '|' . $request->ip()),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(1200)->by('pe-asset-ip:' . $request->ip()),
+            ];
         });
 
         // "Ask my agent to set up a new list for me" on the expired-share-link

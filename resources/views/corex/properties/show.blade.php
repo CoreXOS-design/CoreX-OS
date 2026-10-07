@@ -8563,6 +8563,17 @@
                 // §45.3 (Build I-1) — the server's list of checklist items still ungraded when a
                 // complete / send-for-signature attempt was refused. Cleared on every new attempt.
                 ungradedItems: [],
+                // §45.5 (Build I-3) — attendance panel state. The board itself (expected parties, recorded
+                // outcomes, invitation lines) arrives with each inspection as insp.attendance_board and is
+                // replaced wholesale by every response from the attendance endpoints.
+                attendanceError: '',
+                attendanceBusy: false,
+                attendanceAttention: false,
+                attForm: {},
+                invForm: {},
+                otherForm: { open: false, name: '', as: 'co_occupant', arrived: '' },
+                invitationMethods: {{ Js::from(\App\Services\Rentals\RentalInspectionAttendanceService::INVITATION_METHODS) }},
+                attendedAsLabels: {{ Js::from(\App\Models\RentalInspectionSetting::attendedAsLabelsFor($property->agency_id)) }},
                 discForm: {},
                 discBusy: {},
                 // FIX, 2026-09-27 — same root cause as isMarkGoodBusy()/
@@ -8603,6 +8614,125 @@
                 jumpToMissingRequiredNotes(section, e) {
                     (e?.data?.missing_required_notes || []).forEach(m => {
                         if (m.room_id) this.roomOpenOverride[section + '_' + m.room_id] = true;
+                    });
+                },
+
+                // ── §45.5 (Build I-3) — who attended, and the invitation trail ──────────
+                attendanceBoard(section) {
+                    const insp = this.currentInspection(section);
+                    return insp && insp.attendance_board ? insp.attendance_board : null;
+                },
+                attendanceRows(section) {
+                    const board = this.attendanceBoard(section);
+                    return board ? board.rows : [];
+                },
+                attendanceOthers(section) {
+                    const board = this.attendanceBoard(section);
+                    return board ? board.others : [];
+                },
+                // Completed / cancelled inspections are evidence — the panel then only shows what is on record.
+                attendanceEditable(section) {
+                    const insp = this.currentInspection(section);
+                    return !!insp && !['completed', 'cancelled'].includes(insp.status);
+                },
+                attendanceSummary(section) {
+                    const board = this.attendanceBoard(section);
+                    if (!board) return '';
+                    return board.recorded + ' of ' + board.expected + ' recorded · ' + board.attended + ' attended';
+                },
+                attendanceRoleLabel(role) {
+                    return { tenant: 'Tenant', landlord: 'Landlord', agent: 'Agent', other: 'Other' }[role] || role;
+                },
+                attendanceOutcomeText(a) {
+                    if (!a) return '';
+                    if (a.outcome === 'did_not_attend') return 'Did not attend';
+                    let text = 'Attended';
+                    if (a.attended_as && a.attended_as !== 'self') {
+                        text += ' — ' + (this.attendedAsLabels[a.attended_as] || a.attended_as) + (a.attendee_name ? ' (' + a.attendee_name + ')' : '');
+                    }
+                    if (a.arrived_at) text += ', arrived ' + a.arrived_at;
+                    return text;
+                },
+                attFormFor(key) {
+                    return this.attForm[key] || (this.attForm[key] = { open: false, name: '', arrived: '' });
+                },
+                invFormFor(key) {
+                    return this.invForm[key] || (this.invForm[key] = { open: false, method: '', at: '' });
+                },
+                _attendanceUrl(insp, suffix) {
+                    return this.inspectionUrls.inspectionsBase + '/' + insp.id + '/attendance' + (suffix || '');
+                },
+                async ensureAttendanceBoard(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp || insp.attendance_board) return;
+                    try {
+                        const res = await fetch(this._attendanceUrl(insp), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                        if (res.ok) insp.attendance_board = (await res.json()).attendance_board;
+                    } catch (e) {}
+                },
+                async _attendanceCall(section, suffix, body) {
+                    const insp = this.currentInspection(section);
+                    this.attendanceBusy = true;
+                    this.attendanceError = '';
+                    try {
+                        const result = await this._post(this._attendanceUrl(insp, suffix), body);
+                        insp.attendance_board = result.attendance_board;
+                        this.attendanceAttention = false;
+                        return true;
+                    } catch (e) {
+                        this.attendanceError = e.message;
+                        return false;
+                    } finally { this.attendanceBusy = false; }
+                },
+                async recordAttendance(section, row, outcome, onBehalf) {
+                    const form = this.attFormFor(row.key);
+                    const ok = await this._attendanceCall(section, '', {
+                        party_role: row.party_role,
+                        party_contact_id: row.contact_id,
+                        party_user_id: row.user_id,
+                        outcome: outcome,
+                        attended_as: onBehalf ? 'representative' : 'self',
+                        attendee_name: onBehalf ? form.name : null,
+                        arrived_at: form.arrived || null,
+                        client_idempotency_key: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null,
+                    });
+                    if (ok) { form.open = false; form.name = ''; form.arrived = ''; }
+                },
+                async withdrawAttendance(section, attendanceId) {
+                    await this._attendanceCall(section, '/' + attendanceId + '/withdraw', {});
+                },
+                async addOtherAttendee(section) {
+                    const form = this.otherForm;
+                    const ok = await this._attendanceCall(section, '', {
+                        party_role: 'other',
+                        outcome: 'attended',
+                        attended_as: form.as,
+                        attendee_name: form.name,
+                        arrived_at: form.arrived || null,
+                        client_idempotency_key: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null,
+                    });
+                    if (ok) { form.open = false; form.name = ''; form.arrived = ''; form.as = 'co_occupant'; }
+                },
+                async recordInvitationGiven(section, row) {
+                    const form = this.invFormFor(row.key);
+                    const insp = this.currentInspection(section);
+                    const ok = await this._attendanceCall(section, '-invitations', {
+                        party_role: row.party_role,
+                        party_contact_id: row.contact_id,
+                        party_user_id: row.user_id,
+                        method: form.method,
+                        occurred_at: form.at || null,
+                    });
+                    if (ok) { form.open = false; form.method = ''; form.at = ''; }
+                },
+                // The completion guard's list of parties with no outcome yet — flag the panel and bring it into view.
+                _noteMissingAttendance(section, e) {
+                    const missing = e && e.data && e.data.missing_attendance ? e.data.missing_attendance : [];
+                    if (!missing.length) return;
+                    this.attendanceAttention = true;
+                    this.$nextTick(() => {
+                        const el = document.getElementById('attendance-panel');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     });
                 },
 
@@ -8649,7 +8779,7 @@
                         // Nothing types into these three directly, so a
                         // plain merge (no snapshot/unchanged check) is safe.
                         this._mergeFields(insp, updated, ['status', 'completed_at', 'fault_report_deadline_at']);
-                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section, e); this.jumpToMissingRequiredNotes(section, e); }
+                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section, e); this._noteMissingAttendance(section, e); this.jumpToMissingRequiredNotes(section, e); }
                 },
 
                 async startAwaitingSignature(section) {
@@ -8720,6 +8850,21 @@
                 activeSigningKey: null,
                 signaturePads: {},
 
+                // §45.6 (Build I-4 top-up) — true when everything Complete asks for from the PARTIES is already in: every
+                // party has a signing outcome (none still waiting for a paper scan), the agent has signed, and every
+                // expected party has an attendance outcome. Display only — the server re-checks all of it (and also
+                // enforces unrecorded items and required notes, which this deliberately does not claim).
+                readyToComplete(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp || insp.status !== 'awaiting_signature') return false;
+                    const live = (insp.signatures || []).filter(sg => !sg.superseded_at);
+                    if (live.some(sg => sg.disposition === 'awaiting_wet_ink')) return false;
+                    if (!live.some(sg => sg.party_role === 'agent')) return false;
+                    if (this.inspectionTenants(section).some(t => !this.tenantDisposition(section, t.contact_id))) return false;
+                    if (this.landlordContact && !this.landlordDisposition(section)) return false;
+                    const board = this.attendanceBoard(section);
+                    return !!board && board.complete;
+                },
                 inspectionTenants(section) {
                     return this.currentInspection(section)?.lease?.tenants || [];
                 },
@@ -8746,9 +8891,14 @@
                 // wet-ink can never be mistaken for "Signed" (an e-signature).
                 // Conductor brief 2026-09-29 — awaiting_wet_ink gets its own
                 // label, distinct from a resolved wet_ink upload.
-                dispositionLabel(sig) {
+                dispositionLabel(sig, section) {
                     if (!sig) return '';
-                    if (sig.disposition === 'refused') return 'Refused';
+                    if (sig.disposition === 'refused') {
+                        // §45.5 — a party recorded as having not attended has no signature, not a refusal.
+                        const row = section ? this.attendanceRows(section).find(r => r.party_role === sig.party_role && (r.contact_id || null) === (sig.party_contact_id || null)) : null;
+                        if (row && row.attendance && row.attendance.outcome === 'did_not_attend') return 'No signature — did not attend';
+                        return 'Refused';
+                    }
                     if (sig.disposition === 'wet_ink') return 'Signed on paper';
                     if (sig.disposition === 'awaiting_wet_ink') return 'Awaiting paper signature';
                     return 'Signed';

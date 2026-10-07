@@ -533,6 +533,33 @@
         </div>
     </form>
 
+    {{-- §45.5 (Build I-3) — the agency's own words for how someone attended an inspection. The four ways
+         are fixed by the attendance record; only the labels are yours. A blank label keeps its default. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.attended-as-labels') }}" class="space-y-3">
+        @csrf
+        <input type="hidden" name="attended_as_labels_submitted" value="1">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">How someone attended an inspection</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The wording used on the attendance record, the signed report and the report link. The four ways are fixed; reword each to match your own paperwork.
+                </p>
+                @foreach(\App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS as $attendedKey => $attendedDefault)
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs w-40" style="color: var(--text-muted);">{{ $attendedDefault }} (default)</span>
+                        <input type="text" name="attended_as_labels[{{ $attendedKey }}]" maxlength="60" value="{{ old('attended_as_labels.' . $attendedKey, $attendedAsLabels[$attendedKey]) }}"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save wording</button>
+        </div>
+    </form>
+
     {{-- §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
          setting, default ON." Filing to the property is never optional
          (this toggle only governs the automatic EMAIL); the manual
@@ -562,6 +589,41 @@
                     Sent from the completing agent's own mailbox, with a copy in their Sent Items and the agent CC'd.
                     Turning this off does not remove the manual "Resend report" button on a completed inspection.
                 </p>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
+
+    {{-- §45.6 (Build I-4) — who else is copied on the completed report. The tenant(s) and landlord(s) always are. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.report-copies') }}" class="space-y-3" data-qa="report-copies-form">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Who else gets a copy of the report</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The tenant(s) and landlord(s) on the lease always receive the signed report. These are the extra copies.
+                </p>
+                <div>
+                    <label for="report_agency_copy_emails" class="block text-sm" style="color: var(--text-primary);">Agency copy address(es)</label>
+                    <input id="report_agency_copy_emails" type="text" name="report_agency_copy_emails" maxlength="2000"
+                           value="{{ old('report_agency_copy_emails', $reportAgencyCopyEmails) }}" placeholder="e.g. rentals@youragency.co.za"
+                           class="mt-1 w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">Separate several with commas. Leave empty for none. Up to {{ \App\Models\RentalInspectionSetting::MAX_REPORT_AGENCY_COPY_ADDRESSES }}.</p>
+                </div>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="report_copy_inspector" value="0">
+                    <input type="checkbox" name="report_copy_inspector" value="1" @checked($reportCopyInspector)>
+                    Send a copy to the inspector who ran the inspection
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="report_copy_creator" value="0">
+                    <input type="checkbox" name="report_copy_creator" value="1" @checked($reportCopyCreator)>
+                    Send a copy to the agent who created the inspection
+                </label>
             </div>
         </div>
         <div class="flex justify-end">
@@ -631,6 +693,44 @@
         </div>
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
+
+    {{-- §45.7 (Build I-5) — due dates and the agency's own loaded interim dates. There is deliberately no "interim every N
+         months" setting: CoreX never works out an interim date — the agency loads the dates it wants on the Due tab. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.due-dates') }}" class="space-y-3" data-qa="due-dates-form">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Due inspections and reminders</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The agent responsible for a property is reminded (in CoreX and by email) when a move-in or move-out inspection
+                    is due, and about the interim inspection dates your agency has loaded on the Due tab. Tenants and landlords
+                    are never contacted by these reminders — they are invited when the inspection is booked.
+                </p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="raise_due_inspections_enabled" value="0">
+                    <input type="checkbox" name="raise_due_inspections_enabled" value="1" @checked($raiseDueInspectionsEnabled)>
+                    Remind the agent when a move-in or move-out inspection is due
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs font-medium">Interim date reminder — days before</label>
+                        <input type="number" name="planned_date_lead_days" min="0" max="90" value="{{ old('planned_date_lead_days', $plannedDateLeadDays) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">How early the agent is first reminded about a date you loaded. 0 = on the day only.</p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium">Move-out inspection shows as due — days before</label>
+                        <input type="number" name="out_due_lead_days" min="0" max="90" value="{{ old('out_due_lead_days', $outDueLeadDays) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">How long before a tenant moves out (or a fixed term ends) the move-out inspection starts showing as due. 0 = from the day itself.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save due-date settings</button>
         </div>
     </form>
 </div>

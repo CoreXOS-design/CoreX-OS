@@ -78,10 +78,10 @@
                         <dd class="text-slate-700 text-right">{{ $inspection->property?->sellerOwnerContact()?->full_name }}</dd>
                     </div>
                 @endif
-                @if($inspection->createdBy)
+                @if($inspection->inspector ?? $inspection->createdBy)
                     <div class="flex justify-between gap-3">
                         <dt class="text-slate-500">Agent</dt>
-                        <dd class="text-slate-700 text-right">{{ $inspection->createdBy->name }}</dd>
+                        <dd class="text-slate-700 text-right">{{ ($inspection->inspector ?? $inspection->createdBy)->name }}</dd>
                     </div>
                 @endif
                 @if($inspection->property_type)
@@ -213,6 +213,42 @@
              previous version read `signer_role`/`signed_at`, columns that
              no longer exist since §15/§16's three-party rebuild — every row
              rendered blank. --}}
+        {{-- §45.5 (Build I-3) — who attended and what is on record about each party's invitation. Facts only;
+             the wording is Johan's to confirm (§45.11). --}}
+        @if($attendanceBoard)
+        <div id="attendance" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Attendance</h2>
+            <div class="space-y-3">
+                @foreach($attendanceBoard['rows'] as $arow)
+                    @php
+                        $att = $arow['attendance'];
+                    @endphp
+                    <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-700 font-medium">{{ ucfirst($arow['party_role']) }}{{ $arow['name'] ? ' — ' . $arow['name'] : '' }}</span>
+                            <span class="text-slate-600">
+                                @if(! $att)
+                                    Not recorded
+                                @elseif($att['outcome'] === 'did_not_attend')
+                                    Did not attend
+                                @else
+                                    Attended{{ $att['attended_as'] !== 'self' ? ' — ' . ($attendedAsLabels[$att['attended_as']] ?? $att['attended_as']) . ($att['attendee_name'] ? ' (' . $att['attendee_name'] . ')' : '') : '' }}{{ $att['arrived_at'] ? ', arrived ' . $att['arrived_at'] : '' }}
+                                @endif
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">{{ $attendanceService->printableInvitation($arow) }}</p>
+                    </div>
+                @endforeach
+                @foreach($attendanceBoard['others'] as $other)
+                    <div class="border-t border-slate-100 pt-3 text-sm">
+                        <span class="text-slate-700 font-medium">{{ $other['attendee_name'] ?: 'Unnamed' }}</span>
+                        <span class="text-slate-600"> — {{ $attendedAsLabels[$other['attended_as']] ?? $other['attended_as'] }}, attended{{ $other['arrived_at'] ? ', arrived ' . $other['arrived_at'] : '' }}</span>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        @endif
+
         <div id="signatures" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
             <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Signatures</h2>
             <div class="space-y-4">
@@ -222,6 +258,8 @@
                             <span class="text-slate-700 font-medium">{{ $row['role'] }}{{ $row['name'] ? ' — ' . $row['name'] : '' }}</span>
                             @if($row['not_required'])
                                 <span class="text-slate-400">Not required</span>
+                            @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED && ($row['attendance']->outcome ?? null) === 'did_not_attend')
+                                <span class="text-slate-600">No signature — did not attend</span>
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
                                 <span style="color: {{ $severityColors['red'] }}">Refused to sign</span>
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK)
@@ -229,7 +267,7 @@
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK)
                                 <span class="text-slate-400">Awaiting paper signature</span>
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
-                                <span style="color: {{ $severityColors['blue'] }}">Signed</span>
+                                <span style="color: {{ $severityColors['blue'] }}">Signed{{ $row['signature']->signed_by_name ? ' by ' . $row['signature']->signed_by_name . ' (' . ($attendedAsLabels[$row['signature']->signing_capacity] ?? $row['signature']->signing_capacity) . ')' : '' }}</span>
                             @else
                                 <span class="text-slate-400">Outstanding</span>
                             @endif

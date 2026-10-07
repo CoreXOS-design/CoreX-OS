@@ -951,3 +951,9 @@ remains (history; the board no longer depends on it).
 (`[cold]`, `[]`, NULL→default); return on reactivation (and won again); rentals + agency scope; property tab / alerts / digest /
 mobile / pipeline-count filter; chip renders per state and not without a record; note-only vs contacted-and-note effects +
 redirect back to the board; cross-agency contact refused; audit only on change; settings saver marker guard; wizard row + saver.
+
+### System Owner with no agency selected (2026-10-07)
+The four board routes (`corex.core-matches.index` / `.all`, `corex.rentals.core-matches.index` / `.all`) carry `agency.required`
+(`RequireAgencyContext`). A System Owner (super_admin, `agency_id` NULL) who has not picked an agency is sent to the agency
+picker (and back to the board afterwards) instead of a 500 — `renderBoard()` needs an agency id for the agency settings.
+Same pattern as Activity Scoring and the PPRA admin screens. Test: `tests/Feature/CoreMatches/CoreMatchesOwnerNoAgencyTest.php`.

@@ -18,7 +18,7 @@
         'actions' => '<a href="' . route('platform-esign.documents.create') . '" class="corex-btn-primary">Send a contract</a>',
     ])
 
-    <form method="GET" class="rounded-md p-3 flex flex-col lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="GET" class="rounded-md p-3 flex flex-col flex-wrap lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
         <input type="text" name="q" value="{{ $q }}" placeholder="Search title, agency, signer name or email…" class="ds-field flex-1">
         <select name="status" class="list-header-filter" onchange="this.form.submit()">
             <option value="">All statuses</option>
@@ -65,5 +65,6 @@
         </div>
         @if($docs->hasPages())<div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $docs->links() }}</div>@endif
     </div>
+    @include('platform-esign._end')
 </div>
 @endsection

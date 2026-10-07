@@ -56,7 +56,7 @@
             @endif
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
-                <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-in vs move-out comparison</a>
+                <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
         </div>
@@ -258,17 +258,28 @@
             <p class="font-semibold mb-1" style="color: var(--text-secondary);">Notifications sent</p>
             @foreach($inspection->notifications as $notification)
                 <div class="py-1" style="border-top: 1px solid var(--border);">
+                    @if($notification->event === 'invitation_manual')
+                        {{-- §45.5 — an invitation given off the system, recorded with the real time it was given. --}}
+                        {{ ($notification->occurred_at ?? $notification->created_at)->format('Y-m-d H:i') }} —
+                        Invitation recorded manually: {{ ucfirst($notification->party_role) }}
+                        ({{ $notification->recipientContact?->full_name ?? $notification->recipientUser?->name ?? '—' }})
+                        — {{ $notification->method }}{{ $notification->sentBy ? ', recorded by ' . $notification->sentBy->name : '' }}
+                    @else
                     {{ $notification->created_at->format('Y-m-d H:i') }} —
                     {{ ucfirst($notification->event) }}: {{ ucfirst($notification->party_role) }}
                     ({{ $notification->recipientContact?->full_name ?? $notification->recipientUser?->name ?? '—' }})
                     via {{ ucfirst($notification->channel) }} —
                     <span style="color: {{ $notification->status === 'sent' ? 'var(--ds-green, #059669)' : ($notification->status === 'failed' ? 'var(--ds-crimson)' : 'var(--text-muted)') }};">{{ ucfirst($notification->status) }}</span>
                     @if($notification->error) ({{ $notification->error }}) @endif
+                    @endif
                 </div>
             @endforeach
         </div>
         @endif
     </div>
+
+    {{-- §45.6 (Build I-4) — who the completed report went to, and what happened. --}}
+    @include('corex.rental-inspections.partials._copies-sent', ['inspection' => $inspection])
 
     @if($inspection->discrepancies->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
@@ -446,6 +457,10 @@
                                     @if($observation->photos->isNotEmpty())
                                         <span class="text-xs" style="color: var(--text-muted);">· {{ $observation->photos->count() }} photo(s)</span>
                                     @endif
+                                    {{-- §45.7a item 5 — out-inspection only: how this compares with move-in. Never preselects anything. --}}
+                                    @if(!empty($followUpMarkers[$observation->id]['label']))
+                                        <span class="text-xs font-semibold" style="color: {{ ($followUpMarkers[$observation->id]['key'] ?? '') === 'same' ? 'var(--text-muted)' : '#b45309' }};" data-qa="follow-up-marker-{{ $observation->id }}">· {{ $followUpMarkers[$observation->id]['label'] }}</span>
+                                    @endif
                                 </span>
                             </label>
                         </div>
@@ -559,6 +574,45 @@
         @endforelse
     </div>
 
+    {{-- §45.5 (Build I-3) — who attended, in what capacity, and what is on record about each party's
+         invitation. Facts only. Read-only here: attendance is recorded on the property's Inspections tab. --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="attendance-summary">
+        <div class="flex items-center justify-between gap-3">
+            <h2 class="text-sm font-semibold">Attendance</h2>
+            <span class="text-xs" style="color: var(--text-muted);">{{ $attendanceBoard['recorded'] }} of {{ $attendanceBoard['expected'] }} recorded &middot; {{ $attendanceBoard['attended'] }} attended</span>
+        </div>
+        @foreach($attendanceBoard['rows'] as $row)
+            @php
+                $att = $row['attendance'];
+            @endphp
+            <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center justify-between gap-3">
+                    <span style="color: var(--text-primary);">{{ $row['name'] ?: 'Unnamed' }} <span class="text-xs" style="color: var(--text-muted);">({{ ucfirst($row['party_role']) }})</span></span>
+                    <span class="text-xs font-semibold" style="color: var(--text-primary);">
+                        @if(! $att)
+                            Not yet recorded
+                        @elseif($att['outcome'] === 'did_not_attend')
+                            Did not attend
+                        @else
+                            Attended{{ $att['attended_as'] !== 'self' ? ' — ' . ($attendedAsLabels[$att['attended_as']] ?? $att['attended_as']) . ($att['attendee_name'] ? ' (' . $att['attendee_name'] . ')' : '') : '' }}{{ $att['arrived_at'] ? ', arrived ' . $att['arrived_at'] : '' }}
+                        @endif
+                    </span>
+                </div>
+                <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                    {{ collect($row['invitation']['lines'])->pluck('text')->implode(' · ') }}
+                    @if($att) · Recorded by {{ $att['recorded_by'] ?? 'unknown' }}, {{ $att['recorded_at_label'] }} @endif
+                </div>
+            </div>
+        @endforeach
+        @foreach($attendanceBoard['others'] as $other)
+            <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
+                <span style="color: var(--text-primary);">{{ $other['attendee_name'] ?: 'Unnamed' }}</span>
+                <span class="text-xs" style="color: var(--text-muted);">({{ $attendedAsLabels[$other['attended_as']] ?? $other['attended_as'] }}) — attended{{ $other['arrived_at'] ? ', arrived ' . $other['arrived_at'] : '' }}</span>
+            </div>
+        @endforeach
+        <p class="text-xs" style="color: var(--text-muted);">Attendance is recorded on the property's Inspections tab.</p>
+    </div>
+
     @if($inspection->signatures->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Signatures</h2>
@@ -588,6 +642,10 @@
                 };
                 $reasonLabel = collect($refusalReasonPresets)->firstWhere('key', $signature->refusal_reason_preset)['label']
                     ?? $signature->refusal_reason_preset;
+                // §45.5 — a party recorded as having not attended has NO signature; it is not a refusal.
+                $didNotAttend = collect($attendanceBoard['rows'])->contains(fn ($r) => $r['party_role'] === $signature->party_role
+                    && (int) ($r['contact_id'] ?? 0) === (int) ($signature->party_contact_id ?? 0)
+                    && ($r['attendance']['outcome'] ?? null) === 'did_not_attend');
             @endphp
             <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
                 <div class="flex items-center justify-between gap-3">
@@ -597,6 +655,9 @@
                 @if($signature->disposition === 'signed')
                     <div class="mt-1.5">
                         <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Signed</span>
+                        @if($signature->signed_by_name)
+                            <span class="text-xs" style="color: var(--text-secondary);">by {{ $signature->signed_by_name }} ({{ $attendedAsLabels[$signature->signing_capacity] ?? $signature->signing_capacity }})</span>
+                        @endif
                         @if($signature->party_signature_path)
                             <div class="mt-1">
                                 <img src="{{ $signature->fileUrl('signature') }}" alt="{{ $partyLabel }}'s signature"
@@ -645,9 +706,13 @@
                         <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Awaiting paper signature</span>
                         <div class="text-xs mt-0.5" style="color: var(--text-secondary);">Sent {{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }} — upload the scan once it comes back.</div>
                     </div>
+                @elseif($didNotAttend && $signature->refusal_reason_preset === 'not_present')
+                    <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">No signature — did not attend</span>
+                    </div>
                 @else
                     <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
-                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Refused to sign</span>
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">{{ $didNotAttend ? 'No signature — did not attend' : 'Refused to sign' }}</span>
                         <div class="text-xs mt-0.5" style="color: var(--text-secondary);">
                             Reason: {{ $reasonLabel }}{{ $signature->refusal_reason_note ? ' — ' . $signature->refusal_reason_note : '' }}
                         </div>

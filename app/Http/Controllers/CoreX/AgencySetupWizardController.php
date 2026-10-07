@@ -198,6 +198,8 @@ class AgencySetupWizardController extends Controller
                 'wzConditionStates' => \App\Models\RentalInspectionSetting::conditionStatesFor($agency->id),
                 'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
+                // §45.5 (Build I-3) — key => label for how someone attended an inspection.
+                'wzAttendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
                 // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
                 'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
@@ -444,7 +446,13 @@ class AgencySetupWizardController extends Controller
             $setup->completed_at = now();
             $setup->save();
             // AT-447 — lets the Agency Timeline tick its "setup wizard completed" item.
-            event(new \App\Events\Platform\AgencySetupWizardCompleted((int) $setup->agency_id, auth()->id()));
+            // completed_at is already saved, so a timeline fault must never turn /finish into a 500
+            // (the timeline's start/restore reconcile catches a missed tick up later).
+            try {
+                event(new \App\Events\Platform\AgencySetupWizardCompleted((int) $setup->agency_id, auth()->id()));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Agency timeline hook failed after wizard completion', ['agency_id' => $setup->agency_id, 'error' => $e->getMessage()]);
+            }
         }
         return redirect()->route('dashboard')
             ->with('success', 'Your agency setup is complete. Welcome to CoreX!');
@@ -687,6 +695,10 @@ class AgencySetupWizardController extends Controller
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
+                    // §45.6 (Build I-4) — who else is copied on the completed report.
+                    'report_agency_copy_emails' => implode(', ', \App\Models\RentalInspectionSetting::reportAgencyCopyEmailsFor($agency->id)),
+                    'report_copy_inspector' => \App\Models\RentalInspectionSetting::reportCopyInspectorFor($agency->id),
+                    'report_copy_creator' => \App\Models\RentalInspectionSetting::reportCopyCreatorFor($agency->id),
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
                     'all_items_required_to_complete' => \App\Models\RentalInspectionSetting::allItemsRequiredToCompleteFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
@@ -698,6 +710,10 @@ class AgencySetupWizardController extends Controller
                     'notify_via_whatsapp_enabled' => \App\Models\RentalInspectionSetting::notifyViaWhatsappFor($agency->id),
                     'minimum_notice_days' => \App\Models\RentalInspectionSetting::minimumNoticeDaysFor($agency->id),
                     'reminder_days_before' => \App\Models\RentalInspectionSetting::reminderDaysBeforeFor($agency->id),
+                    // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+                    'raise_due_inspections_enabled' => \App\Models\RentalInspectionSetting::raiseDueInspectionsEnabledFor($agency->id),
+                    'planned_date_lead_days' => \App\Models\RentalInspectionSetting::plannedDateLeadDaysFor($agency->id),
+                    'out_due_lead_days' => \App\Models\RentalInspectionSetting::outDueLeadDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own

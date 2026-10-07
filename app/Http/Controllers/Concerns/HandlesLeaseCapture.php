@@ -7,10 +7,13 @@ use App\Exceptions\Rentals\NoLeaseAgreementLinkedException;
 use App\Http\Requests\CoreX\LeaseCaptureRequest;
 use App\Models\Lease;
 use App\Models\LeaseSetting;
+use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Models\User;
+use App\Models\Docuperfect\Flow;
 use App\Services\Rentals\LeaseCaptureService;
+use App\Services\Rentals\LeaseSigningLauncher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +30,7 @@ trait HandlesLeaseCapture
      *
      * @return array<string, mixed>
      */
-    protected function leaseCaptureScreen(User $user, ?Lease $previous, ?RentalApplication $application = null): array
+    protected function leaseCaptureScreen(User $user, ?Lease $previous, ?RentalApplication $application = null, ?Property $property = null): array
     {
         $service = app(LeaseCaptureService::class);
         $agencyId = (int) ($previous?->agency_id ?? $user->effectiveAgencyId());
@@ -42,6 +45,12 @@ trait HandlesLeaseCapture
             if (! $previous && $application && $application->adults !== null) {
                 // A linked rental application already says how many adults will live there.
                 $defaults['adults'] = $application->adults;
+            }
+            // The letting commission % starts at the property's own (leases.md §15.12.5 #22) — a renewal's previous
+            // term wins when it holds one; the agent can change it.
+            $propertyCommission = ($previous?->property ?? $property)?->commission_percent;
+            if (($defaults['commission_percent'] ?? null) === null && $propertyCommission !== null) {
+                $defaults['commission_percent'] = $propertyCommission;
             }
 
             $agreements[] = [
@@ -88,11 +97,18 @@ trait HandlesLeaseCapture
         try {
             $lease = app(LeaseCaptureService::class)->capture($input, $intent, $request->user(), $previous);
         } catch (LeaseCaptureIncompleteException $e) {
-            return back()->withInput()->withErrors($e->errors());
+            // The list (with a link to fix each gap) rides along so the screen can show it beside the errors.
+            return back()->withInput()->withErrors($e->errors())->with('capture_gaps', $e->missing);
         } catch (NoLeaseAgreementLinkedException $e) {
             return back()->withInput()->withErrors(['intent' => $e->getMessage()]);
         } catch (ValidationException $e) {
             return back()->withInput()->withErrors($e->errors());
+        }
+
+        // "Prepare for signing": the agent lands on the finished agreement (Fill & review) to check it and sign
+        // first — nothing has been sent to anyone (§15.4).
+        if ($intent === LeaseCaptureService::INTENT_LEASE_AND_SIGN && $lease->signing_flow_id && ($flow = Flow::find($lease->signing_flow_id))) {
+            return redirect(app(LeaseSigningLauncher::class)->landingUrl($flow))->with('success', $this->leaseCaptureMessage($intent, $previous !== null));
         }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', $this->leaseCaptureMessage($intent, $previous !== null));
@@ -102,7 +118,7 @@ trait HandlesLeaseCapture
     {
         return match ($intent) {
             LeaseCaptureService::INTENT_LEASE_AND_SIGN => ($isRenewal ? 'Renewal created.' : 'Lease created.')
-                . ' Preparing the signing document is not available yet, so no document was made.',
+                . ' The lease agreement is ready — check it, then sign. Nothing has been sent to anyone yet.',
             LeaseCaptureService::INTENT_PAPER_COPY => $isRenewal ? 'Renewal recorded and activated.' : 'Lease created and activated with the signed copy.',
             default => $isRenewal ? 'Renewal created.' : 'Lease created.',
         };

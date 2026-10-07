@@ -44,12 +44,14 @@ class AgencyTimelinePublicController extends Controller
         $data = $request->validate(['status' => 'required|in:done,pending']);
         $step = AgencyTimelineItem::where('timeline_id', $timeline->id)->where('kind', 'milestone')->where('is_public', true)->findOrFail($item);
 
+        // B-L4: idempotent. A double-click or a second tab asks for a state the step is already in —
+        // that is the same success page, not a 403, and (setStatus is atomic) never a second history line or event.
         if ($data['status'] === 'done') {
-            abort_unless($step->agency_can_complete && $step->status === 'pending', 403);
+            abort_unless($step->agency_can_complete && in_array($step->status, ['pending', 'done'], true), 403);
             $svc->setStatus($step, 'done', null, 'agency');
             $msg = 'Thank you — "' . $step->title . '" is marked as completed.';
         } else {
-            abort_unless($step->status === 'done' && $step->completed_source === 'agency', 403);
+            abort_unless($step->status === 'pending' || ($step->status === 'done' && $step->completed_source === 'agency'), 403);
             $svc->setStatus($step, 'pending', null, 'agency');
             $msg = '"' . $step->title . '" is back on your list.';
         }
@@ -68,9 +70,10 @@ class AgencyTimelinePublicController extends Controller
                 ->header('Cache-Control', 'no-store')->header('X-Robots-Tag', 'noindex, nofollow');
         }
 
-        $svc->syncAgreement($timeline);
+        // No agreement sync on a public read (B-M1/B-L1): an anonymous page view must never write.
         $today = now()->startOfDay();
-        $goLive = $svc->goLive($timeline, $today);
+        // The date the agency sees is computed from the steps the agency can see (B-L6).
+        $goLive = $svc->goLive($timeline, $today, true);
         $items = AgencyTimelineItem::where('timeline_id', $timeline->id)->where('is_public', true)->orderBy('sort_order')->orderBy('id')->get();
 
         $blocks = $items->where('kind', 'block')->map(fn ($b) => [

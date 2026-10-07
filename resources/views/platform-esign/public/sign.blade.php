@@ -29,7 +29,8 @@
             <div class="text-3xl">✓</div>
             <h2 class="font-bold text-lg">{{ $doc->status === 'completed' ? 'Signed by everyone' : 'Thank you — you have signed' }}</h2>
             <p class="text-sm" style="color:#6b7280;">
-                @if($doc->status === 'completed') Everyone has signed. A sealed PDF copy has been emailed to all signers.
+                @if($doc->status === 'completed' && $doc->sealed_pdf_path) Everyone has signed. A sealed PDF copy has been emailed to all signers.
+                @elseif($doc->status === 'completed') Everyone has signed. The sealed PDF copy is being prepared and will be emailed to all signers.
                 @else You will receive the signed copy by email once everyone has signed. @endif
             </p>
             @if($doc->status === 'completed' && $doc->sealed_pdf_path)<a href="{{ route('platform-esign.sign.download', $token) }}" class="inline-block mt-2 px-5 py-2 rounded-md text-white text-sm font-semibold" style="background:#00b4d8;">Download the signed PDF</a>@endif
@@ -42,8 +43,9 @@
         <div class="doc text-center"><p class="font-semibold">You declined this document.</p></div>
     @endif
 
-    {{-- The document itself --}}
-    @if($doc->isPdf())
+    {{-- The document itself (an expired or declined document shows its status message only) --}}
+    @if($hideDoc ?? false)
+    @elseif($doc->isPdf())
         @for($i = 0; $i < $doc->page_count; $i++)
             <div class="pgwrap">
                 <img src="{{ route('platform-esign.sign.page', [$token, $i]) }}" alt="Page {{ $i + 1 }}" loading="{{ $i > 1 ? 'lazy' : 'eager' }}">
@@ -64,7 +66,7 @@
         <div class="doc">{!! $doc->body_html_snapshot !!}</div>
     @endif
 
-    @if($doc->attachments->isNotEmpty())
+    @if(!($hideDoc ?? false) && $doc->attachments->isNotEmpty())
         <div class="doc" style="padding:1rem 1.25rem;">
             <div class="font-semibold text-sm mb-1">Attached documents</div>
             @foreach($doc->attachments as $att)<div class="text-sm"><a href="{{ route('platform-esign.sign.attachment', [$token, $att->id]) }}" class="underline" style="color:#0369a1;">{{ $att->original_name }}</a></div>@endforeach

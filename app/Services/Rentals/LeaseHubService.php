@@ -49,7 +49,13 @@ class LeaseHubService
 
         $steps[] = $this->step('approved', 'Approved', $application?->status === 'approved' ? 'done' : 'pending');
 
-        $leaseSigned = $lease->status !== Lease::STATUS_DRAFT; // activated with terms captured
+        // leases.md §15.5 (Build L3a) — "signed" means the lease's agreement was signed and accepted (or a paper copy
+        // attached), or a lease captured the ordinary way is no longer a draft; a lease whose agreement is out for
+        // signing is NOT signed just because it exists.
+        $leaseSigned = $lease->signed_at !== null
+            || $lease->signing_status === Lease::SIGNING_SIGNED_ON_PAPER
+            || ($lease->signing_status === Lease::SIGNING_SIGNED && $lease->status !== Lease::STATUS_DRAFT)
+            || ($lease->source !== Lease::SOURCE_ESIGN_DOCUMENT && $lease->status !== Lease::STATUS_DRAFT);
         $steps[] = $this->step('lease_signed', 'Lease signed', $leaseSigned ? 'done' : ($lease->status === Lease::STATUS_DRAFT ? 'current' : 'pending'));
 
         $steps[] = $this->step('in_inspection', 'In-inspection', $hasCompletedIn
@@ -81,19 +87,25 @@ class LeaseHubService
      * surface (e.g. a healthy, mid-term active lease with a completed
      * in-inspection and no renewal window reached yet).
      *
-     * @return array{label:string,route_name:string,route_param:mixed}|null
+     * `route_name` is null when the step is a statement with nothing to click (the agreement is with someone else);
+     * `post` is true when the click must be a form post ("Prepare again"), not a link.
+     *
+     * @return array{label:string,route_name:?string,route_param:mixed,post?:bool}|null
      */
-    public function nextStep(Lease $lease): ?array
+    public function nextStep(Lease $lease, ?\App\Models\User $user = null): ?array
     {
         $hasCompletedIn = $lease->inspections()->where('type', RentalInspection::TYPE_IN)->where('status', RentalInspection::STATUS_COMPLETED)->exists();
         $hasCompletedOut = $lease->inspections()->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED)->exists();
 
         if ($lease->status === Lease::STATUS_DRAFT) {
-            // Rule 1 — no signed lease document. The e-sign send flow is not
-            // addressed by this build (leases.md §1.2 — rebuilding the e-sign
-            // auto-population is out of scope) — this route is a link into
-            // the ordinary Edit/Activate action instead, which IS what moves
-            // a draft lease forward today.
+            // leases.md §15.13 (Build L3a) — a lease whose agreement is being prepared, out for signing, waiting for
+            // the agent's approval, signed or failed says so, and offers the one thing to do next.
+            if ($step = $this->signingNextStep($lease, $user)) {
+                return $step;
+            }
+
+            // Rule 1 — no signed lease document, no agreement in flight: a link into the ordinary Edit/Activate
+            // action, which IS what moves a draft lease forward.
             return ['label' => 'Activate lease', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
         }
 
@@ -124,7 +136,59 @@ class LeaseHubService
         }
 
         if ($lease->end_date && $lease->status === Lease::STATUS_ACTIVE && now()->gt($lease->end_date) && !$lease->hasActiveNotice() && !$lease->renewed_lease_id) {
-            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.renewal.create', 'route_param' => $lease->id];
+            // The lease has ended with no outcome on file. The outcomes (month-to-month, notices) live in the Lease
+            // actions menu, not on the renewal form this used to open — land on the hub with the month-to-month
+            // dialog open (the other outcomes are one click away in the same menu).
+            return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'month-to-month']];
+        }
+
+        return null;
+    }
+
+    /**
+     * leases.md §15.13 — the next-step card for a draft lease whose agreement is in flight.
+     *
+     * @return array{label:string,route_name:?string,route_param:mixed,post?:bool}|null
+     */
+    private function signingNextStep(Lease $lease, ?\App\Models\User $user): ?array
+    {
+        $none = fn (string $label) => ['label' => $label, 'route_name' => null, 'route_param' => null];
+
+        switch ($lease->signing_status) {
+            case Lease::SIGNING_PREPARED:
+                $flow = $lease->signing_flow_id ? \App\Models\Docuperfect\Flow::find($lease->signing_flow_id) : null;
+                if (! $flow) {
+                    return $none('Agreement prepared — open it from e-sign');
+                }
+                if ($user && (int) $flow->user_id !== (int) $user->id) {
+                    return $none('Agreement prepared by ' . (\App\Models\User::find($flow->user_id)?->name ?? 'another agent'));
+                }
+
+                return ['label' => 'Verify and sign the agreement', 'route_name' => 'docuperfect.esign.step', 'route_param' => ['flow' => $flow->id, 'step' => LeaseSigningLauncher::LANDING_STEP]];
+
+            case Lease::SIGNING_OUT_FOR_SIGNING:
+                $waiting = collect(app(LeaseSigningLauncher::class)->signersSummary($lease))
+                    ->first(fn (array $s) => in_array($s['status'], ['Asked to sign', 'Opened it', 'Part signed'], true) && $s['role'] !== 'agent');
+
+                return $none($waiting ? 'Waiting for ' . $waiting['name'] . ' to sign' : 'Agreement out for signing');
+
+            case Lease::SIGNING_AWAITING_AGENT_REVIEW:
+                $envelope = $lease->signature_template_id ? \App\Models\Docuperfect\SignatureTemplate::find($lease->signature_template_id) : null;
+                if ($envelope && $envelope->document_id) {
+                    return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.signatures.review', 'route_param' => $envelope->document_id];
+                }
+
+                return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.esign.myDocuments', 'route_param' => []];
+
+            case Lease::SIGNING_SIGNED:
+                return ['label' => 'Signed — activate', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
+
+            case Lease::SIGNING_DECLINED:
+            case Lease::SIGNING_VOIDED:
+            case Lease::SIGNING_EXPIRED:
+                $what = ['declined' => 'declined', 'voided' => 'cancelled', 'expired' => 'expired'][$lease->signing_status];
+
+                return ['label' => "Agreement {$what} — prepare again", 'route_name' => 'corex.leases.signing.prepare-again', 'route_param' => $lease->id, 'post' => true];
         }
 
         return null;

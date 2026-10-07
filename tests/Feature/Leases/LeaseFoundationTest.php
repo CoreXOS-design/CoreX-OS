@@ -27,7 +27,6 @@ use App\Models\User;
 use App\Services\Property\ContactPropertyLinker;
 use App\Services\Rentals\LeaseAgreementCheck;
 use App\Services\Rentals\LeaseAgreementTemplateGuard;
-use App\Services\Rentals\LeaseSigningLauncher;
 use App\Services\Rentals\PreviousTermValuesReader;
 use App\Services\Rentals\RenewalDraftService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -295,11 +294,9 @@ final class LeaseFoundationTest extends TestCase
             'category' => RentalLeaseTemplate::CATEGORY_RESIDENTIAL,
         ]);
 
-        // LeaseCaptureService::capture() is real since Build L2 (LeaseCaptureTest); the launcher's missing()/launch()
-        // and the harvest stay shells until L3a/L3b.
+        // LeaseCaptureService::capture() is real since Build L2 (LeaseCaptureTest) and the launcher's missing()/launch()
+        // since Build L3a (LeaseSigningLauncherTest); the harvest stays a shell until Build L3b.
         $calls = [
-            fn () => app(LeaseSigningLauncher::class)->missing($lease, $row, [], $user),
-            fn () => app(LeaseSigningLauncher::class)->launch($lease, $row, $user),
             fn () => app(\App\Services\Rentals\LeaseAgreementHarvest::class)->fromDocument($lease, $this->makeEsignDocument($agency, $branch)),
         ];
         foreach ($calls as $i => $call) {
@@ -381,13 +378,14 @@ final class LeaseFoundationTest extends TestCase
 
         // As before.
         $this->assertSame('esign', $flow->type);
-        $this->assertSame(2, (int) $flow->current_step);
+        $this->assertSame(2, (int) $flow->current_step, 'the renewal copy-forward path still opens on step 2');
         $this->assertSame('active', $flow->status);
         $this->assertSame($template->id, $flow->template_id);
         $this->assertSame($user->id, $flow->user_id);
         $this->assertSame($property->id, $flow->property_id);
         $this->assertSame($tenant->id, $flow->contact_id);
-        $this->assertSame(['agent', 'landlord', 'tenant'], array_column($flow->step_data['recipients']['recipients'], 'role'), 'order unchanged — L3a owns the fixed order');
+        // Since Build L3a the signers are always written in the one fixed order (R4): agent, tenant(s), landlord(s).
+        $this->assertSame(['agent', 'tenant', 'landlord'], array_column($flow->step_data['recipients']['recipients'], 'role'));
         $this->assertSame('9900.00', $flow->step_data['details']['monthly_rental']);
         $this->assertSame($flow->id, $newTerm->renewal_draft_flow_id);
         $this->assertSame('esign_document', $newTerm->source);

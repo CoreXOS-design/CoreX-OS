@@ -865,7 +865,7 @@ Route::prefix('agency-setup/{token}')->middleware(['agency.setup.portal'])->name
 // Serves ONLY the logo (not sensitive). The `v` query is a cache-buster; the current logo is always served.
 // Spec: .ai/specs/platform-company-profile.md §4.
 Route::get('/platform-company/logo', [\App\Http\Controllers\Admin\PlatformCompanyController::class, 'logo'])
-    ->middleware('throttle:120,1')->name('platform-company.logo');
+    ->middleware('throttle:600,1')->name('platform-company.logo'); // mail-image proxies share one IP on a bulk send
 
 // ===== AT-447 PUBLIC: agency timeline (read-only) + platform contract signing =====
 // Token-gated, no login, throttled. Spec: .ai/specs/agency-timeline-and-platform-esign.md §6.3, §7.5.
@@ -878,14 +878,29 @@ Route::post('/agency-timeline/{token}/steps/{item}', [\App\Http\Controllers\Publ
     ->whereNumber('item')->middleware('throttle:20,1')->name('agency-timeline.public.complete');
 Route::get('/agency-timeline/{token}', [\App\Http\Controllers\Public\AgencyTimelinePublicController::class, 'show'])
     ->middleware('throttle:60,1')->name('agency-timeline.public');
-Route::prefix('platform-esign/sign/{token}')->middleware('throttle:60,1')->name('platform-esign.sign.')->group(function () {
+// Named limiters (AppServiceProvider): per token + IP, so one signer's page images never starve the other signer or an office on the same IP.
+Route::prefix('platform-esign/sign/{token}')->name('platform-esign.sign.')->group(function () {
     $c = \App\Http\Controllers\PlatformEsign\SigningController::class;
-    Route::get('/',                      [$c, 'show'])->name('show');
-    Route::post('/',                     [$c, 'sign'])->name('submit');
-    Route::post('/decline',              [$c, 'decline'])->name('decline');
-    Route::get('/page/{page}',           [$c, 'page'])->whereNumber('page')->name('page');
-    Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->name('attachment');
-    Route::get('/download',              [$c, 'download'])->name('download');
+    $t = 'throttle:platform-esign-sign';
+    Route::get('/',                      [$c, 'show'])->middleware($t)->name('show');
+    Route::post('/',                     [$c, 'sign'])->middleware($t)->name('submit');
+    Route::post('/decline',              [$c, 'decline'])->middleware($t)->name('decline');
+    Route::get('/page/{page}',           [$c, 'page'])->whereNumber('page')->middleware('throttle:platform-esign-asset')->name('page');
+    Route::get('/attachments/{attachment}', [$c, 'attachment'])->whereNumber('attachment')->middleware($t)->name('attachment');
+    Route::get('/download',              [$c, 'download'])->middleware($t)->name('download');
+});
+// AT-447 follow-up (spec §11): the CoreX Subscription Agreement web document — recipient side, token-gated, no login.
+Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreement.')->group(function () {
+    $c = \App\Http\Controllers\PlatformEsign\AgreementSigningController::class;
+    Route::get('/',                [$c, 'show'])->middleware('throttle:60,1')->name('show');
+    Route::post('/save',           [$c, 'save'])->middleware('throttle:240,1')->name('save');
+    Route::post('/initials',       [$c, 'initials'])->middleware('throttle:60,1')->name('initials');
+    Route::post('/initial/{page}', [$c, 'initialPage'])->whereNumber('page')->middleware('throttle:120,1')->name('initial-page');
+    Route::post('/submit',         [$c, 'submit'])->middleware('throttle:30,1')->name('submit');
+    Route::get('/wet-copy',        [$c, 'wetCopy'])->middleware('throttle:20,1')->name('wet-copy');
+    Route::post('/upload',         [$c, 'upload'])->middleware('throttle:20,1')->name('upload');
+    Route::get('/download',        [$c, 'download'])->middleware('throttle:30,1')->name('download');
+    Route::get('/wet-file/{file}', [$c, 'wetFile'])->whereNumber('file')->middleware('throttle:30,1')->name('wet-file');
 });
 // AT-447 follow-up (spec §11): the CoreX Subscription Agreement web document — recipient side, token-gated, no login.
 Route::prefix('platform-esign/agreement/{token}')->name('platform-esign.agreement.')->group(function () {
@@ -3117,6 +3132,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-inspections/custom-room-types', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateCustomRoomTypes'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.custom-room-types');
     // INSPECTIONS I-2 END
+    // INSPECTIONS I-5 BEGIN — §45.7 due-date settings (one narrow saver; the wizard posts to it too).
+    Route::post('/settings/rental-inspections/due-dates', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateDueDates'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.due-dates');
+    // INSPECTIONS I-5 END
     Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
     // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 — its own narrow
@@ -3125,11 +3144,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-pair-photos');
     // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo note's
     // classification vocabulary.
+    // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
+    Route::post('/settings/rental-inspections/attended-as-labels', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAttendedAsLabels'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.attended-as-labels');
     Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
     Route::post('/settings/rental-inspections/auto-send-report', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoSendReportEnabled'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-send-report');
+    // §45.6 (Build I-4) — who else is copied on a completed report (agency address, inspector, creator).
+    Route::post('/settings/rental-inspections/report-copies', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateReportCopies'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.report-copies');
     // §43 — schedule/reschedule/cancel notification settings.
     Route::post('/settings/rental-inspections/schedule-notifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateScheduleNotifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.schedule-notifications');
@@ -3501,6 +3526,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // this user may see (not only ones that already have a lease). Before /{lease}.
         Route::get('/search-rental-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchRentalProperties'])
             ->middleware('permission:leases.create')->name('corex.leases.search-rental-properties');
+        // LEASE-CAPTURE BEGIN (leases.md §15.3 — Build L3a): the capture screen's landlord panel + per-tenant hints.
+        // Static path — must sit before /{lease}.
+        Route::get('/party-check', [\App\Http\Controllers\CoreX\LeaseController::class, 'partyCheck'])
+            ->middleware('permission:leases.view')->name('corex.leases.party-check');
+        // LEASE-CAPTURE END
         Route::get('/{lease}',[\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3508,6 +3538,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.create')->name('corex.leases.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
+        // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
+        Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
+            ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');
+        // LEASE-CAPTURE END
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
@@ -3635,6 +3669,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // same greedy-binding reason /create is.
         Route::get('/print-list', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printList'])->name('corex.rental-inspections.print-list');
         Route::get('/export', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'export'])->name('corex.rental-inspections.export');
+        // INSPECTIONS I-5 BEGIN — §45.7 the "Due" tab (In/Out due + the interim dates the agency loads) and CRUD on the loaded dates.
+        // Static paths, so they sit ahead of the /{rentalInspection} wildcard below.
+        Route::get('/due', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'index'])->name('corex.rental-inspections.due');
+        Route::get('/due/print', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'printList'])->name('corex.rental-inspections.due.print');
+        Route::get('/due/export', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'export'])->name('corex.rental-inspections.due.export');
+        Route::middleware('permission:rental_inspections.manage_planned_dates')->prefix('planned-dates')->name('corex.rental-inspections.planned-dates.')->group(function () {
+            Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'store'])->name('store');
+            Route::post('/{plannedDate}', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'update'])->name('update');
+            Route::post('/{plannedDate}/skip', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'skip'])->name('skip');
+            Route::post('/{plannedDate}/reopen', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'reopen'])->name('reopen');
+            Route::post('/{plannedDate}/archive', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'archive'])->name('archive');
+            Route::post('/{plannedDate}/restore', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'restore'])->name('restore');
+        });
+        // INSPECTIONS I-5 END
         Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
         // Printable tick-box form — same .view gate as show() itself, same
         // scoping precedent as RentalWorkOrderController::pdf().
@@ -3747,8 +3795,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // §41, 2026-09-28 — the manual "Resend report" path (confirm modal
         // lists the recipients first). Same permission as completing —
         // an agent who could complete the inspection can resend its report.
+        // §45.5 (Build I-3) — who attended, and the invitations given off the system. Child of the bound
+        // {rentalInspection}; every write needs record_attendance (correcting someone else's record
+        // additionally needs resolve_discrepancy — checked in the controller).
+        Route::get('/{rentalInspection}/attendance', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'show'])
+            ->name('corex.rental-inspections.attendance.show');
+        Route::post('/{rentalInspection}/attendance', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'store'])
+            ->middleware('permission:rental_inspections.record_attendance')->name('corex.rental-inspections.attendance.store');
+        // Withdrawing is a POST (the recording screen's JSON client only POSTs); the row is kept, marked withdrawn.
+        Route::post('/{rentalInspection}/attendance/{attendance}/withdraw', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'withdraw'])
+            ->middleware('permission:rental_inspections.record_attendance')->name('corex.rental-inspections.attendance.withdraw');
+        Route::post('/{rentalInspection}/attendance-invitations', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'storeInvitation'])
+            ->middleware('permission:rental_inspections.record_attendance')->name('corex.rental-inspections.attendance.invitations.store');
         Route::post('/{rentalInspection}/resend-report', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resendReport'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-report');
+        // §45.6 (Build I-4) — re-send the completed report to ONE recipient from the "Copies sent" panel.
+        Route::post('/{rentalInspection}/resend-recipient', [\App\Http\Controllers\CoreX\RentalInspectionCopiesController::class, 'resendRecipient'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-recipient');
 
         // rental-inspection-form.md §7 — the in-vs-out deposit comparison.
         // Read gated at the group's own .view; recording a wear-and-tear/
@@ -4892,6 +4955,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/documents/{id}/countersign',        [$a, 'countersign'])->whereNumber('id')->name('agreements.countersign.store');
             Route::post('/documents/{id}/reveal',             [$a, 'reveal'])->whereNumber('id')->middleware('throttle:30,1')->name('agreements.reveal');
             Route::get('/documents/{id}/wetink/{file}',       [$a, 'wetinkFile'])->whereNumber(['id', 'file'])->name('agreements.wetink');
+            Route::post('/documents/{id}/take-on',            [$a, 'takeOn'])->whereNumber('id')->name('agreements.take-on');
 
             // Agreement wording editor + versions + expiry/reminder settings (spec §11.14) — owner / RR side.
             Route::prefix('wording')->name('wording.')->group(function () {
@@ -5475,12 +5539,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Core Matches (top-level index)
     Route::get('/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
-        ->middleware('permission:access_contacts')
+        ->middleware(['permission:access_contacts', 'agency.required'])
         ->name('corex.core-matches.index');
 
     // Core Matches — All View (agency / branch oversight for managers & admins)
     Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
-        ->middleware('permission:core_matches.all_view')
+        ->middleware(['permission:core_matches.all_view', 'agency.required'])
         ->name('corex.core-matches.all');
 
     // AT-401 — Rentals → Core Matches. Same ContactMatchController::index()/
@@ -5490,7 +5554,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // per .ai/specs/rentals-shared-screens.md §6.1 (the shared screen already
     // gates access; the rentals lens is a lock, not a new capability).
     Route::get('/rentals/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
-        ->middleware('permission:core_matches.view')
+        ->middleware(['permission:core_matches.view', 'agency.required'])
         ->name('corex.rentals.core-matches.index');
 
     // .all is the oversight/agency-wide variant — gated by core_matches.all_view,
@@ -5499,7 +5563,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // every agent's rental matches through this entry point, an escalation
     // the sales-side .all route does not allow.
     Route::get('/rentals/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
-        ->middleware('permission:core_matches.all_view')
+        ->middleware(['permission:core_matches.all_view', 'agency.required'])
         ->name('corex.rentals.core-matches.all');
 
     // AT-Core-Matches, Johan's ruling 1 — server-enforced, not a hidden
