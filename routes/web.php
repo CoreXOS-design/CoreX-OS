@@ -5539,12 +5539,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Core Matches (top-level index)
     Route::get('/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
-        ->middleware('permission:access_contacts')
+        ->middleware(['permission:access_contacts', 'agency.required'])
         ->name('corex.core-matches.index');
 
     // Core Matches — All View (agency / branch oversight for managers & admins)
     Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
-        ->middleware('permission:core_matches.all_view')
+        ->middleware(['permission:core_matches.all_view', 'agency.required'])
         ->name('corex.core-matches.all');
 
     // AT-401 — Rentals → Core Matches. Same ContactMatchController::index()/
@@ -5554,7 +5554,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // per .ai/specs/rentals-shared-screens.md §6.1 (the shared screen already
     // gates access; the rentals lens is a lock, not a new capability).
     Route::get('/rentals/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
-        ->middleware('permission:core_matches.view')
+        ->middleware(['permission:core_matches.view', 'agency.required'])
         ->name('corex.rentals.core-matches.index');
 
     // .all is the oversight/agency-wide variant — gated by core_matches.all_view,
@@ -5563,7 +5563,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // every agent's rental matches through this entry point, an escalation
     // the sales-side .all route does not allow.
     Route::get('/rentals/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
-        ->middleware('permission:core_matches.all_view')
+        ->middleware(['permission:core_matches.all_view', 'agency.required'])
         ->name('corex.rentals.core-matches.all');
 
     // AT-Core-Matches, Johan's ruling 1 — server-enforced, not a hidden

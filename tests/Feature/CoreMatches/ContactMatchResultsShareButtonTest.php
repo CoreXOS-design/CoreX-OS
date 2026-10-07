@@ -50,6 +50,15 @@ final class ContactMatchResultsShareButtonTest extends TestCase
             'agency_id' => $this->agency->id, 'first_name' => 'Share', 'last_name' => 'Button',
         ]);
 
+        // The routes under test sit behind access_contacts (contact matches group) and
+        // access_properties (property show) — without them every request is a 403
+        // before the Share button is ever reached.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'access_contacts', 'agency_id' => null]);
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'access_properties', 'agency_id' => null]);
+        // The property show page then applies the within-agency data scope; once any grant row
+        // exists a role with no stored 'properties.view' scope sees nothing (fail-closed), so
+        // the agent is given 'own' — the listings below are all theirs.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'properties.view', 'scope' => 'own', 'agency_id' => null]);
         RolePermission::create(['role' => 'agent', 'permission_key' => 'properties.share', 'agency_id' => null]);
         RolePermission::create(['role' => 'agent', 'permission_key' => 'access_core_matches', 'agency_id' => null]);
         RolePermission::create(['role' => 'agent', 'permission_key' => 'core_matches.view', 'agency_id' => null]);
