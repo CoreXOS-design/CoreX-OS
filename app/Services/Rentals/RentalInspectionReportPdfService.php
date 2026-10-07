@@ -57,8 +57,15 @@ class RentalInspectionReportPdfService
     {
         $inspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
-            'signatures.partyContact',
+            'signatures.partyContact', 'roomNotes',
         ]);
+
+        // §45.3 (Build I-1) — the latest note per room, printed under that room's table (the PDF used to
+        // carry only item rows). Photos stay out of the PDF (Johan, 23 Sep); the per-flaw photo-time line
+        // waits for his answer to Q8.
+        $roomNotes = $inspection->roomNotes
+            ->groupBy('property_room_id')
+            ->map(fn ($notes) => $notes->sortByDesc('created_at')->first());
 
         $items = RentalInspectionItem::where('property_id', $inspection->property_id)
             ->where('is_retired', false)
@@ -159,6 +166,7 @@ class RentalInspectionReportPdfService
         return Pdf::loadView('corex.rental-inspections.report-pdf', [
             'inspection' => $inspection,
             'rows' => $rows,
+            'roomNotes' => $roomNotes,
             'publicUrl' => $publicUrl,
             'qrDataUri' => $qrDataUri,
             'signatureRows' => $signatureRows,

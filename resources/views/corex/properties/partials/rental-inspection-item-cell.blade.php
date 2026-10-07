@@ -191,7 +191,8 @@
                         <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
                              data-qa="insp-tile-predecessor" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
+                             @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" :title="tile.photo ? tile.photo.taken_caption : ''" alt="">
+                        <span class="rir-photo-time" data-qa="insp-photo-time" x-show="tile.photo" x-text="tile.photo ? tile.photo.taken_caption_short : ''"></span>
                         {{-- §41, 2026-09-29 — linked indicator; same
                              openCompareViewer() call as the tile image
                              itself, just a second, more discoverable
@@ -253,7 +254,8 @@
                         <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
                              data-qa="insp-tile-tail" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="tile.photo && openCompareViewer(tile.photo, chainTail)" alt="">
+                             @click="tile.photo && openCompareViewer(tile.photo, chainTail)" :title="tile.photo ? tile.photo.taken_caption : ''" alt="">
+                        <span class="rir-photo-time" data-qa="insp-photo-time" x-show="tile.photo" x-text="tile.photo ? tile.photo.taken_caption_short : ''"></span>
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
                         <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).toggleSelected(tile.photo.id)"
                                 class="absolute bottom-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"

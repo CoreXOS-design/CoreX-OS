@@ -827,6 +827,10 @@ class RentalInspectionRecordingController extends Controller
         $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'client_idempotency_key' => 'nullable|uuid',
+            // §45.3 — optional ISO-8601 capture time from the app. Deliberately NOT format-validated:
+            // a malformed value is absorbed (ignored) by RentalInspectionPhotoCaptureTime, never a 422
+            // on an evidence upload.
+            'captured_at' => 'nullable',
         ]);
 
         $clientKey = $request->input('client_idempotency_key');
@@ -836,6 +840,13 @@ class RentalInspectionRecordingController extends Controller
                 return response()->json($existing, 200);
             }
         }
+
+        // §45.3 — read the capture time from the ORIGINAL upload before the storer re-encodes it.
+        $capture = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class)->resolve(
+            $request->file('photo'),
+            $this->scalarOrNull($request->input('captured_at')),
+            ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
+        );
 
         $url = app(PropertyImageStorer::class)->store($request->file('photo'), $rentalInspection->property_id);
 
@@ -850,6 +861,8 @@ class RentalInspectionRecordingController extends Controller
             'tagged_by_user_id' => $request->user()->id,
             'client_idempotency_key' => $clientKey,
             'file_size_bytes' => $request->file('photo')->getSize(),
+            'taken_at' => $capture['taken_at'],
+            'taken_at_source' => $capture['taken_at_source'],
         ]);
 
         return response()->json($photo, 201);
@@ -897,6 +910,9 @@ class RentalInspectionRecordingController extends Controller
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],
             'client_idempotency_keys.*' => ['nullable', 'uuid'],
+            // §45.3 — one optional ISO-8601 capture time per file, parallel to photos[] (same index
+            // contract as client_idempotency_keys). Not format-validated — see storePhoto().
+            'captured_at' => ['nullable', 'array'],
         ]);
 
         $roomId = isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null;
@@ -931,6 +947,7 @@ class RentalInspectionRecordingController extends Controller
         }
 
         $storer = app(PropertyImageStorer::class);
+        $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
         $now = now();
         $created = [];
 
@@ -943,6 +960,13 @@ class RentalInspectionRecordingController extends Controller
                     continue;
                 }
             }
+
+            // §45.3 — before store(): the storer re-encodes the image and drops its metadata.
+            $capture = $captureTime->resolve(
+                $file,
+                $this->scalarOrNull($validated['captured_at'][$i] ?? null),
+                ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
+            );
 
             $url = $storer->store($file, $rentalInspection->property_id);
 
@@ -957,10 +981,18 @@ class RentalInspectionRecordingController extends Controller
                 'tagged_by_user_id' => ($roomId || $observationId) ? $request->user()->id : null,
                 'client_idempotency_key' => $clientKey,
                 'file_size_bytes' => $file->getSize(),
+                'taken_at' => $capture['taken_at'],
+                'taken_at_source' => $capture['taken_at_source'],
             ]);
         }
 
         return response()->json(['photos' => $created, 'observation' => $observation], 201);
+    }
+
+    /** §45.3 — a client-supplied capture time is only ever a string; anything else is "no claim". */
+    private function scalarOrNull(mixed $value): ?string
+    {
+        return is_string($value) ? substr($value, 0, 64) : null;
     }
 
     /** Audit H1 — 409 for any write against a completed / cancelled / archived inspection. */
@@ -1564,6 +1596,8 @@ class RentalInspectionRecordingController extends Controller
 
         try {
             $rentalInspection->startAwaitingSignature();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
@@ -1597,6 +1631,8 @@ class RentalInspectionRecordingController extends Controller
 
         try {
             $rentalInspection->markCompleted();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {

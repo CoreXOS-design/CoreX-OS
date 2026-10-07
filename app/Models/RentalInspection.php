@@ -284,6 +284,71 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * §45.3 (Build I-1) — every non-retired checklist item of this inspection's property that has no
+     * RECORDED condition on THIS inspection ("Not applicable" is a recorded condition). Exactly the
+     * screen's own definition of "Not yet recorded" / the n/total counter: an item is graded when this
+     * inspection holds an observation for it whose condition is not CONDITION_PENDING (a bare photo
+     * anchor, §20.22.3, is not a grade). Ordered the way the screen walks the property (room order,
+     * then item order).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInspectionItem>
+     */
+    public function itemsStillUngraded(): \Illuminate\Support\Collection
+    {
+        $gradedItemIds = $this->observations()
+            ->recorded()
+            ->pluck('rental_inspection_item_id')
+            ->unique();
+
+        return RentalInspectionItem::query()
+            ->where('property_id', $this->property_id)
+            ->notRetired()
+            ->with('room')
+            ->get()
+            ->reject(fn (RentalInspectionItem $item) => $gradedItemIds->contains($item->id))
+            ->sortBy([
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => ($a->room ? 0 : 1) <=> ($b->room ? 0 : 1),
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => (int) ($a->room?->sort_order ?? 0) <=> (int) ($b->room?->sort_order ?? 0),
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => (int) ($a->room?->id ?? 0) <=> (int) ($b->room?->id ?? 0),
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => (int) $a->sort_order <=> (int) $b->sort_order,
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => $a->id <=> $b->id,
+            ])
+            ->values();
+    }
+
+    /**
+     * §45.3 — the "every item graded" gate for in/out/interim (never ad_hoc), switched by
+     * RentalInspectionSetting::allItemsRequiredToCompleteFor(). Prevent-or-absorb: PREVENTED here at the
+     * two transitions that lock the record (sending it for signature, completing it); absorbed
+     * everywhere else — an agent can always keep recording. Never touches an inspection already past
+     * these points.
+     */
+    private function guardUngradedItems(string $action): void
+    {
+        if ($this->type === self::TYPE_AD_HOC) {
+            return;
+        }
+        if (! RentalInspectionSetting::allItemsRequiredToCompleteFor($this->agency_id)) {
+            return;
+        }
+
+        $ungraded = $this->itemsStillUngraded();
+        if ($ungraded->isEmpty()) {
+            return;
+        }
+
+        throw new \App\Exceptions\RentalInspectionItemsUngradedException(
+            $action,
+            $ungraded->map(fn (RentalInspectionItem $item) => [
+                'item_id' => $item->id,
+                'item_label' => $item->label,
+                'room_id' => $item->property_room_id,
+                'room_label' => $item->room?->label ?? 'General',
+            ])->all()
+        );
+    }
+
+    /**
      * §"Notes (required)" gate — RentalInspectionSetting::
      * requireNotesBlocksProgressionFor() decides whether this throws (the
      * default) or is a no-op (an agency that only wants a warning); either
@@ -455,6 +520,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
         }
+        $this->guardUngradedItems('start the signing window');
         $this->guardMissingRequiredNotes('start the signing window');
 
         $this->forceFill([
@@ -497,6 +563,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot complete an inspection while a discrepancy is unresolved.');
         }
+        $this->guardUngradedItems('complete');
         $this->guardMissingRequiredNotes('complete');
 
         if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
