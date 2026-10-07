@@ -675,7 +675,10 @@ return [
             'body'  => 'Whether CoreX markets your listings, and whether it publishes them to Property24 and '
                 . 'Private Property, you already chose back in the Capabilities step. Here you set how the '
                 . 'Properties list itself behaves — how much of your stock an agent sees at a time when they '
-                . 'open the page in the field or at a desk.',
+                . 'open the page in the field or at a desk. It also covers Other Agency Stock — a listing from '
+                . 'another agency that your agent imports so they can take their own buyers to view it — '
+                . 'who in your agency can see those listings and the consent sentence an agent agrees to when '
+                . 'they import one.',
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
@@ -691,6 +694,11 @@ return [
             // always post a hidden "0" companion (wizard.blade.php), so this
             // step can never partially-post and silently flip one off.
             ['controller' => DealPropertySyncSettingsController::class, 'method' => 'update'],
+            // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Same saver as
+            // Company Settings → Other Agency Stock. Both fields are has()-guarded
+            // inside it (the roles via their `_submitted` marker), so a post that
+            // never rendered them leaves the saved values alone (§6.1).
+            ['controller' => SettingsController::class, 'method' => 'updateOtherAgencyStock'],
         ],
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
@@ -731,6 +739,23 @@ return [
              'label' => 'Revert the property when a deal is declined or lapses',
              'explain' => 'If a deal on an Under Offer property falls through, CoreX can automatically put the property back to the on-market status it held before — the safety companion to the toggle above.',
              'affects' => 'Whether a property that was auto-flagged Under Offer returns to its previous status on its own when the deal dies, or stays stuck as Under Offer until someone fixes it manually.'],
+
+            // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a/§10.
+            // Roles: a live list of THIS agency's own roles (control type `role_multiselect`,
+            // posts the `_submitted` marker the saver keys on). All ticked = visible to
+            // everyone = the stored default (NULL).
+            ['key' => 'other_agency_stock_visible_roles', 'source' => 'other_agency_stock', 'type' => 'role_multiselect',
+             'heading' => 'Other Agency Stock',
+             'label' => 'Who can see Other Agency Stock',
+             'explain' => 'Other Agency Stock is a listing that belongs to another agency, which your agent has imported from Property24 or Private Property so they can show it to their own buyers. Every role is ticked as standard, so everyone in your agency sees it; untick a role to hide these listings from that role. Buyers always see them in viewing packs like any other property, whatever you choose here.',
+             'affects' => 'Which of your own staff see Other Agency Stock on their Properties list and property pages. It never changes what a buyer sees, and it never publishes the listing anywhere.'],
+
+            // Blank = the standard wording (shown greyed out as the placeholder, like the settings page).
+            ['key' => 'other_agency_stock_consent_wording', 'source' => 'other_agency_stock', 'type' => 'textarea', 'rows' => 4,
+             'placeholder' => \App\Models\OtherAgencyStockConsent::DEFAULT_WORDING,
+             'label' => 'Import consent wording',
+             'explain' => 'Before an agent imports another agency\'s listing, they must tick a box confirming they have that agency\'s permission. This is the sentence beside that box. Leave it blank to use the standard wording (shown greyed out below); write your own if your agency\'s policy needs different words.',
+             'affects' => 'The exact words the agent agrees to on the import screen of the Chrome tool. The wording as it stood is saved with each import, so changing it later never rewrites an earlier consent.'],
         ],
     ],
 

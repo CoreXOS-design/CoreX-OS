@@ -79,12 +79,14 @@ Wording is agency-configurable: `agencies.other_agency_stock_consent_wording` (n
 > understand this listing is imported for sharing with my buyers only (viewings and viewing
 > packs) and will not be advertised, syndicated or published by me or my agency."
 
-**Setup Wizard (non-negotiable #10a):** deliberately NOT surfaced in the onboarding wizard —
-same documented carve-out already used in this codebase for expert/rarely-touched knobs (e.g.
-the Ad Manager background-removal thresholds). This is Johan's call to make, not the lane's;
-recorded here explicitly rather than silently omitted. If he wants it in the wizard, it's a
-one-line `controls[]` entry in `config/agency-onboarding-copy.php` pointing at a saver on the
-Settings controller.
+**Setup Wizard (non-negotiable #10a) — IN the wizard (2026-10-07).** Both Settings (the role-visibility
+checklist, §6, and this consent wording) are controls on the wizard's **Properties** step, saved by the
+SAME `SettingsController::updateOtherAgencyStock` the Company Settings form uses. Roles render as a
+tick-list of the agency's own roles (every role ticked = stored NULL = visible to everyone, the default —
+nothing disappears on onboarding); the wording is a textarea, blank = `OtherAgencyStockConsent::DEFAULT_WORDING`
+(shown as the greyed placeholder, never pre-filled). This replaces the earlier "deliberately not in the
+wizard" note, which was a lane's call rather than Johan's. See `agency-onboarding-setup.md` §5.1; test
+`tests/Feature/Onboarding/AgencySetupWizardPpraOasTest.php`.
 
 Consent records are shown on the property to anyone who can see the property (who/when — see
 §10 UI), and every content field write it enables is captured by the existing generic property
