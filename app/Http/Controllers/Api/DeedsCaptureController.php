@@ -440,7 +440,7 @@ final class DeedsCaptureController extends Controller
         return $extra + [
             'source'               => 'tracked_property',
             'tracked_property_id' => $tp->id,
-            'address'              => $label ?? trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')) . ($tp->suburb ? ', ' . $tp->suburb : ''),
+            'address'              => $label ?? $tp->streetLine() . ($tp->suburb ? ', ' . $tp->suburb : ''),
             'captured_by'          => $tp->deedsCapturedBy?->name,
             'captured_at'          => $tp->deeds_captured_at?->toIso8601String(),
             'captured_at_human'    => $tp->deeds_captured_at?->diffForHumans(),

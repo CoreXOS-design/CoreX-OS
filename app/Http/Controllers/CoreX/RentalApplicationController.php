@@ -71,7 +71,7 @@ class RentalApplicationController extends Controller
         // chance. No requested scope now means "use my ceiling", not
         // "assume own".
         $requestedScope = $request->get('scope');
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_applications');
+        $maxScope = \App\Services\Rentals\RentalDataScope::ceiling($user, 'rental_applications');
         $resolvedScope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
         $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
         $canSeeAgency = $maxScope === 'all';

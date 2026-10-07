@@ -237,7 +237,7 @@
             @foreach($captures as $tp)
                 @php
                     $addr = collect([
-                        trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')),
+                        $tp->streetLine(),
                         $tp->complex_name,
                         $tp->suburb,
                         $tp->town,
@@ -271,7 +271,7 @@
                         $headline = collect([$schemeLabel, $tp->suburb])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
                         if ($headline === '') $headline = $addr; // no scheme/complex name captured — fall back rather than show nothing
                         $secondaryAddr = collect([
-                            trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')),
+                            $tp->streetLine(),
                             $tp->town,
                             $tp->province,
                         ])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');

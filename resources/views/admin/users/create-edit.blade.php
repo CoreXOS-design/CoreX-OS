@@ -30,6 +30,11 @@
     $managedIds = $managedRows->pluck('branch_id')->map(fn ($v) => (int) $v);
     $managedDefaultId = optional($managedRows->firstWhere('is_default', 1))->branch_id;
     $managedDefaultId = $managedDefaultId !== null ? (int) $managedDefaultId : null;
+    // A save that bounced on validation keeps the ticks the admin just made (create AND edit).
+    if (old('managed_branches') !== null) {
+        $managedIds = collect(old('managed_branches'))->map(fn ($v) => (int) $v);
+        $managedDefaultId = old('default_branch_id') !== null ? (int) old('default_branch_id') : null;
+    }
     $currentRoleSel = old('role', $isEdit ? ($user->role ?? 'agent') : 'agent');
     $isAdminRoleSel = in_array($currentRoleSel, ['admin', 'super_admin'], true);
 

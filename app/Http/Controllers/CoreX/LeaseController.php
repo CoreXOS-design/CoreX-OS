@@ -60,7 +60,7 @@ class LeaseController extends Controller
         // $request->get('scope') directly (Lease::scopeVisibleTo() clamps
         // it internally against the same ceiling) — $resolvedScope/
         // $scopeOptions here exist only to drive the toggle UI.
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'leases');
+        $maxScope = \App\Services\Rentals\RentalDataScope::ceiling($user, 'leases');
         $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
         $scopeOptions = match ($maxScope) {
             'all' => ['own', 'branch', 'all'],
@@ -348,10 +348,7 @@ class LeaseController extends Controller
         if ($request->boolean('archived')) {
             $out['Archived'] = 'Yes';
         }
-        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
-            $request->get('scope'),
-            \App\Services\PermissionService::getDataScope($request->user(), 'leases')
-        ));
+        $out['Scope'] = ucfirst(\App\Services\Rentals\RentalDataScope::resolve($request->user(), 'leases', $request->get('scope')));
 
         return $out;
     }

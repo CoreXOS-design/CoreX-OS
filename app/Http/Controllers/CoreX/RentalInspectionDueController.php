@@ -11,6 +11,7 @@ use App\Models\RentalInspectionPlannedDate;
 use App\Models\RentalInspectionSetting;
 use App\Models\User;
 use App\Services\PermissionService;
+use App\Services\Rentals\RentalDataScope;
 use App\Services\Rentals\RentalInspectionDueService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -322,7 +323,7 @@ class RentalInspectionDueController extends Controller
     /** @return array{0:string, 1:string, 2:array<int,string>} */
     private function scopes(Request $request): array
     {
-        $max = PermissionService::getDataScope($request->user(), 'rental_inspections');
+        $max = RentalDataScope::ceiling($request->user(), 'rental_inspections');
         $resolved = PermissionService::clampScope($request->get('scope'), $max);
         $options = match ($max) {
             'all' => ['own', 'branch', 'all'],
@@ -348,7 +349,7 @@ class RentalInspectionDueController extends Controller
     /** own = the property's agent (or whoever loaded/created it), branch = the property's branch, all = the agency. */
     private function propertyScope(Builder $propertyQuery, User $user, ?string $requested): Builder
     {
-        $max = PermissionService::getDataScope($user, 'rental_inspections');
+        $max = RentalDataScope::ceiling($user, 'rental_inspections');
         $scope = PermissionService::clampScope($requested, $max);
 
         return match ($scope) {
@@ -375,7 +376,7 @@ class RentalInspectionDueController extends Controller
 
         if (! $archived) {
             $leaseConstraint = function ($q) use ($user, $requestedScope) {
-                $max = PermissionService::getDataScope($user, 'rental_inspections');
+                $max = RentalDataScope::ceiling($user, 'rental_inspections');
                 $scope = PermissionService::clampScope($requestedScope, $max);
                 if ($scope === 'all') {
                     return;

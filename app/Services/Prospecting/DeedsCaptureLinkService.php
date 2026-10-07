@@ -508,7 +508,7 @@ class DeedsCaptureLinkService
         foreach ($tps as $tp) {
             $owners = $ownersByTp[(int) $tp->id] ?? [];
 
-            $streetLine = trim(implode(' ', array_filter([$tp->street_number, $tp->street_name])));
+            $streetLine = $tp->streetLine();
             $scheme     = $tp->scheme_name ?: $tp->complex_name;
             $address    = trim(implode(', ', array_filter([$streetLine, $scheme, $tp->suburb]))) ?: (string) ($tp->town ?? '');
 
