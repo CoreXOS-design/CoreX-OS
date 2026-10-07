@@ -13,7 +13,6 @@ use App\Models\PropertySettingItem;
 use App\Models\Scopes\BranchScope;
 use App\Models\Scopes\ContactScope;
 use App\Models\User;
-use App\Services\BuyerStateService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +20,8 @@ use Illuminate\Support\Facades\Validator;
 
 class ContactMatchController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     /**
      * Canonical feature token list for the wishlist chip selectors
      * (must_have_features, nice_to_have_features, deal_breakers).
@@ -208,7 +209,8 @@ class ContactMatchController extends Controller
         // it's redundant now every caller resolves contact_id from an
         // ALREADY correctly-scoped Contact set (below), and it was the
         // other half of this same nested-bypass trap.
-        $matchConstraints = function ($q) use ($listingType, $statusFilter, $savedFrom, $savedTo, $scope, $branchId, $agentId) {
+        $gateAgencyId = (int) $user->effectiveAgencyId();
+        $matchConstraints = function ($q) use ($listingType, $statusFilter, $savedFrom, $savedTo, $scope, $branchId, $agentId, $gateAgencyId) {
             // ContactMatch carries BranchScope (via BelongsToBranch), NOT
             // just BelongsToAgency — found during a same-class-bug sweep
             // after the ContactScope fix below: an 'agency' scope
@@ -224,6 +226,11 @@ class ContactMatchController extends Controller
             // row a branch scope would otherwise hide. Assignment, not
             // branch, decides whose board a buyer is on.
             $q->withoutGlobalScope(BranchScope::class)
+                // A buyer in an excluded Buyer Pipeline status (default Won + Lost — an agency
+                // setting) has NO Core Matches. The same scope every other Core Matches surface
+                // uses (CoreMatchBuyerGate); because it lives in $matchConstraints it also drives
+                // the contact list, the sort aggregates and the match rows below.
+                ->buyerInPlay($gateAgencyId)
                 ->when($listingType !== '', fn ($q2) => $q2->where('listing_type', $listingType))
                 ->when($statusFilter !== '', fn ($q2) => $q2->where('status', $statusFilter))
                 ->when($savedFrom !== '', fn ($q2) => $q2->whereDate('created_at', '>=', $savedFrom))
@@ -277,31 +284,6 @@ class ContactMatchController extends Controller
         $contactsQuery = Contact::query()
             ->withoutGlobalScope(ContactScope::class)->withoutGlobalScope(BranchScope::class)
             ->whereIn('id', $qualifyingContactIds)
-            // A Lost buyer never renders on this board, full stop — history
-            // and future in one filter, no dependency on an event having
-            // fired. contact_matches.set_aside_at (the event/listener pair
-            // in App\Listeners\CoreMatches\*OnBuyerLost/Restored) is single-
-            // purpose and now redundant for THIS screen's own correctness:
-            // it is set by exactly one listener and read by exactly one
-            // other, both built solely for this mechanism (confirmed by
-            // grep — no other caller exists), so carrying both here is how
-            // two signals drift apart, not a safety net. Deliberately reads
-            // buyer_state directly rather than set_aside_at: a buyer moved
-            // to Lost before that column/listener existed (the entire
-            // backlog this replaces) has buyer_state='lost' correctly set,
-            // regardless of whether any event ever fired for them. Won is
-            // excluded the same way — Johan: "any buyer moving to won or
-            // lost needs to update core matches," a converted buyer is as
-            // finished as one who walked away. Both states are written by
-            // the SAME BuyerStateService::transitionTo() regardless of
-            // whether the move was manual or the nightly auto-recompute, so
-            // this filter covers all four cases (manual/auto x won/lost)
-            // with no extra branching.
-            // whereNotIn() alone would wrongly exclude a NULL buyer_state
-            // (never-classified / non-buyer) row — MySQL's NOT IN evaluates
-            // to NULL, not true, against a NULL column — so NULL is
-            // explicitly kept via orWhereNull().
-            ->where(fn ($q) => $q->whereNull('buyer_state')->orWhereNotIn('buyer_state', ['lost', BuyerStateService::WON]))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($q2) use ($search) {
                     $q2->where('first_name', 'like', "%{$search}%")
@@ -453,8 +435,9 @@ class ContactMatchController extends Controller
         // A REMAINING count, not a static label. The clock is
         // Contact::last_contacted_at — per AgencyContactSettings'
         // coreMatchesWorkingWindowDays() docblock, this setting measures
-        // days without a note/message/live-link-share/"Last Contacted"
-        // press, NOT days since the lead was first received (a different
+        // days without a message/live-link-share/"Last Contacted"
+        // press/"Contacted and note" (a plain note does not count — Johan,
+        // 2026-10-07), NOT days since the lead was first received (a different
         // clock entirely — that one only feeds the "first received" badge
         // above). No fallback to created_at when never contacted: the
         // header's own "Never contacted" badge already carries that signal,
@@ -472,6 +455,17 @@ class ContactMatchController extends Controller
             }
         }
 
+        // Who the viewer may write a note for from this board — the contact-notes store route's
+        // own rules, evaluated up front so no "+ Note" button is shown that would only 404/403:
+        // contacts access permission, the contact bound under its normal ContactScope (own/branch/
+        // all — NOT the oversight bypass this board uses to LIST), and canMutateContact().
+        $noteableContactIds = [];
+        if ($user->hasPermission('access_contacts') && $pageContactIds->isNotEmpty()) {
+            $noteableContactIds = Contact::query()->whereIn('id', $pageContactIds)->get()
+                ->filter(fn (Contact $c) => $this->canMutateContact($c))
+                ->pluck('id')->map(fn ($id) => (int) $id)->all();
+        }
+
         $rows = collect($contacts->items())->map(fn ($c) => [
             'contact' => $c,
             'matches' => $matchesByContact->get($c->id, collect()),
@@ -482,7 +476,7 @@ class ContactMatchController extends Controller
         $totalMatches = $allMatches->count();
 
         return view('corex.core-matches.index', compact(
-            'rows', 'contacts', 'matchCounts', 'totalMatches',
+            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds',
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
             'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',

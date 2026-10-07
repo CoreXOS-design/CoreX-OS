@@ -15,10 +15,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * AT-Core-Matches, Johan's ruling 2 — a note added, the Last Contacted
- * button, a message sent, and a live link shared ALL reset the working
- * clock (Contact::last_contacted_at). Proves the two NEW triggers this
- * build adds; "message sent" already worked before this build (not
+ * AT-Core-Matches, Johan's ruling 2 — the Last Contacted button, a message
+ * sent, and a live link shared reset the working clock (Contact::last_contacted_at).
+ * A plain note does NOT (Johan, 2026-10-07 — supersedes "a note added resets it";
+ * see NoteOnlyDoesNotMarkContactedTest for the full note matrix). Proves the live-link
+ * trigger and the note exclusion; "message sent" already worked before this build (not
  * re-proven here — that's CommunicationSendStatusService's own test).
  */
 final class ContactMatchWorkingClockTest extends TestCase
@@ -60,7 +61,7 @@ final class ContactMatchWorkingClockTest extends TestCase
         $this->assertSame(1, ContactMatchShare::count());
     }
 
-    public function test_adding_a_note_resets_the_clock(): void
+    public function test_adding_a_plain_note_does_not_reset_the_clock(): void
     {
         $this->assertNull($this->contact->last_contacted_at);
 
@@ -73,7 +74,8 @@ final class ContactMatchWorkingClockTest extends TestCase
         ]);
 
         $this->contact->refresh();
-        $this->assertNotNull($this->contact->last_contacted_at);
+        $this->assertNull($this->contact->last_contacted_at, 'a note — even one typed "Contacted" — is not contact');
+        $this->assertNull($this->contact->contacted_marked_at);
     }
 
     public function test_a_nightly_stock_refresh_style_match_save_does_not_reset_the_clock(): void

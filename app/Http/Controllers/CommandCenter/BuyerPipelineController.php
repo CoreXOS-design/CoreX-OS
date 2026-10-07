@@ -303,7 +303,11 @@ class BuyerPipelineController extends Controller
      */
     private function coreMatchCounts($contactIds): \Illuminate\Support\Collection
     {
-        $ids = collect($contactIds)->filter()->values();
+        // A buyer in an excluded status (default Won + Lost — agency setting) has no Core
+        // Matches, so their card must not claim a count the Core Matches screen won't show.
+        $ids = collect(\App\Services\Matching\CoreMatchBuyerGate::filterContactIds(
+            $contactIds, (int) auth()->user()?->effectiveAgencyId()
+        ));
         if ($ids->isEmpty()) {
             return collect();
         }

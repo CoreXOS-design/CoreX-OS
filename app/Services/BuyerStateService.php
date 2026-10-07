@@ -15,6 +15,9 @@ class BuyerStateService
     /** Terminal "converted" state — set when a buyer is linked to a property (Johan 2026-08-13). */
     public const WON = 'won';
 
+    /** Every Buyer / Rental Pipeline status, in pipeline order. */
+    public const PIPELINE_STATES = ['new', 'warm', 'cold', 'lost', self::WON];
+
     /**
      * Resolve the current buyer state based on last_activity_at and agency thresholds.
      *

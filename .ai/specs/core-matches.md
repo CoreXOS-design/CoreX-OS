@@ -331,8 +331,10 @@ being worked. Six rulings, all now the spec:
 
 1. Only a branch manager or admin can move a buyer between agents. Ever. An
    agent can never reassign a buyer, including to themselves, by any route.
-2. A note added, the Last Contacted button, a message sent, and a live link
-   shared all reset the working clock.
+2. The Last Contacted button, "Contacted and note", a message sent, and a live
+   link shared reset the working clock. **A plain note does NOT** — amended
+   2026-10-07 (Johan), see "The working clock" below; this SUPERSEDES the
+   original wording "a note added … resets the working clock".
 3. The board is OPEN — assigned agent, first-lead time, last contact, and
    contact notes are visible to everyone.
 4. Live links stay LIVE for the buyer — one permanent link, always current
@@ -496,15 +498,25 @@ it already unifies email + WhatsApp (one `communications` table/model) with
 the manual "Last Contacted" button's own `contacted_marked_at`, via
 `Contact::recomputeLastContacted()`.
 
-Two NEW triggers added, both calling the existing
-`Contact::touchLastContacted()`:
+One NEW trigger added, calling the existing `Contact::touchLastContacted()`:
 
 - **A live link shared** — `ContactMatchShare::record()` (new).
-- **A note added** — hooked via observer on `ContactNote`'s creation
-  (applies to notes generally, not scoped to notes added specifically from
-  a future Core Matches screen — narrower scoping would need new
-  context-tagging plumbing that's out of scope for this build; flagged as
-  an interpretation, not a silent decision).
+
+> **RULING 2026-10-07 (Johan, 07:08) — SUPERSEDES the earlier ruling that any note resets "Last Contacted".**
+> Verbatim: "Only 'Contacted and note' moves it. 'Note only' could be anything and does not mean the
+> contact was contacted; 'Contacted and note' means it."
+>
+> The original build hooked an observer on `ContactNote` creation (`ContactNoteObserver`) so EVERY note,
+> from any screen/API/import/system writer, called `touchLastContacted()`. **That observer is deleted.**
+> Now: a note — contact screen, Core Matches "+ Note" popup, buyer pipeline notes tab, mobile API
+> (`MobileContactNotesController::notesStore`), quick-pick-only note (including the "Contacted" quick pick),
+> edit of a note, and every system-generated note (dead-end flag, "Not selling", opt-out, CSV import) —
+> NEVER moves `last_contacted_at` or `contacted_marked_at`. The ONE note-driven mover is the explicit
+> "Contacted and note" / "Add note & mark contacted" action: `ContactNoteController::store()` with
+> `mark_contacted=1` → `Contact::markContacted()` (AT-372). Real outbound communication captured by CoreX
+> and a confirmed live-link share are unchanged. The "Contacted X ago" chip on Core Matches and the contact
+> lists therefore reflects only real contact. Test: `tests/Feature/Contacts/NoteOnlyDoesNotMarkContactedTest.php`.
+> Existing data was NOT rewritten (see the 2026-10-07 report).
 
 **"A message sent"** needed no new hook — an outbound, sent communication
 already triggers `recomputeLastContacted()` via
@@ -876,3 +888,66 @@ agency-defined unknown status used to be asserted as correctly matching
 ruling. The off-market-statuses-are-non-matchable loop now excludes
 `expired` from its universal claim, with `expired`'s specific exception
 asserted in its own new test right beside it.
+
+---
+
+## Won / Lost buyers have no Core Matches — one rule, agency setting (2026-10-07)
+
+Johan: a buyer marked Won or Lost in the Buyer / Rental Pipeline must not have Core Matches.
+Investigation (QA1, read-only, 7 Oct): true on the board (hard-coded in `ContactMatchController`), FALSE on
+the property-page Core Matches tab, new-listing alert candidates, the daily digest, the mobile list and the
+pipeline cards' "N matches" badge (QA1: a Lost buyer's card read "258 matches"; Cobus Van Niekerk, Lost, still
+listed on a property's tab). Fixed by ONE rule, read live from the buyer's current status — no flag to set
+or restore, so a buyer moved back to an active status returns everywhere at once.
+
+### The rule — `App\Services\Matching\CoreMatchBuyerGate`
+* `excludedStates($agencyId)` — the agency's excluded Buyer Pipeline statuses.
+* `ContactMatch::scopeBuyerInPlay($agencyId)` → `applyToMatchQuery()` — `contact_id NOT IN (raw DB subquery on
+  contacts WHERE buyer_state IN excluded)`. A raw subquery on purpose (never `whereHas('contact')`): it must not
+  re-apply Contact's ContactScope/BranchScope, and a scope bypass inside a relation closure does not propagate
+  (see "The ContactScope trap" above). A NULL `buyer_state` (no pipeline record) is never excluded.
+* `isExcluded($state, $agencyId)` / `filterContactIds()` — the same rule for row-level and id-list callers.
+* `saveExcludedStates()` — the single write path (settings page AND wizard); drops unknown slugs; one append-only
+  audit row (`core_match_buyer_state_audit`: agency, who, old, new, when) only when the effective list changed.
+
+### Setting
+`agency_contact_settings.core_matches_excluded_buyer_states` (JSON, nullable). NULL = code default
+`AgencyContactSettings::DEFAULT_CORE_MATCHES_EXCLUDED_BUYER_STATES = ['won','lost']`; a stored `[]` = "exclude no one".
+Values must be one of `BuyerStateService::PIPELINE_STATES` (new, warm, cold, lost, won). Settings page: Settings →
+Core Matches ("No Core Matches for buyers in these pipeline statuses"). **Setup Wizard** (CLAUDE.md #10a): Core Matches
+step, new `multiselect` control `core_matches_excluded_buyer_states` (source `core_matches`), narrow saver
+`ContactGovernanceController@updateCoreMatchesExcludedBuyerStates` guarded by the `core_matches_excluded_buyer_states_present`
+marker (spec agency-onboarding-setup.md §6.1) so a post that never rendered it cannot wipe the choice.
+
+### Surfaces now using the rule
+| Surface | Where |
+|---|---|
+| Board (Mine / Branch / Agency, sale + rental) | `ContactMatchController::renderBoard()` `$matchConstraints` → drives contact list, sort aggregates, match rows |
+| Property-page Core Matches tab, Intelligence buyer signals, seller buyer-demand | `MatchingService::matchesForProperty()` |
+| New-listing alerts (bell / digest queue) | `MatchingService::candidatesForProperty()` (← `MatchPropertyJob`) |
+| Daily match digest | `SendMatchDigests::buildGroups()` re-checks the buyer at send time |
+| Mobile Core Matches list | `MobileCoreMatchController::index()` |
+| Pipeline cards' "N matches" badge | `BuyerPipelineController::coreMatchCounts()` |
+
+NOT changed (reported to Johan): the public shared-match link's lifetime (`SharedMatchController::isBuyerActive()` — its own
+"dies when Won/Lost" ruling), a buyer's own portal (`ClientPortalController`), per-buyer Viewing Pack / `BuyerCoreMatchService`,
+and the `property_buyer_matches` cache rows themselves (they keep existing for Lost/Won buyers; every reader that shows them as
+Core Matches goes through the rule, MIC/seller demand have their own state filters). The older `set_aside_at` listener pair
+remains (history; the board no longer depends on it).
+
+### Board row: status chip + notes control
+* `<x-buyer-state-chip :state>` next to the buyer's name — the pipeline's own labels (New/Warm/Cold/Lost/Won) and `ds-badge`
+  colours; renders nothing when the buyer has no pipeline status.
+* "+ Note" button next to the name opens ONE page-level modal with "Note only" / "Contacted and note", posting to the
+  contact screen's own endpoint `ContactNoteController::store` (`redirect_to=back` returns to the same board, filters intact).
+  "Note only" does NOT move Last Contacted / the working clock (Johan, 2026-10-07 — supersedes the earlier "any note resets it";
+  the `ContactNoteObserver` is gone) and records no explicit "contacted" mark. "Contacted and note" = `mark_contacted=1` → `Contact::markContacted()` (sets
+  `contacted_marked_at`; last contacted = later of latest sent message and that mark) — identical to the contact screen. The button shows only where the store would succeed: `access_contacts`,
+  the contact bound under its normal ContactScope, and `canMutateContact()` (assistants). The existing read-only "N notes"
+  popup stays and shows the same notes.
+
+### Tests
+`tests/Feature/CoreMatches/CoreMatchBuyerStatusGateTest.php` — default exclusion for every state incl. none; setting drives it
+(`[cold]`, `[]`, NULL→default); return on reactivation (and won again); rentals + agency scope; property tab / alerts / digest /
+mobile / pipeline-count filter; chip renders per state and not without a record; note-only vs contacted-and-note effects +
+redirect back to the board; cross-agency contact refused; audit only on change; settings saver marker guard; wizard row + saver.
