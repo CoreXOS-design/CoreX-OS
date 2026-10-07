@@ -158,6 +158,7 @@ final class ViewingPackCoverStyleTest extends TestCase
         $this->assertStringContainsString('#002060', $html);
         $this->assertStringContainsString('#C00000', $html);
         $this->assertStringNotContainsString('Registered with the PPRA', $html);   // "nothing else on the cover"
+        $this->assertStringNotContainsString('@font-face', $html);                  // preview (a browser) must not request the PDF's filesystem fonts
         $this->assertStringNotContainsString('Sample Buyer', $html);
     }
 
@@ -470,6 +471,8 @@ final class ViewingPackCoverStyleTest extends TestCase
 
         $this->assertStringStartsWith('%PDF', $bytes);
         $this->assertSame(1, preg_match_all('/\/Type\s*\/Page[^s]/', $bytes), 'cover must be exactly one page');
+        $pdfHtml = view('command-center.viewing-packs.buyer-pack.cover', array_diff_key($viewData, ['preview' => 1]))->render();
+        $this->assertStringContainsString('@font-face', $pdfHtml);                  // the PDF path still declares its fonts
         $this->assertMatchesRegularExpression('/\/MediaBox\s*\[\s*0(\.0+)?\s+0(\.0+)?\s+595\.28\d*\s+841\.89\d*\s*\]/', $bytes);
     }
 
