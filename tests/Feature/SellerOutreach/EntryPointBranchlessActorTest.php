@@ -47,7 +47,7 @@ final class EntryPointBranchlessActorTest extends TestCase
             'external_id' => 'TEST-' . Str::random(8),
             'title' => 'Test Property', 'address' => '250 Sunset Boulevard', 'suburb' => 'Uvongo',
             'price' => 1_200_000, 'status' => 'active', 'is_demo' => false,
-            'agency_id' => $agencyId, 'branch_id' => $otherAgencyBranchId,
+            'agency_id' => $agencyId, 'branch_id' => $otherAgencyBranchId, 'agent_id' => $userId,
             'created_at' => now(), 'updated_at' => now(),
         ]);
 
