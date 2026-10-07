@@ -20,6 +20,8 @@ class LeaseActionDialogResolver
     public const TENANT_NOTICE = 'tenant-notice';
     public const LANDLORD_NOTICE = 'landlord-notice';
     public const CHANGE_NOTICE_OUTCOME = 'change-notice-outcome';
+    /** Not a dialog: opens the "Lease actions" menu itself, showing every outcome (renewed / month-to-month / ended). */
+    public const OUTCOMES = 'outcomes';
 
     /**
      * The only actions a URL ?action= param (or the hidden _lease_action
@@ -27,7 +29,7 @@ class LeaseActionDialogResolver
      * month-to-month, cancel, and change-notice-outcome are reachable only
      * from the menu itself — deliberately not URL-triggerable.
      */
-    public const URL_ACTIONS = [self::RENEW, self::MONTH_TO_MONTH, self::TENANT_NOTICE, self::LANDLORD_NOTICE];
+    public const URL_ACTIONS = [self::RENEW, self::MONTH_TO_MONTH, self::TENANT_NOTICE, self::LANDLORD_NOTICE, self::OUTCOMES];
 
     /**
      * Validity mirrors the EXACT conditions the "Lease actions" menu itself
@@ -43,7 +45,7 @@ class LeaseActionDialogResolver
             return [];
         }
 
-        $valid = [self::RENEW => true];
+        $valid = [self::RENEW => true, self::OUTCOMES => true];
 
         if (!$lease->is_month_to_month) {
             $valid[self::MONTH_TO_MONTH] = true;

@@ -358,8 +358,50 @@ class ContactMatch extends Model
             $this->updated_by_user_id = $movedBy->id;
             $this->save();
 
+            $this->movePrimaryAgentTo($toAgent, $movedBy);
+
             return $record;
         });
+    }
+
+    /**
+     * Johan, 2026-10-07 — "the primary agent is the one working with the
+     * client, so when a manager reassigns a buyer to another agent the
+     * contact's primary agent MUST change." Called from reassignTo() inside
+     * its transaction, so the search owner, the reassignment record and the
+     * contact's primary agent all commit or roll back together.
+     *
+     * The save goes through the Contact model (not a raw update) so
+     * ContactObserver writes the `agent_assigned` row in the contact's
+     * history; AuditContext is stamped with $movedBy so that row names the
+     * manager who did it even when no one is logged in (console, queue).
+     * Resolved without the contact scopes: a manager acting across branches
+     * must not silently skip the primary-agent change because the scope hid
+     * the contact — the agency is pinned explicitly instead.
+     */
+    private function movePrimaryAgentTo(User $toAgent, User $movedBy): void
+    {
+        $contact = Contact::withoutGlobalScopes()
+            ->where('agency_id', $this->agency_id)
+            ->find($this->contact_id);
+
+        if (! $contact || (int) $contact->agent_id === (int) $toAgent->id) {
+            return;
+        }
+
+        $contact->agent_id = $toAgent->id;
+        // A co-agent equal to the new primary is meaningless — collapse it.
+        if ((int) $contact->second_agent_id === (int) $toAgent->id) {
+            $contact->second_agent_id = null;
+        }
+
+        \App\Support\Audit\AuditContext::push();
+        try {
+            \App\Support\Audit\AuditContext::setUser($movedBy);
+            $contact->save();
+        } finally {
+            \App\Support\Audit\AuditContext::pop();
+        }
     }
 
     /**

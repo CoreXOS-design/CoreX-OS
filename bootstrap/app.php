@@ -102,6 +102,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
                 'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
+                // leases.md §15.8.4 (Build L3c) — a lease agreement's final approval checks the document against its lease.
+                'lease.agreement.confirmed' => \App\Http\Middleware\EnsureLeaseAgreementConfirmed::class,
                 // Per-agency feature gate — orthogonal to permission; 404s when a
                 // feature is off. Spec: .ai/specs/corex-feature-registry.md §6.3.
                 'feature' => \App\Http\Middleware\CheckFeature::class,

@@ -279,7 +279,38 @@ class LeaseSigningLauncher
                 && ($user->hasPermission('leases.create') || $user->hasPermission('leases.renew'))
                 && $user->hasPermission('access_docuperfect') && $user->hasPermission('create_docuperfect_docs'),
             'failure_note' => $lease->signing_failure_note,
-        ];
+        ] + $this->changeLinksFor($lease, $user, $status);
+    }
+
+    /**
+     * leases.md §15.13 / §15.8.4 (Build L3c) — "Review changes" while the agreement is out or waiting for approval and
+     * it has been changed in e-sign; "Confirm the lease details" when it was signed with a difference nobody confirmed.
+     * Only offered to someone who may confirm. A read of the document; a fault reads as "nothing to review".
+     *
+     * @return array{review_url: ?string, confirm_url: ?string}
+     */
+    private function changeLinksFor(Lease $lease, User $user, string $status): array
+    {
+        $links = ['review_url' => null, 'confirm_url' => null];
+
+        try {
+            if (! app(LeaseAgreementConfirmService::class)->mayConfirm($user, $lease)) {
+                return $links;
+            }
+
+            if (in_array($status, [Lease::SIGNING_OUT_FOR_SIGNING, Lease::SIGNING_AWAITING_AGENT_REVIEW], true)
+                && app(LeaseAgreementCheck::class)->verdict($lease)['has_differences']) {
+                $links['review_url'] = route('corex.leases.agreement.confirm', $lease);
+            }
+
+            if ($status === Lease::SIGNING_SIGNED && $lease->status === Lease::STATUS_DRAFT && app(LeaseHubService::class)->awaitingConfirmation($lease)) {
+                $links['confirm_url'] = route('corex.leases.agreement.confirm', $lease);
+            }
+        } catch (\Throwable $e) {
+            // A card must always draw.
+        }
+
+        return $links;
     }
 
     /**

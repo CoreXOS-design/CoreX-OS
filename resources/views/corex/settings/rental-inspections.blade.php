@@ -560,6 +560,33 @@
         </div>
     </form>
 
+    {{-- §45.14 — the agency's own words for the three move-out classifications an agent can record against a marked
+         item. The three are fixed; only the wording is yours. A blank box keeps the default. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.move-out-classification-labels') }}" class="space-y-3">
+        @csrf
+        <input type="hidden" name="move_out_classification_labels_submitted" value="1">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Move-out classifications</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The words an agent picks from when classifying a difference on the move-out comparison (what was already there at move-in, what the landlord carries, what is charged to the tenant). The three are fixed; reword each to match your own paperwork. Wording you change applies to the screen from now on.
+                </p>
+                @foreach(\App\Models\RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS as $moKey => $moDefault)
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs w-40" style="color: var(--text-muted);">{{ $moDefault }} (default)</span>
+                        <input type="text" name="move_out_classification_labels[{{ $moKey }}]" maxlength="60" value="{{ old('move_out_classification_labels.' . $moKey, $moveOutClassificationLabels[$moKey]) }}"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save wording</button>
+        </div>
+    </form>
+
     {{-- §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
          setting, default ON." Filing to the property is never optional
          (this toggle only governs the automatic EMAIL); the manual

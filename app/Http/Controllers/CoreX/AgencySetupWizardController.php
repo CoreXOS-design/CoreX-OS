@@ -200,6 +200,8 @@ class AgencySetupWizardController extends Controller
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
                 // §45.5 (Build I-3) — key => label for how someone attended an inspection.
                 'wzAttendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($agency->id),
+                // §45.14 — key => label for the three move-out classifications.
+                'wzMoveOutClassificationLabels' => \App\Models\RentalInspectionSetting::moveOutClassificationLabelsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
                 // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
                 'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
@@ -627,6 +629,8 @@ class AgencySetupWizardController extends Controller
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
+                    // Johan, 7 Oct 2026 — leases.md §5.3.
+                    'month_to_month_after_end_days' => LeaseSetting::monthToMonthAfterEndDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one

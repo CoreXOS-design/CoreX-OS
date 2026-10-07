@@ -497,6 +497,9 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // Build L3a (§15.15): where a lease's agreement stands — status, signers in signing order, what is still missing.
         Route::get('/leases/{lease}/signing', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'signing'])
             ->middleware('permission:leases.view')->name('v1.leases.signing');
+        // Build L3c (§15.9, §15.15): the confirmation of the differences between the lease and its agreement.
+        Route::post('/leases/{lease}/signing/confirm', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'confirm'])
+            ->middleware('permission:leases.view')->name('v1.leases.signing.confirm');
         // LEASE-CAPTURE END
 
         // .ai/specs/rental-renewals.md §10 — JSON mirror of the Lease Hub's

@@ -388,6 +388,7 @@ class RentalInspectionSetting extends Model
         'require_notes_blocks_progression',
         'all_items_required_to_complete',
         'attended_as_labels',
+        'move_out_classification_labels',
         'omr_mark_threshold',
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
@@ -423,6 +424,7 @@ class RentalInspectionSetting extends Model
         'require_notes_blocks_progression' => 'boolean',
         'all_items_required_to_complete' => 'boolean',
         'attended_as_labels' => 'array',
+        'move_out_classification_labels' => 'array',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
@@ -552,6 +554,51 @@ class RentalInspectionSetting extends Model
         }
 
         return $labels;
+    }
+
+    /**
+     * §45.14 — the words for the three move-out classifications an agent can record against a marked item. The keys
+     * are fixed (RentalInspectionItemFinding::DISPOSITION_*) and are all the code ever reads — logic never depends
+     * on wording; only the labels are the agency's own. The defaults are the wording the screen has always used.
+     */
+    public const DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS = [
+        RentalInspectionItemFinding::DISPOSITION_PRE_EXISTING => 'Pre-existing',
+        RentalInspectionItemFinding::DISPOSITION_LANDLORD_COST => 'Landlord\'s responsibility',
+        RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT => 'Charge to tenant',
+    ];
+
+    /** @return array<string, string> key => label, always all three keys */
+    public static function moveOutClassificationLabelsFor(?int $agencyId): array
+    {
+        $stored = null;
+        if ($agencyId) {
+            $stored = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('move_out_classification_labels');
+            $stored = is_string($stored) ? json_decode($stored, true) : $stored;
+        }
+
+        $labels = self::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS;
+        if (is_array($stored)) {
+            foreach ($labels as $key => $default) {
+                $candidate = isset($stored[$key]) && is_string($stored[$key]) ? trim($stored[$key]) : '';
+                if ($candidate !== '') {
+                    $labels[$key] = $candidate;
+                }
+            }
+        }
+
+        return $labels;
+    }
+
+    /**
+     * Every disposition key => the words THIS agency's screen shows: the two fixed ones (fair wear and tear /
+     * flagged) as shipped, plus the three the agency may reword. Keys and order are exactly
+     * RentalInspectionItemFinding::DISPOSITION_LABELS — validation keeps using that, never these labels.
+     *
+     * @return array<string, string>
+     */
+    public static function dispositionLabelsFor(?int $agencyId): array
+    {
+        return array_replace(RentalInspectionItemFinding::DISPOSITION_LABELS, self::moveOutClassificationLabelsFor($agencyId));
     }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
