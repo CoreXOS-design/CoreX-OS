@@ -15,6 +15,8 @@
     @include('platform-esign.agreement._css')
     @include('platform-esign.agreement._sheets-css')
 
+    @include('platform-esign.agreement._take-on-warning', ['doc' => $doc, 'lapse' => $takeOnLapse ?? null])
+
     <div class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="ds-section-header">Signed copy received from the agency</div>
         @foreach($files as $f)
@@ -45,6 +47,7 @@
         <div class="flex items-center gap-3"><button type="button" id="submit-btn" class="btn" disabled>Countersign and seal</button><span id="savestate" class="text-xs" style="color: var(--text-muted);"></span></div>
     </div>
     <div id="toast" class="toast" hidden role="status"></div>
+    @include('platform-esign._end')
 </div>
 @php
     $cfg = ['mode' => 'rr', 'rev' => 0, 'total' => 0, 'done' => [], 'initials' => '', 'rates' => \App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES, 'variation' => '0', 'labels' => $labels, 'recipientKeys' => [],

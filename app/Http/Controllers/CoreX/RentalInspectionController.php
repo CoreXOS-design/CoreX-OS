@@ -266,7 +266,8 @@ class RentalInspectionController extends Controller
         $direction = $request->get('direction', 'desc');
         // §43 — 'inspector' added so the list can be sorted by who is
         // booked to do the inspection, not just when.
-        $allowedSorts = ['scheduled_for', 'property', 'status', 'type', 'inspector'];
+        // §45.5 (Build I-3) — 'attended' sorts by how many expected parties attended.
+        $allowedSorts = ['scheduled_for', 'property', 'status', 'type', 'inspector', 'attended'];
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'scheduled_for';
         }
@@ -281,6 +282,9 @@ class RentalInspectionController extends Controller
             $query->join('properties', 'properties.id', '=', 'rental_inspections.property_id')
                 ->orderBy('properties.title', $direction)
                 ->select('rental_inspections.*');
+        } elseif ($sort === 'attended') {
+            $query->orderByRaw("(select count(*) from rental_inspection_attendances ria where ria.rental_inspection_id = rental_inspections.id and ria.outcome = 'attended' and ria.superseded_at is null and ria.party_role in ('tenant','landlord','agent')) {$direction}")
+                ->orderBy('rental_inspections.id', $direction);
         } elseif ($sort === 'inspector') {
             $query->leftJoin('users as inspector_users', 'inspector_users.id', '=', 'rental_inspections.inspector_user_id')
                 ->orderBy('inspector_users.name', $direction)
@@ -300,6 +304,11 @@ class RentalInspectionController extends Controller
         }
 
         $inspections = $query->paginate($perPage)->withQueryString();
+
+        // §45.5 (Build I-3) — the "Attended" column ("2 of 3"): two grouped queries for the page, never one per row.
+        $attendanceService = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        $attendedCounts = $attendanceService->attendedCountsFor($inspections->getCollection()->pluck('id')->all());
+        $expectedCounts = $attendanceService->expectedCountsFor($inspections->getCollection());
 
         // §39, 2026-09-28 — Johan: a summary tiles row, same reused pattern
         // as FICA/rental-applications (compliance/fica/index.blade.php,
@@ -333,7 +342,9 @@ class RentalInspectionController extends Controller
             'perPageOptions' => self::PER_PAGE_OPTIONS,
             'tileCounts' => $tileCounts,
             'scheduled' => $scheduled,
-            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id']),
+            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance']),
+            'attendedCounts' => $attendedCounts,
+            'expectedCounts' => $expectedCounts,
             'inspectorOptions' => User::where('agency_id', $user->effectiveAgencyId())->where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'resolvedScope' => $resolvedScope,
             'scopeOptions' => $scopeOptions,
@@ -393,6 +404,17 @@ class RentalInspectionController extends Controller
 
         if ($request->boolean('has_unresolved_discrepancy')) {
             $query->withUnresolvedDiscrepancy();
+        }
+
+        // §45.5 (Build I-3) — attendance filters, applied on top of the same own/branch/agency-scoped query.
+        if ($attendance = $request->get('attendance')) {
+            if ($attendance === 'did_not_attend') {
+                $query->whereExists(fn ($q) => $q->selectRaw('1')->from('rental_inspection_attendances as ria')
+                    ->whereColumn('ria.rental_inspection_id', 'rental_inspections.id')
+                    ->where('ria.outcome', 'did_not_attend')->whereNull('ria.superseded_at'));
+            } elseif ($attendance === 'incomplete') {
+                $query->whereIn('rental_inspections.id', app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->incompleteInspectionIds($query));
+            }
         }
 
         if ($request->boolean('scheduled')) {
@@ -521,6 +543,10 @@ class RentalInspectionController extends Controller
             'comparisonRows' => $this->buildComparisonRows($rentalInspection),
             // §43 — the reschedule form's inspector picker.
             'inspectorOptions' => User::where('agency_id', $rentalInspection->agency_id)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            // §45.5 (Build I-3) — who attended, with each party's invitation lines (read-only here; it is
+            // recorded on the property's Inspections tab, where the rest of the recording happens).
+            'attendanceBoard' => app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->board($rentalInspection),
+            'attendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($rentalInspection->agency_id),
             'followUpObservations' => $followUpObservations,
             'followUpMarkers' => $followUpService->comparisonMarkersFor($rentalInspection, $followUpObservations),
             'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],

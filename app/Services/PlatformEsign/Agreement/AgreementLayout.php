@@ -27,6 +27,12 @@ class AgreementLayout
         if (is_array($l) && ($l['rev'] ?? 0) === self::REV && !empty($l['parts'])) {
             return $l;
         }
+        // A PUBLISHED version's pagination is what agencies have already initialled page by page, so a REV bump
+        // (estimator/CSS change) must never repaginate it mid-signing — keep the layout it was published with.
+        // Only a draft, or a published version with no layout at all, is (re)computed.
+        if ($v->is_published && is_array($l) && !empty($l['parts'])) {
+            return $l;
+        }
         $l = $this->compute($v);
         $v->forceFill(['layout_json' => $l])->save();
 

@@ -198,6 +198,8 @@ class AgencySetupWizardController extends Controller
                 'wzConditionStates' => \App\Models\RentalInspectionSetting::conditionStatesFor($agency->id),
                 'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
+                // §45.5 (Build I-3) — key => label for how someone attended an inspection.
+                'wzAttendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
                 // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
                 'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
@@ -444,7 +446,13 @@ class AgencySetupWizardController extends Controller
             $setup->completed_at = now();
             $setup->save();
             // AT-447 — lets the Agency Timeline tick its "setup wizard completed" item.
-            event(new \App\Events\Platform\AgencySetupWizardCompleted((int) $setup->agency_id, auth()->id()));
+            // completed_at is already saved, so a timeline fault must never turn /finish into a 500
+            // (the timeline's start/restore reconcile catches a missed tick up later).
+            try {
+                event(new \App\Events\Platform\AgencySetupWizardCompleted((int) $setup->agency_id, auth()->id()));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Agency timeline hook failed after wizard completion', ['agency_id' => $setup->agency_id, 'error' => $e->getMessage()]);
+            }
         }
         return redirect()->route('dashboard')
             ->with('success', 'Your agency setup is complete. Welcome to CoreX!');

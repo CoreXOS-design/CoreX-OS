@@ -31,6 +31,7 @@ use Tests\TestCase;
 final class RentalInspectionRecordingControllerTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
 
     private Agency $agency;
     private Branch $branch;
@@ -1352,6 +1353,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
         ])->assertStatus(201);
+        $this->recordAttendanceForEveryParty($inspection);
 
         $this->postJson(route('corex.rental-inspections.complete', $inspection))
             ->assertOk()

@@ -56,6 +56,8 @@ class RentalInspectionSignature extends Model
         'rental_inspection_id',
         'party_role',
         'party_contact_id',
+        'signed_by_name',
+        'signing_capacity',
         'disposition',
         'party_signature_path',
         'wet_ink_upload_path',
@@ -164,6 +166,8 @@ class RentalInspectionSignature extends Model
             $attributes['wet_ink_upload_path'] = null;
             $attributes['refusal_reason_preset'] = null;
             $attributes['refusal_reason_note'] = null;
+            $attributes['signed_by_name'] = null;
+            $attributes['signing_capacity'] = null;
         } else {
             $contactId = $attributes['party_contact_id'] ?? null;
             if (empty($contactId)) {
@@ -181,6 +185,34 @@ class RentalInspectionSignature extends Model
                 if (! $landlordContactId || (int) $landlordContactId !== (int) $contactId) {
                     throw new \InvalidArgumentException('party_contact_id does not match this property\'s resolved landlord contact.');
                 }
+            }
+
+            // §45.5 (Build I-3) — a representative who attended on the party's behalf may sign on the
+            // party's own row. The name must match a LIVE attendance record of capacity "representative"
+            // for THIS party, so a signature can never claim a signer the attendance record does not
+            // show. No name = the party signed themselves, exactly as before.
+            $signedBy = trim((string) ($attributes['signed_by_name'] ?? ''));
+            if ($signedBy !== '') {
+                if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_WET_INK], true)) {
+                    throw new \InvalidArgumentException('Only a signature can be signed by a representative.');
+                }
+                $representative = RentalInspectionAttendance::query()
+                    ->where('rental_inspection_id', $inspection->id)
+                    ->where('party_role', $partyRole)
+                    ->where('party_contact_id', $contactId)
+                    ->where('attended_as', RentalInspectionAttendance::AS_REPRESENTATIVE)
+                    ->where('outcome', RentalInspectionAttendance::OUTCOME_ATTENDED)
+                    ->live()
+                    ->get()
+                    ->first(fn (RentalInspectionAttendance $a) => strcasecmp(trim((string) $a->attendee_name), $signedBy) === 0);
+                if (! $representative) {
+                    throw new \InvalidArgumentException('Record under Attendance that this person attended on the party\'s behalf before they sign.');
+                }
+                $attributes['signed_by_name'] = $representative->attendee_name;
+                $attributes['signing_capacity'] = RentalInspectionAttendance::AS_REPRESENTATIVE;
+            } else {
+                $attributes['signed_by_name'] = null;
+                $attributes['signing_capacity'] = null;
             }
 
             // §16 — a superseded row is a corrected mistake, not a live

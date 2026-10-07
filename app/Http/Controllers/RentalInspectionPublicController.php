@@ -63,6 +63,10 @@ class RentalInspectionPublicController extends Controller
             'signatures' => $unscoped,
             'signatures.partyContact' => $unscoped,
             'roomNotes' => $unscoped,
+            // §45.5 (Build I-3) — preloaded scope-free for signatureSummaryRows(), and the inspector so the
+            // report names who attended (falling back to the creator).
+            'attendances' => $unscoped,
+            'inspector' => $unscoped,
             // §45.3 (Build I-1) — room-level ("general") photos and every photo's own note. Only the
             // AGENCY scope is lifted (an unauthenticated caller has no agency context); SoftDeletes
             // stays on, so an archived photo — e.g. one removed as "wrong property" — never appears here.
@@ -138,10 +142,22 @@ class RentalInspectionPublicController extends Controller
             $rows->put($extraId, collect());
         }
 
+        // §45.5 — the attendance board is built from scope-aware queries; the one caller it cannot serve is a
+        // logged-in user of ANOTHER agency opening a forwarded link (their AgencyScope would hide every row),
+        // who simply gets the report without the attendance block rather than a wrong one.
+        $viewer = auth()->user();
+        $attendanceService = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        $attendanceBoard = (! $viewer || (int) $viewer->effectiveAgencyId() === (int) $agencyId || $viewer->isOwnerRole())
+            ? $attendanceService->board($inspection)
+            : null;
+
         return $this->privateHeaders(response()->view('rental-inspections.public.show', [
             'inspection' => $inspection,
             'rows' => $rows,
             'roomNotes' => $roomNotes,
+            'attendanceBoard' => $attendanceBoard,
+            'attendanceService' => $attendanceService,
+            'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
             'roomPhotos' => $roomPhotos,
             'extraRooms' => $extraRooms,
             'photoNoteLabels' => collect(RentalInspectionSetting::photoNoteClassificationsFor($agencyId))->pluck('label', 'key'),

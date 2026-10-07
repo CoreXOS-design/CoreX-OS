@@ -86,6 +86,41 @@
         @endif
     </div>
 
+    {{-- §45.5 (Build I-3) — Attendance: party · outcome · capacity · invitation. Facts only. --}}
+    <div style="margin: 6pt 0 8pt 0;">
+        <div class="room-heading">Attendance</div>
+        <table class="compare">
+            <thead><tr><th class="item-col">Party</th><th class="prev-col">Outcome</th><th class="cur-col">Invitation</th></tr></thead>
+            <tbody>
+                @foreach($attendanceBoard['rows'] as $arow)
+                    @php
+                        $att = $arow['attendance'];
+                    @endphp
+                    <tr>
+                        <td>{{ $arow['name'] ?: 'Unnamed' }} ({{ ucfirst($arow['party_role']) }})</td>
+                        <td>
+                            @if(! $att)
+                                <span class="muted">Not recorded</span>
+                            @elseif($att['outcome'] === 'did_not_attend')
+                                Did not attend
+                            @else
+                                Attended{{ $att['attended_as'] !== 'self' ? ' — ' . ($attendedAsLabels[$att['attended_as']] ?? $att['attended_as']) . ($att['attendee_name'] ? ' (' . $att['attendee_name'] . ')' : '') : '' }}{{ $att['arrived_at'] ? ', arrived ' . $att['arrived_at'] : '' }}
+                            @endif
+                        </td>
+                        <td>{{ $attendanceService->printableInvitation($arow) }}</td>
+                    </tr>
+                @endforeach
+                @foreach($attendanceBoard['others'] as $other)
+                    <tr>
+                        <td>{{ $other['attendee_name'] ?: 'Unnamed' }}</td>
+                        <td>Attended — {{ $attendedAsLabels[$other['attended_as']] ?? $other['attended_as'] }}{{ $other['arrived_at'] ? ', arrived ' . $other['arrived_at'] : '' }}</td>
+                        <td class="muted">—</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+
     @if($inspection->overall_notes)
         <div class="notes-callout notes-callout-blue" style="margin: 6pt 0 8pt 0;">
             <strong>Overall notes:</strong> {{ $inspection->overall_notes }}
@@ -181,6 +216,9 @@
                             <div class="blank-sig-line" style="width:50%;"></div>
                             <div class="blank-sig-caption">Date</div>
                         </div>
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED && ($row['attendance']['outcome'] ?? null) === 'did_not_attend')
+                        {{-- §45.5 — a party recorded as not having attended has no signature; it is not a refusal. --}}
+                        No signature — did not attend
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
                         <span class="cond-red">Refused</span> —
                         {{ $refusalReasonLabels->get($row['signature']->refusal_reason_preset, ucfirst(str_replace('_', ' ', $row['signature']->refusal_reason_preset))) }}
@@ -191,6 +229,7 @@
                         <span class="muted">Awaiting paper signature</span>
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
                         <span class="cond-blue">Signed</span>
+                        @if($row['signature']->signed_by_name) by {{ $row['signature']->signed_by_name }} ({{ $attendedAsLabels[$row['signature']->signing_capacity] ?? $row['signature']->signing_capacity }}) @endif
                         @if($row['signature_image_data_uri'])
                             <img class="sig-image" src="{{ $row['signature_image_data_uri'] }}" alt="{{ $row['role'] }} signature">
                         @endif

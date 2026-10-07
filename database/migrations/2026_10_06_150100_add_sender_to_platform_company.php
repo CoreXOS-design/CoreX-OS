@@ -14,14 +14,16 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Renamed from 2026_10_10_140000_… — a database that already ran the old name has the columns, so this is a strict no-op there
+        // (the backfill only runs when the columns are added by THIS run, so it can never overwrite an owner's later edit).
         if (! Schema::hasColumn('platform_company', 'send_from_address')) {
             Schema::table('platform_company', function (Blueprint $t) {
                 $t->string('send_from_address', 255)->nullable()->after('email_accounts');
                 $t->string('send_from_name', 150)->nullable()->after('send_from_address');
             });
+            DB::table('platform_company')->whereNull('send_from_address')->update(['send_from_address' => 'admin@corexos.co.za']);
+            DB::table('platform_company')->whereNull('send_from_name')->update(['send_from_name' => 'CoreX OS — RR Technologies']);
         }
-        DB::table('platform_company')->whereNull('send_from_address')->update(['send_from_address' => 'admin@corexos.co.za']);
-        DB::table('platform_company')->whereNull('send_from_name')->update(['send_from_name' => 'CoreX OS — RR Technologies']);
     }
 
     public function down(): void

@@ -99,6 +99,7 @@
             <span class="text-xs" style="color: var(--text-muted);">The link is valid for {{ $expiryDays }} days. You can resend it or copy the link afterwards.</span>
         </div>
     </form>
+    @include('platform-esign._end')
 </div>
 <script>
 // Show the two dates the chosen take-on month gives, before sending.

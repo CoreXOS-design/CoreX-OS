@@ -44,8 +44,19 @@ class AgencyTimelineController extends Controller
     {
         $this->owner($request);
         $today = now()->startOfDay();
+        // B-L8: a mangled date in the URL is a validation message, never a 500.
+        $bad = validator($request->only('start_from', 'start_to'), ['start_from' => 'nullable|date_format:Y-m-d', 'start_to' => 'nullable|date_format:Y-m-d'])->errors();
+        if ($bad->any()) {
+            $request->query->remove('start_from');   // ignore the unreadable range instead of failing the whole list
+            $request->query->remove('start_to');
+            $request->merge(['start_from' => null, 'start_to' => null]);
+            session()->now('warning', 'The start-date range was not a valid date, so it was ignored.');
+        }
 
         $agencies = Agency::query()
+            ->when($request->boolean('hide_demo'), fn ($q) => $q
+                ->where(fn ($d) => $d->where('is_demo', false)->orWhereNull('is_demo'))
+                ->where(fn ($a) => $a->where('is_active', true)->orWhereNull('is_active')))
             ->when($request->filled('q'), fn ($q) => $q->where('name', 'like', '%' . $request->string('q') . '%'))
             ->get();
         $timelines = AgencyTimeline::whereIn('agency_id', $agencies->pluck('id'))->get()->keyBy('agency_id');
@@ -121,7 +132,11 @@ class AgencyTimelineController extends Controller
         // A timeline can't start in the past: a past (or missing) date, including the
         // agency's older creation date, falls back to today.
         $today = now()->startOfDay();
-        $start = Carbon::parse($request->get('start_date', $agency->created_at ?? $today))->startOfDay();
+        try {
+            $start = Carbon::createFromFormat('Y-m-d', (string) $request->get('start_date', ''))->startOfDay();
+        } catch (\Throwable $e) {
+            $start = $agency->created_at ? Carbon::parse($agency->created_at)->startOfDay() : $today;   // missing/garbled ?start_date → default
+        }
         if ($start->lt($today)) {
             $start = $today;
         }
@@ -135,10 +150,12 @@ class AgencyTimelineController extends Controller
     {
         $user = $this->owner($request);
         $data = $request->validate([
-            'start_date' => 'required|date|after_or_equal:today',
+            'start_date' => 'required|date_format:Y-m-d|after_or_equal:today',
             'dates'      => 'nullable|array',
-            'dates.*'    => 'nullable|date|after_or_equal:start_date',
+            'dates.*'    => 'nullable|date_format:Y-m-d|after_or_equal:start_date',
         ], [
+            'start_date.date_format'    => 'Enter the start date as a calendar date.',
+            'dates.*.date_format'       => 'Enter each step date as a calendar date.',
             'start_date.after_or_equal' => 'The start date cannot be in the past.',
             'dates.*.after_or_equal'    => 'A step date cannot be before the start date.',
         ]);
@@ -163,7 +180,7 @@ class AgencyTimelineController extends Controller
     {
         $this->owner($request);
         $today = now()->startOfDay();
-        $this->svc->syncAgreement($timeline);
+        // No agreement sync here: reading a page must not write (B-M1) or undo a manual reopen (B-L1).
         $showArchived = $request->boolean('archived');
 
         $all = AgencyTimelineItem::withTrashed()->where('timeline_id', $timeline->id)->orderBy('sort_order')->orderBy('id')->get();
@@ -182,18 +199,18 @@ class AgencyTimelineController extends Controller
             'today'      => $today,
             'events'     => AgencyTimelineEvent::where('timeline_id', $timeline->id)->orderByDesc('id')->limit(100)->get(),
             'actors'     => User::withoutGlobalScopes()->whereIn('id', AgencyTimelineEvent::where('timeline_id', $timeline->id)->pluck('actor_user_id')->filter()->unique())->pluck('name', 'id'),
-            'agreementDocs' => $this->platformDocuments($timeline->agency_id),
+            'agreementDocs' => $this->platformDocuments($timeline),
             // The agency's latest Subscription Agreement (web document) — status + re-issue on the agreement card (spec §11.14).
             'agreementWebdoc' => \App\Models\PlatformEsign\Document::where('agency_id', $timeline->agency_id)->where('source', 'webdoc')->with('signers')->orderByDesc('id')->first(),
             'tab'        => $request->get('tab') === 'history' ? 'history' : 'plan',
         ]);
     }
 
-    /** Platform E-Sign documents for the agreement picker: this agency's first, then the rest, newest first. */
-    private function platformDocuments(?int $agencyId = null): \Illuminate\Support\Collection
+    /** Platform E-Sign documents for the agreement picker: ONLY this agency's Subscription Agreements, newest first (B-L3). */
+    private function platformDocuments(AgencyTimeline $timeline): \Illuminate\Support\Collection
     {
-        return \App\Models\PlatformEsign\Document::query()
-            ->orderByRaw('agency_id = ? desc', [$agencyId ?? 0])->orderByDesc('id')->limit(100)->get(['id', 'title', 'status', 'completed_at', 'agency_id'])
+        return $this->svc->linkableAgreements($timeline)
+            ->orderByDesc('id')->limit(100)->get(['id', 'title', 'status', 'completed_at', 'agency_id'])
             ->map(fn ($d) => (object) ['id' => $d->id, 'name' => $d->title, 'status' => $d->status, 'completed_at' => $d->completed_at]);
     }
 
@@ -203,7 +220,8 @@ class AgencyTimelineController extends Controller
         $data = $request->validate(['document_id' => 'nullable|integer']);
         $id = $data['document_id'] ?? null;
         if ($id) {
-            abort_unless(\App\Models\PlatformEsign\Document::where('id', $id)->exists(), 422);
+            // B-L3: only this agency's own Subscription Agreement can be the agreement on this timeline.
+            abort_unless($this->svc->linkableAgreements($timeline)->whereKey($id)->exists(), 422, 'That document is not this agency\'s Subscription Agreement.');
         }
         $this->svc->linkAgreement($timeline, $id ? (int) $id : null, $user->id);
 
@@ -219,7 +237,7 @@ class AgencyTimelineController extends Controller
             'kind'      => 'required|in:block,milestone',
             'title'     => 'required|string|max:255',
             'body'      => 'nullable|string|max:5000',
-            'due_date'  => 'nullable|date|required_if:kind,milestone',
+            'due_date'  => 'nullable|date_format:Y-m-d|required_if:kind,milestone',
             'is_public' => 'nullable|boolean',
         ]);
         $data['is_public'] = $request->boolean('is_public', true);
@@ -233,10 +251,13 @@ class AgencyTimelineController extends Controller
     {
         $user = $this->owner($request);
         $item = $this->itemOf($timeline, $item);
+        if ($item->trashed()) {
+            return back()->with('warning', 'That step is archived. Restore it before editing.');
+        }
         $data = $request->validate([
             'title'    => 'required|string|max:255',
             'body'     => 'nullable|string|max:5000',
-            'due_date' => 'nullable|date',
+            'due_date' => 'nullable|date_format:Y-m-d',
         ]);
         $data['is_public'] = $request->boolean('is_public');
         $data['agency_can_complete'] = $request->boolean('agency_can_complete');
@@ -249,7 +270,11 @@ class AgencyTimelineController extends Controller
     {
         $user = $this->owner($request);
         $data = $request->validate(['status' => 'required|in:pending,done,skipped']);
-        $this->svc->setStatus($this->itemOf($timeline, $item), $data['status'], $user->id);
+        $step = $this->itemOf($timeline, $item);
+        if ($step->trashed()) {
+            return back()->with('warning', 'That step is archived. Restore it before changing its status.');
+        }
+        $this->svc->setStatus($step, $data['status'], $user->id);
 
         return back();
     }
@@ -258,7 +283,11 @@ class AgencyTimelineController extends Controller
     {
         $user = $this->owner($request);
         $data = $request->validate(['direction' => 'required|in:up,down']);
-        $this->svc->move($this->itemOf($timeline, $item), $data['direction'], $user->id);
+        $step = $this->itemOf($timeline, $item);
+        if ($step->trashed()) {
+            return back()->with('warning', 'That step is archived. Restore it before moving it.');
+        }
+        $this->svc->move($step, $data['direction'], $user->id);
 
         return back();
     }
@@ -266,7 +295,11 @@ class AgencyTimelineController extends Controller
     public function archiveItem(Request $request, AgencyTimeline $timeline, int $item)
     {
         $user = $this->owner($request);
-        $this->svc->archiveItem($this->itemOf($timeline, $item), $user->id);
+        $step = $this->itemOf($timeline, $item);
+        if ($step->trashed()) {
+            return back()->with('warning', 'That step is already archived.');
+        }
+        $this->svc->archiveItem($step, $user->id);
 
         return back()->with('success', 'Archived. You can restore it from "Show archived".');
     }
@@ -274,7 +307,11 @@ class AgencyTimelineController extends Controller
     public function restoreItem(Request $request, AgencyTimeline $timeline, int $item)
     {
         $user = $this->owner($request);
-        $this->svc->restoreItem($this->itemOf($timeline, $item), $user->id);
+        $step = $this->itemOf($timeline, $item);
+        if (!$step->trashed()) {
+            return back()->with('warning', 'That step is not archived.');
+        }
+        $this->svc->restoreItem($step, $user->id);
 
         return back()->with('success', 'Restored.');
     }
@@ -282,8 +319,16 @@ class AgencyTimelineController extends Controller
     public function startDate(Request $request, AgencyTimeline $timeline)
     {
         $user = $this->owner($request);
-        $data = $request->validate(['start_date' => 'required|date']);
-        $this->svc->changeStartDate($timeline, Carbon::parse($data['start_date']), $request->boolean('shift'), $user->id);
+        $data = $request->validate(['start_date' => 'required|date_format:Y-m-d', 'confirm_past' => 'nullable|boolean'], [
+            'start_date.date_format' => 'Enter the start date as a calendar date.',
+        ]);
+        $new = Carbon::createFromFormat('Y-m-d', $data['start_date'])->startOfDay();
+        // B-L8: moving the start into the past is allowed (backdating a take-on) but only on purpose —
+        // more than a day back needs the "yes, backdate" tick so a mistyped year cannot silently shift every step.
+        if ($new->lt(now()->startOfDay()->subDay()) && !$new->isSameDay($timeline->start_date) && !$request->boolean('confirm_past')) {
+            return back()->withErrors(['start_date' => 'That start date is in the past. Tick "This date is in the past on purpose" to confirm.'])->withInput();
+        }
+        $this->svc->changeStartDate($timeline, $new, $request->boolean('shift'), $user->id);
 
         return back()->with('success', 'Start date updated.');
     }

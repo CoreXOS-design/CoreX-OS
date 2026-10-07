@@ -51,7 +51,7 @@
     <p>Consent given: &ldquo;{{ $consent }}&rdquo;</p>
     <table class="t">
         <tr><th>When</th><th>Event</th><th>Detail</th></tr>
-        @foreach($doc->events as $e)<tr><td style="white-space:nowrap;">{{ $e->created_at?->format('j M Y H:i:s') }}</td><td>{{ str_replace('_', ' ', $e->event) }}</td><td>{{ $e->detail }}</td></tr>@endforeach
+        @foreach(\App\Services\PlatformEsign\Agreement\AgreementService::sealedEvents($doc) as $e)<tr><td style="white-space:nowrap;">{{ $e->created_at?->format('j M Y H:i:s') }}</td><td>{{ str_replace('_', ' ', $e->event) }}</td><td>{{ $e->detail }}</td></tr>@endforeach
     </table>
 </div>
 </body></html>

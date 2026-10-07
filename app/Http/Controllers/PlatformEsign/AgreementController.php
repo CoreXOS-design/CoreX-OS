@@ -96,7 +96,7 @@ class AgreementController extends Controller
         if ($doc->status === 'wetink_received') {
             return view('platform-esign.agreement.countersign-wetink', [
                 'doc' => $doc, 'files' => $doc->wetinkFiles()->get(), 'rr' => ['rr_name' => (string) $request->user()->name, 'rr_capacity' => 'Director', 'rr_date' => now()->toDateString()] + (array) $doc->rr_data,
-                'versionLabel' => $doc->wording->label(),
+                'versionLabel' => $doc->wording->label(), 'takeOnLapse' => $this->svc->takeOnLapse($doc),
             ]);
         }
 
@@ -148,7 +148,24 @@ class AgreementController extends Controller
         abort_unless(\Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
         app(EsignService::class)->log($doc, 'wetink_downloaded', 'Uploaded hand-signed file downloaded inside Platform E-Sign: ' . $f->original_name, null, $u->id, $request->ip());
 
-        return \Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
+        return \Illuminate\Support\Facades\Storage::disk(EsignService::DISK)->download($f->stored_path, AgreementService::safeFileName($f->original_name, AgreementService::WET_MIMES[$f->mime] ?? 'pdf'), ['Cache-Control' => 'no-store']);
+    }
+
+    /** The owner sets a new take-on month on an agreement the agency has not signed yet (its previous month has passed). */
+    public function takeOn(Request $request, int $id)
+    {
+        $u = $this->owner($request);
+        $doc = $this->webdoc($id);
+        abort_if($doc->trashed(), 404);
+        $data = $request->validate(['take_on_month' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/']],
+            ['take_on_month.required' => 'Choose the take-on month.', 'take_on_month.regex' => 'Choose the take-on month from the list.']);
+        try {
+            $this->svc->setTakeOn($doc, $data['take_on_month'], $u->id);
+        } catch (\DomainException $e) {
+            return back()->withErrors(['take_on' => $e->getMessage()]);
+        }
+
+        return back()->with('success', 'Take-on month changed to ' . \App\Services\PlatformEsign\Agreement\AgreementTakeOn::label($data['take_on_month']) . '. The agency’s link and entries are kept.');
     }
 
     private function reviewData(Document $doc, string $mode, bool $countersign): array
@@ -167,6 +184,7 @@ class AgreementController extends Controller
             'doc' => $doc, 'pages' => $this->pdf->pages($doc->wording, $layout, $mode, $ctx), 'total' => $layout['total'],
             'versionLabel' => $doc->wording->label(), 'countersign' => $countersign, 'ctx' => $ctx,
             'defaultInitials' => $ctx['initials']['rr'] ?? '',
+            'takeOnLapse' => $this->svc->takeOnLapse($doc), // warning on the review / countersign screen when the take-on month has passed
         ];
     }
 }

@@ -37,6 +37,9 @@ class PlatformCompanyService
         'letterhead_footer', 'email_signature_html', 'bank_details',
     ];
 
+    /** Largest accepted raster logo, per side. A small file can still decode to a huge bitmap in GD/DomPDF, so the pixels are capped, not just the bytes. */
+    public const LOGO_MAX_SIDE_PX = 2000;
+
     public const BANK_FIELDS = ['bank_name', 'account_holder', 'account_number', 'branch_code', 'account_type', 'reference_note'];
 
     /**
@@ -46,7 +49,11 @@ class PlatformCompanyService
     public function normalise(array $in): array
     {
         $out = [];
-        $str = fn ($v) => ($t = trim((string) $v)) === '' ? null : $t;
+        // Anything that is not a plain scalar (a client posting `legal_name[]=x`) reads as blank, so it fails the normal
+        // "required"/format rules with a message (HTTP 422) instead of crashing on an array-to-string conversion.
+        $raw = fn ($v) => is_scalar($v) ? (string) $v : '';
+        $str = fn ($v) => ($t = trim($raw($v))) === '' ? null : $t;
+        $row = fn ($r) => is_array($r) ? $r : [];
 
         foreach (['legal_name', 'trading_name', 'registration_number', 'strap_line', 'send_from_name'] as $k) {
             if (array_key_exists($k, $in)) {
@@ -54,15 +61,15 @@ class PlatformCompanyService
             }
         }
         if (array_key_exists('vat_registered', $in)) {
-            $out['vat_registered'] = filter_var($in['vat_registered'], FILTER_VALIDATE_BOOLEAN);
+            $out['vat_registered'] = is_scalar($in['vat_registered']) && filter_var($in['vat_registered'], FILTER_VALIDATE_BOOLEAN);
         }
         if (array_key_exists('vat_number', $in)) {
-            $v = $str(preg_replace('/\s+/', '', (string) $in['vat_number']));
+            $v = $str(preg_replace('/\s+/', '', $raw($in['vat_number'])));
             $out['vat_number'] = $v;
         }
         foreach (['physical_address', 'postal_address', 'letterhead_footer'] as $k) {
             if (array_key_exists($k, $in)) {
-                $lines = array_map('trim', preg_split('/\r\n|\r|\n/', (string) $in[$k]) ?: []);
+                $lines = array_map('trim', preg_split('/\r\n|\r|\n/', $raw($in[$k])) ?: []);
                 $out[$k] = $k === 'letterhead_footer' ? $str(implode("\n", $lines)) : $str(implode("\n", array_filter($lines, fn ($l) => $l !== '')));
             }
         }
@@ -71,28 +78,31 @@ class PlatformCompanyService
                 $out[$k] = ($v = $str($in[$k])) === null ? null : mb_strtolower($v);
             }
         }
+        // A row is dropped only when EVERYTHING in it is blank. A row with a title but no name (or a label but no number) is
+        // kept so validation can say so ("Each director needs a name") instead of silently losing what was typed.
         if (array_key_exists('directors', $in)) {
-            $out['directors'] = collect((array) $in['directors'])
-                ->map(fn ($d) => ['name' => trim((string) ($d['name'] ?? '')), 'title' => trim((string) ($d['title'] ?? ''))])
-                ->filter(fn ($d) => $d['name'] !== '')->values()->all();
+            $out['directors'] = collect(is_array($in['directors']) ? $in['directors'] : [])
+                ->map(fn ($d) => ['name' => trim($raw($row($d)['name'] ?? '')), 'title' => trim($raw($row($d)['title'] ?? ''))])
+                ->filter(fn ($d) => $d['name'] !== '' || $d['title'] !== '')->values()->all();
         }
         if (array_key_exists('phones', $in)) {
-            $out['phones'] = collect((array) $in['phones'])
-                ->map(fn ($p) => ['label' => trim((string) ($p['label'] ?? '')), 'number' => trim((string) ($p['number'] ?? ''))])
-                ->filter(fn ($p) => $p['number'] !== '')->values()->all();
+            $out['phones'] = collect(is_array($in['phones']) ? $in['phones'] : [])
+                ->map(fn ($p) => ['label' => trim($raw($row($p)['label'] ?? '')), 'number' => trim($raw($row($p)['number'] ?? ''))])
+                ->filter(fn ($p) => $p['number'] !== '' || $p['label'] !== '')->values()->all();
         }
         if (array_key_exists('websites', $in)) {
-            $out['websites'] = collect((array) $in['websites'])
-                ->map(fn ($w) => trim((string) $w))->filter(fn ($w) => $w !== '')->values()->all();
+            $out['websites'] = collect(is_array($in['websites']) ? $in['websites'] : [])
+                ->map(fn ($w) => trim($raw($w)))->filter(fn ($w) => $w !== '')->values()->all();
         }
         if (array_key_exists('email_signature_html', $in)) {
-            $clean = SafeHtml::clean((string) $in['email_signature_html']);
+            $clean = SafeHtml::clean($raw($in['email_signature_html']));
             $out['email_signature_html'] = $clean === '' ? null : $clean;
         }
         if (array_key_exists('bank_details', $in)) {
             $bank = [];
+            $src = is_array($in['bank_details']) ? $in['bank_details'] : [];
             foreach (self::BANK_FIELDS as $f) {
-                $v = trim((string) (((array) $in['bank_details'])[$f] ?? ''));
+                $v = trim($raw($src[$f] ?? ''));
                 if ($f === 'account_number' || $f === 'branch_code') {
                     $v = preg_replace('/[\s\-]+/', '', $v);
                 }
@@ -169,21 +179,23 @@ class PlatformCompanyService
     }
 
     /** Make an earlier logo (or the built-in CoreX OS logo, $logoId = null) current again. Nothing is deleted. */
-    public function restoreLogo(?int $logoId, User $by): void
+    public function restoreLogo(?int $logoId, User $by): bool
     {
-        DB::transaction(function () use ($logoId, $by) {
+        return DB::transaction(function () use ($logoId, $by): bool {
             if ($logoId !== null && ! PlatformCompanyLogo::query()->whereKey($logoId)->exists()) {
                 throw ValidationException::withMessages(['logo' => 'That logo version no longer exists.']);
             }
             $c = PlatformCompany::query()->lockForUpdate()->first() ?? PlatformCompany::current();
             $from = $c->logo_id;
             if ($from === $logoId) {
-                return;
+                return false;   // already current — nothing to do, nothing to audit
             }
             $c->logo_id = $logoId;
             $c->version = (int) $c->version + 1;
             $c->save();
             $this->audit($by, 'logo_restored', $logoId ? 'Restored an earlier logo' : 'Reverted to the built-in CoreX OS logo', ['logo_id' => ['from' => $from, 'to' => $logoId]]);
+
+            return true;
         });
     }
 
@@ -224,8 +236,8 @@ class PlatformCompanyService
         if ($info[0] < 64 || $info[1] < 32) {
             $fail('The logo is too small — it must be at least 64 pixels wide and 32 pixels tall.');
         }
-        if ($info[0] > 6000 || $info[1] > 6000) {
-            $fail('The logo is too large — the longest side must be 6000 pixels or less.');
+        if ($info[0] > self::LOGO_MAX_SIDE_PX || $info[1] > self::LOGO_MAX_SIDE_PX) {
+            $fail('The logo is too large — the longest side must be ' . self::LOGO_MAX_SIDE_PX . ' pixels or less. Resize it and upload it again (a logo only needs to be about 1000 pixels wide to look sharp in print).');
         }
 
         return $type === IMAGETYPE_PNG ? 'png' : 'jpg';

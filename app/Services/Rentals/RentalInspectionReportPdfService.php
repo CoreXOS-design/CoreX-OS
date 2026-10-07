@@ -57,8 +57,14 @@ class RentalInspectionReportPdfService
     {
         $inspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
-            'signatures.partyContact', 'roomNotes',
+            'signatures.partyContact', 'roomNotes', 'inspector',
         ]);
+
+        // §45.5 (Build I-3) — who attended and what is on record about each party's invitation. The printed
+        // statement is facts only (RentalInspectionAttendanceService::printableInvitation()); the wording is
+        // Johan's to confirm (§45.11).
+        $attendanceService = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        $attendanceBoard = $attendanceService->board($inspection);
 
         // §45.3 (Build I-1) — the latest note per room, printed under that room's table (the PDF used to
         // carry only item rows). Photos stay out of the PDF (Johan, 23 Sep); the per-flaw photo-time line
@@ -167,6 +173,9 @@ class RentalInspectionReportPdfService
             'inspection' => $inspection,
             'rows' => $rows,
             'roomNotes' => $roomNotes,
+            'attendanceBoard' => $attendanceBoard,
+            'attendanceService' => $attendanceService,
+            'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
             'publicUrl' => $publicUrl,
             'qrDataUri' => $qrDataUri,
             'signatureRows' => $signatureRows,

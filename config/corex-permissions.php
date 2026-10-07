@@ -185,6 +185,10 @@ return [
         ['key' => 'rental_inspections.resolve_discrepancy', 'label' => 'Resolve Inspection Discrepancies',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 3],
         // Separately gated per §6 — overrides a party's own consent to sign.
         ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+        // §45.5 (Build I-3) — record who attended an inspection and the invitations given off the system.
+        // Granted wherever rental_inspections.create is; correcting someone else's record also needs
+        // rental_inspections.resolve_discrepancy.
+        ['key' => 'rental_inspections.record_attendance',   'label' => 'Record Inspection Attendance',            'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 7],
         // agency-onboarding-rentals-step.md §8 — same role as leases.manage_settings.
         ['key' => 'rental_inspections.manage_settings',     'label' => 'Manage Rental Inspection Settings',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 5],
         // §45.7 (Build I-5) — load / move / skip / archive the interim inspection dates an agency wants. Granted wherever
@@ -1062,7 +1066,7 @@ return [
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
                 'leases.view', 'leases.create', 'leases.renew', 'leases.cancel',
-                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
+                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
                 'rental_inspections.review_deposit_comparison',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
@@ -1223,7 +1227,7 @@ return [
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
                 'leases.view', 'leases.create', 'leases.renew',
-                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.manage_planned_dates',
+                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',

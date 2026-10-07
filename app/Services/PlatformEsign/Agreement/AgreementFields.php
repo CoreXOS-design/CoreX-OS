@@ -160,8 +160,8 @@ class AgreementFields
                     $out[$key] = $d === '' ? '' : (string) min((int) $d, (int) str_repeat('9', $f['max']));
                     break;
                 case 'money':
-                    $n = str_replace([' ', ','], ['', '.'], $v);
-                    $out[$key] = preg_match('/^\d{1,9}(\.\d{1,2})?$/', $n) ? $n : (trim($v) === '' ? '' : mb_substr(trim($v), 0, 14));
+                    // A money field only ever holds an amount: anything that is not one is dropped (never stored as free text).
+                    $out[$key] = self::cleanMoney($v);
                     break;
                 case 'date':
                     $out[$key] = preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($v)) ? trim($v) : '';
@@ -178,15 +178,44 @@ class AgreementFields
         return $out;
     }
 
-    /** Only a real PNG data-URI of sane size is kept. */
+    /** Largest signature image kept, in pixels. A pad is at most ~360x96 CSS px (x3 on a dense screen); anything bigger is not a signature. */
+    public const SIG_MAX_WIDTH = 2000;
+    public const SIG_MAX_HEIGHT = 1000;
+
+    /**
+     * Only a real PNG data-URI of sane size AND sane dimensions is kept. The dimensions matter: a few KB of PNG can describe a
+     * 30000x30000 canvas that exhausts memory the moment the PDF renderer decodes it at sealing time.
+     */
     public static function cleanSignature(?string $uri): string
     {
         if (!$uri || !str_starts_with($uri, 'data:image/png;base64,') || strlen($uri) > 400_000) {
             return '';
         }
         $bin = base64_decode(substr($uri, strlen('data:image/png;base64,')), true);
+        if ($bin === false) {
+            return '';
+        }
+        $info = @getimagesizefromstring($bin);
+        if ($info === false || ($info[2] ?? null) !== IMAGETYPE_PNG) {
+            return ''; // not a PNG behind the PNG prefix (JPEG / GIF / junk)
+        }
+        [$w, $h] = $info;
 
-        return ($bin !== false && @getimagesizefromstring($bin) !== false) ? $uri : '';
+        return ($w >= 1 && $h >= 1 && $w <= self::SIG_MAX_WIDTH && $h <= self::SIG_MAX_HEIGHT) ? $uri : '';
+    }
+
+    /** "1495", "1 495,50", "R1,495.50" -> "1495" / "1495.50" / "1495.50"; anything else -> ''. */
+    public static function cleanMoney(string $v): string
+    {
+        $n = str_replace([' ', "\u{00A0}"], '', trim($v));
+        $n = preg_replace('/^R/i', '', $n);
+        if (str_contains($n, ',') && str_contains($n, '.')) {
+            $n = str_replace(',', '', $n); // "1,495.50": the comma is a thousands separator
+        } else {
+            $n = str_replace(',', '.', $n); // "495,50": the comma is the decimal separator
+        }
+
+        return preg_match('/^\d{1,9}(\.\d{1,2})?$/', $n) ? $n : '';
     }
 
     /**
@@ -228,6 +257,9 @@ class AgreementFields
             }
             if ($f['type'] === 'tel' && !preg_match('/^[0-9 +()\-]{7,40}$/', $v)) {
                 $errors[$key] = 'Enter a valid phone number.';
+            }
+            if ($f['type'] === 'money' && self::cleanMoney($v) === '') {
+                $errors[$key] = 'Enter an amount in rand, for example 1495 or 1495.50.';
             }
             if ($f['type'] === 'date' && !strtotime($v)) {
                 $errors[$key] = 'Enter a valid date.';
