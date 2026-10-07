@@ -129,6 +129,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
                 'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
+                'client.auth' => \App\Http\Middleware\AuthenticateClientPortal::class, // portal auth that a staff session in the same browser cannot answer for
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,
                 'rental-portal.enabled' => \App\Http\Middleware\EnsureRentalPortalEnabled::class, // AT-445
                 // Agency Public API (website API)

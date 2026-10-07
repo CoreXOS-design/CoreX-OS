@@ -9,7 +9,7 @@ use Illuminate\Mail\Mailables\Envelope;
 class SignedDocumentMail extends BaseSignatureMail
 {
     /**
-     * @param  array<int,array{path:string,name:string}>  $documents
+     * @param  array<int,array{path:string,name:string,mime?:string}>  $documents
      *   HD-7 — the signed documents to attach, one entry per DOCUMENT. A pack that was signed as one
      *   ceremony files as many independent documents, and the parties must receive them the same way:
      *   a Mandate and a Disclosure are two documents, not one stapled PDF. When empty, the mail falls
@@ -65,7 +65,8 @@ class SignedDocumentMail extends BaseSignatureMail
 
                 $attachments[] = Attachment::fromPath($path)
                     ->as($doc['name'] ?? 'Signed Document.pdf')
-                    ->withMime('application/pdf');
+                    // e-sign documents are always PDFs; a paper-signed lease upload may be a photo or a Word file.
+                    ->withMime($doc['mime'] ?? 'application/pdf');
             }
 
             if (! empty($attachments)) {
