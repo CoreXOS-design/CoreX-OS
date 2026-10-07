@@ -2012,8 +2012,10 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     /** Per USER, not global — the whole reason this moved off localStorage. */
     public function test_screen_preference_is_scoped_per_user_not_shared(): void
     {
+        // A branch manager (may open this branch's property tab) — an own-scoped colleague can no longer
+        // read another agent's property tab at all (rental-inspections.md §45.8 H2), which is not what this tests.
         $otherAgent = User::factory()->create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'branch_manager',
         ]);
 
         $this->postJson(route('corex.rental-inspections.screen-preference'), [

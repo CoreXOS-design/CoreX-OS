@@ -58,6 +58,17 @@ trait AuthorizesRentalRecordScope
             return;
         }
 
+        // Rental inspections only (rental-inspections.md §45.8 H4): the inspector booked to do an
+        // inspection someone else created sees it on their own board — RentalInspection::
+        // scopeVisibleTo() 'own' is creator OR inspector — so this per-record guard accepts the
+        // same two people, or they see the row and then get a 403 on opening it.
+        if ($scope === 'own'
+            && $record instanceof \App\Models\RentalInspection
+            && $record->inspector_user_id !== null
+            && in_array((int) $record->inspector_user_id, $user->dataIdentityIds(), true)) {
+            return;
+        }
+
         $this->logDeniedRentalRecordScopeAccess($record, $user, $scope, $permissionKey);
         abort(403);
     }
