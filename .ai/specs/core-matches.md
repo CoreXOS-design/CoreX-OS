@@ -957,3 +957,46 @@ The four board routes (`corex.core-matches.index` / `.all`, `corex.rentals.core-
 (`RequireAgencyContext`). A System Owner (super_admin, `agency_id` NULL) who has not picked an agency is sent to the agency
 picker (and back to the board afterwards) instead of a 500 — `renderBoard()` needs an agency id for the agency settings.
 Same pattern as Activity Scoring and the PPRA admin screens. Test: `tests/Feature/CoreMatches/CoreMatchesOwnerNoAgencyTest.php`.
+
+---
+
+## "Update buyer pipeline" on the board (2026-10-07, Johan)
+
+Each contact header on `/corex/core-matches` (sale and rental views, and the All view) shows the
+buyer's pipeline status chip. Beside it, **Update buyer pipeline** moves that buyer on the Buyer
+Pipeline itself, without leaving the board.
+
+**One code path, two entry points — nothing is re-implemented here.**
+- Statuses offered: the Buyer Pipeline board's own list — New / Warm / Cold / Lost
+  (`BuyerStateService::PIPELINE_STATES` minus `won`, which the system sets when a buyer is linked to a
+  property and which the board's drag cannot set either). The current status is preselected; Save is
+  disabled until a different one is picked.
+- New / Warm / Cold → the board's own `PATCH command-center.buyers.update-state`
+  (`BuyerPipelineController::updateState` → `BuyerStateService::transitionTo(…, 'manual_override', userId)`),
+  the exact call a drag on the board makes, then the board reloads. That call is what writes the
+  `buyer_state_transitions` row and fires the lost/restored domain events, so logging is identical.
+- Lost → the shared Mark-Lost dialog (`resources/views/command-center/buyers/_mark-lost-dialog.blade.php`,
+  now the ONE copy — the buyer page includes the same partial) → `POST command-center.buyers.mark-lost`
+  (`BuyerDetailController::markLost`): reason from the agency's `agency_lost_deal_reasons` (required),
+  notes, buyer's own words — same fields, same validation, same `buyer_lost_records` row, same transition.
+  The endpoint returns to the board (`back()`) with the usual toast.
+- **Row result:** the board is driven by the buyer's CURRENT status (`CoreMatchBuyerGate`), so after the
+  reload the chip shows the new status, and a buyer whose new status the agency excludes from Core Matches
+  (default Won + Lost; setting "Statuses excluded from Core Matches") has dropped off the list. No extra
+  code decides that.
+
+**Scoping / permissions = the board's.** Both endpoints bind `Contact` through `ContactScope`
+(own / branch / agency) + `AgencyScope`, so a crafted request for a buyer the user cannot reach 404s.
+The button is rendered only for contacts that bind under that normal scope (`$pipelineMovableContactIds`
+in `ContactMatchController::index()` — NOT the oversight bypass the board uses to LIST), only when the
+contact has a pipeline status, and on the rentals lens only with `buyer_pipeline.view` (the Rental
+Pipeline's own gate). The server stays the authority; the button rule only avoids offering a control that
+would 404.
+
+**No new setting** (nothing for the Setup Wizard), no new route, no migration, no new permission.
+Tests: `tests/Feature/CoreMatches/CoreMatchUpdateBuyerPipelineTest.php`.
+
+**Known, deliberately untouched (reported, not changed):** the Buyer Pipeline board's drag-to-Lost
+redirects to `/buyers/{id}?action=mark-lost`, but the buyer page does not read `?action=mark-lost`, so
+that drag lands on the page without opening the dialog; and `updateState`/`markLost` do not call
+`authorizeContact()` (the assistant view-but-not-edit rule used by the contact screens).
