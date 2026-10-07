@@ -453,8 +453,16 @@
     </div>
     @endif
 
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div id="wo-photos" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Photos</h2>
+        @if(session('wo_photo_message'))
+            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('wo_photo_message') }}</div>
+        @endif
+        @if($errors->photo->any())
+            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+                @foreach($errors->photo->all() as $error)<div>{{ $error }}</div>@endforeach
+            </div>
+        @endif
         @if($workOrder->photos->isEmpty())
             <p class="text-xs" style="color: var(--text-muted);">No photos yet.</p>
         @else
