@@ -125,22 +125,6 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         $this->assertSame('40638', $result['amount']);
     }
 
-    public function test_review_screen_income_amount_field_is_not_a_native_number_input(): void
-    {
-        // Regression guard for the actual root cause: a native
-        // type="number" input combined with Alpine's x-model write-back
-        // is what silently ate the "." — never let this field revert to
-        // type="number".
-        $agent = $this->agent();
-        $app = $this->application();
-
-        $response = $this->actingAs($agent)->get(route('corex.rental-applications.review', $app));
-
-        $response->assertOk();
-        $response->assertDontSee('type="number" inputmode="decimal"', false);
-        $response->assertSee('type="text" inputmode="decimal"', false);
-    }
-
     public function test_authoriser_approve_amount_field_is_not_a_native_number_input(): void
     {
         $ro = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
@@ -176,94 +160,6 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
     // him: "whatever the agent captured get averaged by the months
     // selected - 10000, 10000, 13000 tallies to 33000, agent selected 3
     // months - so the avg income is? 11000? what else are you on about?"
-
-    public function test_johans_exact_worked_example(): void
-    {
-        $agent = $this->agent();
-        $property = $this->propertyWithRent(3300, $agent);
-        $app = $this->application(['current_rental_amount' => 3300, 'property_id' => $property->id]);
-
-        // "Dates on entries" (2026-09-10) — statement_months is derived from
-        // a from/to range now, never typed directly. Jan-Mar inclusive is
-        // Johan's same "3 months."
-        $response = $this->actingAs($agent)->post(
-            route('corex.rental-applications.review.assessment', $app),
-            [
-                'income_items' => [
-                    ['description' => 'Bank statement line 1', 'amount' => '10000'],
-                    ['description' => 'Bank statement line 2', 'amount' => '10000'],
-                    ['description' => 'Bank statement line 3', 'amount' => '13000'],
-                ],
-                'statement_period_from' => '2026-01-01',
-                'statement_period_to' => '2026-03-31',
-            ]
-        );
-
-        $response->assertOk();
-        $data = $response->json();
-        $this->assertEquals(33000.0, $data['result']['total_captured_income'], 'the three lines must tally to 33,000');
-        $this->assertEquals(11000.0, $data['result']['gross_income'], '33,000 over 3 months must average to 11,000');
-        $this->assertEquals(3300.0, $data['result']['max_affordable_rent'], '30% of 11,000 must be exactly 3,300');
-        $this->assertTrue($data['result']['meets_threshold']);
-        $this->assertSame('sufficient', $data['result']['label']);
-
-        // The number stored must be the number displayed — no drift.
-        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-        $this->assertSame(3, $assessment->statement_months);
-        $this->assertEquals(33000.0, (float) $assessment->incomeItems->sum('amount'));
-    }
-
-    public function test_monthly_average_now_drives_the_decision_not_the_raw_total(): void
-    {
-        // Same raw total (18000), different statement lengths — the
-        // DECISION must now differ, proving the average, not the lump
-        // sum, is what the 30% rule runs against.
-        $agent = $this->agent();
-
-        $oneMonthProperty = $this->propertyWithRent(5400, $agent);
-        $oneMonth = $this->application(['current_rental_amount' => 5400, 'property_id' => $oneMonthProperty->id]);
-        $oneMonthResult = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $oneMonth), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
-            'statement_period_from' => '2026-01-01',
-            'statement_period_to' => '2026-01-31',
-        ])->json();
-
-        $threeMonthsProperty = $this->propertyWithRent(5400, $agent);
-        $threeMonths = $this->application(['current_rental_amount' => 5400, 'property_id' => $threeMonthsProperty->id]);
-        $threeMonthsResult = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $threeMonths), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
-            'statement_period_from' => '2026-01-01',
-            'statement_period_to' => '2026-03-31',
-        ])->json();
-
-        // 1 month: 18000 / 1 = 18000 -> 30% = 5400 -> exactly meets 5400 rent.
-        $this->assertEquals(18000.0, $oneMonthResult['result']['gross_income']);
-        $this->assertTrue($oneMonthResult['result']['meets_threshold']);
-
-        // 3 months: 18000 / 3 = 6000 -> 30% = 1800 -> 5400 rent now FAILS.
-        $this->assertEquals(6000.0, $threeMonthsResult['result']['gross_income']);
-        $this->assertEquals(1800.0, $threeMonthsResult['result']['max_affordable_rent']);
-        $this->assertFalse($threeMonthsResult['result']['meets_threshold']);
-    }
-
-    public function test_missing_statement_months_never_divides_and_reports_incomplete_not_a_wrong_pass(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application(['current_rental_amount' => 100]); // trivially affordable if the raw total were ever used
-
-        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
-        ]);
-
-        $data = $response->json();
-        $this->assertNull($data['result']['gross_income'], 'no months -> no decision figure, never the raw total');
-        $this->assertNull($data['result']['max_affordable_rent']);
-        $this->assertNull($data['result']['meets_threshold']);
-        $this->assertSame('incomplete', $data['result']['label']);
-        // The raw total is still visible for the agent (total_captured_income),
-        // just never used as if it were monthly.
-        $this->assertEquals(18000.0, $data['result']['total_captured_income']);
-    }
 
     // "Dates on entries" (2026-09-10) — statement_months can no longer be
     // typed directly (there is no way to submit "0" any more), so the
@@ -318,11 +214,12 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         $this->assertStringContainsString('months', $response->json('error'));
     }
 
-    // "Dates on entries" — existing records keep whatever month count they
-    // hold; nothing recalculates retrospectively without a date range to
-    // derive it from. A save with no dates on THIS request must never zero
-    // out (or otherwise touch) an already-stored figure.
-    public function test_a_save_with_no_dates_leaves_an_existing_statement_months_untouched(): void
+    // "Dates on entries" — a save with NO period dates clears the stored month count. The client
+    // always sends both date keys on every autosave (blank when unset), so "both blank" can only
+    // mean the agent cleared a period that was set; leaving the old figure behind showed a plausible
+    // Months / Monthly income under two empty date inputs (QA1 item 6, corrected 2026-09-13).
+    // Supersedes the original "leave an existing figure untouched" rule.
+    public function test_a_save_with_both_dates_blank_clears_the_stored_statement_months(): void
     {
         $agent = $this->agent();
         $app = $this->application();
@@ -333,13 +230,13 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         ]);
 
         $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
+            'notes' => 'Saved with no statement dates.',
         ]);
 
         $response->assertOk();
-        $this->assertEquals(6, $response->json('result.statement_months'));
+        $this->assertNull($response->json('statement_months'));
         $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-        $this->assertSame(6, $assessment->statement_months);
+        $this->assertNull($assessment->statement_months);
         $this->assertNull($assessment->statement_period_from);
     }
 
@@ -356,84 +253,16 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         ]);
 
         $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
             'statement_period_from' => '2026-01-01',
-            'statement_period_to' => '2026-02-28',
+            'statement_period_to' => '2026-03-31',
         ]);
 
         $response->assertOk();
-        $this->assertEquals(2, $response->json('result.statement_months'));
-    }
-
-    public function test_applicant_reported_income_shown_for_comparison_never_affects_the_decision(): void
-    {
-        $agent = $this->agent();
-        // Applicant claimed 10,000; the bank statement (agent-captured,
-        // averaged) shows the real figure of 18,000 — Johan's own example.
-        $app = $this->application(['current_rental_amount' => 5000, 'monthly_salary' => 10000]);
-
-        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
-            'statement_period_from' => '2026-01-01',
-            'statement_period_to' => '2026-01-31',
-        ]);
-
-        $data = $response->json();
-        $this->assertEquals(10000.0, $data['result']['applicant_reported_income']);
-        // The DECISION still runs off the bank-statement-derived figure.
-        $this->assertEquals(18000.0, $data['result']['gross_income']);
+        // 1 Jan → 31 Mar = 2 whole ELAPSED months (elapsed-months rule, 2026-09-14), not the typed 6.
+        $this->assertEquals(2, $response->json('statement_months'));
     }
 
     // ── "Dates on entries" (2026-09-10) — income/expense line dates ──────
-
-    public function test_income_and_expense_items_persist_and_echo_their_own_date(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application();
-
-        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000', 'entry_date' => '2026-08-25']],
-            'expense_items' => [['description' => 'Car payment', 'amount' => '2500', 'entry_date' => '2026-08-26']],
-        ]);
-
-        $response->assertOk();
-        $this->assertSame('2026-08-25', $response->json('income_items.0.entry_date'));
-        $this->assertSame('2026-08-26', $response->json('expense_items.0.entry_date'));
-
-        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-        $this->assertSame('2026-08-25', $assessment->incomeItems->first()->entry_date->format('Y-m-d'));
-        $this->assertSame('2026-08-26', $assessment->expenseItems->first()->entry_date->format('Y-m-d'));
-    }
-
-    // Optional-and-empty (BUILD_STANDARD §2) — an item with no date must
-    // save exactly as it always did, never rejected or forced to a value.
-    public function test_an_income_item_with_no_date_saves_fine(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application();
-
-        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000']],
-        ]);
-
-        $response->assertOk();
-        $this->assertNull($response->json('income_items.0.entry_date'));
-    }
-
-    // Malformed-but-submitted (BUILD_STANDARD §2) — a future date can't be a
-    // real bank-statement transaction; rejected clearly, not silently
-    // accepted or truncated.
-    public function test_a_future_entry_date_is_rejected_at_validation(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application();
-
-        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'income_items' => [['description' => 'Salary', 'amount' => '18000', 'entry_date' => now()->addDay()->toDateString()]],
-        ]);
-
-        $response->assertSessionHasErrors('income_items.0.entry_date');
-    }
 
     // The authoriser's own add-item endpoint writes the identical column —
     // same date field, same expectation, not a half-built sibling.
@@ -504,4 +333,11 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
     {
         $this->assertSame(1, RentalApplicationAssessment::calculateStatementMonths('2026-06-28', '2026-07-03'));
     }
+
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // Removed, not skipped: test_review_screen_income_amount_field_is_not_a_native_number_input, test_johans_exact_worked_example, test_monthly_average_now_drives_the_decision_not_the_raw_total, test_missing_statement_months_never_divides_and_reports_incomplete_not_a_wrong_pass, test_applicant_reported_income_shown_for_comparison_never_affects_the_decision, test_income_and_expense_items_persist_and_echo_their_own_date, test_a_future_entry_date_is_rejected_at_validation, test_an_income_item_with_no_date_saves_fine.
+    // They drove the affordability result through saveAssessment()'s income_items/expense_items
+    // contract (removed by the 2026-09-11 capture-ledger rework) or asserted the removed items
+    // input. The 3,300 worked example is preserved in .ai/specs/rental-applications.md; the live
+    // arithmetic is pinned by RentalApplicationAffordabilityArithmeticTest.
 }
