@@ -23,7 +23,7 @@
         default    => 'ds-badge-default',
     };
 @endphp
-<div class="w-full space-y-5">
+<div class="w-full space-y-5" x-data>
 
     {{-- Page header — §2.4 Pattern A --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -54,6 +54,17 @@
                     </svg>
                     Edit
                 </a>
+
+                @if ($extendPayload)
+                    {{-- Add time: no new grant, code or terms acceptance needed (spec §9.1). --}}
+                    <button type="button" class="corex-btn-outline corex-btn-on-brand text-xs"
+                            @click="$dispatch('demo-extend', {{ \Illuminate\Support\Js::from($extendPayload) }})">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                        </svg>
+                        Add time
+                    </button>
+                @endif
 
                 @if (!$grant->revoked_at && !$grant->archived_at)
                     {{-- The confirm text states the REAL latency. The gate caches primary's
@@ -161,6 +172,34 @@
         </div>
     </div>
 
+    {{-- Time added — every extension, newest first, read back from the audit log. Only
+         shown once there is one: an empty "nothing added" card would be noise. --}}
+    @if ($extensions->isNotEmpty())
+        <div class="space-y-3">
+            <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Time added</h2>
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <ul>
+                    @foreach ($extensions as $e)
+                        <li class="px-4 py-3 text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1" style="{{ $loop->first ? '' : 'border-top: 1px solid var(--border);' }}">
+                            <strong style="color: var(--text-primary);">+{{ $e['added'] }}</strong>
+                            <span style="color: var(--text-secondary);">
+                                @if ($e['basis'] === 'before_start')
+                                    trial is now {{ $e['trial'] }}, starting at first sign-in
+                                @elseif ($e['ends'])
+                                    now runs until {{ $e['ends']->format('D j M Y, H:i') }}
+                                @endif
+                            </span>
+                            <span class="text-xs" style="color: var(--text-muted);">{{ $e['when']->format('j M Y, H:i') }} · by {{ $e['by'] }}</span>
+                            @if ($e['note'])
+                                <span class="w-full text-xs" style="color: var(--text-secondary);">“{{ $e['note'] }}”</span>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        </div>
+    @endif
+
     {{-- Terms accepted. Renders the body AS ACCEPTED — DemoTncVersion is immutable,
          so this is the exact text that was on their screen, even after v2 ships. --}}
     <div class="space-y-3">
@@ -226,4 +265,8 @@
         @endforelse
     </div>
 </div>
+
+@if ($extendPayload)
+    @include('admin.demo-access._extend-modal')
+@endif
 @endsection

@@ -242,12 +242,16 @@
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
+            // AT-448 — Expired tile on both lenses (rental mandates expire too).
+            ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
         ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
             ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
             ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
+            // AT-448 — Expired tile (spec §2.1).
+            ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
         ];
 
         // Layer 3 — "Awaiting approval" (.ai/specs/syndication-approval-gate.md §7.1).
@@ -421,6 +425,9 @@
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
                 <option value="rented_out" {{ $status === 'rented_out' ? 'selected' : '' }}>Rented Out</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                {{-- AT-448 — Expired + the "Expiring soon" window (the popup's View all). --}}
+                <option value="expired" {{ $status === 'expired' ? 'selected' : '' }}>Expired</option>
+                <option value="expiring_soon" {{ $status === 'expiring_soon' ? 'selected' : '' }}>Expiring soon</option>
                 @else
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>On Market</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
@@ -432,6 +439,9 @@
                      questions and an agent must be able to filter for either. --}}
                 <option value="sold_by_3rd_party" {{ $status === 'sold_by_3rd_party' ? 'selected' : '' }}>Sold by 3rd Party</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                {{-- AT-448 — Expired + the "Expiring soon" window (the popup's View all). --}}
+                <option value="expired" {{ $status === 'expired' ? 'selected' : '' }}>Expired</option>
+                <option value="expiring_soon" {{ $status === 'expiring_soon' ? 'selected' : '' }}>Expiring soon</option>
                 @endif
             </select>
 
@@ -1332,6 +1342,9 @@
 
     {{-- Syndication — one modal, driven by every card/row trigger --}}
     @include('corex.properties.partials.syndication-modal')
+
+    {{-- AT-448 — "Mandates expiring soon": emits nothing when there is nothing new to announce --}}
+    @include('corex.properties.partials.expiry-popup')
 
 </div>
 

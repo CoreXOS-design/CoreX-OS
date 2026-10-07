@@ -3,6 +3,7 @@
 namespace App\Services\Demo;
 
 use App\Events\Demo\DemoAccessExpired;
+use App\Events\Demo\DemoAccessExtended;
 use App\Events\Demo\DemoAccessFirstLogin;
 use App\Events\Demo\DemoAccessGranted;
 use App\Events\Demo\DemoAccessRevoked;
@@ -270,6 +271,102 @@ class DemoAccessService
         }
 
         return $grant;
+    }
+
+    /** One extension may add at most a year; the same ceiling the issue form uses. */
+    public const MAX_EXTENSION_HOURS = 8760;
+
+    /**
+     * Add time to an existing grant — so a prospect whose demo is running out (or
+     * has run out) does not need a brand-new grant, a new code and a new terms
+     * acceptance. The code, the accepted terms and the session history all stay.
+     *
+     * Where the time lands depends on where the grant is. Status is DERIVED, so it
+     * is read once, under a row lock, from the fresh row — never from the copy the
+     * page was rendered with:
+     *
+     *   not started   (rolling clock, expires_at NULL)  → the trial length they will
+     *                  get at first sign-in grows: expiry_hours += hours.
+     *   still running (expires_at in the future)         → the existing end date
+     *                  moves on: expires_at += hours.
+     *   already ended (expires_at in the past)           → access restarts from NOW
+     *                  for the period chosen. Adding hours to a date that is already
+     *                  in the past would leave them still expired, and quietly.
+     *
+     * Revoked and archived grants are refused: revoking was a deliberate withdrawal
+     * and extending would silently undo it. Issue a new grant instead.
+     *
+     * Reaches the demo host within the gate cache TTL (≤60s), like revoke does.
+     *
+     * Spec: .ai/specs/demo-access-control.md §9.1
+     *
+     * @throws \DomainException  plain-English reason the extension cannot be applied
+     */
+    public function extend(DemoAccessGrant $grant, int $hours, int $byUserId, ?string $note = null): DemoAccessGrant
+    {
+        if ($hours < 1 || $hours > self::MAX_EXTENSION_HOURS) {
+            throw new \DomainException('Choose between 1 hour and 1 year to add.');
+        }
+
+        $note = $note !== null ? (trim($note) ?: null) : null;
+
+        $event = null;
+
+        $fresh = DB::transaction(function () use ($grant, $hours, $byUserId, $note, &$event) {
+            $row = DemoAccessGrant::query()->whereKey($grant->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($row->archived_at !== null) {
+                throw new \DomainException('This grant is archived. Restore it first, then add time.');
+            }
+            if ($row->revoked_at !== null) {
+                throw new \DomainException('Access was revoked for this prospect. Adding time would quietly undo that — issue a new grant instead.');
+            }
+
+            $now           = Carbon::now();
+            $prevExpiresAt = $row->expires_at?->copy();
+            $prevHours     = $row->expiry_hours;
+
+            if ($row->expires_at === null) {
+                // Rolling trial that has not started: grow the length they get at first sign-in.
+                $newHours = (int) $row->expiry_hours + $hours;
+                if ($newHours > self::MAX_EXTENSION_HOURS) {
+                    throw new \DomainException('That would make the trial longer than a year. Add less time.');
+                }
+                $row->expiry_hours = $newHours;
+                $basis = DemoAccessExtended::BASIS_BEFORE_START;
+            } else {
+                $running = $row->expires_at->isFuture();
+                $base    = $running ? $row->expires_at->copy() : $now->copy();
+                $new     = $base->addHours($hours);
+
+                if ($new->gt($now->copy()->addHours(self::MAX_EXTENSION_HOURS))) {
+                    throw new \DomainException('That would run more than a year from now. Add less time.');
+                }
+                $row->expires_at = $new;
+                $basis = $running ? DemoAccessExtended::BASIS_FROM_DEADLINE : DemoAccessExtended::BASIS_FROM_NOW;
+            }
+
+            $row->save();
+
+            $event = new DemoAccessExtended(
+                grant: $row,
+                hoursAdded: $hours,
+                basis: $basis,
+                previousExpiresAt: $prevExpiresAt?->toIso8601String(),
+                newExpiresAt: $row->expires_at?->toIso8601String(),
+                previousExpiryHours: $prevHours,
+                newExpiryHours: $row->expiry_hours,
+                byUserId: $byUserId,
+                note: $note,
+            );
+
+            return $row;
+        });
+
+        // After the commit: the audit row must describe a change that really landed.
+        event($event);
+
+        return $fresh;
     }
 
     /**

@@ -301,6 +301,33 @@ class AgencySetupWizardSaverGuardTest extends TestCase
         $this->assertSame(0, (int) \App\Models\PerformanceSetting::get('syndication_pp_enabled'), 'present "0" must turn PP off');
     }
 
+    /**
+     * AT-448 — the Mandate Expiry saver (warn-days + expiry lock) is a wizard
+     * saver for the Properties step, so each key must survive the other being
+     * posted alone. Per-agency rows (never a global NULL-agency row).
+     */
+    public function test_mandate_expiry_saver_ignores_absent_fields_but_honours_present_values(): void
+    {
+        $agency = $this->agency();
+        $admin  = $this->admin($agency);
+
+        \App\Models\PerformanceSetting::set('mandate_expiry_warn_days', 14, $agency->id);
+        \App\Models\PerformanceSetting::set('mandate_expiry_lock_enabled', 1, $agency->id);
+
+        // Only the lock posted (as "0") → warn-days must be left alone, lock turned off.
+        $this->actingAs($admin)->post(route('corex.settings.mandate-expiry'), ['mandate_expiry_lock_enabled' => '0'])->assertRedirect();
+        $this->assertSame(14, (int) \App\Models\PerformanceSetting::get('mandate_expiry_warn_days', 7, $agency->id), 'unposted warn-days must survive');
+        $this->assertSame(0, (int) \App\Models\PerformanceSetting::get('mandate_expiry_lock_enabled', 0, $agency->id), 'present "0" must turn the lock off');
+
+        // Only warn-days posted → the lock (now off) must be left alone.
+        $this->actingAs($admin)->post(route('corex.settings.mandate-expiry'), ['mandate_expiry_warn_days' => '21'])->assertRedirect();
+        $this->assertSame(21, (int) \App\Models\PerformanceSetting::get('mandate_expiry_warn_days', 7, $agency->id));
+        $this->assertSame(0, (int) \App\Models\PerformanceSetting::get('mandate_expiry_lock_enabled', 0, $agency->id), 'unposted lock must survive');
+
+        // Never a global row.
+        $this->assertDatabaseMissing('performance_settings', ['key' => 'mandate_expiry_warn_days', 'agency_id' => null]);
+    }
+
     public function test_matches_enabled_saver_ignores_absent_field_but_honours_present_zero(): void
     {
         $agency = $this->agency();

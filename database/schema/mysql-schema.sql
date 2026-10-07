@@ -179,6 +179,8 @@ CREATE TABLE `agencies` (
   `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
   `ffc_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `ppra_number` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ppra_employment_letter_address_block` text COLLATE utf8mb4_unicode_ci,
+  `ppra_employment_letter_reminder_days` smallint unsigned NOT NULL DEFAULT '2',
   `ncc_registration_number` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_contact` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fic_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -207,6 +209,11 @@ CREATE TABLE `agencies` (
   `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `viewing_pack_redaction_dpi` smallint unsigned DEFAULT NULL,
   `viewing_pack_default_duration_minutes` smallint unsigned DEFAULT NULL,
+  `viewing_pack_cover_style` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'standard',
+  `viewing_pack_cover_slogan` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `viewing_pack_cover_website` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `viewing_pack_cover_phone` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `viewing_pack_cover_accent_color` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sidebar_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0ea5e9',
   `icon_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0ea5e9',
   `default_color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '#0b2a4a',
@@ -505,6 +512,8 @@ CREATE TABLE `agency_contact_settings` (
   `buyer_cold_days` int unsigned NOT NULL DEFAULT '30',
   `buyer_lost_days` int unsigned NOT NULL DEFAULT '60',
   `core_matches_working_window_days` smallint unsigned DEFAULT NULL,
+  `core_matches_allowed_statuses` json DEFAULT NULL,
+  `core_matches_excluded_buyer_states` json DEFAULT NULL,
   `core_matches_price_drop_threshold_pct` tinyint unsigned NOT NULL DEFAULT '3',
   `outreach_no_response_days` smallint unsigned NOT NULL DEFAULT '7',
   `min_countable_criteria` json DEFAULT NULL,
@@ -935,6 +944,96 @@ CREATE TABLE `agency_subscriptions` (
   UNIQUE KEY `agency_subscriptions_agency_id_unique` (`agency_id`),
   KEY `agency_subscriptions_plan_index` (`plan`),
   CONSTRAINT `agency_subscriptions_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_timeline_default_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_timeline_default_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `kind` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` text COLLATE utf8mb4_unicode_ci,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `offset_days` int unsigned DEFAULT NULL,
+  `is_public` tinyint(1) NOT NULL DEFAULT '1',
+  `agency_can_complete` tinyint(1) NOT NULL DEFAULT '0',
+  `is_go_live` tinyint(1) NOT NULL DEFAULT '0',
+  `auto_complete_trigger` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_timeline_default_items_kind_sort_order_index` (`kind`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_timeline_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_timeline_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `timeline_id` bigint unsigned NOT NULL,
+  `item_id` bigint unsigned DEFAULT NULL,
+  `event` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `summary` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `before` json DEFAULT NULL,
+  `after` json DEFAULT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `source` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `agency_timeline_events_timeline_id_created_at_index` (`timeline_id`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_timeline_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_timeline_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `timeline_id` bigint unsigned NOT NULL,
+  `kind` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` text COLLATE utf8mb4_unicode_ci,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `due_date` date DEFAULT NULL,
+  `offset_days` int unsigned DEFAULT NULL,
+  `is_public` tinyint(1) NOT NULL DEFAULT '1',
+  `agency_can_complete` tinyint(1) NOT NULL DEFAULT '0',
+  `is_go_live` tinyint(1) NOT NULL DEFAULT '0',
+  `auto_complete_trigger` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `completed_by` bigint unsigned DEFAULT NULL,
+  `completed_source` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_custom` tinyint(1) NOT NULL DEFAULT '0',
+  `source_default_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_timeline_items_timeline_id_kind_sort_order_index` (`timeline_id`,`kind`,`sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_timelines`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_timelines` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `start_date` date NOT NULL,
+  `status` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'running',
+  `agreement_document_id` bigint unsigned DEFAULT NULL,
+  `public_link_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `started_by` bigint unsigned DEFAULT NULL,
+  `live_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_timelines_token_unique` (`token`),
+  KEY `agency_timelines_agency_id_index` (`agency_id`),
+  KEY `agency_timelines_agreement_document_id_index` (`agreement_document_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_transformation_notes`;
@@ -4455,6 +4554,20 @@ DELIMITER ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
 /*!50003 SET character_set_results = @saved_cs_results */ ;
 /*!50003 SET collation_connection  = @saved_col_connection */ ;
+DROP TABLE IF EXISTS `core_match_buyer_state_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `core_match_buyer_state_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `changed_by_user_id` bigint unsigned DEFAULT NULL,
+  `old_values` json NOT NULL,
+  `new_values` json NOT NULL,
+  `changed_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `core_match_buyer_state_audit_agency_id_index` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `core_match_misses`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -6198,7 +6311,7 @@ DROP TABLE IF EXISTS `docuperfect_documents`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `docuperfect_documents` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `agency_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `template_id` bigint unsigned DEFAULT NULL,
   `fields_json` json DEFAULT NULL,
@@ -6494,6 +6607,7 @@ CREATE TABLE `docuperfect_templates` (
   `editor_state` json DEFAULT NULL,
   `wizard_config` json DEFAULT NULL,
   `is_global` tinyint(1) NOT NULL DEFAULT '0',
+  `is_platform` tinyint(1) NOT NULL DEFAULT '0',
   `is_esign` tinyint(1) NOT NULL DEFAULT '0',
   `party_mode` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'shared',
   `signing_parties` json DEFAULT NULL,
@@ -6509,6 +6623,7 @@ CREATE TABLE `docuperfect_templates` (
   KEY `docuperfect_templates_owner_id_foreign` (`owner_id`),
   KEY `docuperfect_templates_document_type_id_foreign` (`document_type_id`),
   KEY `docuperfect_templates_agency_id_index` (`agency_id`),
+  KEY `docuperfect_templates_is_platform_index` (`is_platform`),
   CONSTRAINT `docuperfect_templates_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `docuperfect_templates_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -9478,6 +9593,352 @@ CREATE TABLE `pipeline_user_preferences` (
   CONSTRAINT `pipeline_user_preferences_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_company`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_company` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `singleton` tinyint unsigned NOT NULL DEFAULT '1',
+  `legal_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `trading_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `registration_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
+  `vat_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `directors` json DEFAULT NULL,
+  `physical_address` text COLLATE utf8mb4_unicode_ci,
+  `postal_address` text COLLATE utf8mb4_unicode_ci,
+  `email_general` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email_support` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email_accounts` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `send_from_address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `send_from_name` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phones` json DEFAULT NULL,
+  `websites` json DEFAULT NULL,
+  `strap_line` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `letterhead_footer` text COLLATE utf8mb4_unicode_ci,
+  `email_signature_html` mediumtext COLLATE utf8mb4_unicode_ci,
+  `bank_details` text COLLATE utf8mb4_unicode_ci,
+  `logo_id` bigint unsigned DEFAULT NULL,
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `platform_company_singleton_unique` (`singleton`),
+  KEY `platform_company_logo_id_foreign` (`logo_id`),
+  CONSTRAINT `platform_company_logo_id_foreign` FOREIGN KEY (`logo_id`) REFERENCES `platform_company_logos` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_company_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_company_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `action` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `summary` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `changes` json DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `platform_company_audit_action_created_at_index` (`action`,`created_at`),
+  KEY `platform_company_audit_created_at_index` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_company_logos`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_company_logos` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `mime` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `size` int unsigned NOT NULL DEFAULT '0',
+  `uploaded_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_attachments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_attachments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `stored_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sha256` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `platform_esign_attachments_document_id_foreign` (`document_id`),
+  CONSTRAINT `platform_esign_attachments_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `platform_esign_documents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_documents`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_documents` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `template_id` bigint unsigned DEFAULT NULL,
+  `template_version` int unsigned NOT NULL DEFAULT '1',
+  `wording_version_id` bigint unsigned DEFAULT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contract_ref` varchar(30) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `source` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'web',
+  `body_html_snapshot` longtext COLLATE utf8mb4_unicode_ci,
+  `pdf_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `page_count` smallint unsigned NOT NULL DEFAULT '0',
+  `fields_json` json DEFAULT NULL,
+  `sequential` tinyint(1) NOT NULL DEFAULT '1',
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `sent_at` timestamp NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `declined_at` timestamp NULL DEFAULT NULL,
+  `voided_at` timestamp NULL DEFAULT NULL,
+  `voided_by` bigint unsigned DEFAULT NULL,
+  `void_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `decline_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sealed_pdf_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `document_hash` char(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `form_data` longtext COLLATE utf8mb4_unicode_ci,
+  `rr_data` longtext COLLATE utf8mb4_unicode_ci,
+  `form_rev` int unsigned NOT NULL DEFAULT '0',
+  `recipient_note` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `company_snapshot` json DEFAULT NULL,
+  `content_hash` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `platform_esign_documents_contract_ref_unique` (`contract_ref`),
+  KEY `platform_esign_documents_template_id_foreign` (`template_id`),
+  KEY `platform_esign_documents_voided_by_foreign` (`voided_by`),
+  KEY `platform_esign_documents_created_by_foreign` (`created_by`),
+  KEY `platform_esign_documents_status_deleted_at_index` (`status`,`deleted_at`),
+  KEY `platform_esign_documents_agency_id_index` (`agency_id`),
+  KEY `platform_esign_documents_wording_version_id_foreign` (`wording_version_id`),
+  CONSTRAINT `platform_esign_documents_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_documents_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_documents_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `platform_esign_templates` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_documents_voided_by_foreign` FOREIGN KEY (`voided_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_documents_wording_version_id_foreign` FOREIGN KEY (`wording_version_id`) REFERENCES `platform_esign_wording_versions` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `signer_id` bigint unsigned DEFAULT NULL,
+  `event` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `detail` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `platform_esign_events_signer_id_foreign` (`signer_id`),
+  KEY `platform_esign_events_actor_user_id_foreign` (`actor_user_id`),
+  KEY `platform_esign_events_document_id_created_at_index` (`document_id`,`created_at`),
+  CONSTRAINT `platform_esign_events_actor_user_id_foreign` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_events_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `platform_esign_documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `platform_esign_events_signer_id_foreign` FOREIGN KEY (`signer_id`) REFERENCES `platform_esign_signers` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_field_values`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_field_values` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `signer_id` bigint unsigned NOT NULL,
+  `field_id` bigint unsigned NOT NULL,
+  `value` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `platform_esign_field_values_signer_id_field_id_unique` (`signer_id`,`field_id`),
+  KEY `platform_esign_field_values_document_id_foreign` (`document_id`),
+  CONSTRAINT `platform_esign_field_values_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `platform_esign_documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `platform_esign_field_values_signer_id_foreign` FOREIGN KEY (`signer_id`) REFERENCES `platform_esign_signers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_initials`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_initials` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `signer_id` bigint unsigned NOT NULL,
+  `page_no` smallint unsigned NOT NULL,
+  `initials` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `platform_esign_initials_signer_id_page_no_unique` (`signer_id`,`page_no`),
+  KEY `platform_esign_initials_document_id_foreign` (`document_id`),
+  CONSTRAINT `platform_esign_initials_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `platform_esign_documents` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `platform_esign_initials_signer_id_foreign` FOREIGN KEY (`signer_id`) REFERENCES `platform_esign_signers` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_signers`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_signers` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `role_key` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `role_label` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sign_order` smallint unsigned NOT NULL DEFAULT '1',
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `id_number` text COLLATE utf8mb4_unicode_ci,
+  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `invited_at` timestamp NULL DEFAULT NULL,
+  `first_viewed_at` timestamp NULL DEFAULT NULL,
+  `signed_at` timestamp NULL DEFAULT NULL,
+  `typed_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `initials` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signature_image` mediumtext COLLATE utf8mb4_unicode_ci,
+  `signature2_image` mediumtext COLLATE utf8mb4_unicode_ci,
+  `signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `consent_text_snapshot` text COLLATE utf8mb4_unicode_ci,
+  `reminders_sent` smallint unsigned NOT NULL DEFAULT '0',
+  `last_reminded_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `previous_token_hash` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `platform_esign_signers_token_unique` (`token`),
+  KEY `platform_esign_signers_document_id_sign_order_index` (`document_id`,`sign_order`),
+  KEY `platform_esign_signers_previous_token_hash_index` (`previous_token_hash`),
+  CONSTRAINT `platform_esign_signers_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `platform_esign_documents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_template_fields`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_template_fields` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `template_id` bigint unsigned NOT NULL,
+  `page_index` smallint unsigned NOT NULL,
+  `x` decimal(7,4) NOT NULL,
+  `y` decimal(7,4) NOT NULL,
+  `w` decimal(7,4) NOT NULL,
+  `h` decimal(7,4) NOT NULL,
+  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `role_key` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `required` tinyint(1) NOT NULL DEFAULT '1',
+  `sort_order` smallint unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `platform_esign_template_fields_template_id_foreign` (`template_id`),
+  CONSTRAINT `platform_esign_template_fields_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `platform_esign_templates` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_templates`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_templates` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `kind` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
+  `source` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'web',
+  `body` longtext COLLATE utf8mb4_unicode_ci,
+  `pdf_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `page_count` smallint unsigned NOT NULL DEFAULT '0',
+  `roles_json` json NOT NULL,
+  `version` int unsigned NOT NULL DEFAULT '1',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `platform_esign_templates_created_by_foreign` (`created_by`),
+  KEY `platform_esign_templates_is_active_deleted_at_index` (`is_active`,`deleted_at`),
+  CONSTRAINT `platform_esign_templates_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_wetink_files`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_wetink_files` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `document_id` bigint unsigned NOT NULL,
+  `batch` smallint unsigned NOT NULL DEFAULT '1',
+  `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `stored_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mime` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `size` int unsigned NOT NULL,
+  `sha256` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `uploaded_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `superseded_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `platform_esign_wetink_files_document_id_superseded_at_index` (`document_id`,`superseded_at`),
+  CONSTRAINT `platform_esign_wetink_files_document_id_foreign` FOREIGN KEY (`document_id`) REFERENCES `platform_esign_documents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_wording_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_wording_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `template_id` bigint unsigned NOT NULL,
+  `version_id` bigint unsigned DEFAULT NULL,
+  `action` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` bigint unsigned DEFAULT NULL,
+  `detail` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `platform_esign_wording_audit_template_id_foreign` (`template_id`),
+  KEY `platform_esign_wording_audit_user_id_foreign` (`user_id`),
+  KEY `platform_esign_wording_audit_version_id_index` (`version_id`),
+  CONSTRAINT `platform_esign_wording_audit_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `platform_esign_templates` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `platform_esign_wording_audit_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `platform_esign_wording_versions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `platform_esign_wording_versions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `template_id` bigint unsigned NOT NULL,
+  `parent_version_id` bigint unsigned DEFAULT NULL,
+  `version` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `version_date` date NOT NULL,
+  `change_note` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `content_json` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `rates_json` json NOT NULL,
+  `layout_json` json DEFAULT NULL,
+  `is_published` tinyint(1) NOT NULL DEFAULT '1',
+  `rev` int unsigned NOT NULL DEFAULT '0',
+  `published_at` timestamp NULL DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `published_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `platform_esign_wording_versions_template_id_version_unique` (`template_id`,`version`),
+  KEY `platform_esign_wording_versions_created_by_foreign` (`created_by`),
+  KEY `platform_esign_wording_versions_published_by_foreign` (`published_by`),
+  CONSTRAINT `platform_esign_wording_versions_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_wording_versions_published_by_foreign` FOREIGN KEY (`published_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `platform_esign_wording_versions_template_id_foreign` FOREIGN KEY (`template_id`) REFERENCES `platform_esign_templates` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `policy_acknowledgements`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -9778,6 +10239,69 @@ CREATE TABLE `pp_suburbs` (
   KEY `pp_suburbs_pp_city_id_name_index` (`pp_city_id`,`name`),
   KEY `pp_suburbs_normalised_name_index` (`normalised_name`),
   CONSTRAINT `pp_suburbs_pp_city_id_foreign` FOREIGN KEY (`pp_city_id`) REFERENCES `pp_cities` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ppra_employment_letter_files`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ppra_employment_letter_files` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `letter_id` bigint unsigned NOT NULL,
+  `path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `original_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `size` bigint unsigned NOT NULL DEFAULT '0',
+  `mime` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `uploaded_by_user_id` bigint unsigned NOT NULL,
+  `uploaded_via` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'admin | portal — which screen the upload came from',
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ppra_employment_letter_files_uploaded_by_user_id_foreign` (`uploaded_by_user_id`),
+  KEY `ppra_employment_letter_files_letter_id_id_index` (`letter_id`,`id`),
+  KEY `ppra_employment_letter_files_agency_id_letter_id_index` (`agency_id`,`letter_id`),
+  CONSTRAINT `ppra_employment_letter_files_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ppra_employment_letter_files_letter_id_foreign` FOREIGN KEY (`letter_id`) REFERENCES `ppra_employment_letters` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ppra_employment_letter_files_uploaded_by_user_id_foreign` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ppra_employment_letters`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ppra_employment_letters` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `principal_user_id` bigint unsigned DEFAULT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `created_by_user_id` bigint unsigned NOT NULL,
+  `status` enum('draft','awaiting_agent_signature','awaiting_principal_signature','signed','awaiting_signed_copy','signed_copy_filed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'awaiting_signed_copy',
+  `agent_signature_image` text COLLATE utf8mb4_unicode_ci,
+  `principal_signature_image` text COLLATE utf8mb4_unicode_ci,
+  `agent_signed_at` timestamp NULL DEFAULT NULL,
+  `agent_signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `principal_signed_at` timestamp NULL DEFAULT NULL,
+  `principal_signed_ip` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `signed_pdf_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reminder_last_sent_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ppra_employment_letters_user_id_foreign` (`user_id`),
+  KEY `ppra_employment_letters_principal_user_id_foreign` (`principal_user_id`),
+  KEY `ppra_employment_letters_branch_id_foreign` (`branch_id`),
+  KEY `ppra_employment_letters_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `ppra_employment_letters_agency_id_status_index` (`agency_id`,`status`),
+  KEY `ppra_employment_letters_agency_id_user_id_index` (`agency_id`,`user_id`),
+  KEY `ppra_employment_letters_agency_id_branch_id_index` (`agency_id`,`branch_id`),
+  KEY `ppra_employment_letters_agency_id_principal_user_id_status_index` (`agency_id`,`principal_user_id`,`status`),
+  CONSTRAINT `ppra_employment_letters_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ppra_employment_letters_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ppra_employment_letters_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `ppra_employment_letters_principal_user_id_foreign` FOREIGN KEY (`principal_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ppra_employment_letters_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ppra_inspection_gap_notes`;
@@ -10808,6 +11332,7 @@ CREATE TABLE `properties` (
   `published_at` timestamp NULL DEFAULT NULL,
   `listed_date` date DEFAULT NULL,
   `expiry_date` date DEFAULT NULL,
+  `expiry_date_changed_at` timestamp NULL DEFAULT NULL,
   `occupation_date` date DEFAULT NULL,
   `lease_start_date` date DEFAULT NULL,
   `lease_end_date` date DEFAULT NULL,
@@ -11076,6 +11601,27 @@ CREATE TABLE `property_buyer_matches` (
   CONSTRAINT `property_buyer_matches_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `property_buyer_matches_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `property_buyer_matches_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `property_expiry_popup_views`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `property_expiry_popup_views` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `expiry_date` date NOT NULL,
+  `seen_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `pepv_user_property_expiry_unique` (`user_id`,`property_id`,`expiry_date`),
+  KEY `property_expiry_popup_views_agency_id_foreign` (`agency_id`),
+  KEY `property_expiry_popup_views_property_id_foreign` (`property_id`),
+  CONSTRAINT `property_expiry_popup_views_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `property_expiry_popup_views_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `property_expiry_popup_views_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `property_files`;
@@ -11584,13 +12130,13 @@ CREATE TABLE `property_syndication_approvals` (
   `agency_id` bigint unsigned NOT NULL,
   `branch_id` bigint unsigned DEFAULT NULL,
   `property_id` bigint unsigned NOT NULL,
-  `status` enum('pending','approved','rejected','withdrawn') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `status` enum('pending','approved','rejected','withdrawn') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `requested_by_user_id` bigint unsigned NOT NULL,
   `requested_at` timestamp NOT NULL,
-  `request_note` text COLLATE utf8mb4_unicode_ci,
+  `request_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `decided_by_user_id` bigint unsigned DEFAULT NULL,
   `decided_at` timestamp NULL DEFAULT NULL,
-  `decision_note` text COLLATE utf8mb4_unicode_ci,
+  `decision_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `notified_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -16168,8 +16714,8 @@ DROP TABLE IF EXISTS `user_nav_favourites`;
 CREATE TABLE `user_nav_favourites` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint unsigned NOT NULL,
-  `nav_key` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `label` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `nav_key` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -16259,6 +16805,8 @@ CREATE TABLE `users` (
   `screening_status` enum('never_screened','pre_employment_pending','clear','concerns_flagged','overdue','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'never_screened',
   `screening_due_on` date DEFAULT NULL,
   `designation` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `full_first_names` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ppra_category` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `employment_date` date DEFAULT NULL,
   `supervised_by` bigint unsigned DEFAULT NULL,
   `is_admin` tinyint(1) NOT NULL DEFAULT '0',
@@ -16366,6 +16914,23 @@ CREATE TABLE `users` (
   CONSTRAINT `users_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `users_sponsored_by_user_id_foreign` FOREIGN KEY (`sponsored_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `users_supervised_by_foreign` FOREIGN KEY (`supervised_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `viewing_pack_cover_audit`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `viewing_pack_cover_audit` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `changed_by_user_id` bigint unsigned DEFAULT NULL,
+  `old_values` json DEFAULT NULL,
+  `new_values` json DEFAULT NULL,
+  `changed_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `viewing_pack_cover_audit_changed_by_user_id_foreign` (`changed_by_user_id`),
+  KEY `viewing_pack_cover_audit_agency_id_index` (`agency_id`),
+  CONSTRAINT `viewing_pack_cover_audit_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `viewing_pack_cover_audit_changed_by_user_id_foreign` FOREIGN KEY (`changed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `viewing_pack_documents`;
@@ -18306,3 +18871,30 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1480,'2026_09_28_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1481,'2026_09_29_110000_add_syndication_approval_to_properties',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1482,'2026_09_29_110100_create_property_syndication_approvals_table',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1483,'2026_10_05_090500_add_portal_agent_tracking_to_properties_table',258);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1484,'2026_09_29_090000_add_core_matches_allowed_statuses_to_agency_contact_settings',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1485,'2026_10_05_100000_create_agency_timeline_tables',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1486,'2026_10_05_120000_add_agreement_to_agency_timelines',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1487,'2026_10_05_130000_platform_esign_mode_columns',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1488,'2026_10_05_140000_add_agency_can_complete_to_timeline_items',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1489,'2026_10_05_150000_create_platform_esign_tables',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1490,'2026_10_05_160000_retire_platform_esign_mode',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1491,'2026_10_05_200000_grant_ppra_inspection_pack_roster_permission',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1492,'2026_10_06_100000_create_platform_esign_web_documents',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1493,'2026_10_06_110000_create_platform_esign_wetink_files',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1494,'2026_10_06_120000_create_platform_company_tables',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1495,'2026_10_06_140000_agreement_wording_editor',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1496,'2026_10_06_150000_add_company_snapshot_to_platform_esign_documents',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1497,'2026_10_06_150100_add_sender_to_platform_company',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1498,'2026_10_06_150200_add_content_hash_to_platform_esign_documents',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1499,'2026_10_06_170000_encrypt_platform_esign_signer_id_number',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1500,'2026_10_08_090000_create_ppra_employment_letters_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1501,'2026_10_08_090100_add_ppra_employment_letter_settings_to_agencies_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1502,'2026_10_08_130000_grant_ppra_employment_letter_receive_permission',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1503,'2026_10_08_140000_add_full_first_names_and_ppra_category_to_users_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1504,'2026_10_09_090000_create_ppra_employment_letter_files_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1505,'2026_10_12_200000_add_viewing_pack_cover_settings',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1506,'2026_10_12_210000_core_matches_excluded_buyer_states',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1507,'2026_10_13_100000_add_expired_property_status_item',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1508,'2026_10_13_100100_add_mandate_extension_document_type',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1509,'2026_10_13_100200_add_expiry_date_changed_at_to_properties',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1510,'2026_10_13_100300_create_property_expiry_popup_views_table',259);
