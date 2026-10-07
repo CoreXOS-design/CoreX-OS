@@ -19,6 +19,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\RequiresChromiumPdf;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,7 @@ use Tests\TestCase;
 final class PpraEmploymentLetterWetInkTest extends TestCase
 {
     use RefreshDatabase;
+    use RequiresChromiumPdf;
 
     private Agency $agency;
     private Branch $branch;
@@ -377,6 +379,7 @@ final class PpraEmploymentLetterWetInkTest extends TestCase
 
     public function test_printed_letter_date_is_the_day_it_was_created_never_the_day_of_printing(): void
     {
+        $this->requireChromiumPdf();
         $letter = $this->letter();
         $letter->forceFill(['created_at' => Carbon::parse('2026-03-04 10:00:00')])->save();
         Carbon::setTestNow('2026-09-30 09:00:00');
