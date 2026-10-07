@@ -79,6 +79,8 @@ Click Send → system:
 
 Clicking "Generate Presentation" on a property that already has one → **upsert**. The existing `Presentation` row is reused. A new `PresentationVersion` is created. Engagement history preserved.
 
+**The agent's comparable-sale picks survive re-generation** (hotfix 2026-10-07, presentation 213 / version 505). Re-generation retires every sold comp and inserts fresh copies of the same sales under new ids. The new version's `included_comp_ids_json` is carried across by *sale* (address or sectional scheme+section, sale date, sale price — `CompFingerprint::sourceAgnosticKey`), not by row id (`App\Support\Presentations\CompSelectionCarryForward`). The Review screen's soft-deleted-comp reconcile uses the same rule. A pick whose sale is no longer in the presentation at all is dropped and logged `comp_unavailable`. If *every* pick is gone the selection falls back to `null` (all comps), never `[]`: `[]` means the agent deliberately unticked everything, and the CMA Lower / Middle / Upper tiles go blank on it. The Review checkboxes read `null` vs `[]` exactly as the CMA compute does (`[]` renders all unticked), so the ticks on screen always match the numbers.
+
 ---
 
 ## 4. The Recipient Flow
