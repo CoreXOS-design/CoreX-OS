@@ -7,6 +7,7 @@ use App\Models\CommandCenter\CalendarEventFeedback;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\Matching\MatchingService;
+use App\Services\Presentations\PresentationRecommendedPrice;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -665,8 +666,11 @@ class PropertyIntelligenceService
      */
     public function getPresentations(int $propertyId, bool $sellerView = false): Collection
     {
+        // Presentations are linked to a property by `property_id` (set by
+        // PresentationGeneratorService). This used to filter on the legacy
+        // `listing_id`, which nothing sets any more — so the list was always empty.
         $query = DB::table('presentations')
-            ->where('listing_id', $propertyId)
+            ->where('property_id', $propertyId)
             ->whereNull('deleted_at')
             ->orderByDesc('created_at');
 
@@ -687,6 +691,22 @@ class PropertyIntelligenceService
             ->orderByDesc('generated_at')
             ->limit(10)
             ->get();
+    }
+
+    /**
+     * The price the agent recommended to the seller — the latest presentation's price,
+     * or a state saying there isn't one. Single source for the Intelligence tab card.
+     *
+     * @return array{state:string, price:?int, presentation_id:?int, as_of:?\Illuminate\Support\Carbon}
+     */
+    public function getRecommendedPrice(int $propertyId): array
+    {
+        $property = Property::withoutGlobalScopes()->find($propertyId);
+        if (! $property) {
+            return ['state' => PresentationRecommendedPrice::STATE_NONE, 'price' => null, 'presentation_id' => null, 'as_of' => null];
+        }
+
+        return app(PresentationRecommendedPrice::class)->forProperty($property);
     }
 
     /**
@@ -714,7 +734,10 @@ class PropertyIntelligenceService
         $mds             = app(\App\Services\MarketDataSnapshotService::class);
         $comparableSales = $mds->getComparableSales($propertyId);
         $areaAvg         = $mds->calculateAreaAverages($property->suburb, $property->agency_id);
-        $recommend       = $mds->calculateRecommendedPrice($property, $comparableSales);
+        // 2026-10-07 (Johan): the recommended price is the PRESENTATION's price — the
+        // same figure the presentation screen and the seller PDF show — not a separate
+        // suburb-sales calculation. No presentation (or no price on it) → null.
+        $recommend       = app(PresentationRecommendedPrice::class)->forProperty($property)['price'];
 
         // Property-level comparable count = the canonical coverage union
         // (deals + MIC pool + sold comps, deduped) — one truth with the CMA
@@ -1066,8 +1089,17 @@ class PropertyIntelligenceService
             // their agent is working. isLiveOnAnyPortal() is the same check
             // the internal "Live" KPI tile uses.
             'published' => $property->isLiveOnAnyPortal(),
-            'days_on_market' => ($dom = $property->listed_date ?? $property->p24_activated_at ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at)
-                ? \App\Support\HumanDiff::daysBetween($dom) : null,
+            // 2026-10-07 (Johan — "402 Glyndale, imported in June, showed ~104 days"):
+            // counts from the REAL listing date (`listed_date`) ONLY, null when it
+            // isn't known — the same rule the seller live link already uses
+            // (.ai/specs/seller-live-link.md §2). It used to fall back to
+            // p24_activated_at / pp_activated_at / published_at / created_at, but for
+            // imported stock those are all the day CoreX loaded the row (the P24 feed
+            // carries no original listing date), so an imported listing — even one
+            // not on the market at all — showed "days since the import". The tile
+            // renders "—" for null.
+            'days_on_market' => $property->listed_date
+                ? \App\Support\HumanDiff::daysBetween($property->listed_date) : null,
         ];
     }
 }
