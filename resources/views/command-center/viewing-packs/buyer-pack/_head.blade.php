@@ -3,10 +3,14 @@
 @php $fontDir = str_replace('\\', '/', base_path('resources/fonts/inter')); @endphp
 <meta charset="utf-8">
 <style>
+    {{-- The four @font-face rules point at a filesystem path DomPDF reads; a browser would request them as URLs
+         and log four 404s, so the settings-page cover preview (a browser) skips them (spec viewing-pack.md §14). --}}
+    @unless(!empty($preview))
     @font-face { font-family:'Inter'; font-weight:400; font-style:normal; src:url('{{ $fontDir }}/Inter-400.ttf') format('truetype'); }
     @font-face { font-family:'Inter'; font-weight:500; font-style:normal; src:url('{{ $fontDir }}/Inter-500.ttf') format('truetype'); }
     @font-face { font-family:'Inter'; font-weight:600; font-style:normal; src:url('{{ $fontDir }}/Inter-600.ttf') format('truetype'); }
     @font-face { font-family:'Inter'; font-weight:700; font-style:normal; src:url('{{ $fontDir }}/Inter-700.ttf') format('truetype'); }
+    @endunless
     :root {
         --brand: #0b2a4a;
         --brand-light: #1a4a73;
