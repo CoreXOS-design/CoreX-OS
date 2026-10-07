@@ -66,16 +66,181 @@
     "Gas Hob"
   ],
   "garden_features": [],
-  "security_features": [
-    "Totally Fenced",
-    "24 Hour Response",
-    "Closed Circuit TV",
-    "24 Hour Access",
-    "Guard House",
-    "Guard",
-    "Electric fencing",
-    "Boomed Area",
-    "Safe"
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "116824433"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Apartment / Flat"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Street Address",
+      "v": [
+        "4339 Lee Barnes, Ballito Central"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Description",
+      "v": [
+        "Single Storey, Top Floor"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Lifestyle",
+      "v": [
+        "Security Complex, Security Estate"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Occupation Date",
+      "v": [
+        "01 October 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Lease Period",
+      "v": [
+        "12 Months"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "45 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Pets Allowed",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Furnished",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Number",
+      "v": [
+        "3"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bedroom",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bathrooms",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Kitchen",
+      "v": [
+        "Gas Oven, Gas Hob"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Parking",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Pool",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Roof",
+      "v": [
+        "Aluminium, Waterproofing, Insulation"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Wall",
+      "v": [
+        "Brick, Concrete"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Window",
+      "v": [
+        "Aluminium"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Floor",
+      "v": [
+        "Tiled Floors"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Number of floors",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Security",
+      "v": [
+        "Totally Fenced, 24 Hour Response, Closed Circuit TV, 24 Hour Access, Guard House, Guard, Electric fencing, Boomed Area, Safe"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Special Feature",
+      "v": [
+        "Balcony, Communal braai area"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Internet Access",
+      "v": [
+        "Fibre"
+      ]
+    }
+  ],
+  "strip_tags": [
+    "Pet Friendly",
+    "Unfurnished",
+    "Pool",
+    "Fibre Internet"
   ],
   "bathroom_features": [],
   "_title": "1 Bedroom Apartment / flat to rent in Ballito Central",

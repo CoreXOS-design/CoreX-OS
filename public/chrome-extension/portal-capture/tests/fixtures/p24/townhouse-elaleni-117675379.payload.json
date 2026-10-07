@@ -4,7 +4,7 @@
   "listing_url": "https://www.property24.com/for-sale/elaleni-coastal-forest-estate/ballito/kwazulu-natal/25221/117675379",
   "price": 3949000,
   "description": "Your own garden, considered design and a lifestyle that extends well beyond the front door.\n            Unit 36 at The Woods Elaleni is a 152m² 3-bedroom Phase 2 home priced at R3 949 000. Set within this village-style neighbourhood in Elaleni Estate, the home combines contemporary architecture and open-plan living with a private patio and garden.\n            The Woods creates a village-style neighbourhood within Elaleni, giving this 152m² three-bedroom home an inviting residential character. A private patio and garden extend the open-plan living environment outdoors, while two parking bays including a garage support the practical side of everyday family life.\n            Residents of The Woods enjoy an exclusive clubhouse with a pool and firepit, together with access to Elaleni's wider lifestyle offering, including the private Beach Club on Salt Rock Beach, forest clubhouse and boardwalk, padel and tennis courts, leisure facilities and nature-focused spaces.\n            Key facts: 3 bedrooms | 152m² | patio & garden included | 2 parking bays including garage | Phase 2 | R3 949 000.\n            Contact Una, Your Property Matchmaker, to confirm the current status of Unit 36, arrange a viewing and explore whether this Woods home is the right match for you.",
-  "listing_title": "3 Bedroom Townhouse for sale in Elaleni Coastal Forest Estate",
+  "listing_title": "Your 3-Bedroom Garden Home in the Heart of Elaleni",
   "listing_type": "sale",
   "property_type_raw": "Apartment",
   "property_type_label_hint": "Townhouse",
@@ -64,8 +64,155 @@
   "garden": true,
   "kitchen_features": [],
   "garden_features": [],
-  "security_features": [],
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117675379"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Townhouse"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Street Address",
+      "v": [
+        "36 The Woods, Elaleni Coastal Forest Estate"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "01 October 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "152 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Levies",
+      "v": [
+        "R 5 115"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "No Transfer Duty",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 2 552"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Pets Allowed",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bedrooms",
+      "v": [
+        "3"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bathrooms",
+      "v": [
+        "2"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garage",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Parking",
+      "v": [
+        "2"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garden",
+      "v": [
+        "Garden"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Pool",
+      "v": [
+        "Pool"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Standalone Building",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Internet Access",
+      "v": [
+        "Fibre"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Wheelchair Accessible",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Generator",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Backup Water",
+      "v": [
+        "No"
+      ]
+    }
+  ],
+  "strip_tags": [
+    "Pet Friendly",
+    "Pool",
+    "Garden",
+    "Fibre Internet"
+  ],
   "bathroom_features": [],
-  "_title": "3 Bedroom Townhouse for sale in Elaleni Coastal Forest Estate",
+  "_title": "Your 3-Bedroom Garden Home in the Heart of Elaleni",
   "_expected_photo_count": 25
 }

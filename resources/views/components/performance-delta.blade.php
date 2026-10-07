@@ -19,15 +19,24 @@
     Props: c (the PeriodComparison shape, or null — renders nothing),
     phrase (string, e.g. "vs previous period"), money (bool, Rand-format the
     delta instead of a plain number).
+
+    Added 2026-10-07 (Lead Response comparison) — two optional, additive behaviours; every existing caller
+    renders exactly as before: `minutes` formats the delta as a duration ("-1 h 05 min", faster = good when
+    the metric's direction is lower_is_better), and a comparison shaped ['no_data' => true] renders the plain
+    words "no data" for the comparison period — never a 0 or an infinity.
 --}}
-@props(['c' => null, 'phrase' => '', 'money' => false])
-@if($c && !($c['value'] == 0 && $c['previous'] == 0))
+@props(['c' => null, 'phrase' => '', 'money' => false, 'minutes' => false])
+@if($c && !empty($c['no_data']))
+    <div class="report-delta report-delta-neutral">&mdash; no data {{ $phrase }}</div>
+@elseif($c && !($c['value'] == 0 && $c['previous'] == 0))
     @php
         $up = $c['delta'] > 0;
         $down = $c['delta'] < 0;
         $cls = $c['good'] === null ? 'report-delta-neutral' : ($c['good'] ? 'report-delta-good' : 'report-delta-bad');
         $abs = abs($c['delta']);
-        $amount = $money ? 'R ' . number_format($abs) : number_format($abs);
+        $amount = $minutes
+            ? app(\App\Services\LeadResponse\LeadResponseService::class)->formatMinutes((int) round($abs))
+            : ($money ? 'R ' . number_format($abs) : number_format($abs));
     @endphp
     <div class="report-delta {{ $cls }}">
         {{ $up ? '▲' : ($down ? '▼' : '') }}

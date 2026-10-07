@@ -5,6 +5,7 @@ namespace App\Services\LeadResponse;
 use App\Models\Agency;
 use App\Models\AgencyContactSettings;
 use App\Services\Performance\Period;
+use App\Services\Performance\PeriodComparison;
 use App\Support\LeadResponse\BusinessHours;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -53,6 +54,19 @@ class LeadResponseService
     public const SUBTYPES = ['received', 'in_target', 'late', 'waiting', 'overdue', 'responded'];
 
     private const MAX_ROWS = 1000;
+
+    /**
+     * Direction of "good" per compared figure (PeriodComparison's own vocabulary). Response TIME and late /
+     * waiting leads: lower is better — faster reads as an improvement. More leads received is neither good nor bad.
+     */
+    public const COMPARE_DIRECTIONS = [
+        'received' => 'neutral',
+        'in_target' => 'higher_is_better',
+        'late' => 'lower_is_better',
+        'waiting' => 'lower_is_better',
+        'avg' => 'lower_is_better',
+        'median' => 'lower_is_better',
+    ];
 
     /** The agency's target + hours + timezone, read once per request per agency. */
     public function settings(int $agencyId): array
@@ -195,6 +209,48 @@ class LeadResponseService
             'agents' => $results->groupBy('agentId')->map(fn ($g) => $this->summarise($g))->all(),
             'sources' => $sources,
         ];
+    }
+
+    /**
+     * Period comparison (Johan, 2026-10-07): the same report() shape for two periods over the SAME cohort,
+     * turned into PeriodComparison shapes for company, every agent and every source. A figure with nothing to
+     * compare against is `['no_data' => true]` — never a 0, never an infinity: counts have no baseline when the
+     * comparison period measured no leads at all; average / median have none when either period answered no lead.
+     *
+     * @return array{company:array,agents:array<int|string,array>,sources:array<string,array>}
+     */
+    public function compare(array $current, array $previous): array
+    {
+        $keys = fn (string $k) => array_unique(array_merge(array_keys($current[$k] ?? []), array_keys($previous[$k] ?? [])));
+        $out = ['company' => $this->compareSummary($current['company'] ?? null, $previous['company'] ?? null), 'agents' => [], 'sources' => []];
+        foreach ($keys('agents') as $id) {
+            $out['agents'][$id] = $this->compareSummary($current['agents'][$id] ?? null, $previous['agents'][$id] ?? null);
+        }
+        foreach ($keys('sources') as $portal) {
+            $out['sources'][$portal] = $this->compareSummary($current['sources'][$portal] ?? null, $previous['sources'][$portal] ?? null);
+        }
+
+        return $out;
+    }
+
+    private function compareSummary(?array $current, ?array $previous): array
+    {
+        $none = ['received' => 0, 'in_target' => 0, 'late' => 0, 'waiting' => 0, 'avg' => null, 'median' => null];
+        $current ??= $none;
+        $previous ??= $none;
+
+        $out = [];
+        foreach (self::COMPARE_DIRECTIONS as $key => $direction) {
+            $isTime = in_array($key, ['avg', 'median'], true);
+            $noBaseline = $isTime
+                ? ($current[$key] === null || $previous[$key] === null)
+                : ((int) ($previous['received'] ?? 0) === 0);
+            $out[$key] = $noBaseline
+                ? ['no_data' => true]
+                : PeriodComparison::compute((float) $current[$key], (float) $previous[$key], $direction);
+        }
+
+        return $out;
     }
 
     /**

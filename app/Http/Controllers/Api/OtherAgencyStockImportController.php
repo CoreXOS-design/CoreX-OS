@@ -181,6 +181,13 @@ class OtherAgencyStockImportController extends Controller
             'kitchen_features.*'   => ['string', 'max:200'],
             'garden_features'      => ['nullable', 'array'],
             'garden_features.*'    => ['string', 'max:200'],
+            // 2026-10-07 (P24 import 117580701): every row of P24's Property Overview / Rooms /
+            // External Features / Building / Other Features accordions ({s: section, k: label,
+            // v: [values]}) and the tags beside the icon strip, sent RAW. OtherAgencyStockFeatureMapper
+            // turns them into the CoreX features to tick. Deliberately loose (no per-item rules): an
+            // odd optional row must never 422 the whole import — the mapper skips what it can't read.
+            'feature_rows'         => ['nullable', 'array'],
+            'strip_tags'           => ['nullable', 'array'],
             'security_features'    => ['nullable', 'array'],
             'security_features.*'  => ['string', 'max:200'],
             'bathroom_features'    => ['nullable', 'array'],
