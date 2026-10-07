@@ -950,6 +950,7 @@
                 @endfeature
 
                 {{-- Structured address matching (2026-10-07) — admin-only list of addresses CoreX could not read. --}}
+                @feature('address-review')
                 @permission('address_review.manage')
                 @if(\Illuminate\Support\Facades\Route::has('corex.address-review.index'))
                 <a href="{{ route('corex.address-review.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.address-review.*') ? 'active' : '' }}">
@@ -957,6 +958,7 @@
                 </a>
                 @endif
                 @endpermission
+                @endfeature
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
