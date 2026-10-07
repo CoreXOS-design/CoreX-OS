@@ -735,6 +735,15 @@
         </div>
         @endif
     </div>
+    @else
+    {{-- "A presentation must always have a price": the block used to vanish with no
+         word. It now says what is missing and what to do. --}}
+    <div class="ds-status-card mb-4" style="border-left-color: var(--ds-red, #dc2626);" id="cma-no-price">
+        <h3 class="ds-section-header">4. CMA Evaluation — no price yet</h3>
+        <p class="text-xs" style="color: var(--text-secondary);">
+            {{ $priceReadiness['message'] ?? \App\Services\Presentations\PresentationPriceReadiness::message(\App\Services\Presentations\PresentationPriceReadiness::NO_PRICE) }}
+        </p>
+    </div>
     @endif
 
     {{-- ── 5. ACTIVE MARKET COMPETITION ─────────────────────────────────── --}}

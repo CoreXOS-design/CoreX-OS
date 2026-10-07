@@ -24,8 +24,8 @@ use Tests\TestCase;
  *      cma_computed (median + p25/p75), NOT from presentation_fields
  *      cma.*_range. CMA Info bands surface under cma_info_benchmark
  *      for the review-screen internal reference only.
- *   3. Empty pool (all comps unticked) yields null tile values, not
- *      a crash.
+ *   3. No comps at all yields null tile values, not a crash. (A stored []
+ *      selection is read as "all comps" since 2026-10-07 — see AlwaysHasPriceTest.)
  */
 final class CmaTickWiringTest extends TestCase
 {
@@ -96,7 +96,10 @@ final class CmaTickWiringTest extends TestCase
         $this->assertSame(3, $analysis2['cma_valuation']['compute_pool_n']);
     }
 
-    public function test_unticking_all_comps_yields_null_tiles_no_crash(): void
+    /** [] used to mean "agent unticked everything" and blanked the tiles. It is no longer a valid
+     *  selection (a presentation must always have a price — Review refuses it, AlwaysHasPriceTest):
+     *  a stored [] is read as "all comps", so the tiles are numbers, never null. */
+    public function test_a_stored_empty_selection_is_read_as_all_comps_not_null_tiles(): void
     {
         [$presentation, $agencyId] = $this->seedAgencyPropertyPresentation(extentM2: 800);
         foreach ([400_000, 800_000, 1_000_000, 1_200_000, 1_400_000] as $price) {
@@ -104,17 +107,14 @@ final class CmaTickWiringTest extends TestCase
         }
 
         $version = $this->seedVersion($presentation, includedCompIds: []);
-        // [] is an empty whitelist — the controller / AnalysisDataService
-        // chain interprets non-null empty as "no comps included" (vs null
-        // = use all).
 
         $analysis = (new AnalysisDataService())->compile($presentation->fresh(), $version);
         $cma      = $analysis['cma_valuation'];
 
-        $this->assertNull($cma['cma_lower']);
-        $this->assertNull($cma['cma_middle']);
-        $this->assertNull($cma['cma_upper']);
-        $this->assertSame(0, $cma['compute_pool_n']);
+        $this->assertSame(1_000_000, $cma['cma_middle']);
+        $this->assertNotNull($cma['cma_lower']);
+        $this->assertNotNull($cma['cma_upper']);
+        $this->assertSame(5, $cma['compute_pool_n']);
     }
 
     public function test_cma_info_benchmark_preserved_when_no_computed_pool(): void

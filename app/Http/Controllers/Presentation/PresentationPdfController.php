@@ -52,6 +52,15 @@ class PresentationPdfController extends Controller
                 ->with('error', 'Cannot download PDF — generate the Executive Summary first (see panel on the presentation screen).');
         }
 
+        // A seller document is never produced without a price (Johan,
+        // 2026-10-07). Same shared check as Confirm & Generate, the seller
+        // page and sending; judged on the version's frozen figure.
+        $price = \App\Services\Presentations\PresentationPriceReadiness::forDocument($presentation, $version);
+        if (!$price['ready']) {
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', $price['message']);
+        }
+
         // Always regenerate HTML to ensure latest data/sections are included
         $htmlStoragePath = $this->pdfService->generate($version);
 
@@ -88,6 +97,15 @@ class PresentationPdfController extends Controller
         if (empty($version->ai_summary_text)) {
             return redirect()->route('presentations.show', $presentation)
                 ->with('error', 'Cannot download Complete Pack — generate the Executive Summary first (see panel on the presentation screen).');
+        }
+
+        // A seller document is never produced without a price (Johan,
+        // 2026-10-07). Same shared check as Confirm & Generate, the seller
+        // page and sending; judged on the version's frozen figure.
+        $price = \App\Services\Presentations\PresentationPriceReadiness::forDocument($presentation, $version);
+        if (!$price['ready']) {
+            return redirect()->route('presentations.show', $presentation)
+                ->with('error', $price['message']);
         }
 
         // Ensure HTML pack exists

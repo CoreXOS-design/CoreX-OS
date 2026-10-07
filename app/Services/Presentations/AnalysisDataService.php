@@ -109,14 +109,22 @@ class AnalysisDataService
         // L78-79) so display state (checkbox visual) and compute state
         // (the engine's pool) cannot diverge.
         //
-        // Whitelist semantics:
+        // Whitelist semantics (2026-10-07 — "there should always be a price"):
         //   null  → no opinion yet — use ALL loaded comps (default).
-        //   []    → agent has explicitly unticked everything — empty pool,
-        //           tiles fall to null and render '—'.
         //   [ids] → only the listed comp IDs.
-        // The distinction between null and [] matters — `?:` would conflate
-        // them; we test for null explicitly.
-        $whitelist = $version?->included_comp_ids_json;
+        //   []    → no longer a valid decision (Review refuses an empty
+        //           selection); a stored [] is treated as null.
+        // A non-empty selection that reaches no priced live comp (every pick
+        // retired by a re-hydration, or only unpriced comps ticked) is carried
+        // onto the fresh copies of the same sales, else falls back to null.
+        // One resolver (CompSelectionRepair) shared with the Review screen so
+        // the ticks and the numbers cannot disagree.
+        $selection = \App\Support\Presentations\CompSelectionRepair::resolve(
+            (int) $presentation->id,
+            $version?->included_comp_ids_json,
+            $soldComps,
+        );
+        $whitelist = $selection['whitelist'];
         if ($whitelist === null) {
             $inPoolComps = $soldComps;
         } else {
@@ -196,6 +204,9 @@ class AnalysisDataService
             'holding_cost'       => $this->compileHoldingCost($presentation),
             'key_insights'       => $this->compileKeyInsights($fields, $askingPrice, $cmaSelectedRange, $vicinitySelectedRange, $cmaValuation),
             'is_sectional'       => $isSectional,
+            // Why the stored comp selection was replaced for this calculation
+            // (CompSelectionRepair::REPAIRED_*), or null when it was used as-is.
+            'selection_repaired' => $selection['repaired'],
             'data_counts'        => [
                 'fields'          => $fields->count(),
                 'sold_comps'      => $soldComps->count(),
