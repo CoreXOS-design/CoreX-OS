@@ -102,15 +102,25 @@ class OtherAgencyStockImportController extends Controller
             // into CoreX's internal p24_suburb_id/p24_city_id/p24_province_id
             // chain (and the denormalised suburb/city/province/town text).
             'p24_suburb_external_id' => ['nullable', 'integer'],
-            'beds'           => ['nullable', 'integer', 'min:0', 'max:50'],
-            'baths'          => ['nullable', 'integer', 'min:0', 'max:50'],
-            'garages'        => ['nullable', 'integer', 'min:0', 'max:50'],
+            // 2026-10-07 (P24 import 117621889): numeric, not integer — P24 shows
+            // 2.5 bathrooms and the endpoint used to 422 (or the extension lost the
+            // decimal and sent 25). The service turns 2.5 into 2 baths + 1 half bath,
+            // the way every other CoreX screen stores it, and rounds the whole-number
+            // fields; an odd figure on one optional field never blocks an import.
+            'beds'           => ['nullable', 'numeric', 'min:0', 'max:50'],
+            'baths'          => ['nullable', 'numeric', 'min:0', 'max:50'],
+            'garages'        => ['nullable', 'numeric', 'min:0', 'max:50'],
             'size_m2'        => ['nullable', 'numeric', 'min:0'],
             'erf_size_m2'    => ['nullable', 'numeric', 'min:0'],
             'description'    => ['nullable', 'string', 'max:20000'],
 
             'street_number'  => ['nullable', 'string', 'max:50'],
             'street_name'    => ['nullable', 'string', 'max:255'],
+            // 2026-10-07: the street line exactly as the portal shows it
+            // ("42 Springwood"). Split into street_number/street_name (and a
+            // complex when the line carries one) by OtherAgencyStockFieldMapper
+            // ::parseStreetAddress(); explicit street_number/street_name above win.
+            'street_address' => ['nullable', 'string', 'max:255'],
             'suburb'         => ['nullable', 'string', 'max:255'],
             'city'           => ['nullable', 'string', 'max:255'],
             'province'       => ['nullable', 'string', 'max:100'],
@@ -129,6 +139,10 @@ class OtherAgencyStockImportController extends Controller
             // worked; OAS's client-collected photos[] URL array didn't.
             // Reusing this instead of reimplementing collection.
             'first_image_id' => ['nullable', 'integer'],
+            // 2026-10-07: the gallery's real image ids, in the portal's own order
+            // (P24 ids are NOT consecutive — see DownloadPortalPropertyImages).
+            'image_ids'      => ['nullable', 'array', 'max:500'],
+            'image_ids.*'    => ['integer', 'min:1'],
             'image_count'    => ['nullable', 'integer', 'min:0', 'max:500'],
             'region'         => ['nullable', 'string', 'max:100'],
 
@@ -160,8 +174,9 @@ class OtherAgencyStockImportController extends Controller
             'rates_taxes'          => ['nullable', 'string', 'max:50'],
             'zone_type_raw'        => ['nullable', 'string', 'max:100'],
             'pets_allowed'         => ['nullable', 'boolean'],
-            'parking_count'        => ['nullable', 'integer', 'min:0', 'max:50'],
+            'parking_count'        => ['nullable', 'numeric', 'min:0', 'max:50'],
             'pool'                 => ['nullable', 'boolean'],
+            'garden'               => ['nullable', 'boolean'],
             'kitchen_features'     => ['nullable', 'array'],
             'kitchen_features.*'   => ['string', 'max:200'],
             'garden_features'      => ['nullable', 'array'],
@@ -184,7 +199,9 @@ class OtherAgencyStockImportController extends Controller
         // Same response shape PropertyPullController returns — the popup's
         // image-download polling (pull-status) is shared code and reads
         // images_count from here exactly like the Pull flow.
-        $imagesCount = (int) ($validated['image_count'] ?? count($validated['photos'] ?? []));
+        $imagesCount = ! empty($validated['image_ids'])
+            ? count($validated['image_ids'])
+            : (int) ($validated['image_count'] ?? count($validated['photos'] ?? []));
 
         return response()->json([
             'success'      => true,
