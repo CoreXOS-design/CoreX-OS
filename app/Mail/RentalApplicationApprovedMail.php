@@ -68,8 +68,29 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
 
     public function content(): Content
     {
+        // QA1, 2026-10-07 — Johan: "the properties must be clickable so the
+        // tenant can start viewing them." Each line links to the property's
+        // public, view-only listing page (Property route
+        // public.agency.properties.show — the page the listing-share-link spec
+        // names for sharing a listing), built from the application's OWN
+        // agency slug, never a fixed one. The email still carries no street
+        // address (descriptor + suburb only); the page it links to is the
+        // listing as already advertised publicly.
+        $agencySlug = (string) ($this->application->agency->slug ?? '');
+
+        $cards = $this->properties->map(fn ($property) => [
+            'descriptor' => $property->addressFreeDescriptor(),
+            'suburb' => trim((string) ($property->suburb ?: $property->town)),
+            'price' => number_format($property->effectivePrice(), 0),
+            'url' => $agencySlug !== ''
+                ? route('public.agency.properties.show', ['agencySlug' => $agencySlug, 'property' => $property->id])
+                : null,
+        ]);
+
         return new Content(view: 'emails.rental-application-approved', with: [
             'properties' => $this->properties,
+            'propertyCards' => $cards,
+            'viewAllUrl' => app(\App\Services\RentalApplications\RentalApplicationPropertyMatcher::class)->viewAllUrl($this->application),
             'isSubjectToFica' => $this->isSubjectToFica,
             'ficaContinueUrl' => $this->ficaContinueUrl,
         ]);
