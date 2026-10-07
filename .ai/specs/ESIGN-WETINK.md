@@ -1314,3 +1314,40 @@ require a submitted value for, regardless of what `editable_by` lists.
 A future completion gate that reads only the permission list and not the
 field's data-source will reproduce this exact "unsatisfiable requirement"
 bug class under a different name.
+
+---
+
+## Rule (AT-387) — characters in a client-facing PDF are verified at the ONE render choke point (2026-10-07)
+
+**Symptom**: wet-ink / download PDFs showed "corrupted characters". Investigated against QA1 on 2026-10-07 with real
+templates and real documents through the real render path (`SigningController::wrapHtmlForPdf` →
+`generatePdfFromHtml` → `scripts/html-to-pdf.mjs` → Chromium), plus the real FICA completion report and PPRA
+employment letter services.
+
+**What was NOT the cause** (proved, do not re-investigate): stored data and encoding. No stored template or document on
+QA1 carries mojibake (0 suspect rows across 82 templates / 553 documents; the DB and connection are utf8mb4), and the
+Chromium path prints curly quotes, en/em dashes, accented names, `R`/`€`, non-breaking spaces, bullets and © correctly —
+even from a document that never declares a charset behind a 120KB stylesheet.
+
+**What WAS the cause**: Word-imported templates bullet with the Symbol/Wingdings fonts, i.e. the Unicode PRIVATE USE
+code point U+F0B7 (also U+F0A7 / U+F0FC / …). The bytes are intact in the data, but the server's Chromium has no font
+that owns a private-use code point, so it printed an empty box. Seen on the Exclusive Authority to Sell (template 68):
+the two notice bullets under clause 1 printed as boxes.
+
+**The fix (one place, every PDF)**: `scripts/lib/pdf-glyph-normalise.mjs`, called by BOTH Chromium render scripts
+(`html-to-pdf.mjs` — every e-sign, FICA, PPRA, payslip, presentation and compliance PDF; `web-template-flatten.mjs` —
+the page images behind wet-ink downloads) right after load and BEFORE anything is measured:
+- known Symbol/Wingdings private-use glyphs map to the real Unicode character (• ▪ ■ □ ❖ ➢ ➔ ✓ ✗);
+- any other private-use character has no portable meaning and can only print as a box, so it is dropped from the
+  rendered copy and counted on stderr — never silent;
+- stored template/document content is never altered.
+Adding a new Chromium render script means importing this module (`PdfCharacterFidelityTest` fails the build if the
+two existing scripts stop doing so).
+
+**Guard**: `tests/Feature/Docuperfect/SigningView/PdfCharacterFidelityTest.php` renders the full risky set (curly
+quotes/apostrophe, en/em dash, accented names, bullet, middle dot, ©, €, ellipsis, Rand with NBSP separators) plus a
+Symbol bullet and a Wingdings tick through the real path and reads the PDF's own text back.
+
+**Known residual (report-only, not changed)**: the few documents still produced by dompdf use the PDF core fonts
+(Latin-1 only). They print Latin-1 text correctly but turn characters outside it (e.g. `Ł ś ğ ✓ ≥ →`) into `?`.
+Changing dompdf's font would restyle every one of those documents, so it is not done here.

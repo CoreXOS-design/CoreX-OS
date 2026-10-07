@@ -10,6 +10,7 @@ import puppeteer from 'puppeteer';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { pathToFileURL } from 'url';
+import { normalisePrivateUseGlyphs } from './lib/pdf-glyph-normalise.mjs';
 
 const [,, inputArg, outputArg] = process.argv;
 
@@ -78,6 +79,10 @@ try {
         page.evaluate(async () => { try { await document.fonts.ready; } catch (e) {} }),
         new Promise(r => setTimeout(r, 5000)),
     ]);
+
+    // AT-387: Word's Symbol/Wingdings bullets are private-use code points no server font owns — they
+    // print as empty boxes. Map them to real Unicode BEFORE pagination measures anything.
+    await normalisePrivateUseGlyphs(page);
 
     // Emulate print media for @media print styles
     await page.emulateMediaType('print');
