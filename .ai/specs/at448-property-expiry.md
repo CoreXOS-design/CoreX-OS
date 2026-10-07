@@ -95,10 +95,15 @@ needs no new code; it needs to be proven on the lane.
 - **Unlock rule:** the date is editable while there is an Extension document on the property uploaded
   **after** the last time the expiry date was changed. Saving a new date re-locks it. So every extension
   needs its own uploaded extension document; one old upload never unlocks forever.
-- When the listing is inside the warning window (or already expired) **and** locked, the Overview shows a
-  callout: "Mandate expires in X days — upload the extension to Drive, then set the new date." This is
-  the "comes from the expiry date setting" part of the request: the folder is always there; the prompt
-  to use it appears when the date is close.
+- The locked banner itself carries the timing line — "This mandate expires in X days." / "expires
+  today" / "has expired." — so when a locked listing is close to its date the agent reads the deadline
+  and the way out in one place (built in the Lifecycle subsection of Mandate & Assignment, where the
+  date is edited, not on the Overview). This is the "comes from the expiry date setting" part of the
+  request: the folder is always there; the prompt to use it is on the date itself.
+- Install note: on an install that already carries a `document_types` row with slug `mandate_extension`
+  (the local dev DB did, labelled "Mandate Extension"), the migration keeps that row and only ensures
+  its listing types; a fresh install gets the label "Extension". Either way the folder is renameable
+  under Settings → Document Types.
 - Server-side the lock is enforced in the web update (a locked change is rejected with the banner's
   message, never a 500), not in the model — so imports, the sweep and other system writers are untouched.
 - Lock **off** → the date is editable exactly as today; the Extension folder still exists.
@@ -210,7 +215,10 @@ No new page ⇒ no new sidebar entry. No new permission key (declared; nothing h
 
 **A. Agent opens Properties, 5 days before a mandate ends (warn days = 7)**
 1. Controller computes `expiringSoon` for the user's scope, minus listings with a `property_expiry_popup_views` row for this user and this expiry date ⇒ pass `$expiringProperties` to the view (none ⇒ no popup markup at all).
-2. Popup opens (`<x-modal :show="true">` per §3.11). Rows link to properties; View all → `?status=expiring_soon`.
+2. Popup opens — built on the System Updates modal's proven self-contained shape (scrim, Esc, ×, "Got it",
+   and every link inside all record the dismissal; relative dismiss URL), since `<x-modal>` offers no
+   close hook for the fire-and-forget POST. Rows link to properties (by address, never title); View all →
+   `?status=expiring_soon`.
 3. Got it / overlay / Esc / click-through → `POST api/v1/properties/expiry-popup/dismiss` (named, under
    `/api/v1`, relative URL per the System-Updates gotcha) writes one `property_expiry_popup_views` row per
    listed property (idempotent upsert, ids re-checked against the user's scope) for this user.
@@ -323,6 +331,22 @@ first proven on Staging after Andre's go.
 - `PropertyStatusChanged` domain event from the events catalogue is still unimplemented; this spec fires
   the existing `MandateExpired` instead of inventing a path.
 - Scheduler-dependent proof (the real midnight run) can only be watched on Staging, not QA2.
+
+## 11a. Build record (2026-10-07, Andre's lane)
+
+- Landed on branch `AT-448-Expired-section-for-properties` at `8697c630a` (+ `a5fc5bea7` pop-up link
+  fix). Spec-conformance: implements §§2.1–2.4, 4, 5, 6, 7, 8 as written above; deviations declared in
+  §2.3 (banner placement) and §7 step 2 (modal pattern). No governing-spec gaps.
+- Proven: `tests/Feature/Properties/PropertyExpiryTest.php` 18/18 (133 assertions) across the §9 matrix;
+  `AgencySetupWizardSaverGuardTest` new case 1/1; `php -l` on every PHP file; view/route/cache cleared;
+  all 4 migrations ran on the local dev DB (which was 153 migrations behind and is now current);
+  schema snapshot re-dumped from the test DB (0 tables dropped, DEFINERs stripped); real-HTTP fetch of
+  the Properties list (pop-up present, Expired tile + options present), a locked property page (banner
+  + read-only date present) and Settings → Properties & Listings (card present) as user 22, then
+  `verify-alpine-render.mjs`: exit 0 on the list, the new component registers and executes; the only
+  parse error reported is the PRE-EXISTING `view: localStorage.getItem('prop_view')` read in the list's
+  root x-data (harness mock gap, Standard −1e — not touched, reported).
+- Full suite NOT run (CLAUDE.md #13). Not deployed to QA2 by this session.
 
 ## 12. Acceptance criteria
 
