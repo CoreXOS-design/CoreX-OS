@@ -201,8 +201,28 @@ class PropertyStatusFollowsLeaseService
             return;
         }
 
-        $newStatus = $property->status_before_letting ?: LeaseSetting::defaultPreLetStatusFor($property->agency_id);
-        if (!Property::isAllowedStatus($newStatus, $property->agency_id)) {
+        // leases.md §3.8 — the property's let status follows its ACTIVE lease. If another live (not archived) lease
+        // is still active on this property, it is still let: nothing to release.
+        $stillLet = Lease::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('property_id', $property->id)
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->where('id', '!=', $lease->id)
+            ->exists();
+        if ($stillLet) {
+            return;
+        }
+
+        // First allowed of: what it was before it was let, the agency's default, then plain "active". The last step
+        // matters: a vocabulary that lacks the first two used to leave the property stuck on "Let out" forever.
+        $newStatus = null;
+        foreach ([$property->status_before_letting, LeaseSetting::defaultPreLetStatusFor($property->agency_id), 'active'] as $candidate) {
+            if ($candidate && Property::isAllowedStatus($candidate, $property->agency_id)) {
+                $newStatus = $candidate;
+                break;
+            }
+        }
+        if ($newStatus === null) {
             $property->status_before_letting = null;
             $property->save();
 

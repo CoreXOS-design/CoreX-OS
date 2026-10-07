@@ -159,10 +159,19 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-cancel')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Cancel lease&hellip;</button>
                                 @endpermission
                             @endif
+                            @permission('leases.cancel')
+                                <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-archive')" class="block w-full text-left px-2 py-1.5 rounded" style="color: var(--ds-red, #dc2626); background: transparent;" data-test="lease-archive-menu-item" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Archive lease&hellip;</button>
+                            @endpermission
                         </div>
                     </div>
                 @endif
             @endpermission
+            {{-- leases.md §3.8 — a cancelled or expired lease has no "Lease actions" menu; Archive stands on its own. --}}
+            @if(in_array($lease->status, ['cancelled', 'expired'], true))
+                @permission('leases.create')
+                    <button type="button" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);" data-test="lease-archive-button" x-data x-on:click="$dispatch('open-modal', 'lease-dialog-archive')">Archive lease&hellip;</button>
+                @endpermission
+            @endif
             <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">&larr; All leases</a>
         </div>
     </div>
@@ -181,6 +190,37 @@
         move_out_date/note — the route alone can't tell error-recipient
         forms apart once Laravel's default error bag merges them).
     --}}
+    {{-- leases.md §3.8 — Archive lease: reason required; a draft or active lease is cancelled with it and the property is released. --}}
+    @php
+        $mayArchive = in_array($lease->status, ['draft', 'active'], true)
+            ? auth()->user()->hasPermission('leases.cancel')
+            : auth()->user()->hasPermission('leases.create');
+    @endphp
+    @if($mayArchive)
+        <x-modal name="lease-dialog-archive" :show="$errors->has('archive_reason')" focusable>
+            <form method="POST" action="{{ route('corex.leases.archive', $lease) }}" class="p-6 space-y-3">
+                @csrf
+                <h2 class="text-lg font-medium">Archive this lease</h2>
+                @if($lease->status === 'active')
+                    <p class="text-sm" style="color: var(--text-muted);">This ends the tenancy on the system: the lease is cancelled and hidden from the Leases list, and {{ $lease->property?->buildDisplayAddress() ?? 'the property' }} stops showing as let out (unless another lease is active on it). Nothing is deleted — you can bring it back with Restore under "Show archived", as long as no other lease is active on the property by then.</p>
+                @elseif($lease->status === 'draft')
+                    <p class="text-sm" style="color: var(--text-muted);">The draft is cancelled and hidden from the Leases list. Nothing is deleted — Restore brings it back from "Show archived".</p>
+                @else
+                    <p class="text-sm" style="color: var(--text-muted);">The lease is hidden from the Leases list. Nothing is deleted — Restore brings it back from "Show archived".</p>
+                @endif
+                <div>
+                    <label class="text-xs font-medium">Reason for archiving (required)</label>
+                    <textarea name="archive_reason" required maxlength="500" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('archive_reason') }}</textarea>
+                    <x-input-error :messages="$errors->get('archive_reason')" class="mt-1" />
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Keep lease</button>
+                    <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Archive lease</button>
+                </div>
+            </form>
+        </x-modal>
+    @endif
+
     @if(in_array($lease->status, ['draft', 'active'], true))
         @if($lease->status === 'active')
             <x-modal name="lease-dialog-renew" :show="$openDialog === 'renew'" focusable>
@@ -637,21 +677,6 @@
                     @csrf
                 </form>
                 @endpermission
-
-                @php
-                    $showArchiveBtn = auth()->check() && auth()->user()->hasPermission('leases.create') && $lease->isDeletable() && $lease->status !== 'active';
-                @endphp
-                @if($showArchiveBtn)
-                    <div class="flex items-center gap-2 pt-2" style="border-top: 1px solid var(--border);">
-                        @if($showArchiveBtn)
-                            <form method="POST" action="{{ route('corex.leases.destroy', $lease) }}" onsubmit="return confirm('Archive this lease?');">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
-                            </form>
-                        @endif
-                    </div>
-                @endif
             </div>
 
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
