@@ -92,8 +92,10 @@ final class FicaMultiOfficerWorkflowTest extends TestCase
         $resp = $this->actingAs($this->mlro)
             ->post(route('compliance.fica.compliance-approve', $sub), []); // guard fires before validation
 
-        $resp->assertRedirect(route('compliance.fica.compliance-review', $sub));
-        $resp->assertSessionHasErrors('approve');
+        // Own-FICA entry check (7 Oct 2026) now turns them back at the start, to the record page;
+        // the end-of-flow guard ('approve' error) is the backstop, pinned in FicaOwnApprovalEntryBlockTest.
+        $resp->assertRedirect(route('compliance.fica.show', $sub));
+        $resp->assertSessionHasErrors('own_fica');
 
         $this->assertSame('agent_approved', $sub->fresh()->status, 'status unchanged — the approval was blocked');
         $this->assertDatabaseHas('fica_status_history', [
