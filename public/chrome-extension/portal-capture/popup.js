@@ -640,8 +640,11 @@
   let oasExtracted = null; // the built payload, set once extraction succeeds
   let oasConsentWording = 'I confirm I have received permission from this agency to use their portal advert.';
 
+  // <<P24_OAS_EXTRACT_BEGIN>> — tests/p24-oas-extract.test.cjs slices this exact
+  // function out of this file and runs it against saved P24 pages.
   function p24ExtractOasFn() {
-    // Runs ISOLATED-world in the P24 tab. Self-contained — no outer closures.
+    // Runs ISOLATED-world in the P24 tab. Self-contained — no outer closures
+    // (chrome.scripting serialises the function body, so every helper lives inside).
     function getJsonLd() {
       var scripts = document.querySelectorAll('script[type]');
       for (var i = 0; i < scripts.length; i++) {
@@ -658,8 +661,54 @@
       }
       return null;
     }
-    function num(v) { var n = parseInt(String(v).replace(/[^\d]/g, ''), 10); return isNaN(n) ? null : n; }
+    // 2026-10-07 (P24 import 117621889): ONE decimal-aware number reader for every
+    // numeric field. The old num() deleted every non-digit, so "2.5" bathrooms
+    // became 25 and "1 375.5" became 13755. P24 writes "R 1 590" / "664 m²" /
+    // "2.5" (space thousands, dot decimal); "1,375" and "2,5" are read too.
+    // Returns null — never 0 — when there is no number at all.
+    function parseNumber(v) {
+      if (v === null || v === undefined) return null;
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      var s = String(v).replace(/[\s  ]/g, '');
+      var m = s.match(/\d[\d.,]*/);
+      if (!m) return null;
+      var t = m[0].replace(/[.,]+$/, '');
+      var lastDot = t.lastIndexOf('.'), lastComma = t.lastIndexOf(',');
+      if (lastDot !== -1 && lastComma !== -1) {
+        // Both present: whichever comes last is the decimal separator.
+        t = lastComma > lastDot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+      } else if (lastComma !== -1) {
+        // Comma only: "1,375" / "1,375,000" are thousands, "2,5" is a decimal.
+        t = /^\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
+      } else if (lastDot !== -1 && (t.match(/\./g) || []).length > 1) {
+        t = t.replace(/\./g, ''); // "1.375.000" — dots as thousands
+      }
+      var n = parseFloat(t);
+      return isNaN(n) ? null : n;
+    }
+    // A size as square metres: "664 m²" / "1 375 m²" -> as-is; "1.2 ha" and
+    // "0.5 acres" are converted. Two decimals at most.
+    function parseArea(v) {
+      var n = parseNumber(v);
+      if (n === null) return null;
+      var s = String(v).toLowerCase();
+      if (/m\s*[²2]|sqm|sq\.?\s*m/.test(s)) return Math.round(n * 100) / 100;
+      if (/\bha\b|hectare/.test(s)) return Math.round(n * 10000 * 100) / 100;
+      if (/acre/.test(s)) return Math.round(n * 4046.86 * 100) / 100;
+      return Math.round(n * 100) / 100;
+    }
+    function clean(s) { return String(s === null || s === undefined ? '' : s).replace(/\s+/g, ' ').trim(); }
+    function splitList(s) { return String(s || '').split(/[\n,]/).map(clean).filter(Boolean); }
     function textOf(sel) { var el = document.querySelector(sel); return el ? el.textContent.trim() : null; }
+    function galleryImageId(img) {
+      var attrs = ['lazy-src', 'data-src', 'src'];
+      for (var a = 0; a < attrs.length; a++) {
+        var val = img.getAttribute(attrs[a]) || '';
+        var gm = val.match(/images\.prop24\.com\/(\d+)\//);
+        if (gm) return parseInt(gm[1], 10);
+      }
+      return null;
+    }
 
     var ld = getJsonLd() || {};
     var about = ld.about || ld;
@@ -695,130 +744,203 @@
       if (lm) leadCtx = JSON.parse(lm[1]);
     } catch (e) { /* ignore */ }
 
-    // Informational only now (sequential-id download below never touches a
+    // Informational only now (the gallery download below never touches a
     // photo URL list to filter) — still sent for display/consistency with
     // the PP payload shape.
     var agencyLogoUrl = (offers.offeredBy && offers.offeredBy.worksFor && offers.offeredBy.worksFor.logo) || null;
 
-    // 2026-09-30 URGENT FIX #3 (Norkem Park, property #21098): the DOM/regex
-    // photos[] collection above (agent/logo exclusion + gallery URL merge)
-    // is GONE. It over-collected once, under-collected once, and OAS
-    // imports still ended up with NO photos, because it built the URL list
-    // client-side and shipped it to a job (DownloadOtherAgencyStockGalleryJob)
-    // that was never wired up right. The Pull flow's own image mechanism has
-    // been proven live to work — same P24 gallery, same page. Reuse it
-    // exactly, verbatim from content-p24-detail.js's extractPropertyDetail():
-    // first image id + declared count, sequential IDs reconstructed and
-    // downloaded SERVER-SIDE (DownloadPortalPropertyImages) — never send a
-    // photo URL list from the client at all.
-    var firstImageId = null;
+    // 2026-10-07 (P24 import 117621889): the gallery is the ORDERED, de-duplicated
+    // list of ids in the page's own thumbnail strip (img.js_galleryThumbnail,
+    // lazy-src until the browser has loaded it). The earlier "first id + count,
+    // then add 1 each time" guess is wrong — checked against six saved pages,
+    // the ids are NOT consecutive on five of them (gaps, a later image with a
+    // lower id, a second batch uploaded weeks later), so the import pulled
+    // other listings' photos and missed real ones. The thumbnail strip count
+    // equalled P24's own "N images" figure on all six pages.
+    var imageIds = [];
     try {
-      var galleryImg = document.querySelector('.js_mainThreeImage img, .p24_printGalleryImage img');
-      if (galleryImg) {
-        var gsrc = galleryImg.getAttribute('src') || '';
-        var gmatch = gsrc.match(/images\.prop24\.com\/(\d+)/);
-        if (gmatch) firstImageId = parseInt(gmatch[1], 10);
-      }
-    } catch (e) { /* */ }
-    if (!firstImageId) {
+      document.querySelectorAll('img.js_galleryThumbnail').forEach(function (img) {
+        var gid = galleryImageId(img);
+        if (gid && imageIds.indexOf(gid) === -1) imageIds.push(gid);
+      });
+    } catch (e) { /* fall back below */ }
+
+    var firstImageId = null;
+    var imageCount = 0;
+    if (imageIds.length) {
+      firstImageId = imageIds[0];
+      imageCount = imageIds.length;
+    } else {
+      // Last resort only (no thumbnail strip found): the previous heuristic.
       try {
-        var ogImg = document.querySelector('meta[property="og:image"]');
-        if (ogImg) {
-          var ogMatch = ogImg.getAttribute('content').match(/images\.prop24\.com\/(\d+)/);
-          if (ogMatch) firstImageId = parseInt(ogMatch[1], 10);
+        var galleryImg = document.querySelector('.js_mainThreeImage img, .p24_printGalleryImage img');
+        if (galleryImg) {
+          var gsrc = galleryImg.getAttribute('src') || '';
+          var gmatch = gsrc.match(/images\.prop24\.com\/(\d+)/);
+          if (gmatch) firstImageId = parseInt(gmatch[1], 10);
         }
       } catch (e) { /* */ }
-    }
-
-    var imageCount = 0;
-    try {
-      var galleryEl = document.querySelector('.p24_gallery');
-      if (galleryEl) {
-        var countMatch = galleryEl.textContent.match(/(\d+)\s*image/i);
-        if (countMatch) imageCount = parseInt(countMatch[1], 10);
+      if (!firstImageId) {
+        try {
+          var ogImg = document.querySelector('meta[property="og:image"]');
+          if (ogImg) {
+            var ogMatch = ogImg.getAttribute('content').match(/images\.prop24\.com\/(\d+)/);
+            if (ogMatch) firstImageId = parseInt(ogMatch[1], 10);
+          }
+        } catch (e) { /* */ }
       }
-    } catch (e) { /* */ }
-    if (!imageCount) {
       try {
-        var bodyMatch = document.body.innerText.match(/(\d+)\s*image/i);
-        if (bodyMatch) imageCount = parseInt(bodyMatch[1], 10);
+        var galleryEl = document.querySelector('.p24_gallery');
+        if (galleryEl) {
+          var countMatch = galleryEl.textContent.match(/(\d+)\s*image/i);
+          if (countMatch) imageCount = parseInt(countMatch[1], 10);
+        }
       } catch (e) { /* */ }
-    }
-    if (!imageCount && firstImageId) {
-      imageCount = document.querySelectorAll('.js_mainThreeImage').length || 1;
+      if (!imageCount) {
+        try {
+          var bodyMatch = document.body.innerText.match(/(\d+)\s*image/i);
+          if (bodyMatch) imageCount = parseInt(bodyMatch[1], 10);
+        } catch (e) { /* */ }
+      }
+      if (!imageCount && firstImageId) {
+        imageCount = document.querySelectorAll('.js_mainThreeImage').length || 1;
+      }
     }
 
-    var erfSize = null, floorSize = null, beds = null, baths = null, garages = null;
     // 2026-09-30 field audit (property #21098, Norkem Park): Levies, Rates
     // and Taxes, Listing Date, Pets Allowed, Zoning, Parking, Pool, Kitchen,
-    // Garden, Security all sit in this SAME .p24_propertyOverviewRow table
-    // as beds/baths/floor — confirmed live, identical markup
-    // (.p24_propertyOverviewKey label + .p24_propertyOverviewResult .p24_info
-    // value). Kitchen/Garden/Security render their feature list as ONE
-    // .p24_info block with real embedded newlines (P24's own <br>-per-item
-    // markup collapses to textContent newlines) — .split('\n') recovers the
-    // list. Raw text is sent AS-IS; the server-side shared mapper
-    // (OtherAgencyStockFieldMapper) does the currency/zoning parsing and
-    // Carbon parses "17 July 2026" natively — same "extension sends raw,
-    // server maps" split property_type already uses.
+    // Garden, Security all sit in the .p24_propertyOverviewRow table as
+    // beds/baths/floor — identical markup (.p24_propertyOverviewKey label +
+    // .p24_propertyOverviewResult .p24_info value). Raw text is sent AS-IS;
+    // the server-side shared mapper (OtherAgencyStockFieldMapper) does the
+    // currency/zoning parsing and Carbon parses "17 July 2026" natively —
+    // same "extension sends raw, server maps" split property_type already uses.
+    //
+    // 2026-10-07 (P24 import 117621889): labels are matched EXACTLY. The old
+    // `label contains "floor"` also caught "Floor" (= "Tiled Floors"), "Floor
+    // Number" and "Number of floors" further down the table and overwrote the
+    // real "Floor Size" (a 287 m² house imported as 1 m²; an apartment lost its
+    // floor size entirely). Same for erf: the size button next to the icons is
+    // the FLOOR size on apartments/townhouses, so it is only an erf size when
+    // its own title says so.
+    var erfSize = null, floorSize = null, beds = null, baths = null;
+    var garagesRow = null, parkingAggregate = null, coveredParking = null;
+    var typeRow = null, streetRow = null;
     var levyRaw = null, ratesTaxesRaw = null, listingDateRaw = null, petsAllowedRaw = null,
-        zoningRaw = null, parkingCountAggregate = null, poolYes = false,
+        zoningRaw = null, poolYes = false, gardenYes = false,
         kitchenFeatures = [], gardenFeatures = [], securityFeatures = [],
-        bathroomFeatures = [];
-    // 2026-09-30 REGRESSION FIX (property #21098): "Parking" is only the
-    // AGGREGATE row (confirmed live: shows "1" even when there are 2 real
-    // spots) — P24 also renders one row PER parking spot: "Parking 1" ->
-    // "1 Carport", "Parking 2" -> "1 open parking". Collected separately
-    // and preferred over the aggregate when present.
+        bathroomFeatures = [], parkingTextFeatures = [];
+    // 2026-09-30 REGRESSION FIX (property #21098): the "Parking" row can be an
+    // AGGREGATE that undercounts — P24 also renders one row PER parking spot:
+    // "Parking 1" -> "1 Carport", "Parking 2" -> "1 open parking". Collected
+    // separately and preferred over the aggregate when present.
     var parkingSubRows = [];
     document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
-      var key = row.querySelector('.p24_propertyOverviewKey');
-      var vals = row.querySelectorAll('.p24_propertyOverviewResult .p24_info');
-      if (!key || !vals.length) return;
-      var k2 = key.textContent.toLowerCase();
-      var val = vals[0];
-      var v2 = num(val.textContent);
-      var vText = val.textContent.trim();
-      var parkingSubMatch = k2.match(/^parking\s+(\d+)$/);
-      if (k2.indexOf('bedroom') !== -1) beds = v2;
-      else if (k2.indexOf('bathroom') !== -1) {
-        baths = v2;
+      var keyEl = row.querySelector('.p24_propertyOverviewKey');
+      var resEl = row.querySelector('.p24_propertyOverviewResult');
+      if (!keyEl || !resEl) return;
+      var k2 = clean(keyEl.textContent).toLowerCase();
+      var infos = Array.prototype.slice.call(resEl.querySelectorAll('.p24_info')).map(function (e) { return e.textContent; });
+      var rawFirst = infos.length ? infos[0] : resEl.textContent;
+      var vText = clean(rawFirst);
+      var extras = infos.slice(1).map(clean).filter(Boolean);
+      if (!vText) return;
+
+      if (k2 === 'type of property') typeRow = vText;
+      else if (k2 === 'street address') streetRow = clean(resEl.textContent);
+      else if (k2 === 'floor size') floorSize = parseArea(vText);
+      else if (k2 === 'erf size') erfSize = parseArea(vText);
+      else if (k2 === 'bedrooms' || k2 === 'bedroom') beds = parseNumber(vText);
+      else if (k2 === 'bathrooms' || k2 === 'bathroom') {
+        baths = parseNumber(vText);
         // A second .p24_info in the SAME row is a free-text note ("Shower
-        // only"), confirmed live — never present for most rows, so this is
-        // additive, not a redefinition of the beds/baths pattern above.
-        if (vals.length > 1) {
-          bathroomFeatures = bathroomFeatures.concat(
-            Array.prototype.slice.call(vals, 1).map(function (v) { return v.textContent.trim(); }).filter(Boolean)
-          );
-        }
+        // only"), confirmed live. Kept as one entry per block, never split.
+        bathroomFeatures = bathroomFeatures.concat(extras);
       }
-      else if (k2.indexOf('floor') !== -1) floorSize = v2;
+      else if (k2 === 'garage' || k2 === 'garages') garagesRow = parseNumber(vText);
+      else if (k2 === 'parking') {
+        var pn = parseNumber(vText);
+        // "Parking | 1 | Carport parking, Secure parking" (count + feature list)
+        // or "Parking | Single Parking" (no count, the type itself).
+        if (/^\d/.test(vText) && pn !== null) parkingAggregate = pn; else parkingTextFeatures = parkingTextFeatures.concat(splitList(rawFirst));
+        extras.forEach(function (x) { parkingTextFeatures = parkingTextFeatures.concat(splitList(x)); });
+      }
+      else if (/^parking \d+$/.test(k2)) parkingSubRows.push(vText);
+      else if (k2 === 'covered parking' || k2 === 'carport' || k2 === 'carports') coveredParking = parseNumber(vText);
       else if (k2 === 'levies') levyRaw = vText;
       else if (k2 === 'rates and taxes') ratesTaxesRaw = vText;
       else if (k2 === 'listing date') listingDateRaw = vText;
       else if (k2 === 'pets allowed') petsAllowedRaw = vText;
       else if (k2 === 'zoning') zoningRaw = vText;
-      else if (k2 === 'parking') parkingCountAggregate = parseInt(vText, 10) || null;
-      else if (parkingSubMatch) parkingSubRows.push(vText);
-      else if (k2 === 'pool') poolYes = /^yes$/i.test(vText);
-      else if (k2 === 'kitchen') kitchenFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
-      else if (k2 === 'garden') gardenFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
-      else if (k2 === 'security') securityFeatures = vText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      // "Pool | Yes" on most pages, "Pool | Pool" on others — anything but "No".
+      else if (k2 === 'pool') poolYes = !/^no$/i.test(vText);
+      else if (k2 === 'kitchen' || k2 === 'kitchens') {
+        // "Kitchens | 1 | Open plan with fitted hob" (a count, then a note) or
+        // "Kitchen | Gas Oven, Gas Hob" (the list itself).
+        if (/^\d+$/.test(vText)) kitchenFeatures = kitchenFeatures.concat(extras);
+        else kitchenFeatures = kitchenFeatures.concat(splitList(rawFirst));
+      }
+      else if (k2 === 'garden' || k2 === 'gardens') {
+        var gItems = splitList(rawFirst);
+        // "Garden | Yes" / "Garden | Garden" is the flag, not a feature called "Yes".
+        gardenYes = gItems.length > 0 && !/^no$/i.test(gItems[0]);
+        gardenFeatures = gItems.filter(function (g) { return !/^(yes|no|garden)$/i.test(g); });
+      }
+      else if (k2 === 'security') securityFeatures = splitList(rawFirst);
     });
     var petsAllowed = petsAllowedRaw ? /^yes$/i.test(petsAllowedRaw) : null;
-    // Per-spot rows win outright when present (their count IS the real
-    // total — the aggregate row undercounted live: "1" vs 2 real spots).
-    var parkingCount = parkingSubRows.length > 0 ? parkingSubRows.length : parkingCountAggregate;
-    var parkingFeatures = parkingSubRows;
-    var erfEl = document.querySelector('.js_sizeConversionsButton span');
-    if (erfEl) erfSize = num(erfEl.textContent);
 
-    var garageImg = document.querySelector('img[src*="icon_garage"]');
-    if (garageImg) {
-      var garageFeature = garageImg.closest('.p24_feature');
+    // The icon strip "Features" block: <span class="p24_feature">Garages:</span>
+    // <span class="p24_featureAmount">2</span>. This markup replaced the old one
+    // where the garage icon sat INSIDE .p24_feature (the old lookup found no
+    // garage icon's .p24_feature ancestor any more, so garages were never read —
+    // import 117621889 showed "—" for a 2-garage house).
+    var keyFeat = {};
+    document.querySelectorAll('.p24_listingFeatures').forEach(function (blk) {
+      var lab = blk.querySelector('.p24_feature');
+      var amt = blk.querySelector('.p24_featureAmount');
+      if (!lab || !amt) return;
+      keyFeat[clean(lab.textContent).replace(/:$/, '').toLowerCase()] = parseNumber(amt.textContent);
+    });
+
+    var legacyGarages = null;
+    try {
+      var garageImg = document.querySelector('img[src*="icon_garage"]');
+      var garageFeature = garageImg ? garageImg.closest('.p24_feature') : null;
       var amountEl = garageFeature ? garageFeature.querySelector('.p24_featureAmount') : null;
-      if (amountEl) garages = num(amountEl.textContent);
+      if (amountEl) legacyGarages = parseNumber(amountEl.textContent);
+    } catch (e) { /* */ }
+
+    // Garages, parking and covered parking stay SEPARATE counts: the icon
+    // strip's "Parking Spaces" figure is garages + parking added together, so
+    // it is never read. Garage -> garages; open/covered bays -> Parking.
+    var garages = garagesRow !== null ? garagesRow : (keyFeat.garages !== undefined && keyFeat.garages !== null ? keyFeat.garages : legacyGarages);
+    var parkingBase = parkingSubRows.length > 0 ? parkingSubRows.length
+      : (parkingAggregate !== null ? parkingAggregate : (keyFeat.parking !== undefined ? keyFeat.parking : null));
+    var parkingCount = parkingBase;
+    var parkingFeatures = parkingSubRows.length > 0 ? parkingSubRows : parkingTextFeatures;
+    if (coveredParking !== null && coveredParking > 0) {
+      parkingCount = (parkingBase || 0) + coveredParking;
+      parkingFeatures = parkingFeatures.concat(['Covered parking']);
     }
+
+    if (beds === null && keyFeat.bedrooms !== undefined) beds = keyFeat.bedrooms;
+    if (beds === null && about.numberOfBedrooms !== undefined) beds = parseNumber(about.numberOfBedrooms);
+    if (baths === null && keyFeat.bathrooms !== undefined) baths = keyFeat.bathrooms;
+    if (baths === null && about.numberOfBathroomsTotal !== undefined) baths = parseNumber(about.numberOfBathroomsTotal);
+
+    // The size button beside the icons carries its own title ("Erf Size" /
+    // "Floor Size") — used only to fill a size the overview table did not give.
+    try {
+      var sizeBtn = document.querySelector('.js_sizeConversionsButton');
+      var sizeSpan = sizeBtn ? sizeBtn.querySelector('span') : null;
+      if (sizeBtn && sizeSpan) {
+        var sizeTitle = (sizeBtn.getAttribute('title') || '').toLowerCase();
+        if (sizeTitle.indexOf('erf') !== -1 && erfSize === null) erfSize = parseArea(sizeSpan.textContent);
+        else if (sizeTitle.indexOf('floor') !== -1 && floorSize === null) floorSize = parseArea(sizeSpan.textContent);
+      }
+    } catch (e) { /* */ }
+    if (floorSize === null && about.floorSize && about.floorSize.value !== undefined) floorSize = parseArea(about.floorSize.value + ' m2');
 
     // 2026-09-29 URGENT FIX #2 (Clayville): ld.description is P24's JSON-LD
     // headline ("Stunning 2 Bedroom House In Clayville Ext 45" — one line,
@@ -863,11 +985,29 @@
       } catch (e) { /* ignore */ }
     }
 
+    // 2026-10-07 (P24 import 117621889): the street line. P24 shows it three
+    // ways — JSON-LD about.address.streetAddress ("42 Springwood"), the
+    // "Street Address" overview row ("42 Springwood, Umhlali Golf Estate") and
+    // the page header. Sent RAW; the server splits it into street number /
+    // street name (and a complex when the line carries one) and drops the
+    // suburb part. Listings that hide their street address carry none of them.
+    var streetAddress = (about.address && about.address.streetAddress) || null;
+    if (!streetAddress && streetRow) streetAddress = streetRow.split(',')[0];
+    streetAddress = streetAddress ? clean(streetAddress) : null;
+
+    // P24 now puts GPS coordinates in the JSON-LD `about` block on listings
+    // that show an exact location (the original spec said P24 never did).
+    // (Number(), not parseNumber(): coordinates are signed JSON numbers.)
+    var lat = (about.latitude !== undefined && about.latitude !== null && isFinite(Number(about.latitude))) ? Number(about.latitude) : null;
+    var lng = (about.longitude !== undefined && about.longitude !== null && isFinite(Number(about.longitude))) ? Number(about.longitude) : null;
+
+    var priceRaw = offers.priceSpecification ? offers.priceSpecification.price : offers.price;
+
     return {
       portal: 'p24',
       listing_ref: listingRef,
       listing_url: location.href,
-      price: offers.priceSpecification ? num(offers.priceSpecification.price) : num(offers.price),
+      price: parseNumber(priceRaw),
       description: fullDescription || ld.description || null,
       // 2026-09-29 URGENT FIX #2 (Clayville): the extension already computed
       // this as `_title` for the popup's own preview panel but DELETED it
@@ -881,21 +1021,28 @@
       // schema.org @type (e.g. "Apartment"); property_type_label_hint is
       // P24's own free-text label when present (about.description, e.g.
       // "Apartment / Flat" — often already an exact CoreX label, confirmed
-      // on the Pomona sample, but not assumed universal).
+      // on the Pomona sample, but not assumed universal). A townhouse is
+      // @type "Apartment" in the JSON-LD, so the hint (or, when the JSON-LD
+      // one is blank, the "Type of Property" overview row) is what keeps it a
+      // townhouse.
       property_type_raw: (about['@type'] && about['@type'] !== 'RealEstateListing') ? about['@type'] : null,
-      property_type_label_hint: (about.description && about.description !== ld.description) ? about.description : null,
+      property_type_label_hint: (about.description && about.description !== ld.description) ? about.description : (typeRow || null),
       beds: beds, baths: baths, garages: garages,
       size_m2: floorSize, erf_size_m2: erfSize,
       suburb: (about.address && about.address.addressLocality) || null,
       province: (about.address && about.address.addressRegion) || null,
+      street_address: streetAddress,
+      latitude: lat,
+      longitude: lng,
       // P24's OWN external suburb id, straight off the URL — the server
       // resolves this to CoreX's internal p24_suburb_id (+ city/province
       // chain) via P24LocationResolver::resolveByP24Id(). Authoritative
       // over the plain suburb/province text above when present.
       p24_suburb_external_id: p24SuburbExternalId,
-      // 2026-09-30 URGENT FIX #3 — same signal, same field names
-      // PropertyPullController/DownloadPortalPropertyImages already accept;
-      // no photo URL list sent from the client at all any more.
+      // The real gallery, in P24's own order (see the thumbnail-strip note
+      // above). first_image_id/image_count stay in the payload for the
+      // sequential fallback and the popup preview.
+      image_ids: imageIds,
       first_image_id: firstImageId,
       image_count: imageCount,
       source_agency_name: leadCtx ? leadCtx.agencyName : null,
@@ -916,6 +1063,7 @@
       parking_count: parkingCount,
       parking_features: parkingFeatures,
       pool: poolYes,
+      garden: gardenYes,
       kitchen_features: kitchenFeatures,
       garden_features: gardenFeatures,
       security_features: securityFeatures,
@@ -924,6 +1072,7 @@
       _expected_photo_count: imageCount,
     };
   }
+  // <<P24_OAS_EXTRACT_END>>
 
   function ppExtractOasFn() {
     // Runs MAIN-world in the PP tab — reads the page's OWN already-parsed
@@ -942,11 +1091,33 @@
 
     var photos = (bp.galleryPhotos || []).map(function (p) { return p.mediumUrl || (p.srcSet && p.srcSet[0]) || null; }).filter(Boolean);
 
+    // 2026-10-07 (P24 import 117621889, same class): parseInt() drops a half
+    // bathroom ("2.5" -> 2) and the digit-stripper below turned "1 375.5 m²"
+    // into 13755. Same decimal-aware reader as the P24 extractor (copied — each
+    // injected function must be self-contained).
+    function parseNumber(v) {
+      if (v === null || v === undefined) return null;
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      var s = String(v).replace(/[\s\u00a0\u202f]/g, '');
+      var m0 = s.match(/\d[\d.,]*/);
+      if (!m0) return null;
+      var t = m0[0].replace(/[.,]+$/, '');
+      var lastDot = t.lastIndexOf('.'), lastComma = t.lastIndexOf(',');
+      if (lastDot !== -1 && lastComma !== -1) {
+        t = lastComma > lastDot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+      } else if (lastComma !== -1) {
+        t = /^\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
+      } else if (lastDot !== -1 && (t.match(/\./g) || []).length > 1) {
+        t = t.replace(/\./g, '');
+      }
+      var n = parseFloat(t);
+      return isNaN(n) ? null : n;
+    }
     var beds = null, baths = null, garages = null;
     (bp.additionalProperty || []).forEach(function (p) {
       var name = (p.name || '').toLowerCase();
-      var val = parseInt(p.value, 10);
-      if (isNaN(val)) return;
+      var val = parseNumber(p.value);
+      if (val === null) return;
       if (name.indexOf('bedroom') !== -1) beds = val;
       else if (name.indexOf('bathroom') !== -1) baths = val;
       else if (name.indexOf('garage') !== -1) garages = val;
@@ -958,8 +1129,8 @@
       var value = row.querySelector('.property-details__value');
       if (!label || !value) return;
       var l = label.textContent.toLowerCase();
-      var v = parseInt(String(value.textContent).replace(/[^\d]/g, ''), 10);
-      if (isNaN(v)) return;
+      var v = parseNumber(value.textContent);
+      if (v === null) return;
       if (l.indexOf('floor size') !== -1) floorSize = v;
       else if (l.indexOf('land size') !== -1) erfSize = v;
     });
@@ -1047,7 +1218,7 @@
 
       els.oasTitle.textContent = data._title || 'Listing ' + data.listing_ref;
       els.oasPrice.textContent = data.price ? 'R ' + Number(data.price).toLocaleString() : 'Price not found';
-      els.oasAddress.textContent = [data.suburb, data.province].filter(Boolean).join(', ') || 'Address not available';
+      els.oasAddress.textContent = [data.street_address, data.suburb, data.province].filter(Boolean).join(', ') || 'Address not available';
       const feats = [];
       if (data.beds != null) feats.push('<span class="feat">' + data.beds + ' Bed</span>');
       if (data.baths != null) feats.push('<span class="feat">' + data.baths + ' Bath</span>');

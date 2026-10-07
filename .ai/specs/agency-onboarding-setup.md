@@ -275,6 +275,8 @@ by oversight — do not reinstate them without asking:
   `config/corex-features.php`'s `public-website` registry row both still default `false`.
 - **Buyer-notes visibility (`buyer_notes.view`, 2026-10-07).** A per-role Role Manager data scope (Own / Branch / Agency), not an agency setting — the wizard does not configure the role matrix. Recorded as a decision, not an oversight.
 
+- **Address-matching strictness (`address_match_settings`, 2026-10-07).** Expert thresholds for "is this the same property?" (which exact rules are on, how many columns must agree for a possible match, how neighbouring suburbs count, the GPS radius, how a missing unit counts). Safe defaults; admin-only page `/settings/prospecting/address-matching`. Johan's decision (conductor's brief, 2026-10-07: "system settings with sensible defaults, admin-only, not in the Setup Wizard") — recorded as a decision, not an oversight. Spec `structured-address-matching.md` §9.
+
 - **MIC tile-count cache window** (`suggested_action_thresholds.mic_counts_cache_fresh_seconds` /
   `.mic_counts_cache_stale_seconds`, added 2026-08-27). An internal cache-tuning knob, not a
   decision an agency makes about how CoreX behaves for them: with the claim-write cache-version

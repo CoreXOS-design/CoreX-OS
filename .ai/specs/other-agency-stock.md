@@ -1,6 +1,6 @@
 # Other Agency Stock
 
-**Status:** Built on branch `other-agency-stock-2026-09-29` off `origin/QA1`. Awaiting QA1 merge + browser verification.
+**Status:** Live on QA1. 2026-10-07: P24 field audit + fixes (§5a, extension 3.8.2).
 **Pillars:** Property (new status, new source-metadata table), Agent (importing agent becomes the property's agent), Contact (viewing packs / Core Matches use it downstream, unchanged).
 
 ## 1. What this is and why
@@ -139,8 +139,10 @@ the server never scrapes the portals itself.
   `<script type="application/ld[^"]*json">` case-insensitively, not the literal string.
 - JSON-LD path: `offers.{priceSpecification.price, offeredBy.{name, url, worksFor.{name, url,
   logo}}}`, `about.{numberOfBedrooms, numberOfBathroomsTotal, floorSize.value, address.
-  {addressLocality, addressRegion}, description}`, `image` (single string only — not the full
-  gallery), `name`, `url`. No `geo` field exists on this portal at all.
+  {addressLocality, addressRegion, streetAddress*}, latitude*, longitude*, description}`, `image` (single
+  string only — not the full gallery), `name`, `url`. (*2026-10-07: `streetAddress` and `latitude`/`longitude`
+  ARE present on listings that show an exact location — the earlier "no geo on this portal" note was
+  wrong, or P24 has since added them. Listings that hide their address carry none; see §5a.)
 - Erf size: plain HTML, `.js_sizeConversionsButton` span (not in JSON-LD).
 - Floor/beds/baths: `.p24_propertyOverviewRow > .p24_propertyOverviewKey` (label) +
   `.p24_propertyOverviewResult .p24_info` (value).
@@ -189,11 +191,12 @@ the server never scrapes the portals itself.
   `listed_date`. (2) `pet_friendly` had no form field anywhere on the property page at all,
   so a correctly-imported value was simply never shown — added a Yes/No/Not-specified select
   next to Zone Type.
-- Garages: `.p24_feature`/`.p24_featureAmount` pair near `icon_garage_updated.svg`.
+- Garages: **superseded 2026-10-07** — the `.p24_feature` ancestor of the garage icon no longer exists; garages come from the
+  "Garage" overview row or the `.p24_listingFeatures` "Garages:" amount. See §5a.
 - Agent/agency: inline `<script>window.listingLeadFormContext = {...}</script>` — plain JS
   object literal, `agencyName`, `agentDetails[]` (id, name, imageURL, profileURL),
   `primaryAgent`.
-- **Full gallery**: **2026-09-30 superseded** — this flow now sends `first_image_id` +
+- **Full gallery**: **2026-10-07 superseded again (§5a)** — `image_ids[]`, the page's own ordered thumbnail ids. **2026-09-30 (superseded)** — this flow sent `first_image_id` +
   `image_count` (P24's own sequential image-id pattern, read the SAME way
   `content-p24-detail.js`'s Pull-flow extractor already did) and the SAME
   `DownloadPortalPropertyImages` job Pull uses downloads every photo server-side. The
@@ -203,6 +206,69 @@ the server never scrapes the portals itself.
 - Phone: not in raw HTML — requires an authenticated `/Listing/ShowContactNumbers` AJAX call
   with a per-agent token. **Never call this** (Johan) — it registers a lead with the portal.
   Capture phone/email only if already visible in the DOM (they generally aren't for P24).
+
+### 5a. P24 field audit — import 117621889 (2026-10-07, extension 3.8.2)
+
+Johan imported `property24.com/for-sale/umhlali-golf-estate/ballito/kwazulu-natal/15100/117621889` on QA1 and
+four fields were wrong. Cause per field, then the class fix. Evidence: the real page, fetched once and saved
+(six real listings, trimmed, in `public/chrome-extension/portal-capture/tests/fixtures/p24/`).
+
+| Field | Wrong because | Scraped wrong or stored wrong |
+|---|---|---|
+| Baths 25.0 (page: 2.5) | `num()` deleted every non-digit, so "2.5" became 25 | Extension. CoreX also could not hold 2.5 (endpoint validated `integer`) |
+| Garages "—" (page: 2) | P24 changed its markup: the garage icon is no longer inside `.p24_feature`, so the lookup found nothing | Extension (stored the 0 it was sent) |
+| Floor 1 m² (page: **287 m²**) | the overview loop matched any label *containing* "floor": "Number of floors \| 1" (and "Floor \| Tiled Floors", "Floor Number") overwrote "Floor Size \| 287 m²". On apartments the later "Floor \| Tiled Floors" wiped the real size to nothing | Extension. (The brief said P24 shows no floor figure — it does, 287 m².) |
+| Street address missing | the extension never sent it and CoreX had no street-line parser; P24 carries "42 Springwood" in JSON-LD `streetAddress` and the "Street Address" row | Both: not scraped, and not stored anywhere |
+
+**Class fixes**
+
+- **One number reader** (`parseNumber`/`parseArea` in `p24ExtractOasFn`, copied into `ppExtractOasFn`): keeps decimals
+  ("2.5", "2,5"), reads thousands ("1 375", "1,375", "1.375.000"), strips units, converts ha/acres to m², returns null
+  (never 0) when there is no number. Applied to price, beds, baths, garages, parking, floor and erf size, the PP
+  equivalents. (A price of "4999000.00" used to become 499 900 000.)
+- **Labels matched exactly** in the overview table (`floor size`, `erf size`, `bedrooms?`, `bathrooms?`, `garages?`, `parking`,
+  `kitchens?`, …) — never "contains". The size button beside the icons is an erf size only when its own title says so.
+- **Garages / parking / covered parking stay separate**: Garage → `garages` (overview "Garage" row, else the "Garages:" icon-strip
+  amount); open bays → Parking (per-spot rows, else icon-strip "Parking:", else the numeric "Parking" row); a "Covered
+  Parking"/"Carport(s)" row adds to Parking with a "Covered parking" feature (**not seen on any of the six saved pages — unverified
+  against a real one**). The icon strip's "Parking Spaces" figure is garages + parking added together and is never read.
+- **Bathrooms 2.5 = `baths` 2 + `half_baths` 1**, the way every other CoreX screen stores it (property page "2 + ½", the P24
+  syndication mapper's baths + 0.5 per half bath); the Bathroom space keeps the 2.5 total. `OtherAgencyStockFieldMapper::splitBathrooms()`.
+  `half_baths` and `rental_amount` joined `OtherAgencyStockContentLock::LOCKED_FIELDS` (imported advert content). The endpoint now
+  validates beds/baths/garages/parking as `numeric` and the service rounds the whole-number columns — an odd figure on one optional
+  field never 422s the whole import.
+- **Street address** → `street_number`, `street_name`, `complex_name`, `unit_number` via `OtherAgencyStockFieldMapper::parseStreetAddress()`
+  (same conventions as `ProspectingListing::parseStreetNumber` / `EntryPointController::parseStreet`: street = last segment, a
+  leading "12"/"12A"/"1/3"/"12-14" is the number, the suburb/city/province segment is dropped, "Unit 5" is the unit, any other earlier
+  segment is the complex; no number = a street name only, nothing invented). `address` is derived from the parts by
+  `PropertyObserver::saving()`. These are INTERNAL fields (§8): an existing non-empty value is never overwritten by a re-import,
+  only an empty one is filled. Listings that hide their street address (e.g. the apartment sample) get none.
+- **GPS** from JSON-LD `about.latitude/longitude` when present.
+- **Photos: the gallery is the page's own ordered thumbnail ids** (`img.js_galleryThumbnail`, `lazy-src`), sent as `image_ids[]`; the
+  job downloads exactly those, in that order. The earlier "first id + 1, +2 …" guess was wrong on five of the six saved pages
+  (gaps, a later image with a lower id, a second batch uploaded weeks later) — it pulled other listings' photos and missed real
+  ones. The strip's count equals P24's own "N images" on all six. `first_image_id`/`image_count` remain the fallback for an older
+  extension build and for the Pull flow. `DownloadPortalPropertyImages` gained an optional 4th constructor argument `imageIds`.
+- **Pool / Garden**: "Pool | Pool" and "Garden | Yes"/"Garden | Garden" are flags (yes unless "No"), not a feature called "Yes".
+  Kitchen reads "Kitchens" (plural) and comma lists; Security/Kitchen/Garden lists split on commas as well as newlines.
+- **Rentals**: the monthly rent is stored in `rental_amount` (the sale `price` is 0 on a rental — `Property::displayRentalPrice()` /
+  `effectivePriceSql()`); it was being put in `price`, so a rental showed R 0 and priced itself out of rental matches.
+- **Property type**: `property_type_label_hint` falls back to the "Type of Property" row when JSON-LD gives none.
+
+**Checked against six listing types and found correct (no change):** property type (house / apartment / townhouse / vacant land /
+commercial — a townhouse is JSON-LD `@type` "Apartment", the hint keeps it a Townhouse), price, beds, listing date, levies and rates,
+pets, suburb/city via the URL's P24 suburb id, agent and agency, description.
+
+**Mismatches found and NOT changed (report-only, none asked for):** P24 "Special Feature" / "Lifestyle" / "Description" ("Single
+Storey") rows, the icon-strip tags (Pet Friendly, Fibre Internet, Furnished), "Occupation Date" / "Lease Period" / "Furnished" on
+rentals, "Reception Rooms", "Office", "Study", "No Transfer Duty", "Standalone Building" are not imported. The **Pull as My Own Listing**
+flow (`content-p24-detail.js`, lines ~385-396, ~232-254) still has the old digit-stripping (`parseInt("2.5")` → 2, a price "4999000.00"
+→ 499 900 000) and the sequential-photo guess — own-stock, outside this task.
+
+**Tests** — page → payload: `tests/p24-oas-extract.test.cjs` (jsdom, NOT a project dependency — see its header; golden payloads
+`*.payload.json`); payload → stored property: `tests/Feature/Properties/OtherAgencyStockP24FixtureImportTest.php` (runs the golden
+payloads through the real endpoint). **Re-testing on QA1:** there is no refresh path for an existing import other than importing the
+listing again — re-import updates the same property in place (dedup on portal + listing ref), re-locks it and records a new consent.
 
 ### PrivateProperty
 
@@ -244,6 +310,16 @@ simply be rejected.
 A preview/confirm step shows the extracted fields (address, price, beds/baths/garages, sizes,
 photo count, source agency/agent) before the POST fires, so the agent can catch a bad
 extraction before it becomes a property.
+
+### 5b. Other Agency Stock can never be duplicated (2026-10-07, Johan — QA1 property 21174)
+
+The property page's **Duplicate** action was live on an Other Agency Stock property (a copy would be a second, editable,
+syndicate-able version of another agency's listing). Now:
+
+- **Button**: disabled, with the hover reason "Other Agency Stock is another agency's listing and can't be duplicated. To use it again, import the portal listing again." (`Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON`).
+- **Server**: `PropertyController::duplicate()` and `changeType()` (a duplicate + archive) refuse it — redirect back with the reason, or **403 JSON** for an API-style caller — and `makeClone()` itself throws, so no present or future caller can clone it. `Property::canBeDuplicated()` is the one check.
+- **No other path exists** today: there is no bulk-duplicate on the properties list and no API duplicate route (the one clone route is `corex.properties.duplicate`). A route-table test fails if a second property-cloning route is ever added without extending this guard.
+- Tests: `tests/Feature/Properties/OtherAgencyStockNoDuplicateTest.php` (button + route + JSON + change-type + clone builder + normal property still duplicates).
 
 ## 6. Visibility — a role setting, no hardcoding
 
