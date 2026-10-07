@@ -28,6 +28,12 @@ their view scope; assistants: own-agent's contacts, or an unowned contact, only)
 gate is `permission:access_contacts` (no separate `notes.*`/`testimonials.*` permission key
 exists or is needed — capture rides on the existing contacts-access gate, same as before).
 
+> **Rule (Johan, 2026-10-07): a note never marks a contact as contacted.** Creating, editing or deleting a
+> note — on web, on mobile, by import, or system-generated — does not move `Last Contacted`. Only the explicit
+> "Contacted and note" / "Add note & mark contacted" action does (`mark_contacted=1` on the web store endpoint,
+> AT-372 → `Contact::markContacted()`). This supersedes the earlier Core Matches ruling that any note resets it.
+> See `.ai/specs/at372-contacted-signal.md` and `.ai/specs/core-matches.md` ("The working clock").
+
 ## What this spec adds
 
 ### 1. Note editing (web) — new capability

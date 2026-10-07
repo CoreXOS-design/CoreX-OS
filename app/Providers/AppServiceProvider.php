@@ -248,8 +248,8 @@ class AppServiceProvider extends ServiceProvider
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);
-        // AT-Core-Matches, Johan's ruling 2 — a note added resets the working clock.
-        \App\Models\ContactNote::observe(\App\Observers\ContactNoteObserver::class);
+        // NOTE (Johan, 2026-10-07): no ContactNote observer. A plain note never moves Last Contacted;
+        // only the explicit "Contacted and note" action does (ContactNoteController::store → Contact::markContacted()).
         ContactPhone::observe(ContactPhoneObserver::class);
         ContactEmail::observe(ContactEmailObserver::class);
         ContactAccessLog::observe(ContactAccessLogObserver::class);
