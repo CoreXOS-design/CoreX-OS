@@ -109,6 +109,17 @@
                     PDF
                 </a>
                 @endif
+                @php
+                    // Own FICA: an officer who may not review their own sees why, here, before clicking through.
+                    $tabOwnBlock = in_array($sub->status, ['submitted', 'agent_approved', 'referred_to_co'], true) && auth()->check()
+                        ? $sub->ownReviewBlockFor(auth()->user()) : null;
+                @endphp
+                @if($tabOwnBlock)
+                    <span class="text-xs font-semibold px-3 py-1.5 rounded-md" aria-disabled="true" data-own-fica-review-disabled
+                          style="color:var(--text-muted); border:1px dashed var(--border); cursor:not-allowed;" title="{{ $tabOwnBlock }}">
+                        Review &mdash; your own FICA
+                    </span>
+                @endif
                 <a href="{{ route('compliance.fica.show', $sub) }}"
                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
                    style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
