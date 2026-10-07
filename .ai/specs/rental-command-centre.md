@@ -644,3 +644,14 @@ the exact reported bug reproduced directly (a vacant `withdrawn` property counts
 not `unoccupied`); the default/override/live-effect of `active_rental_statuses`. Verified against
 the real deployed QA1 page with a script reading each tile's own number and its opened list's
 total side by side (`scripts/verify-command-centre-tiles.mjs` or equivalent, see build report).
+
+---
+
+## 16. Compact tile strip + a heading on the property list (2026-10-07, Johan — layout only)
+
+Johan, QA1: "the tiles are way too big. can we get this to a max of 2 lines, and size can be reduced that the total tiles takes up less space. Then the Needs action and right hand panel with no heading can move up and more can be seen of it." (BUILD_STANDARD: screen real estate goes to function.)
+
+- **Tiles.** Still the eleven tiles of §3.1, same counts, same click-to-filter links, same active-tile highlight — nothing about what a tile counts or which rows it opens changed. Each tile is now one short row: the number (`text-base`, bold) beside its label (11px, normal case, full text kept; the record-based Open faults / Open work orders tiles keep "· on N properties" in the same flow; the full text is also the tile's tooltip). Padding `px-2.5 py-1.5`, gap `1.5`. Grid: **2 across on phones, 3 at `sm`, 4 at `md`, 6 from `lg` up** — so at laptop and desktop widths (1366, 1920) the eleven tiles are exactly **two rows (6 + 5)** and never three; tablet/phone wrap to more rows, never sideways. Before: 5 across (three rows), `py-2`, 18px number over an uppercase-tracked label, which wrapped to two lines on the record-based tiles. Each tile carries `data-qa="rcc-tile-<key>"`, the strip `data-qa="rcc-tiles"`.
+- **Needs action + the property list sit higher.** No change to their own code: both panels are sized from the top of `#rcc-layout` to the bottom of the viewport (§14.2), so the height the tiles gave back is now rows.
+- **Heading on the right-hand panel.** **"Property list (N)"** — N is the row count the current tile / search / filters leave (the paginator's total) — with "Showing: <tile>" beside it while a tile is filtering the list. Mirrors the left panel's "Needs action (N)".
+- **Tests.** `tests/Feature/Rentals/RentalCommandCentreLayoutTest.php` (six across, no five across, every tile present and still a filter link, active highlight kept, heading present); `RentalCommandCentreServiceTest` unchanged and green.
