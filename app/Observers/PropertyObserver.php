@@ -92,6 +92,9 @@ class PropertyObserver
     /** AT-68 — renewal re-syndication reminders captured in saving(), fired in saved() (keyed by property ID). */
     private static array $renewalResyndicateReminders = [];
 
+    /** AT-448 — a USER moved the status to expired (captured in saving(), MandateExpired fired in saved()); value = acting user id. */
+    private static array $manualExpiries = [];
+
     /**
      * AT-321 — NOISE columns excluded from the audit trail everywhere: pure
      * timestamps, derived/normalised mirrors, portal sync stamps, signatures and
@@ -107,6 +110,8 @@ class PropertyObserver
         'pp_last_submitted_at', 'pp_activated_at', 'pp_images_last_synced_at',
         'pp_listing_last_synced_at', 'pp_last_error', 'pp_listing_feed_ref', 'pp_syndication_status',
         'slug', 'suburb_normalised', 'street_name_normalised', 'geo_source', 'geo_confidence',
+        // AT-448 — derived stamp of the expiry_date change itself (which IS audited).
+        'expiry_date_changed_at',
     ];
 
     /**
@@ -170,6 +175,30 @@ class PropertyObserver
             ) {
                 self::$renewalResyndicateReminders[$property->id] = true;
             }
+        }
+
+        // AT-448 — stamp WHEN the expiry date changed. The expiry lock unlocks on
+        // an Extension document uploaded AFTER this stamp and re-locks the moment
+        // a new date is saved (spec §2.3, D7). Any writer counts — the lock is
+        // enforced only on the user's web edit, but the stamp must be true for
+        // every path (import, takeover, API) or the next unlock test would lie.
+        if ($property->isDirty('expiry_date') && ($property->exists || $property->expiry_date !== null)) {
+            $property->expiry_date_changed_at = now();
+        }
+
+        // AT-448 (D10) — a USER choosing "Expired" must behave exactly like the
+        // midnight sweep, which fires Mandate\MandateExpired (→ de-listing from
+        // every portal + one audit line). Decided here where getOriginal() still
+        // holds the pre-save status; fired in saved() after the write. Gated on
+        // an acting user so the console sweep — which fires the event itself —
+        // never double-fires it through this observer.
+        if ($property->exists
+            && $property->isDirty('status')
+            && strtolower(trim((string) $property->status)) === 'expired'
+            && strtolower(trim((string) $property->getOriginal('status'))) !== 'expired'
+            && auth()->check()
+        ) {
+            self::$manualExpiries[$property->id] = (int) auth()->id();
         }
 
         // AT-266 — ONE TRUTH for the address.
@@ -405,6 +434,24 @@ class PropertyObserver
                 }
             } catch (\Throwable $e) {
                 Log::warning("AT-68 renewal re-syndication reminder failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
+        // AT-448 (D10) — manual "Expired" fires the same domain event as the
+        // midnight sweep. The DesyndicateExpiredMandate listener's job is
+        // idempotent (guards key off current portal status), so the overlap with
+        // the off-market dispatch further down is harmless — documented there.
+        if (isset(self::$manualExpiries[$property->id])) {
+            $actorId = self::$manualExpiries[$property->id];
+            unset(self::$manualExpiries[$property->id]);
+            try {
+                event(new \App\Events\Mandate\MandateExpired(
+                    mandate: $property,
+                    agencyIdHint: $property->agency_id,
+                    actorUserId: $actorId,
+                ));
+            } catch (\Throwable $e) {
+                Log::warning("AT-448 manual-expiry MandateExpired dispatch failed for property #{$property->id}: {$e->getMessage()}");
             }
         }
 

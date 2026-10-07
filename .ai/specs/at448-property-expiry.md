@@ -1,6 +1,6 @@
 # AT-448 — Property expiry: Expired status, expiry warning popup, expiry lock + Extension document
 
-> Status: **DRAFT — pending Andre's go (lane owner, QA2) and Johan's sign-off. Nothing built.**
+> Status: **APPROVED by Andre 2026-10-07 (lane owner, QA2) — D1/D2/D6 answered, build in progress on the lane.**
 > Ticket: AT-448 "Expired section for properties" (In Progress)
 > Branch: `AT-448-Expired-section-for-properties` (Andre's lane → QA2 → Staging)
 > Written: 2026-10-07 by Andre's lane
@@ -64,9 +64,12 @@ needs no new code; it needs to be proven on the lane.
   - a list sorted soonest-first: address, listing agent, expiry date, "in X days" / "today";
   - each row links to the property; a **View all** button opens the list filtered to *Expiring soon*;
   - **Got it** closes it.
-- Shown **once per user per day** (closing it, or clicking through, silences it until tomorrow). If a new
-  listing enters the window later that day it waits for tomorrow's popup — the bell notification covers
-  the rest.
+- **Andre's ruling (2026-10-07): each listing triggers the popup ONCE** — the first time the user opens
+  Properties on or after the day it enters the agency's window — and not again. The popup lists only the
+  listings this user has not yet been shown; closing it (or clicking through) records them as seen, per
+  user, per listing, per expiry date (durable, in the database — a new expiry date after an extension is a
+  new cycle and may pop again). Listings already shown never re-appear in the popup, even if still in the
+  window; the "Expiring soon" filter is the standing view.
 - Popup list is capped at 10 rows with "+N more — View all".
 - The filter **Expiring soon** (`status=expiring_soon`) is added to the Status dropdown on both lenses so
   the popup has a real destination and a manager can pull the list any time.
@@ -108,12 +111,12 @@ needs no new code; it needs to be proven on the lane.
 
 | # | Decision | Consequence for the agency |
 |---|---|---|
-| D1 | Popup once per user per day (session-stored, date-stamped) | No nagging on every click; a fresh login on another device may show it again the same day. |
-| D2 | No agency off-switch for the popup | Every agency gets it; the days setting is the only dial. **Andre: say if you want an off switch.** |
+| D1 | Popup once per listing per user (DB-stored, keyed on expiry date) — **Andre's ruling** | A listing is announced exactly once when it reaches the window; no daily nagging; an extended date can announce again. |
+| D2 | No agency off-switch for the popup — **confirmed by Andre** | Every agency gets it; the days setting is the only dial. |
 | D3 | Warning window counts on-market stock only | Drafts, prospecting, sold, withdrawn, expired never appear in "expiring soon". |
-| D4 | "Gone live" = Go Live pressed OR ever advertised (sticky) | A listing never un-locks by being withdrawn or expiring. Drafts stay free. |
+| D4 | "Gone live" = Go Live pressed OR ever advertised (sticky) — **confirmed by Andre** | A listing never un-locks by being withdrawn or expiring. Drafts stay free. |
 | D5 | Any change to an existing date is locked, not just extensions | One rule to explain; shortening also needs the document. |
-| D6 | Any file type in Extension unlocks (PDF or photo) | Agents photographing a signed extension on mobile are not trapped. **Andre said "PDF" — say if PDF-only is required.** |
+| D6 | Any file type in Extension unlocks (PDF or photo) — **confirmed by Andre** | Agents photographing a signed extension on mobile are not trapped. |
 | D7 | Unlock is per-upload (document newer than last date change) | Each extension needs its own paperwork on file. |
 | D8 | Extension folder is global (every agency sees it) | That is how every Drive folder works; agencies rename in Settings → Document Types. |
 | D9 | Both settings go in the Setup Wizard (Properties step) | Nothing deliberately left out; no Johan omission call needed. |
@@ -139,6 +142,12 @@ needs no new code; it needs to be proven on the lane.
   `listing_types=["sale","rental"]` (**mandatory** — without it files land in "Other Documents"),
   `is_active=1`, `sort_order=max+1`. Idempotent data migration (copy the TPN migration + set
   `listing_types`). Reference data travels by migration, so `deploy:sync-reference-data` needs nothing.
+
+### 4.3a `property_expiry_popup_views` (new, per user)
+- `id`, `agency_id` (BelongsToAgency), `user_id` FK users, `property_id` FK properties, `expiry_date` DATE
+  (the expiry the listing carried when shown), `seen_at` DATETIME, timestamps.
+  Unique `(user_id, property_id, expiry_date)`. Model `App\Models\PropertyExpiryPopupView`. Rows are a
+  log and are never deleted (no delete path exists).
 
 ### 4.4 `performance_settings` (per agency, via `PerformanceSetting::get/set` with explicit `$agencyId`)
 - `mandate_expiry_warn_days` int, default 7, range 1–90.
@@ -200,10 +209,11 @@ No new page ⇒ no new sidebar entry. No new permission key (declared; nothing h
 ## 7. User flows
 
 **A. Agent opens Properties, 5 days before a mandate ends (warn days = 7)**
-1. Controller computes `expiringSoon` for the user's scope; `session('properties.expiry_popup_seen_on') !== today` ⇒ pass `$expiringProperties` to the view.
+1. Controller computes `expiringSoon` for the user's scope, minus listings with a `property_expiry_popup_views` row for this user and this expiry date ⇒ pass `$expiringProperties` to the view (none ⇒ no popup markup at all).
 2. Popup opens (`<x-modal :show="true">` per §3.11). Rows link to properties; View all → `?status=expiring_soon`.
 3. Got it / overlay / Esc / click-through → `POST api/v1/properties/expiry-popup/dismiss` (named, under
-   `/api/v1`, relative URL per the System-Updates gotcha) writes today's date into the session.
+   `/api/v1`, relative URL per the System-Updates gotcha) writes one `property_expiry_popup_views` row per
+   listed property (idempotent upsert, ids re-checked against the user's scope) for this user.
 
 **B. Agent extends a live mandate, lock ON**
 1. Property page shows Expiry Date read-only + banner + "Go to Drive → Extension".
@@ -241,8 +251,9 @@ No new page ⇒ no new sidebar entry. No new permission key (declared; nothing h
 | Extension uploaded to an agency with lock OFF | Absorb: filed, no behaviour |
 | Property with null expiry_date in the window | Not "expiring"; not in popup |
 | Listing agent deleted / null on a popup row | Render "— " for agent; row still links |
-| Popup session key on a web-only QA box | Works (session, no queue) |
-| Two agencies, same user switching | Session key includes agency id: `properties.expiry_popup_seen_on.{agencyId}` |
+| Popup dismissal on a web-only QA box | Works (direct DB write, no queue) |
+| Dismiss posted twice / for a property outside the user's scope | Upsert is idempotent; ids are re-checked against the user's scope before writing |
+| Expiry date extended after being announced | New (user, property, expiry_date) key ⇒ announces again when it re-enters the window |
 
 ## 9. Verification plan (what will be proven, with which paths)
 
@@ -251,7 +262,8 @@ Single relevant test file during the build: **`tests/Feature/Properties/Property
   dropdown slug equals `expired`;
 - tiles/filters: expired count equals filtered rows; `expiring_soon` honours window + scope + lens;
 - popup: shown inside window, hidden outside, hidden when none, hidden for off-market, scoped own/branch/
-  all, once per day per agency, dismiss endpoint registered under `/api/v1` and named;
+  all, once per listing per user (seen rows excluded; a new expiry date announces again), dismiss
+  endpoint registered under `/api/v1`, named, idempotent, scope-checked;
 - lock: off ⇒ editable; on + draft ⇒ editable; on + live ⇒ 422 with message; on + live + fresh
   extension ⇒ saves and re-locks; stale extension (older than last change) ⇒ 422; cleared date ⇒ 422;
   same date ⇒ ok; first date ⇒ ok; imported stock ⇒ ok; soft-deleted extension ⇒ 422;
@@ -274,6 +286,8 @@ first proven on Staging after Andre's go.
 - `database/migrations/2026_10_07_100000_add_expired_property_status_item.php`
 - `database/migrations/2026_10_07_100100_add_mandate_extension_document_type.php`
 - `database/migrations/2026_10_07_100200_add_expiry_date_changed_at_to_properties.php`
+- `database/migrations/2026_10_07_100300_create_property_expiry_popup_views_table.php`
+- `app/Models/PropertyExpiryPopupView.php`
 - `app/Services/Properties/MandateExpiryPolicy.php`
 - `app/Http/Controllers/Api/V1/PropertyExpiryPopupDismissController.php`
 - `resources/views/corex/properties/partials/expiry-popup.blade.php`
@@ -315,7 +329,7 @@ first proven on Staging after Andre's go.
 - [ ] "Expired" appears in Settings → Property Statuses for every agency and in the property Status dropdown
 - [ ] Properties list shows an Expired tile and filter on both lenses; tile count = filtered rows
 - [ ] Settings → Properties & Listings has the Mandate Expiry card; both controls save per agency and appear in the Setup Wizard with explain/affects; wizard posts never wipe the other value
-- [ ] Opening Properties inside the window shows the popup once per day, scoped correctly, with working links and View all → Expiring soon
+- [ ] Opening Properties inside the window shows the popup once per listing per user, scoped correctly, with working links and View all → Expiring soon
 - [ ] Lock off: date editable. Lock on + live: read-only with banner and Drive shortcut; direct PUT rejected with the message
 - [ ] Drive shows an Extension folder on sale and rental properties; uploading there unlocks the date; saving re-locks; a stale or deleted upload does not unlock
 - [ ] Manual Expired and the midnight sweep both leave the listing off P24, PP and the website, with one audit line each

@@ -3176,6 +3176,39 @@
                         {{-- Lifecycle: Status, Mandate, Listed/Expiry --}}
                         <div>
                             <p class="prop-subsection-heading">Lifecycle</p>
+                            @php
+                                // AT-448 — expiry lock (spec §2.3). $expiryLock comes from
+                                // MandateExpiryPolicy::lockState(); null on the create path.
+                                $__exLock      = (! $isNew && is_array($expiryLock ?? null)) ? $expiryLock : null;
+                                $__exLocked    = (bool) ($__exLock['locked'] ?? false);
+                                $__exUnlockAt  = $__exLock['unlocked_by_extension_at'] ?? null;
+                                $__exDays      = $__exLock['days_left'] ?? null;
+                                $__exWhen      = '';
+                                if ($__exLock && ($__exLock['expired'] ?? false)) {
+                                    $__exWhen = 'This mandate has expired.';
+                                } elseif ($__exDays !== null) {
+                                    $__exWhen = $__exDays <= 0 ? 'This mandate expires today.'
+                                        : ($__exDays === 1 ? 'This mandate expires tomorrow.' : "This mandate expires in {$__exDays} days.");
+                                }
+                            @endphp
+                            @if($__exLocked)
+                            {{-- STANDARDS "No Silent Locks": say why, offer the way out. --}}
+                            <div class="mb-3 flex items-start justify-between gap-3 px-3 py-2 rounded-md" data-tour="prop-expiry-lock"
+                                 style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, transparent);">
+                                <div class="text-xs" style="color:var(--text-primary);">
+                                    <span class="font-semibold">Expiry date locked — this listing is live.</span>
+                                    {{ $__exWhen }}
+                                    Upload the signed extension to the <span class="font-semibold">Extension</span> folder in Drive to unlock it, then set the new date.
+                                </div>
+                                <button type="button" class="corex-btn-outline text-xs flex-shrink-0" @click="activeTab='drive'">Go to Drive</button>
+                            </div>
+                            @elseif($__exUnlockAt)
+                            <div class="mb-3 px-3 py-2 rounded-md text-xs" data-tour="prop-expiry-unlocked"
+                                 style="color:var(--text-primary); background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 40%, transparent);">
+                                <span class="font-semibold">Expiry date unlocked</span> by the extension uploaded on {{ $__exUnlockAt->format('d M Y') }}.
+                                {{ $__exWhen }} Set the new expiry date and save — it locks again afterwards.
+                            </div>
+                            @endif
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                                 <div x-data="{ st: '{{ old('status', $property->status) }}' }" class="contents">
                                 <div data-tour="prop-status">
@@ -3272,6 +3305,13 @@
                                                class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"
                                                @focus="qaOpen = true" @click="qaOpen = true"
                                                @change="if (expiryDate && expiryDate < listedDate) { expiryDate = listedDate; }">
+                                        @elseif($__exLocked)
+                                        {{-- AT-448 — locked: no name, so a plain save never posts (or changes) the date.
+                                             The server rejects a crafted change too (PropertyController::update). --}}
+                                        <input type="text" value="{{ $property->expiry_date?->format('Y-m-d') }}" readonly disabled
+                                               class="prop-input prop-field-lifecycle"
+                                               style="opacity:.75; cursor:not-allowed;"
+                                               title="Locked — upload the signed extension to Drive → Extension to unlock">
                                         @else
                                         <input type="date" name="expiry_date" x-model="expiryDate" :min="listedDate"
                                                class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"

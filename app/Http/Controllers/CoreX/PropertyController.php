@@ -16,6 +16,7 @@ use App\Models\PropertySettingItem;
 use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\PermissionService;
+use App\Services\Properties\MandateExpiryPolicy;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Http\Request;
@@ -306,6 +307,17 @@ class PropertyController extends Controller
             // not a new convention. A synthetic filter keyword, exactly like
             // 'on_market' above, never a literal column value.
             $query->whereRaw('LOWER(status) IN (?, ?)', ['let_out', 'rented']);
+        } elseif ($status === 'expired') {
+            // AT-448 — the Expired tile/filter. Case-insensitive for the same
+            // reason as rented_out: the column is free text and mixed-case in
+            // real data (Property::normalizedStatus()).
+            $query->whereRaw('LOWER(status) = ?', ['expired']);
+        } elseif ($status === 'expiring_soon') {
+            // AT-448 — on-market stock whose expiry falls inside the agency's
+            // warning window. A synthetic filter keyword like 'on_market'; the
+            // popup's "View all" lands here. Spec §2.2.
+            [$exFrom, $exTo] = MandateExpiryPolicy::expiringWindow((int) ($user->effectiveAgencyId() ?: 0));
+            $query->expiringSoon($exFrom, $exTo);
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
@@ -380,7 +392,10 @@ class PropertyController extends Controller
             // aggregate every other tile already uses, so this tile can never
             // disagree with the filtered list: "whatever filters the list
             // must also filter every count, badge and tile."
-            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
+            . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting,"
+            // AT-448 — the Expired tile. Same clone-of-$query aggregate, same
+            // case-insensitive match as its filter keyword above.
+            . " SUM(CASE WHEN LOWER(status) = 'expired' THEN 1 ELSE 0 END) as expired"
         )->first();
         $stats = [
             'total'      => (int) ($agg->total ?? 0),
@@ -389,6 +404,7 @@ class PropertyController extends Controller
             'sold'       => (int) ($agg->sold ?? 0),
             'rentedOut'  => (int) ($agg->rented_out ?? 0),
             'prospecting'=> (int) ($agg->prospecting ?? 0),
+            'expired'    => (int) ($agg->expired ?? 0),
         ];
 
         // Layer 3 — the "Awaiting approval" tile. Counted ONLY when the agency
@@ -645,12 +661,36 @@ class PropertyController extends Controller
             }
         }
 
+        // AT-448 — "Mandates expiring soon" pop-up (spec §2.2, §7 flow A). Only
+        // on the real Properties entry points (never on Imported Stock), only the
+        // listings this user has NOT yet been shown for the expiry date they carry,
+        // and only within the user's own default list breadth — the same rule the
+        // list applies (Property::scopeVisibleInListFor). Capped; the remainder is
+        // one line + "View all", which lands on the expiring_soon filter.
+        $expiringProperties = collect();
+        $expiringMore       = 0;
+        $expiringWarnDays   = MandateExpiryPolicy::DEFAULT_WARN_DAYS;
+        $expiringViewAllUrl = route($indexRouteName, ['status' => 'expiring_soon']);
+        if (! $importedStock) {
+            $exAgencyId = (int) ($user->effectiveAgencyId() ?: 0);
+            $expiringWarnDays = MandateExpiryPolicy::warnDaysFor($exAgencyId);
+            $unannounced = MandateExpiryPolicy::unannouncedExpiringFor($user, $exAgencyId, $viewScope)->with('agent');
+            if ($isRentalEntry) {
+                $unannounced->where('listing_type', 'rental');
+            }
+            $expiringProperties = (clone $unannounced)->limit(MandateExpiryPolicy::POPUP_CAP)->get();
+            if ($expiringProperties->count() === MandateExpiryPolicy::POPUP_CAP) {
+                $expiringMore = max(0, (clone $unannounced)->count() - MandateExpiryPolicy::POPUP_CAP);
+            }
+        }
+
         return view('corex.properties.index', compact(
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
             'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
-            'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds'
+            'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds',
+            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl'
         ));
     }
 
@@ -662,15 +702,10 @@ class PropertyController extends Controller
      */
     private function applyOwnPropertyScope($query, User $user, string $viewScope): void
     {
-        if ($viewScope === 'branch' && $user->branch_id) {
-            $query->where('branch_id', $user->branch_id);
-        } else {
-            $ids = $user->dataIdentityIds();
-            $query->where(function ($q) use ($ids) {
-                $q->whereIn('agent_id', $ids)
-                  ->orWhereIn('pp_second_agent_id', $ids);
-            });
-        }
+        // AT-448 — the rule itself now lives on the model (Property::scopeOwnListingsFor)
+        // so the expiring-soon popup and its dismiss endpoint share it; this is a
+        // delegation, not a second copy.
+        $query->ownListingsFor($user, $viewScope);
     }
 
     /**
@@ -682,16 +717,10 @@ class PropertyController extends Controller
      */
     private function applyRoleScope($query, User $user, string $dataScope, bool $canPickAgent, string $viewScope): void
     {
-        if ($canPickAgent) {
-            if ($dataScope === 'branch') {
-                $branchId = $user->effectiveBranchId();
-                if ($branchId) $query->where('branch_id', $branchId);
-            }
-            // dataScope 'all' ⇒ no restriction
-            return;
-        }
-
-        $this->applyOwnPropertyScope($query, $user, $viewScope);
+        // AT-448 — delegated to Property::scopeVisibleInListFor(), which resolves
+        // the same $dataScope / $canPickAgent pair from PermissionService. The
+        // parameters are kept so the three call sites in this file stay unchanged.
+        $query->visibleInListFor($user, $viewScope);
     }
 
     /**
@@ -946,10 +975,17 @@ class PropertyController extends Controller
         // a follow-up, not an oversight.
         $rentalDetailsCustomFields = PropertyRentalDetailsCustomField::activeFor((int) $property->agency_id);
 
+        // AT-448 — expiry lock state for the Lifecycle section (locked / unlocked
+        // by an Extension upload / days left), plus the Extension type id so the
+        // "Go to Drive" shortcut can pre-select it. Spec §2.3.
+        $expiryLock = MandateExpiryPolicy::lockState($property);
+        $extensionDocTypeId = $documentTypes->firstWhere('slug', MandateExpiryPolicy::EXTENSION_SLUG)?->id;
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields', 'showLeaseType'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields', 'showLeaseType',
+            'expiryLock', 'extensionDocTypeId'
         ));
     }
 
@@ -1043,8 +1079,11 @@ class PropertyController extends Controller
         // AT-350 — a just-created listing cannot yet have been lost to a competitor.
         // Declared rather than omitted so the shared view never hits an undefined var.
         $thirdPartySale = null;
+        // AT-448 — a brand-new listing has not gone live, so nothing is locked.
+        $expiryLock = null;
+        $extensionDocTypeId = null;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale', 'showLeaseType'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale', 'showLeaseType', 'expiryLock', 'extensionDocTypeId'));
     }
 
     /**
@@ -1823,6 +1862,21 @@ class PropertyController extends Controller
             } else {
                 unset($data['listed_date']);   // only ever merged in for validation
             }
+        }
+
+        // AT-448 — the expiry lock. With the agency's lock on, a listing that has
+        // gone live may not have its EXISTING expiry date changed (later, earlier,
+        // or cleared) unless an Extension document was uploaded to Drive after the
+        // last change. The same date re-submitted is not a change; a first date on
+        // a listing with none is allowed; Imported Stock is exempt (its typed date
+        // is the AT-422 takeover). Rejected with the banner's own words, never a 500.
+        // Spec: .ai/specs/at448-property-expiry.md §2.3, §8.
+        if (array_key_exists('expiry_date', $data)
+            && ! $wasImportedStock
+            && MandateExpiryPolicy::isLockedChange($property, $data['expiry_date'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'expiry_date' => MandateExpiryPolicy::LOCK_MESSAGE,
+            ]);
         }
 
         $previousP24SuburbId = $property->p24_suburb_id;
