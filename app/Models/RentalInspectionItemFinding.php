@@ -27,6 +27,25 @@ class RentalInspectionItemFinding extends Model
 
     public const DISPOSITION_WEAR_AND_TEAR = 'wear_and_tear';
     public const DISPOSITION_FLAGGED = 'flagged';
+    // §45.7a (Build I-7) — three more agent judgements. `disposition` is string(20), so no schema change; every key is
+    // <= 20 characters. `charge_tenant` rows are the agent's recorded judgement and the intended SOURCE of deduction lines
+    // when the finance build (parked I-8) is built — nothing in this module turns any of them into money.
+    public const DISPOSITION_PRE_EXISTING = 'pre_existing';
+    public const DISPOSITION_LANDLORD_COST = 'landlord_cost';
+    public const DISPOSITION_CHARGE_TENANT = 'charge_tenant';
+
+    /**
+     * key => the words the screen shows. A judgement the AGENT recorded, never a computed fact. The three new
+     * labels follow the spec's own wording (pre-existing, landlord's responsibility, charge to tenant) and are
+     * provisional until Johan approves the exact strings (§45.11 item 4).
+     */
+    public const DISPOSITION_LABELS = [
+        self::DISPOSITION_WEAR_AND_TEAR => 'Fair wear and tear',
+        self::DISPOSITION_FLAGGED => 'Flagged as a genuine difference',
+        self::DISPOSITION_PRE_EXISTING => 'Pre-existing',
+        self::DISPOSITION_LANDLORD_COST => 'Landlord\'s responsibility',
+        self::DISPOSITION_CHARGE_TENANT => 'Charge to tenant',
+    ];
 
     protected $fillable = [
         'agency_id',
@@ -75,7 +94,7 @@ class RentalInspectionItemFinding extends Model
      */
     public static function record(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy): self
     {
-        if (! in_array($disposition, [self::DISPOSITION_WEAR_AND_TEAR, self::DISPOSITION_FLAGGED], true)) {
+        if (! array_key_exists($disposition, self::DISPOSITION_LABELS)) {
             throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
         }
         if (trim($note) === '') {

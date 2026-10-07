@@ -548,6 +548,7 @@ class RentalInspectionController extends Controller
             'attendanceBoard' => app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->board($rentalInspection),
             'attendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($rentalInspection->agency_id),
             'followUpObservations' => $followUpObservations,
+            'followUpMarkers' => $followUpService->comparisonMarkersFor($rentalInspection, $followUpObservations),
             'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
             'followUpWorkOrdersByObservation' => $followUpLinked['work_orders'],
         ]);

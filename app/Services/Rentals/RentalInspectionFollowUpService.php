@@ -10,6 +10,7 @@ use App\Models\RentalInspection;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalWorkOrder;
 use App\Models\User;
+use App\Services\RentalInspectionComparisonService;
 use Illuminate\Support\Collection;
 
 /**
@@ -95,11 +96,66 @@ class RentalInspectionFollowUpService
      */
     public function followUpObservations(RentalInspection $inspection): Collection
     {
-        return $inspection->observations
+        $observations = $inspection->observations
             ->reject(fn (RentalInspectionObservation $o) => $o->isPending())
             ->filter(fn (RentalInspectionObservation $o) => \App\Models\RentalInspectionSetting::conditionNeedsFollowUpFor($inspection->agency_id, $o->condition))
             ->sortBy('id')
             ->values();
+
+        // §45.7a item 5 (Build I-7) — on an OUT-inspection the list puts what got worse since move-in first, and what was
+        // already there at move-in last. Ordering only: nothing is hidden, nothing is ticked, and every item keeps every action.
+        if ($inspection->type === RentalInspection::TYPE_OUT && $observations->isNotEmpty()) {
+            $markers = $this->comparisonMarkersFor($inspection, $observations);
+            $rank = fn (RentalInspectionObservation $o) => match ($markers[$o->id]['key'] ?? null) {
+                RentalInspectionComparisonService::DIFF_WORSE => 0,
+                RentalInspectionComparisonService::DIFF_DIFFERENT, RentalInspectionComparisonService::DIFF_NEW_ITEM => 1,
+                null => 2,
+                default => 3, // same as move-in = already present
+            };
+            $observations = $observations->sortBy(fn ($o) => [$rank($o), $o->id])->values();
+        }
+
+        return $observations;
+    }
+
+    /**
+     * §45.7a item 5 — for each follow-up observation on an out-inspection, how it compares with the tenancy's move-in
+     * (read-time, through the same difference rule as the Move-out comparison screen): `worse`, `different`, `new_item`, or
+     * `same` — a defect that was ALREADY PRESENT at move-in, shown with that label and never preselected. Empty for any
+     * other inspection type, and for an item with no move-in record to compare against.
+     *
+     * @param  Collection<int, RentalInspectionObservation>  $observations
+     * @return array<int, array{key: string, label: string}> keyed by observation id
+     */
+    public function comparisonMarkersFor(RentalInspection $inspection, Collection $observations): array
+    {
+        if ($inspection->type !== RentalInspection::TYPE_OUT || $observations->isEmpty()) {
+            return [];
+        }
+
+        $comparison = app(RentalInspectionComparisonService::class);
+        $baseline = $comparison->matchingInInspection($inspection);
+        if (! $baseline) {
+            return [];
+        }
+
+        $inByItem = RentalInspectionObservation::recorded()
+            ->where('rental_inspection_id', $baseline->id)
+            ->latest('created_at')->latest('id')
+            ->get()->unique('rental_inspection_item_id')->keyBy('rental_inspection_item_id');
+
+        $markers = [];
+        foreach ($observations as $o) {
+            $key = $comparison->differenceFor($inByItem->get($o->rental_inspection_item_id), $o, $inspection->agency_id)['key'];
+            $markers[$o->id] = [
+                'key' => $key,
+                'label' => $key === RentalInspectionComparisonService::DIFF_SAME
+                    ? 'Already present at move-in'
+                    : (RentalInspectionComparisonService::DIFFERENCE_LABELS[$key] ?? ''),
+            ];
+        }
+
+        return $markers;
     }
 
     /**
