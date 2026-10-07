@@ -73,7 +73,14 @@
          on their own. --}}
     <div class="lease-head flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <div>
-            <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</h1>
+            {{-- Johan, QA1, 2026-10-07 — the property, tenant and landlord open in a NEW tab so the agent never loses this screen. --}}
+            <h1 class="text-lg font-semibold">
+                @if($lease->property && !$lease->property->trashed() && auth()->user()->hasPermission('properties.view'))
+                    <a href="{{ route('corex.properties.show', $lease->property) }}" target="_blank" rel="noopener" class="hover:underline" data-test="lease-property-link">{{ $lease->property->buildDisplayAddress() }}</a>
+                @else
+                    {{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}
+                @endif{{ $lease->property?->trashed() ? ' (archived)' : '' }}
+            </h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
                 @if($lease->signingStatusLabel())
@@ -82,7 +89,14 @@
                 @if($leaseStateMarker)
                     <span class="ds-badge ds-badge-info">{{ $leaseStateMarker }}</span>
                 @endif
-                <span>{{ $lease->tenantNames() }}</span>
+                <span>
+                    @php $leaseTenantContacts = $lease->tenants->map(fn ($t) => $t->contact)->filter(); @endphp
+                    @forelse($leaseTenantContacts as $tc)
+                        @if(auth()->user()->hasPermission('contacts.view'))<a href="{{ route('corex.contacts.show', $tc) }}" target="_blank" rel="noopener" class="hover:underline" data-test="lease-tenant-link">{{ $tc->full_name }}</a>@else{{ $tc->full_name }}@endif{{ $loop->last ? '' : ', ' }}
+                    @empty
+                        {{ $lease->tenantNames() }}
+                    @endforelse
+                </span>
                 <span>&middot;</span>
                 <span>R{{ number_format((float) $lease->rental_amount, 2) }}/mo</span>
                 <span>&middot;</span>
@@ -395,12 +409,27 @@
                 <form method="GET" class="flex flex-wrap items-center gap-2">
                     <input type="text" name="q" value="{{ $timelineFilters['q'] ?? '' }}" placeholder="Search description or actor"
                            class="rounded-md px-3 py-1.5 text-xs flex-1 min-w-[180px]" style="border: 1px solid var(--border);">
-                    @foreach($timelineTypes as $t)
-                        <label class="text-xs flex items-center gap-1">
-                            <input type="checkbox" name="type[]" value="{{ $t }}" @checked(in_array($t, (array) ($timelineFilters['type'] ?? []), true))>
-                            {{ ucfirst(str_replace('_', ' ', $t)) }}
-                        </label>
-                    @endforeach
+                    {{-- Johan, QA1, 2026-10-07 — these were read as status ticks. They are FILTERS for the log:
+                         a "Show:" label, compact chips, every type shown when none is on, and a clear/reset. --}}
+                    <style>
+                        .log-chip input { position: absolute; opacity: 0; pointer-events: none; }
+                        .log-chip span { display: inline-block; padding: 1px 8px; border-radius: 9999px; font-size: 11px; border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; }
+                        .log-chip input:checked + span { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; }
+                        .log-chip input:focus-visible + span { outline: 2px solid var(--brand-icon, #0ea5e9); outline-offset: 1px; }
+                    </style>
+                    <div class="flex flex-wrap items-center gap-1 w-full" data-test="tenancy-log-filter-chips">
+                        <span class="text-[11px] font-semibold" style="color: var(--text-muted);">Show:</span>
+                        @foreach($timelineTypes as $t)
+                            <label class="log-chip relative">
+                                <input type="checkbox" name="type[]" value="{{ $t }}" @checked(in_array($t, (array) ($timelineFilters['type'] ?? []), true)) onchange="this.form.submit()">
+                                <span>{{ ucfirst(str_replace('_', ' ', $t)) }}</span>
+                            </label>
+                        @endforeach
+                        <span class="text-[11px]" style="color: var(--text-muted);">{{ empty(array_filter((array) ($timelineFilters['type'] ?? []))) ? 'All types shown' : 'Only the highlighted types' }}</span>
+                        @if(array_filter($timelineFilters))
+                            <a href="{{ route('corex.leases.show', $lease) }}" class="text-[11px] underline" style="color: var(--text-secondary);" data-test="tenancy-log-filter-clear">Clear filters</a>
+                        @endif
+                    </div>
                     <input type="date" name="date_from" value="{{ $timelineFilters['date_from'] ?? '' }}" class="rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border); color-scheme: light dark;">
                     <input type="date" name="date_to" value="{{ $timelineFilters['date_to'] ?? '' }}" class="rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border); color-scheme: light dark;">
                     <button type="submit" class="corex-btn-outline text-xs">Filter</button>
@@ -494,7 +523,9 @@
                             <span class="text-xs" style="color: var(--text-muted);">(property archived)</span>
                         @endif
                     @else
-                        {{ $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}
+                        @foreach($landlords as $ll)
+                            @if(auth()->user()->hasPermission('contacts.view'))<a href="{{ route('corex.contacts.show', $ll) }}" target="_blank" rel="noopener" class="underline" data-test="lease-landlord-link">{{ $ll->full_name }}</a>@else{{ $ll->full_name }}@endif{{ $loop->last ? '' : ', ' }}
+                        @endforeach
                     @endif
                 </div>
                 @if($lease->previousLease)

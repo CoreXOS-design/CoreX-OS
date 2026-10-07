@@ -1939,3 +1939,10 @@ Recommended pairing under the two-working-lanes rule: **L1 alone → L2 ‖ L3b 
 **Existing leases are not touched.** A lease created by the old flow stays as it is; its rent and start date are not editable on the lease edit screen (§6a) — archive it and capture again.
 
 **Tests:** `tests/Feature/Leases/LeaseFromApprovalTest.php` (replaces the §1.3a tests), `RentalApplicationRentDepositPrecedenceTest.php` (precedence ruling superseded).
+
+### 15.26 Lease screen links, Tenancy-log filters, Rentals-tab dates (7 Oct 2026, cc2 — Johan's QA1 test)
+
+- **Links open in a new tab.** On the lease screen the property address, each tenant and each landlord are links (`target="_blank" rel="noopener"`), shown only to a user holding `properties.view` / `contacts.view`; so the agent never loses the lease screen.
+- **Tenancy-log type boxes are filters.** They were read as status ticks. They are now compact chips under a "Show:" label; with none on, every type is shown ("All types shown"); a "Clear filters" link appears when any filter is active; ticking a chip filters at once. Nothing is auto-ticked — "Lease signed" on the stage strip is decided by `LeaseHubService::lifecycle()` (§15.5: a signed agreement, a paper copy, or — for sources other than a rental application — a lease that is no longer a draft).
+- **Property → Rental tab dates, one source of truth.** While a lease is ACTIVE on the property, Lease Start/End Date on the tab show that lease's dates, read-only and not posted. Only with no active lease are they the property's own editable dates (they are also the portal "available from" date — rental-renewals.md §19 — which is why they stay editable then). The tab's rental-details form is laid out as four label-over-input columns, compact, with no static helper text (an agency's own custom-field help text still shows).
+- Tests: `tests/Feature/Leases/LeaseScreenLinksAndRentalTabTest.php`.
