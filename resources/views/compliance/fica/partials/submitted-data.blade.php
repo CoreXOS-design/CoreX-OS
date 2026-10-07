@@ -39,13 +39,7 @@
         @if(! $isWetInk && $qa)
             <span style="color:var(--text-muted);">&middot; form wording {{ $qa['version'] }}</span>
         @endif
-        {{-- Download / print the questions + answers + signature as a form for the file. Online, completed submissions only — a paper intake has no online Q&A to print. --}}
-        @if(! $isWetInk && $qa && $qa['has_answers'] && $submission->signed_at)
-            <span class="inline-flex items-center gap-2 float-right" data-fica-qa-actions>
-                <a href="{{ route('compliance.fica.questions-answers.pdf', $submission) }}" class="text-xs font-semibold px-2 py-0.5 rounded" style="border:1px solid var(--border); color:var(--text-primary); background:var(--surface);">Download PDF</a>
-                <a href="{{ route('compliance.fica.questions-answers.print', $submission) }}" target="_blank" rel="noopener" class="text-xs font-semibold px-2 py-0.5 rounded" style="border:1px solid var(--border); color:var(--text-primary); background:var(--surface);">Print</a>
-            </span>
-        @endif
+        {{-- The Download / Print actions for this form live in the page HEADER of both screens (partials/qa-header-actions) — one place, not repeated here. --}}
     </div>
 
     @if($isWetInk)
