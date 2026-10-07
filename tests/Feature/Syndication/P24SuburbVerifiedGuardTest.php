@@ -32,7 +32,7 @@ class P24SuburbVerifiedGuardTest extends TestCase
     {
         parent::setUp();
 
-        $kzn = P24Province::create(['p24_id' => 4, 'p24_country_id' => 1, 'name' => 'KwaZulu Natal']);
+        $kzn = P24Province::create(['p24_id' => 4, 'p24_country_id' => \App\Models\P24Country::firstOrCreate(['p24_id' => 1], ['name' => 'South Africa'])->id, 'name' => 'KwaZulu Natal']);
         $durban = P24City::create(['p24_id' => 169, 'p24_province_id' => $kzn->id, 'name' => 'Durban']);
         $this->cityId = $durban->id;
 

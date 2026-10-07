@@ -68,7 +68,7 @@ class Property24SuburbResolutionTest extends TestCase
     private function seedP24Hierarchy(): void
     {
         // KwaZulu Natal — note P24 stores it WITHOUT a hyphen (real data shape).
-        $kzn = P24Province::create(['p24_id' => 4, 'p24_country_id' => 1, 'name' => 'KwaZulu Natal']);
+        $kzn = P24Province::create(['p24_id' => 4, 'p24_country_id' => \App\Models\P24Country::firstOrCreate(['p24_id' => 1], ['name' => 'South Africa'])->id, 'name' => 'KwaZulu Natal']);
         $this->kznId = $kzn->id;
 
         $durban = P24City::create(['p24_id' => 169, 'p24_province_id' => $kzn->id, 'name' => 'Durban']);
@@ -76,20 +76,21 @@ class Property24SuburbResolutionTest extends TestCase
         $this->durbanCityId = $durban->id;
         $this->portEdwardCityId = $portEdward->id;
 
-        // The collision: two "Glenmore" suburbs in different cities.
+        // The collision: two "Glenmore" suburbs in different cities. Only P24-VERIFIED suburbs resolve
+        // (AT-104 guard) — a listing may never go out under a suburb P24 did not confirm — so these are verified.
         $this->glenmoreDurbanRowId = P24Suburb::create([
             'name' => 'Glenmore', 'slug' => 'glenmore', 'p24_id' => 10787,
-            'p24_city_id' => $durban->id, 'region' => 'durban',
+            'p24_city_id' => $durban->id, 'region' => 'durban', 'p24_verified_at' => now(),
         ])->id;
         $this->glenmorePortEdwardRowId = P24Suburb::create([
             'name' => 'Glenmore', 'slug' => 'glenmore', 'p24_id' => 10790,
-            'p24_city_id' => $portEdward->id, 'region' => 'kzn-south-coast',
+            'p24_city_id' => $portEdward->id, 'region' => 'kzn-south-coast', 'p24_verified_at' => now(),
         ])->id;
 
         // A non-collision suburb for the regression check.
         $this->margateRowId = P24Suburb::create([
             'name' => 'Margate', 'slug' => 'margate', 'p24_id' => 6360,
-            'p24_city_id' => $portEdward->id, 'region' => 'kzn-south-coast',
+            'p24_city_id' => $portEdward->id, 'region' => 'kzn-south-coast', 'p24_verified_at' => now(),
         ])->id;
     }
 
