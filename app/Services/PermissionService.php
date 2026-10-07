@@ -318,13 +318,110 @@ class PermissionService
     }
 
     /**
+     * AT-401 — what the code ACTUALLY applies for a `<module>.view` key when a role has no usable
+     * scope (no grant row, or a grant row whose scope is NULL — getDataScope() returns null for
+     * both). The Role Manager reads this to show the access that is in force instead of "None".
+     *
+     * DISPLAY ONLY — nothing at runtime reads this map to decide access. It records what each
+     * module's own code does with a null scope (inventory 2026-10-07, .ai/specs/roles-permissions.md
+     * §AT-401). The wrappers below (calendarScope() … dr2UnfiledEmailsScope()) DO read it so their
+     * fallback and the display cannot drift. The other `?? 'own'` literals live in the models and
+     * controllers (FicaSubmission, PortalLead, OutreachQueueController, …); if you change one of
+     * those, change its row here in the same commit.
+     *
+     * scope  : 'own' | 'branch' | 'all' | null (null = no records / refused)
+     * varies : true when different screens of the module answer differently for a null scope
+     * note   : plain-English line shown in Role Manager
+     *
+     * A module with a `.view` key that is NOT listed has no data-breadth reader at all (the key is a
+     * plain on/off) — see ungrantedScopeDefault().
+     */
+    protected const UNGRANTED_SCOPE_DEFAULTS = [
+        // — own —
+        'command_center.calendar' => ['own', false, 'their own calendar entries'],
+        'command_center.tasks'    => ['own', false, 'their own tasks'],
+        'fica'                    => ['own', false, 'FICA submissions they requested'],
+        'portal_leads'            => ['own', false, 'their own portal leads'],
+        'ad_manager'              => ['own', false, 'their own ads'],
+        'buyers_report'           => ['own', false, 'their own buyers'],
+        'performance_report'      => ['own', false, 'their own figures'],
+        'deeds_capture'           => ['own', false, 'deeds records they captured themselves'],
+        'outreach_canvassing'     => ['own', false, 'their own outreach activity'],
+        'outreach_queue'          => ['own', false, 'their own outreach queue'],
+        'dr2_unfiled_emails'      => ['own', false, 'their own unfiled emails'],
+        'communications'          => ['own', false, 'their own threads, threads they take part in, and threads shared with them'],
+        'market_intelligence'     => ['own', true,  'the code reads this as "own", but the screen then shows the whole branch pool'],
+        'rental_command_centre'   => ['own', false, 'their own rentals'],
+        'rental_reports'          => ['own', false, 'their own rentals'],
+        'rental_applications'     => ['own', true,  'their own applications on records; the main list screen errors instead'],
+        'deals_v2'                => ['own', true,  'their own deals in lists; opening a deal is refused'],
+        // — all (agency-wide) —
+        'contact_rental_history'  => ['all', false, 'the whole agency\'s rental history on a contact'],
+        'contacts'                => ['all', true,  'the whole agency\'s contacts in lists (assistants get none); pickers and exports show only their own'],
+        'targets'                 => ['all', true,  'every user\'s targets, and the shared Activity Setup columns can be saved'],
+        // — shared / branch-shaped —
+        'templates'               => ['branch', false, 'company-wide templates plus their own branch\'s'],
+        'clauses'                 => ['branch', false, 'company-wide clauses plus their own branch\'s'],
+        'packs'                   => ['branch', false, 'company-wide packs plus their own branch\'s'],
+        // — nothing / refused —
+        'properties'              => [null, true,  'no records in lists; but a typed search, the Loss Analysis book and some pickers still show data'],
+        'listings'                => [null, true,  'no stock records; but the Listing Targets screens show the whole agency'],
+        'documents'               => [null, true,  'no documents; but signature templates show only their own'],
+        'rentals'                 => [null, true,  'no rental records; lease records show only their own'],
+        'deals'                   => [null, false, 'no deals'],
+        'presentations'           => [null, false, 'no presentations'],
+        'viewing_packs'           => [null, false, 'no viewing packs'],
+        'filing'                  => [null, false, 'no filed documents'],
+        'commercial_evals'        => [null, false, 'no commercial evaluations'],
+        'sales_docs'              => [null, false, 'no sales documents'],
+        'proforma'                => [null, false, 'no proforma invoices'],
+        'daily_activity'          => [null, false, 'no daily activity records'],
+        'communication_mailboxes' => [null, false, 'no mailboxes'],
+        'buyer_notes'             => [null, false, 'no buyer notes'],
+        'ppra_employment_letters' => [null, false, 'no employment letters'],
+        'leases'                  => [null, false, 'no leases (the list screen errors)'],
+        'rental_inspections'      => [null, false, 'no inspections (the list screen errors)'],
+        'rental_fault_reports'    => [null, false, 'no fault reports (the list screen errors)'],
+        'rental_work_orders'      => [null, false, 'no work orders (the list screen errors)'],
+        'rental_inventories'      => [null, false, 'no inventories'],
+        'rental_job_cards'        => [null, false, 'no job cards'],
+        'rentals_take_on_import'  => [null, false, 'no take-on imports'],
+    ];
+
+    /**
+     * AT-401 — the access the code applies for `$module`'s `.view` key when the role has no usable
+     * scope. See UNGRANTED_SCOPE_DEFAULTS. Display only.
+     *
+     * @return array{scope: ?string, varies: bool, note: string, read: bool}
+     *         `read` false = no code reads this module's breadth (plain on/off key).
+     */
+    public static function ungrantedScopeDefault(string $module): array
+    {
+        $row = static::UNGRANTED_SCOPE_DEFAULTS[$module] ?? null;
+
+        if ($row === null) {
+            return ['scope' => 'all', 'varies' => false, 'read' => false, 'note' => 'this key is a plain on/off — no data breadth applies'];
+        }
+
+        return ['scope' => $row[0], 'varies' => $row[1], 'read' => true, 'note' => $row[2]];
+    }
+
+    /**
+     * The fallback scope for a wrapper below, taken from the same map the Role Manager displays.
+     */
+    protected static function fallbackScope(string $module): string
+    {
+        return static::ungrantedScopeDefault($module)['scope'] ?? 'own';
+    }
+
+    /**
      * Calendar data-visibility scope for a user (own | branch | all).
      * Reads command_center.calendar.view's scope; defaults to 'own' so a
      * user who reaches the page never accidentally sees the whole agency.
      */
     public static function calendarScope(User $user): string
     {
-        return static::getDataScope($user, 'command_center.calendar') ?? 'own';
+        return static::getDataScope($user, 'command_center.calendar') ?? static::fallbackScope('command_center.calendar');
     }
 
     /**
@@ -333,7 +430,7 @@ class PermissionService
      */
     public static function taskScope(User $user): string
     {
-        return static::getDataScope($user, 'command_center.tasks') ?? 'own';
+        return static::getDataScope($user, 'command_center.tasks') ?? static::fallbackScope('command_center.tasks');
     }
 
     /**
@@ -352,7 +449,7 @@ class PermissionService
      */
     public static function contactRentalHistoryScope(User $user): string
     {
-        return static::getDataScope($user, 'contact_rental_history') ?? 'all';
+        return static::getDataScope($user, 'contact_rental_history') ?? static::fallbackScope('contact_rental_history');
     }
 
     /**
@@ -363,7 +460,7 @@ class PermissionService
      */
     public static function marketIntelligenceScope(User $user): string
     {
-        return static::getDataScope($user, 'market_intelligence') ?? 'own';
+        return static::getDataScope($user, 'market_intelligence') ?? static::fallbackScope('market_intelligence');
     }
 
     /**
@@ -373,7 +470,7 @@ class PermissionService
      */
     public static function outreachCanvassingScope(User $user): string
     {
-        return static::getDataScope($user, 'outreach_canvassing') ?? 'own';
+        return static::getDataScope($user, 'outreach_canvassing') ?? static::fallbackScope('outreach_canvassing');
     }
 
     /**
@@ -385,7 +482,7 @@ class PermissionService
      */
     public static function deedsCaptureScope(User $user): string
     {
-        return static::getDataScope($user, 'deeds_capture') ?? 'own';
+        return static::getDataScope($user, 'deeds_capture') ?? static::fallbackScope('deeds_capture');
     }
 
     /**
@@ -402,7 +499,7 @@ class PermissionService
      */
     public static function dr2UnfiledEmailsScope(User $user): string
     {
-        return static::getDataScope($user, 'dr2_unfiled_emails') ?? 'own';
+        return static::getDataScope($user, 'dr2_unfiled_emails') ?? static::fallbackScope('dr2_unfiled_emails');
     }
 
     /**

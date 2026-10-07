@@ -209,6 +209,15 @@ class RoleManagerController extends Controller
 
         $allPermKeys = $permissions->pluck('key');
 
+        // AT-401 — for every `.view` key, what the code applies when a role has no stored scope
+        // (no grant row, or a row with a NULL scope). The matrix shows this, marked "Default",
+        // instead of "None". Display only — see PermissionService::UNGRANTED_SCOPE_DEFAULTS.
+        $scopeDefaults = $permissions
+            ->filter(fn ($p) => str_ends_with($p->key, '.view'))
+            ->mapWithKeys(fn ($p) => [
+                $p->key => PermissionService::ungrantedScopeDefault(Str::beforeLast($p->key, '.view')),
+            ]);
+
         $moduleActionsMap = collect($matrixSections)->flatMap(function ($modules) {
             return collect($modules)->mapWithKeys(function ($data, $moduleKey) {
                 $map = [];
@@ -226,6 +235,7 @@ class RoleManagerController extends Controller
             'sections'         => $sections,
             'granted'          => $granted,
             'scopeGranted'     => $scopeGranted,
+            'scopeDefaults'    => $scopeDefaults,
             'roles'            => $roles,
             'users'            => $users,
             'branches'         => $branches,
@@ -300,6 +310,9 @@ class RoleManagerController extends Controller
                         if (in_array($scopeVal, ['own', 'branch', 'all'])) {
                             $scope = $scopeVal;
                         }
+                        // AT-401 — 'default' = the matrix is showing the code's default for this
+                        // role and the user never touched it: store NO scope (NULL), exactly as
+                        // before the save. Anything else unrecognised also stays NULL.
                     } else {
                         // Not part of this submission (no selector rendered
                         // for it) — carry the existing value forward rather

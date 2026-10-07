@@ -310,3 +310,39 @@ practitioner roles. Spec: ppra-ffc-employment-letter.md §17.
 A `.view` action key in module `buyer_notes` (own / branch / all via the normal Role Manager selector and
 `PermissionService::getDataScope($user, 'buyer_notes')`). Governs read-only buyer notes on the Intelligence
 tab and Core Matches. Independent of `contacts.view`. See `core-matches.md` ("Buyer notes — Role Manager scope").
+
+
+## AT-401 — the matrix shows the access IN FORCE, not "None" (2026-10-07)
+
+**The defect.** For a `<module>.view` key the Role Manager only knew stored grant rows. A role with no row
+showed "None" although the code applies a default for it (own / branch / all), and a role holding a `.view`
+row with no stored scope showed "All" while the runtime reads NULL — and saving the matrix then *wrote* that
+"All". Confirmed case: `contact_rental_history.view` (runtime default all, shown None).
+
+**What `getDataScope()` really does.** It returns the stored scope, or NULL when the role has no row *or* a
+row with a NULL scope (`getScopesForRole()` selects only non-NULL scopes). It never returns `'none'`. What
+each module then does with NULL is decided in that module's own code (deny / own / all / mixed). The
+single record of those answers is `PermissionService::UNGRANTED_SCOPE_DEFAULTS` (read via
+`ungrantedScopeDefault($module)`): `[scope, varies-by-screen, plain-English note]`. A module with a `.view`
+key that is not in the map has no breadth reader at all (plain on/off).
+
+**Display rules (Role Manager).**
+- Stored scope → shown as itself.
+- No stored scope (no row, or row with NULL scope) → shown as the code's default, in amber text
+  "Default (nothing stored for this role) — the system applies X: …", with "Varies by screen" where the
+  module's screens disagree. Access-type `.view` keys (no scope picker, e.g. the rentals family) carry a
+  static "Default breadth when no scope is stored: …" line.
+- Choosing anything (radio, toggle, ticking an action on a default-only role) makes it an explicit value.
+- Save: a role/key still showing only the default posts the *unchanged* grant bit and `scopes[key]=default`;
+  the server stores NULL for `default`. **Saving with no changes changes nothing**; a revoked key stays revoked
+  (the default on screen is never saved as a grant).
+- Display only: no default was tightened or loosened. The wrappers `calendarScope()` … `dr2UnfiledEmailsScope()`
+  read the same map for their fallback so display and runtime cannot drift; the `?? 'own'` literals that live in
+  models/controllers (FicaSubmission, PortalLead, OutreachQueueController, …) are mirrored in the map and must be
+  changed together with it.
+
+**Not done (decisions for Johan, see the AT-401 lane report):** the schema still cannot store an explicit
+*deny* (no row = revoked = "not decided" are one bit); role-literal shortcuts (admin/super_admin) that bypass a
+stored scope are not shown in the matrix.
+
+Tests: `tests/Feature/RoleManager/RoleManagerDefaultsDisplayTest.php`.
