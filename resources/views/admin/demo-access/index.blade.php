@@ -17,7 +17,6 @@
     $rows    = $listing['rows'];
     $views   = $listing['views'];
     $f       = $listing['filters'];
-    $hasAny  = $listing['hasAny'];
 
     // A link that changes one thing and keeps every other filter.
     $to = fn (array $over) => route('admin.demo-access.index', array_filter(
@@ -38,7 +37,7 @@
                 <div>
                     <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Access</h1>
                     <p class="text-xs" style="color: var(--text-muted);">
-                        Time-boxed access to demo1.corexos.co.za · next demo reset {{ $nextReset->format('D j M, H:i') }} (the demo rebuilds every 3 days).
+                        Time-boxed access to {{ $demoHost }} · next demo reset {{ $nextReset->format('D j M, H:i') }} (the demo rebuilds every {{ $resetDays }} days).
                     </p>
                     <p class="text-xs mt-1 flex flex-wrap items-center gap-2" style="color: var(--text-muted);">
                         <span class="ds-badge {{ $tncVersion ? 'ds-badge-success' : 'ds-badge-danger' }}">{{ $tncVersion ? 'Terms version ' . $tncVersion->version : 'No terms published' }}</span>
@@ -209,19 +208,25 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/>
                         </svg>
                     </div>
-                    @if ($listing['anyFilter'])
+                    @if ($listing['issued'] === 0)
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No demo grants yet</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-muted);">Issue a grant to give a prospect time-boxed access to the demo. They get an emailed code; the clock starts when they first sign in.</p>
+                        <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-sm">Issue the first grant</a>
+                    @elseif ($listing['anyFilter'])
                         <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No grants in this view</h3>
                         <p class="text-sm mb-4" style="color: var(--text-muted);">Nothing matches the filters you have on. Pick another view on the left, or clear them to see every grant.</p>
                         <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-primary text-sm">Clear all filters</a>
                     @else
-                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No demo grants yet</h3>
-                        <p class="text-sm mb-4" style="color: var(--text-muted);">Issue a grant to give a prospect time-boxed access to the demo. They get an emailed code; the clock starts when they first sign in.</p>
-                        <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-sm">Issue the first grant</a>
+                        {{-- Grants exist, but every one is archived — "All grants" excludes them. --}}
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No active grants</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-muted);">Every grant has been archived. Open the Archived view on the left to restore one, or issue a new grant.</p>
+                        <a href="{{ $to(['view' => 'archived', 'page' => null]) }}" class="corex-btn-outline text-sm">Open archived grants</a>
+                        <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-sm">New grant</a>
                     @endif
                 </div>
             @else
                 <div class="text-xs" style="color: var(--text-muted);">
-                    Showing {{ number_format($rows->firstItem()) }}–{{ number_format($rows->lastItem()) }} of {{ number_format($rows->total()) }}
+                    Showing {{ number_format($rows->firstItem() ?? 0) }}–{{ number_format($rows->lastItem() ?? 0) }} of {{ number_format($rows->total()) }}
                     · bars show pages viewed per day over the last {{ \App\Support\DemoAccessListing::SPARK_DAYS }} days
                 </div>
 
