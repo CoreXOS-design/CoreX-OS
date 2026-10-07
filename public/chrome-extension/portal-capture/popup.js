@@ -828,7 +828,7 @@
     var typeRow = null, streetRow = null;
     var levyRaw = null, ratesTaxesRaw = null, listingDateRaw = null, petsAllowedRaw = null,
         zoningRaw = null, poolYes = false, gardenYes = false,
-        kitchenFeatures = [], gardenFeatures = [], securityFeatures = [],
+        kitchenFeatures = [], gardenFeatures = [],
         bathroomFeatures = [], parkingTextFeatures = [];
     // 2026-09-30 REGRESSION FIX (property #21098): the "Parking" row can be an
     // AGGREGATE that undercounts — P24 also renders one row PER parking spot:
@@ -886,9 +886,59 @@
         gardenYes = gItems.length > 0 && !/^no$/i.test(gItems[0]);
         gardenFeatures = gItems.filter(function (g) { return !/^(yes|no|garden)$/i.test(g); });
       }
-      else if (k2 === 'security') securityFeatures = splitList(rawFirst);
     });
     var petsAllowed = petsAllowedRaw ? /^yes$/i.test(petsAllowedRaw) : null;
+
+    // 2026-10-07 (P24 import 117580701): EVERY row of every accordion on the page
+    // (Property Overview, Rooms/Facilities, External Features, Building, Other
+    // Features) and the tags beside the icon strip ("Furnished", "Pet Friendly",
+    // "Fibre Internet" …), sent RAW. The server (OtherAgencyStockFeatureMapper)
+    // decides which CoreX features each one ticks — the extension only reads.
+    // Values keep their line breaks (a Security list is one block with newlines).
+    // "Points of Interest" is skipped on purpose: P24 loads it on demand from a
+    // separate request (nearby schools/shops), it is not part of the advert.
+    var featureRows = [];
+    document.querySelectorAll('.panel').forEach(function (panel) {
+      var head = panel.querySelector('.panel-heading');
+      if (!head) return;
+      var headSpan = head.querySelector('span');
+      var section = clean((headSpan || head).textContent);
+      if (/^points of interest$/i.test(section)) return;
+      panel.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
+        var kEl = row.querySelector('.p24_propertyOverviewKey');
+        var rEl = row.querySelector('.p24_propertyOverviewResult');
+        if (!kEl || !rEl) return;
+        var vals = Array.prototype.slice.call(rEl.querySelectorAll('.p24_info'))
+          .map(function (e) { return e.textContent.trim(); }).filter(Boolean);
+        if (!vals.length && rEl.textContent.trim()) vals = [rEl.textContent.trim()];
+        var kText = clean(kEl.textContent);
+        if (kText && vals.length) featureRows.push({ s: section, k: kText, v: vals });
+      });
+    });
+    var stripTags = [];
+    document.querySelectorAll('.p24_listingFeatures').forEach(function (blk) {
+      if (blk.querySelector('.p24_featureAmount')) return; // bedrooms/baths/garages/parking: read as counts above
+      var lab = blk.querySelector('.p24_feature');
+      var tag = lab ? clean(lab.textContent).replace(/:$/, '') : '';
+      if (tag && stripTags.indexOf(tag) === -1) stripTags.push(tag);
+    });
+
+    // 2026-10-07 (P24 import 117580701): the title is the advert's own heading — the
+    // <h5> at the top of the description card ("Beautifully situated Coastal Property
+    // with sea views"). JSON-LD `name` and the page <h1> are only P24's generic line
+    // ("3 Bedroom Townhouse for sale in Uvongo"), kept as the fallback. When an advert
+    // has no heading P24 prints a generic one there too ("House For Sale in Umhlali
+    // Golf Estate Ballito KwaZulu Natal", "Apartment To Rent in Ballito Central,
+    // Ballito, KwaZulu Natal") — "<type> for sale/to rent in <place>" ending in a
+    // province — and that is treated as no heading.
+    var advertHeading = null;
+    try {
+      var headingEl = document.querySelector('.p24_listingAbout h5');
+      var headingText = headingEl ? clean(headingEl.textContent) : '';
+      var looksGeneric = /\b(for sale|to rent|for rent|to let)\s+in\s+/i.test(headingText)
+        && /(kwazulu[\s-]?natal|gauteng|western cape|eastern cape|free state|limpopo|mpumalanga|north west|northern cape)\s*$/i.test(headingText);
+      if (headingText && !looksGeneric) advertHeading = headingText;
+    } catch (e) { /* fall back to the generic line */ }
 
     // The icon strip "Features" block: <span class="p24_feature">Garages:</span>
     // <span class="p24_featureAmount">2</span>. This markup replaced the old one
@@ -1014,7 +1064,7 @@
       // before POSTing — the server's deriveTitle() then fell back to a
       // bare suburb name ("Clayville") because street_number/street_name
       // are never sent. Send it for real; deriveTitle() now prefers it.
-      listing_title: ld.name || textOf('h1') || null,
+      listing_title: advertHeading || ld.name || textOf('h1') || null,
       listing_type: listingType,
       // Raw signals only — the server maps these to CoreX's current
       // taxonomy (property_type/category). property_type_raw is the
@@ -1066,9 +1116,11 @@
       garden: gardenYes,
       kitchen_features: kitchenFeatures,
       garden_features: gardenFeatures,
-      security_features: securityFeatures,
+      // Security now travels inside feature_rows (mapped to CoreX's own security list server-side).
+      feature_rows: featureRows,
+      strip_tags: stripTags,
       bathroom_features: bathroomFeatures,
-      _title: ld.name || textOf('h1'),
+      _title: advertHeading || ld.name || textOf('h1'),
       _expected_photo_count: imageCount,
     };
   }

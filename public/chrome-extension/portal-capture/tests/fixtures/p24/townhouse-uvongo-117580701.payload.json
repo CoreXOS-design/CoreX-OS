@@ -1,0 +1,196 @@
+{
+  "portal": "p24",
+  "listing_ref": "117580701",
+  "listing_url": "https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359/117580701",
+  "price": 1360000,
+  "description": "Ideally positioned close to the beach, this well presented property offers relaxed no fuss coastal living in a sought after and well maintained complex. It has attractive sea views and a lovely outlook across a landscaped communal garden and swimming pool, all in a peaceful yet very convenient setting close to the beach and local amenities.\n            The home features a covered patio and outdoor braai area ideal for entertaining or relaxing family afternoons. The unit offers a very spacious and practical layout. This includes a modern and well appointed open plan kitchen leading seamlessly into the dining room and comfortable lounge area with direct access outside to the patio/braai area. Upstairs are 3 large comfortable bedrooms with plenty of in built storage. The master is generously sized with an attached patio with views of the sea and gardens and features a modern and spacious en suite. A further large bathroom with separate shower area and a spacious upper landing ensure the living spaces are generous. An attached garage adds extra convenience and space.\n            This property is a ideal opportunity to own a perfectly situated holiday home with excellent income investment potential",
+  "listing_title": "Beautifully situated Coastal Property with sea views",
+  "listing_type": "sale",
+  "property_type_raw": "Apartment",
+  "property_type_label_hint": "Townhouse",
+  "beds": 3,
+  "baths": 2.5,
+  "garages": 1,
+  "size_m2": 169,
+  "erf_size_m2": 6294,
+  "suburb": "Uvongo",
+  "province": "KwaZulu Natal",
+  "street_address": null,
+  "latitude": null,
+  "longitude": null,
+  "p24_suburb_external_id": 6359,
+  "image_ids": [
+    385801490,
+    385801492,
+    385801494,
+    385801496,
+    385801498,
+    385801500,
+    385801502,
+    385801503,
+    385801507,
+    385801509,
+    385801511,
+    385801512,
+    385801514,
+    385801516,
+    385801517,
+    387568107
+  ],
+  "first_image_id": 385801490,
+  "image_count": 16,
+  "source_agency_name": "Just Property Living",
+  "source_agent_name": "Nadia Beattie",
+  "source_agent_profile_url": "/estate-agents/just-property-living/nadia-beattie/365493",
+  "source_agent_image_url": "https://images.prop24.com/361085794/UpperCrop200x200",
+  "source_agency_logo_url": "https://images.prop24.com/340428567/Fit450x225",
+  "date_posted": "01 September 2026",
+  "levy": null,
+  "rates_taxes": "R 1 323",
+  "zone_type_raw": null,
+  "pets_allowed": false,
+  "parking_count": null,
+  "parking_features": [],
+  "pool": true,
+  "garden": true,
+  "kitchen_features": [],
+  "garden_features": [],
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117580701"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Townhouse"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "01 September 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Erf Size",
+      "v": [
+        "6 294 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "169 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 1 323"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Pets Allowed",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Furnished",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bedrooms",
+      "v": [
+        "3"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Bathrooms",
+      "v": [
+        "2.5"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Kitchens",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "Rooms",
+      "k": "Reception Rooms",
+      "v": [
+        "2"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garage",
+      "v": [
+        "1"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Garden",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Pool",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Wall",
+      "v": [
+        "Brick"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Floor",
+      "v": [
+        "Tiled Floors"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Backup Water",
+      "v": [
+        "Water Tank"
+      ]
+    }
+  ],
+  "strip_tags": [
+    "No Pets Allowed",
+    "Furnished",
+    "Pool",
+    "Garden",
+    "Water Tank"
+  ],
+  "bathroom_features": [],
+  "_title": "Beautifully situated Coastal Property with sea views",
+  "_expected_photo_count": 16
+}

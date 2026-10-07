@@ -45,7 +45,17 @@ final class ComposerController extends Controller
 
         $linkedProperties = $this->loadLinkedProperties($agencyId, $contact);
 
+        // Other Agency Stock can never be pitched (spec other-agency-stock.md §5c): refuse a
+        // direct address to it, and keep it out of the picker / the "first linked" default.
+        // A contact may stay linked to it — that link is allowed, only the pitch is not.
         $propertyId = $request->query('property_id');
+        if ($propertyId) {
+            \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $linkedProperties->firstWhere('id', (int) $propertyId));
+        }
+        $linkedProperties = $linkedProperties
+            ->reject(fn (Property $p) => \App\Services\Properties\OtherAgencyStockActionRules::isBlocked('pitch_seller', $p))
+            ->values();
+
         $property = $this->resolvePropertyForContact($propertyId, $linkedProperties);
 
         $channel = $request->query('channel', 'whatsapp');
@@ -167,6 +177,7 @@ final class ComposerController extends Controller
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->firstOrFail();
+            \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $property);
         } elseif (!$contact->hasStructuredAddress()) {
             $msg = 'Cannot send: this contact has no linked property and no captured address to pitch.';
             return $request->wantsJson()
@@ -328,6 +339,7 @@ final class ComposerController extends Controller
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->firstOrFail();
+            \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $property);
         } elseif (!$contact->hasStructuredAddress()) {
             return $this->queueError($request, 'Cannot queue: this contact has no linked property and no captured address to pitch.');
         }

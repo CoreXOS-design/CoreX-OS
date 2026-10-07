@@ -1517,8 +1517,9 @@ class PropertyController extends Controller
         // A contact is required to COMPLETE a listing, not to save a draft in progress.
         // 2026-09-30 — Other Agency Stock is exempt: the agency doesn't have
         // (and will never be given) the other agency's seller/owner details,
-        // so this listing can never legitimately gain a linked contact. Every
-        // other status keeps the rule unchanged.
+        // so a linked contact is not REQUIRED to save it (linking one stays
+        // allowed — 2026-10-07, Johan; it does not unlock a pitch, spec §5c).
+        // Every other status keeps the rule unchanged.
         if (! $isDraftSave && ! $property->isOtherAgencyStock() && $property->contacts()->count() === 0) {
             return back()
                 ->withInput()
@@ -3259,6 +3260,9 @@ class PropertyController extends Controller
         if (! auth()->user()?->is_assistant) {
             $this->authorizeProperty($property);
         }
+        // Other Agency Stock can never be advertised (spec other-agency-stock.md §5c) —
+        // its own rule, not the compliance gate; refused on a direct address too.
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('ad_builder', $property);
         $property->load(['agent', 'branch']);
 
         /** @var User $user */
