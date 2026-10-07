@@ -3147,6 +3147,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
     Route::post('/settings/rental-inspections/attended-as-labels', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAttendedAsLabels'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.attended-as-labels');
+    // §45.14 — the agency's own words for the three move-out classifications.
+    Route::post('/settings/rental-inspections/move-out-classification-labels', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateMoveOutClassificationLabels'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.move-out-classification-labels');
     Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.

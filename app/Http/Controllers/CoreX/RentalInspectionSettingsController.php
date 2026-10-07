@@ -90,6 +90,8 @@ class RentalInspectionSettingsController extends Controller
             'photoNoteClassifications' => RentalInspectionSetting::photoNoteClassificationsFor($agencyId),
             // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection.
             'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
+            // §45.14 — the agency's own words for the three move-out classifications.
+            'moveOutClassificationLabels' => RentalInspectionSetting::moveOutClassificationLabelsFor($agencyId),
             // §41, 2026-09-28, Johan's ruling — auto-send the signed report
             // on completion, defaults ON.
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
@@ -527,6 +529,38 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Attendance wording saved.');
+    }
+
+    /**
+     * §45.14 — the agency's own words for the three move-out classifications (pre-existing / landlord's
+     * responsibility / charge to tenant). The keys are fixed by the finding record; only the labels are the
+     * agency's. Same `_submitted`-marker discipline as the other list savers, so a wizard post that never
+     * rendered this list cannot wipe it; a blank label simply keeps its default.
+     */
+    public function updateMoveOutClassificationLabels(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('move_out_classification_labels_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['move_out_classification_labels' => 'That did not save — please try again.']);
+        }
+
+        $submitted = (array) $request->input('move_out_classification_labels', []);
+        $labels = [];
+        foreach (array_keys(RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS) as $key) {
+            $label = trim((string) ($submitted[$key] ?? ''));
+            if ($label !== '') {
+                $labels[$key] = mb_substr($label, 0, 60);
+            }
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['move_out_classification_labels' => $labels === [] ? null : $labels],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Move-out classification wording saved.');
     }
 
     /**

@@ -36,8 +36,9 @@ class RentalInspectionItemFinding extends Model
 
     /**
      * key => the words the screen shows. A judgement the AGENT recorded, never a computed fact. The three new
-     * labels follow the spec's own wording (pre-existing, landlord's responsibility, charge to tenant) and are
-     * provisional until Johan approves the exact strings (§45.11 item 4).
+     * labels follow the spec's own wording (pre-existing, landlord's responsibility, charge to tenant). These are the
+     * DEFAULTS and the fixed key list: each agency may reword the three move-out ones
+     * (RentalInspectionSetting::dispositionLabelsFor(), §45.14) — validation and logic use the KEYS only.
      */
     public const DISPOSITION_LABELS = [
         self::DISPOSITION_WEAR_AND_TEAR => 'Fair wear and tear',
