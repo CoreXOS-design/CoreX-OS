@@ -999,6 +999,77 @@ async function testPrecheck_requestFails_pullAnywayStillProceeds(filePath, label
     !!payload, 'capture never proceeded after an explicit Pull anyway on a failed check');
 }
 
+/**
+ * 3.8.1 (2026-10-07, Johan's first pre-check test) — a click on "19 Grindewald
+ * Drive" must be sent as street number 19 + street "Grindewald Drive", and a
+ * `same_street` answer (other property, different number) must be a NON-blocking
+ * note: no duplicate banner, the capture proceeds, the paid reveal fires once.
+ */
+function runSplitStreetAddressTests() {
+  const split = loadStandaloneFunction(NEW_FILE, 'splitStreetAddress');
+  const r19 = split('19 Grindewald Drive');
+  check('splitStreetAddress — "19 Grindewald Drive" -> number 19, name "Grindewald Drive"',
+    r19.number === '19' && r19.name === 'Grindewald Drive', `result=${JSON.stringify(r19)}`);
+  const r29 = split('29 Grindewald Drive');
+  check('splitStreetAddress — "29 Grindewald Drive" -> number 29 (a different number stays different)',
+    r29.number === '29' && r29.name === 'Grindewald Drive', `result=${JSON.stringify(r29)}`);
+}
+
+function runSameStreetNoteTests() {
+  const describe = loadStandaloneFunction(NEW_FILE, 'describeSameStreet');
+  check('describeSameStreet — nothing to say when same_street is absent/empty',
+    describe({ status: 'not_found' }) === '' && describe({ same_street: [] }) === '', 'expected empty string');
+  const note = describe({ same_street: [{ address: '29 Grindewald Drive, UVONGO', source: 'tracked_property' }] });
+  check('describeSameStreet — names the OTHER property and says the number is different',
+    /29 Grindewald Drive/.test(note) && /different number/.test(note), `note=${JSON.stringify(note)}`);
+}
+
+async function testPrecheck_notFoundWithSameStreet_isNonBlocking(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: {
+    status: 'not_found', matches: [],
+    same_street: [{ source: 'tracked_property', id: 392, address: '29 Grindewald Drive, UVONGO', number_known: true }],
+  } });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+
+  check(`[${label}] same_street only — capture proceeds (a different number is not a duplicate)`,
+    !!payload, 'captureDeed was never sent');
+  check(`[${label}] same_street only — no duplicate banner was shown`,
+    !doc.getElementById('corex-deeds-precheck-banner'), 'banner is present');
+  check(`[${label}] same_street only — paid reveal fired exactly as for any new property`,
+    reveal.wasClicked() === true, 'reveal icon was never clicked');
+}
+
+async function testPrecheck_propertyMatch_bannerUsesServerSummary(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: {
+    status: 'exists',
+    matches: [{
+      source: 'property', property_id: 6113, tracked_property_id: null, address: '19 Grindewald, Uvongo',
+      summary: 'On CoreX as a property (Active). Street number, street name and suburb all match.',
+      match_type: 'property', confident: true, deeplink: 'https://example.test/corex/properties/6113',
+    }],
+  } });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  check(`[${label}] property match — banner names the property and says it is on CoreX as a property`,
+    !!banner && /19 Grindewald, Uvongo/.test(banner.textContent) && /On CoreX as a property/.test(banner.textContent),
+    `banner=${banner ? JSON.stringify(banner.textContent) : 'none'}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+  check(`[${label}] property match + Cancel — the paid reveal icon was NEVER clicked`,
+    reveal.wasClicked() === false, 'reveal icon fired');
+}
+
 async function testPrecheck_requestFails_tryAgainRetriesThenNotFoundProceeds(filePath, label) {
   const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
   const reveal = addRevealIcon(doc, '7505125800088');
@@ -1253,6 +1324,10 @@ async function main() {
   await testPrecheck_possibleMatch_pullAnywayClicked_revealsAndSends(NEW_FILE, 'NEW 3.8.0');
   await testPrecheck_requestFails_pullAnywayStillProceeds(NEW_FILE, 'NEW 3.8.0');
   await testPrecheck_requestFails_tryAgainRetriesThenNotFoundProceeds(NEW_FILE, 'NEW 3.8.0');
+  runSplitStreetAddressTests();
+  runSameStreetNoteTests();
+  await testPrecheck_notFoundWithSameStreet_isNonBlocking(NEW_FILE, 'NEW 3.8.1');
+  await testPrecheck_propertyMatch_bannerUsesServerSummary(NEW_FILE, 'NEW 3.8.1');
 
   console.log('=== Running against OLD file (pre-fix, v3.4.2 REGRESSION fixture) — Test E expected to FAIL (regression reproduction) ===');
   await testE_twoDistinctPropertiesInSequence(REGRESSION_FILE, 'REGRESSION 3.4.2', true);
