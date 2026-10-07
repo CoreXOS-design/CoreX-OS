@@ -154,7 +154,7 @@
         .cv-untagged-thumb-img { width: 56px; height: 42px; }
     </style>
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
@@ -3198,9 +3198,11 @@
                                 <div class="text-xs" style="color:var(--text-primary);">
                                     <span class="font-semibold">Expiry date locked — this listing is live.</span>
                                     {{ $__exWhen }}
-                                    Upload the signed extension to the <span class="font-semibold">Extension</span> folder in Drive to unlock it, then set the new date.
+                                    Upload the signed extension to the <span class="font-semibold">{{ $extensionFolderLabel ?? 'Extension' }}</span> folder in Drive to unlock it, then set the new date.
                                 </div>
-                                <button type="button" class="corex-btn-outline text-xs flex-shrink-0" @click="activeTab='drive'">Go to Drive</button>
+                                {{-- driveTypePref pre-selects the folder in the Drive tab's upload picker. --}}
+                                <button type="button" class="corex-btn-outline text-xs flex-shrink-0"
+                                        @click="driveTypePref = {{ (int) ($extensionDocTypeId ?? 0) ?: 'null' }}; activeTab='drive'">Go to Drive</button>
                             </div>
                             @elseif($__exUnlockAt)
                             <div class="mb-3 px-3 py-2 rounded-md text-xs" data-tour="prop-expiry-unlocked"
@@ -3311,7 +3313,7 @@
                                         <input type="text" value="{{ $property->expiry_date?->format('Y-m-d') }}" readonly disabled
                                                class="prop-input prop-field-lifecycle"
                                                style="opacity:.75; cursor:not-allowed;"
-                                               title="Locked — upload the signed extension to Drive → Extension to unlock">
+                                               title="Locked — upload the signed extension to Drive → {{ $extensionFolderLabel ?? 'Extension' }} to unlock">
                                         @else
                                         <input type="date" name="expiry_date" x-model="expiryDate" :min="listedDate"
                                                class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"
@@ -9600,7 +9602,8 @@
                         <select name="document_types[0]" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
                             <option value="">Document Type (optional)</option>
                             @foreach($documentTypes as $dt)
-                            <option value="{{ $dt->id }}">{{ $dt->label }}</option>
+                            {{-- AT-448: "Go to Drive" on a locked expiry date pre-selects the Extension folder --}}
+                            <option value="{{ $dt->id }}" :selected="driveTypePref == {{ (int) $dt->id }}">{{ $dt->label }}</option>
                             @endforeach
                         </select>
                         <select name="contact_id" class="text-xs rounded-md border px-2 py-1.5" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
@@ -9621,7 +9624,7 @@
                                     <select :name="'document_types[' + i + ']'" class="text-xs rounded-md border px-2 py-1.5 flex-shrink-0" style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary); min-width:180px;">
                                         <option value="">Document Type (optional)</option>
                                         @foreach($documentTypes as $dt)
-                                        <option value="{{ $dt->id }}">{{ $dt->label }}</option>
+                                        <option value="{{ $dt->id }}" :selected="driveTypePref == {{ (int) $dt->id }}">{{ $dt->label }}</option>
                                         @endforeach
                                     </select>
                                 </div>

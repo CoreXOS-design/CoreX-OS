@@ -230,7 +230,46 @@ final class PropertyExpiryTest extends TestCase
         $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [1], 'scope' => 'everything'])->assertStatus(422);
     }
 
+    public function test_a_hand_edited_scope_never_reaches_the_dismiss_call(): void
+    {
+        [$agencyId, $agent] = $this->agencyWithUser('agent');
+        $this->actingAs($agent);
+        $p = $this->property($agencyId, $agent, 'ZZZ-Scope-House', ['expiry_date' => today()->addDays(3)]);
+
+        // ?scope= is free text; the pop-up must hand the dismiss endpoint only 'my' or
+        // 'branch' (anything else would 422 and re-announce the listing on every visit).
+        $this->get(route('corex.properties.index', ['scope' => 'bogus']))->assertOk()
+            ->assertSee(self::POPUP_HEADING)
+            ->assertSee("coreXExpiryPopup(JSON.parse('[{$p->id}]'), '" . route('api.v1.properties.expiry-popup.dismiss', [], false) . "', 'my')", false);
+
+        $this->postJson(route('api.v1.properties.expiry-popup.dismiss'), ['ids' => [$p->id], 'scope' => 'my'])
+            ->assertOk()->assertJson(['recorded' => 1]);
+    }
+
     // ── The lock ────────────────────────────────────────────────────────────
+
+    public function test_the_lock_names_the_real_folder_and_go_to_drive_preselects_it(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithUser('admin');
+        PerformanceSetting::set(MandateExpiryPolicy::SETTING_LOCK, 1, $agencyId);
+        $p = $this->liveListing($agencyId, $admin, today()->addDays(30));
+
+        // The snapshot-bootstrapped test DB carries no reference rows — provision the
+        // folder exactly as a deploy does, then give it an older label (an install
+        // that already had a hand-made row keeps it: the migration never relabels).
+        (require database_path('migrations/2026_10_13_100100_add_mandate_extension_document_type.php'))->up();
+        DocumentType::query()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->update(['label' => 'Mandate Extension']);
+        $typeId = (int) DocumentType::query()->where('slug', MandateExpiryPolicy::EXTENSION_SLUG)->value('id');
+
+        $this->actingAs($admin)->get(route('corex.properties.show', $p))->assertOk()
+            ->assertSee('Mandate Extension', false)
+            ->assertSee("driveTypePref = {$typeId}; activeTab='drive'", false);
+
+        // The server's refusal uses the same name.
+        $this->saveEdit($admin, $p, ['expiry_date' => today()->addDays(90)->toDateString()])
+            ->assertSessionHasErrors(['expiry_date' => MandateExpiryPolicy::lockMessage()]);
+        $this->assertStringContainsString('Mandate Extension folder', MandateExpiryPolicy::lockMessage());
+    }
 
     public function test_lock_off_leaves_the_date_editable_on_a_live_listing(): void
     {

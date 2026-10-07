@@ -18,7 +18,7 @@
     $__exIds = $expiringProperties->pluck('id')->map(fn ($i) => (int) $i)->values()->all();
     $__exMore = (int) ($expiringMore ?? 0);
     $__exViewAll = $expiringViewAllUrl ?? '#';
-    $__exScope = $scope ?? 'my';
+    $__exScope = $expiringScope ?? 'my';
 @endphp
 <div x-data="coreXExpiryPopup({{ \Illuminate\Support\Js::from($__exIds) }}, '{{ route('api.v1.properties.expiry-popup.dismiss', [], false) }}', '{{ $__exScope }}')"
      x-show="open"

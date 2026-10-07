@@ -41,7 +41,27 @@ final class MandateExpiryPolicy
     /** The popup lists at most this many listings; the rest are "+N more — View all". */
     public const POPUP_CAP = 10;
 
-    public const LOCK_MESSAGE = 'Expiry date is locked — this listing is live. Upload the signed extension to the Extension folder in Drive, then set the new date.';
+    /** Label shown when the Extension document type row cannot be found. */
+    public const EXTENSION_FOLDER_FALLBACK_LABEL = 'Extension';
+
+    /**
+     * The Drive folder's real name. The document type is a global, renameable
+     * row (Settings → Document Types) and an install may carry an older row
+     * with a different label ("Mandate Extension"), so every screen that tells
+     * an agent where to upload reads the label from here, never hardcodes it.
+     */
+    public static function extensionFolderLabel(): string
+    {
+        $label = DocumentType::query()->where('slug', self::EXTENSION_SLUG)->value('label');
+
+        return is_string($label) && trim($label) !== '' ? trim($label) : self::EXTENSION_FOLDER_FALLBACK_LABEL;
+    }
+
+    public static function lockMessage(): string
+    {
+        return 'Expiry date is locked — this listing is live. Upload the signed extension to the '
+            . self::extensionFolderLabel() . ' folder in Drive, then set the new date.';
+    }
 
     // ── Agency settings ───────────────────────────────────────────────────
 

@@ -671,10 +671,15 @@ class PropertyController extends Controller
         $expiringMore       = 0;
         $expiringWarnDays   = MandateExpiryPolicy::DEFAULT_WARN_DAYS;
         $expiringViewAllUrl = route($indexRouteName, ['status' => 'expiring_soon']);
+        // ?scope= is free text from the address bar. The list treats anything but
+        // 'branch' as 'my' (Property::scopeOwnListingsFor), so normalise to the two
+        // values the dismiss endpoint accepts — otherwise a hand-edited scope would
+        // make every dismissal 422 and the pop-up would re-announce on every visit.
+        $expiringScope = $viewScope === 'branch' ? 'branch' : 'my';
         if (! $importedStock) {
             $exAgencyId = (int) ($user->effectiveAgencyId() ?: 0);
             $expiringWarnDays = MandateExpiryPolicy::warnDaysFor($exAgencyId);
-            $unannounced = MandateExpiryPolicy::unannouncedExpiringFor($user, $exAgencyId, $viewScope)->with('agent');
+            $unannounced = MandateExpiryPolicy::unannouncedExpiringFor($user, $exAgencyId, $expiringScope)->with('agent');
             if ($isRentalEntry) {
                 $unannounced->where('listing_type', 'rental');
             }
@@ -690,7 +695,7 @@ class PropertyController extends Controller
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
             'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
             'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds',
-            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl'
+            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl', 'expiringScope'
         ));
     }
 
@@ -980,12 +985,13 @@ class PropertyController extends Controller
         // "Go to Drive" shortcut can pre-select it. Spec §2.3.
         $expiryLock = MandateExpiryPolicy::lockState($property);
         $extensionDocTypeId = $documentTypes->firstWhere('slug', MandateExpiryPolicy::EXTENSION_SLUG)?->id;
+        $extensionFolderLabel = MandateExpiryPolicy::extensionFolderLabel();
 
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
             'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields', 'showLeaseType',
-            'expiryLock', 'extensionDocTypeId'
+            'expiryLock', 'extensionDocTypeId', 'extensionFolderLabel'
         ));
     }
 
@@ -1875,7 +1881,7 @@ class PropertyController extends Controller
             && ! $wasImportedStock
             && MandateExpiryPolicy::isLockedChange($property, $data['expiry_date'])) {
             throw \Illuminate\Validation\ValidationException::withMessages([
-                'expiry_date' => MandateExpiryPolicy::LOCK_MESSAGE,
+                'expiry_date' => MandateExpiryPolicy::lockMessage(),
             ]);
         }
 
