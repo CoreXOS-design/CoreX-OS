@@ -1040,10 +1040,20 @@ would 404.
 **No new setting** (nothing for the Setup Wizard), no new route, no migration, no new permission.
 Tests: `tests/Feature/CoreMatches/CoreMatchUpdateBuyerPipelineTest.php`.
 
-**Known, deliberately untouched (reported, not changed):** the Buyer Pipeline board's drag-to-Lost
-redirects to `/buyers/{id}?action=mark-lost`, but the buyer page does not read `?action=mark-lost`, so
-that drag lands on the page without opening the dialog; and `updateState`/`markLost` do not call
-`authorizeContact()` (the assistant view-but-not-edit rule used by the contact screens).
+**Fixed 2026-10-07 (Johan) — the two items previously reported here:**
+1. *Drag-to-Lost.* Dropping a card on Lost now opens the shared Mark-Lost dialog on the board itself
+   (`command-center/buyers/_mark-lost-dialog`, the one copy also used by the buyer page and this screen),
+   aimed at that buyer's `mark-lost` endpoint — reason list required, same validation. A card only moves
+   after the server accepts it, so cancelling the dialog leaves the card where it was. To make "Lost
+   without a reason" impossible, `BuyerPipelineController::updateState` accepts only new / warm / cold;
+   Lost is reachable only through `markLost` (reason required).
+2. *Assistant rule on moves.* `updateState`, `markLost`, `ContactMatchReassignmentController::reassignBuyer`
+   and the search-level `reassign` now call `authorizeContact()` (`AuthorizesContactAccess`): an assistant
+   may SEE a colleague's buyer but not move, lose or reassign them (403); they still act on their agent's own
+   buyers. The board omits the drag handle and "Move to another agent" for such cards, and this screen omits
+   "Update buyer pipeline" and "Move buyer" for them (`canMutateContact()`); non-assistants are unaffected.
+
+Tests: `tests/Feature/CoreMatches/BuyerPipelineLostAndAssistantTest.php`.
 
 ## Agent offboarding moves the buyers' saved searches too (2026-10-07, Johan)
 

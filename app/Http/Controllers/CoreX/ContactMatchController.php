@@ -498,8 +498,12 @@ class ContactMatchController extends Controller
         // The Rental Pipeline board is gated on buyer_pipeline.view, so the rentals lens requires it too.
         $pipelineMovableContactIds = [];
         if ($pageContactIds->isNotEmpty() && (! $isRentalEntry || $user->hasPermission('buyer_pipeline.view'))) {
+            // …and canMutateContact(): an assistant may see a colleague's buyer but not move them
+            // (the endpoints refuse with authorizeContact(); no button that would only 403).
             $pipelineMovableContactIds = Contact::query()->whereIn('id', $pageContactIds)
                 ->whereIn('buyer_state', \App\Services\BuyerStateService::PIPELINE_STATES)
+                ->get()
+                ->filter(fn (Contact $c) => $this->canMutateContact($c))
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
         }
 
@@ -511,6 +515,8 @@ class ContactMatchController extends Controller
         $moveBuyerAgents = collect();
         if ($user->hasPermission('core_matches.reassign') && $pageContactIds->isNotEmpty()) {
             $reassignableContactIds = Contact::query()->whereIn('id', $pageContactIds)
+                ->get()
+                ->filter(fn (Contact $c) => $this->canMutateContact($c))
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
             if ($reassignableContactIds) {
                 $moveBuyerAgents = User::agencyMembers()->where('is_active', 1)->orderBy('name')->get(['id', 'name']);
