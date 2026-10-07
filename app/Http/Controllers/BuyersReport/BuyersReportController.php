@@ -248,8 +248,6 @@ class BuyersReportController extends Controller
             'heldVsPipeline'   => $pipelineStates->explainHeldVsSnapshotGap($scope, $reportUserIds),
             'demandFacets'     => $demand->facets($scope),
             'demandCoverage'   => $demand->coverage($scope),
-            // Lead response (Johan, 2026-10-07) — the same cohort as every other figure on this report.
-            'leadResponse'     => app(\App\Services\LeadResponse\LeadResponseService::class)->report($scope->agencyId, $period, $reportUserIds),
         ];
     }
 
@@ -279,7 +277,7 @@ class BuyersReportController extends Controller
         [$period] = $this->resolvePeriod($request, $periods);
 
         $metric = (string) $request->query('metric', '');
-        abort_unless($metric === 'pipeline_state' || $metric === 'lead_response' || in_array($metric, BuyersReportDrilldownService::METRICS, true), 422, 'Unknown metric.');
+        abort_unless($metric === 'pipeline_state' || in_array($metric, BuyersReportDrilldownService::METRICS, true), 422, 'Unknown metric.');
 
         if ($metric === 'pipeline_state') {
             return $this->pipelineStateDrilldown($request, $scope, $period);
@@ -300,12 +298,6 @@ class BuyersReportController extends Controller
                 $userIds = [];
                 $agentId = null;
             }
-        }
-
-        // Lead response (Johan, 2026-10-07) — the leads behind any lead-response figure. The cohort ($userIds,
-        // possibly narrowed to one in-scope agent above) is the ceiling; ?source= narrows to one portal.
-        if ($metric === 'lead_response') {
-            return $this->leadResponseDrilldown($request, $scope, $period, $userIds, $agentFilterName);
         }
 
         // 'lost'/'lost_value' only — real|auto (Johan, 2026-08-20 lost-section
@@ -334,44 +326,6 @@ class BuyersReportController extends Controller
             'truncated' => $res['truncated'],
             'level'     => in_array($metric, ['lost', 'lost_value'], true) ? $level : null,
             'subtype'   => in_array($metric, ['lost', 'lost_value'], true) ? $subtype : null,
-        ]);
-    }
-
-    private function leadResponseDrilldown(Request $request, BuyersReportScope $scope, Period $period, array $userIds, ?string $agentFilterName)
-    {
-        $svc = app(\App\Services\LeadResponse\LeadResponseService::class);
-        $subtype = (string) $request->query('subtype', 'received');
-        $subtype = in_array($subtype, \App\Services\LeadResponse\LeadResponseService::SUBTYPES, true) ? $subtype : 'received';
-        $source = $request->filled('source') ? (string) $request->query('source') : null;
-        if ($source !== null && ! array_key_exists($source, \App\Services\LeadResponse\LeadResponseService::SOURCES)) {
-            abort(422, 'Unknown source.');
-        }
-
-        $res = $svc->rows($scope->agencyId, $period, $userIds, $subtype, null, $source);
-        $noun = [
-            'received' => 'leads received', 'in_target' => 'leads answered in target', 'late' => 'leads answered late',
-            'waiting' => 'leads not yet contacted', 'overdue' => 'leads not yet contacted and past target',
-            'responded' => 'answered leads (response times)',
-        ][$subtype];
-        $who = $agentFilterName ?? match ($scope->level) {
-            BuyersReportScope::LEVEL_OWN => 'You',
-            BuyersReportScope::LEVEL_BRANCH => $scope->branchId
-                ? (string) (DB::table('branches')->where('id', $scope->branchId)->value('name') ?? 'Branch')
-                : 'Branch',
-            default => 'Company',
-        };
-        if ($source !== null) {
-            $who .= ' · ' . \App\Services\LeadResponse\LeadResponseService::SOURCES[$source];
-        }
-
-        return response()->json([
-            'title'     => trim("{$res['count']} {$noun}") . " — {$who} · " . $period->label,
-            'total'     => $res['count'],
-            'columns'   => $svc->columns(),
-            'rows'      => $res['rows'],
-            'truncated' => $res['truncated'],
-            'level'     => null,
-            'subtype'   => null,
         ]);
     }
 

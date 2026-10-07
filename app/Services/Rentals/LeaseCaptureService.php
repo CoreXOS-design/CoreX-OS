@@ -337,6 +337,14 @@ class LeaseCaptureService
                 } catch (\Throwable $e) {
                     Log::warning('Portal access on a signed paper copy failed', ['lease_id' => $captured->id, 'error' => $e->getMessage()]);
                 }
+
+                // rental-portal-access.md §18 — and they get the signed copy by email with their portal link, as for an
+                // e-signed lease (once per lease; see LeaseSignedCopyMailer). Same best-effort rule.
+                try {
+                    app(LeaseSignedCopyMailer::class)->sendOnPaperAttach($captured, $user);
+                } catch (\Throwable $e) {
+                    Log::warning('Signed paper copy email failed', ['lease_id' => $captured->id, 'error' => $e->getMessage()]);
+                }
             }
 
             return $captured;

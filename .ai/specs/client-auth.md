@@ -452,3 +452,9 @@ A standalone mobile-app prompt (`.ai/specs/client-auth-MOBILE-PROMPT.md`) will b
 email); create = create-or-attach, after a same-person check, with plain-words refusals. The old
 `isClientEmailTaken()` also counted the contact's own email and so blocked every contact that had one — it is now
 used only to generate unique placeholder addresses. Full logic: `.ai/specs/rental-portal-access.md` §16.
+
+## Addendum 7 Oct 2026 (2) — portal routes authenticate as the portal person, whoever else is signed in in that browser
+All client-portal routes use `client.auth` (`AuthenticateClientPortal`) instead of `auth:sanctum`: Sanctum consults only the `client-web`
+session guard, then the bearer token, for these requests. A staff `web` session in the same browser used to answer first and make the
+set-password call fail with "Unauthorized". Portal sign-out/account deletion remove only the portal login from the session. Details and
+tests: `.ai/specs/rental-portal-access.md` §17. A new portal route must use `client.auth`, never a bare `auth:sanctum`.

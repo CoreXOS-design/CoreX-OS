@@ -578,6 +578,16 @@ return [
              'label' => 'Days the public inspection-report link stays live',
              'explain' => 'A completed inspection\'s PDF carries a link a tenant or landlord can open with no CoreX login. This many days after it is issued, the link stops working.',
              'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
+            // §46 — signing an inspection by a personal link. Same saver as the controls above
+            // (RentalInspectionSettingsController::update(), registered once) — both has()-guarded there.
+            ['key' => 'signing_link_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let tenants and landlords sign an inspection from a personal link',
+             'explain' => 'The agent can send each tenant and the landlord a personal link by email or WhatsApp, or show a QR code on their own phone. The person opens the full inspection report on their own phone, reads it, and signs from there — CoreX records the signature, the time and the device it was signed on.',
+             'affects' => 'Whether the agent sees the "Sign by link" controls on an inspection. Off means signing stays on the agent\'s own screen, on paper, or on the agent\'s device. On by default.'],
+            ['key' => 'signing_link_expiry_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days a personal signing link stays live',
+             'explain' => 'Each person\'s signing link stops working this many days after the agent issues it, and also as soon as the agent revokes it.',
+             'affects' => 'How long a tenant or landlord has to open their link and sign. 30 days suits most agencies — the agent can issue a fresh link from the inspection at any time.'],
             // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
             // defaults ON.
             ['key' => 'auto_pair_photos_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
@@ -1156,7 +1166,7 @@ return [
             ['key' => 'lead_response_target_minutes', 'source' => 'lead_response', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 10080,
              'label' => 'Respond to a new enquiry within (minutes)',
              'explain' => 'The time your agency aims to make first contact with someone who enquires through a portal, your website or a shared link. Only the hours chosen above count towards it.',
-             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Buyers Report and the Performance Report, and when a waiting enquiry is flagged as past target.'],
+             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Lead Response report (Reports menu), and when a waiting enquiry is flagged as past target.'],
         ],
         'aux_partial' => 'agency-setup.steps.contacts-collections',
     ],

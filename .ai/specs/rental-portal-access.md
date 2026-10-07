@@ -401,10 +401,8 @@ neutral wording) and are logged to `client_access_logs` (`portal_invite_sent`).
   is promised.) A person who is both gets one link listing both. No block for any other document, for a signer who
   is not a party to the lease, for a placeholder address, when that audience's portal is off, or when automatic
   access is off.
-- **Paper copies.** There is **no** email today when a signed paper copy is attached (nothing in
-  `LeaseCaptureService`), so there is no mail to add the link to: access is still created automatically, and the
-  agent shares the link from the card. Sending a copy + link on attach is an open product question (see the lane
-  report), not built.
+- **Paper copies.** Access is created automatically when a signed paper copy is attached, and (since §18) the parties
+  are emailed the copy and their link — the same as the e-sign path.
 
 ### 16.5 Acceptance
 - [x] Create on a contact whose email is its own, with no login: creates and attaches (no "already in use").
@@ -426,3 +424,80 @@ neutral wording) and are logged to `client_access_logs` (`portal_invite_sent`).
 `app/Services/Rentals/{LeaseSigningStateService,LeaseCaptureService}.php` · `app/Models/RentalPortalSetting.php` +
 migration `2026_10_15_000300_…` · `RentalPortalSettingsController` · `AgencySetupWizardController` · `config/agency-onboarding-copy.php` ·
 `resources/views/corex/settings/rental-portal.blade.php` · `routes/web.php`.
+
+
+---
+
+## 17. "Unauthorized" after creating the portal password — a staff session in the same browser (7 Oct 2026, QA1)
+**Symptom (Johan, QA1).** Opened a tenant's personal link, entered the emailed code, was asked to choose a password, chose one
+and landed on "Unauthorized" — identically for the owner's link.
+
+**Cause (one sentence).** Sanctum decides who a browser request is by trying the staff `web` session before the portal's own, so
+in a browser that was also signed in as staff, the staff user answered for the portal's set-password call, and the portal
+refused it because that user is not a portal person (`ClientAuthController::setPassword` → 401 "Unauthorized.").
+In a clean browser the same path always worked (proved: `PortalLinkToHomeTest`, clean-browser cases).
+
+**Fix — the bug class, not the one call.**
+- New route middleware `client.auth` (`AuthenticateClientPortal`) replaces `auth:sanctum` on **every** client-portal route:
+  `/api/v1/client-auth/password/set`, the logged-in `/api/v1/client-auth/*` group and all of `/api/v1/client/*` (so the
+  rentals portal, matches, consent, testimonials, seller insights — tenant, owner and every other portal person). For the
+  duration of that request Sanctum is told to consult only the `client-web` session guard, then the bearer token (the
+  mobile app's path, unchanged); the setting is restored in `finally`, so staff and token APIs keep the default list.
+- A staff session therefore can neither answer for a portal request nor be disturbed by one. A staff session alone still
+  gets 401 from the portal API; a staff bearer token still gets 403 (`client.ability`).
+- **Portal sign-out / account deletion no longer ends the staff session.** They used to invalidate the whole session, which
+  signed a staff user in the same browser out. `ClientAuthController::endPortalSession()` removes only the portal login
+  (session key + guard user) and destroys the session only when no staff user is in it. It deliberately does **not** call
+  `SessionGuard::logout()`: that fires the global Logout event whose staff-only listeners
+  (`RevokeCommsGrantsOnLogout`, typed `User`) would 500 on a `ClientUser` — found by the test below.
+- **Existing logins need nothing.** Nothing was written wrongly: the failed call never set the password, so those
+  people simply open their link again (code, then choose a password). A login created from the lease screen
+  (Pending OTP) stays valid.
+- A new portal route must use `client.auth`, never a bare `auth:sanctum`.
+
+**Tests (`tests/Feature/RentalPortalAccess/PortalLinkToHomeTest.php`, 12):** the whole path over the real endpoints — personal link
+email → lookup → emailed code → verify → set password (activation token on that one call only) → portal home (`/me`, then the
+tenant's lease or the owner's property) — for tenant and owner, a brand-new login and an existing login, in a clean browser AND
+with a staff user already signed in (held in the cookie session, as a real browser holds it); plus: returning person signs in
+with the password in a staff browser; portal sign-out leaves the staff login in the session; a staff session alone and a staff
+bearer token never open the portal API. Every simulated request starts with cleared guards and the default `web` guard (in
+production each request is its own process; without this the test process leaks the previous request's user — and `Auth::shouldUse()`
+writes the default guard into config — which produced misleading 403s while the test was being built).
+
+---
+
+## 18. Paper-signed lease: the parties are emailed the copy and their portal link (7 Oct 2026, QA1 — Johan's ruling)
+**Ruling (Johan, 7 Oct 2026):** when a paper-signed (wet ink) lease is uploaded/attached, YES — the tenant(s) and owner get the lease
+copy by email and their portal link, same as the e-sign path, same rules.
+
+**What happens.** At the end of `LeaseCaptureService::capture()` with intent `paper_copy` — the only place a signed paper copy is
+attached (New Lease, the Renewal screen's "I already have the signed copy", the renewal upload and both APIs all go through it) —
+and after the lease has committed: (1) portal access is created for the parties (§16.4), then (2) `LeaseSignedCopyMailer::sendOnPaperAttach()`.
+- **Who receives** (as `SignatureService::sendCompletionEmails`): the lease's tenants and landlords, never the agent; **one mail per
+  distinct address** (a person who is both, or two tenants sharing an address, get one); a party with no email, or a placeholder
+  address, is skipped and **named in the tenancy log**.
+- **What:** the existing `SignedDocumentMail` — subject "Fully signed: Lease agreement — <address>", the signed copy attached under its
+  own file name **and its own type** (a photo or Word upload is no longer labelled PDF — `SignedDocumentMail` takes an optional
+  per-document `mime`; e-sign PDFs unchanged), and the per-person **"Your CoreX portal"** block under exactly the §16.4 rules
+  (automatic access on, that audience's portal on, real email, party of the lease).
+- **How (mail guard):** through `RentalMailDispatcher` as the agent who attached it — their own mailbox path, audited fallback to the shared
+  mailer, and the non-production redirect via the mail guard — never a plain `Mail::to()`.
+- **Logged:** one `lease_signed_copy_emailed` row in the tenancy log: who got it, who could not be reached, who has no email.
+- **No new setting:** the e-sign copy mail has none, Johan asked for "same as the e-sign path", and the portal block already follows the
+  agency's portal switches.
+
+**Never twice — the re-upload rule (reported to Johan).** `leases.signed_copy_emailed_at` is an atomic once-per-lease claim (`UPDATE … WHERE
+signed_copy_emailed_at IS NULL`, the same idea as `signature_templates.completion_emails_sent_at`), taken by the run that sends.
+- Double submit of the same screen: the capture key returns the existing lease before anything runs — nothing is mailed again.
+- Retry, or a different signed copy filed against the same lease later (a replacement): the claim is already set — **nobody is mailed
+  again.** Today the lease screens have no "replace the signed copy" action (a paper capture always makes a new lease or renewal term, each
+  with its own once-only mail), so this is a guard for any path added later; a corrected copy would have to be sent deliberately.
+- **Nothing delivered** (every address failed, or nobody has an email): the claim is **released** (or never taken), so the lease is not left
+  looking "sent" when nobody received it, and a later run can send. Partial delivery keeps the claim and names the failures in the log.
+- A mail fault never undoes the capture (best effort, after commit).
+
+**Tests (`LeasePaperCopyMailTest`, 16):** tenant and owner each get the copy + own link (agent never); access created first; tenancy-log row; one
+person on two roles = one mail listing both; two tenants one address = one mail; a party without an email skipped and named; nobody with an
+email = no mail, no claim; one portal off = copy without link; automatic access off = copy without link and no login; same screen twice; retry and
+a replaced copy; all-fail releases the claim and a later run sends; one failing address does not stop the rest; a renewal from a paper copy mails the
+renewal term's parties only; a photo upload keeps its own type; lease-only capture sends nothing.

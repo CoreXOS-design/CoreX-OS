@@ -129,6 +129,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
                 'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
+                'client.auth' => \App\Http\Middleware\AuthenticateClientPortal::class, // portal auth that a staff session in the same browser cannot answer for
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,
                 'rental-portal.enabled' => \App\Http\Middleware\EnsureRentalPortalEnabled::class, // AT-445
                 // Agency Public API (website API)
@@ -169,6 +170,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // Agency Timeline public page: the 48-char token is the credential and the tick is
             // idempotent (an expired session would otherwise bounce the agency to the CoreX login).
             'agency-timeline/*/steps/*',
+            // §46 — a party signing an inspection from their personal link: the token is the credential and
+            // there is no session to protect. (The agent's own "sign on this device" POST is NOT excepted.)
+            'rental-inspection-sign/*/submit',
         ]);
 
     })

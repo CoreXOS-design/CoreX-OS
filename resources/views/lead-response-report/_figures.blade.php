@@ -1,7 +1,6 @@
-{{-- Lead response (Johan, 2026-10-07; .ai/specs/lead-response-time.md) — shared by index / agent / branch.
-     Built exactly like the other sections: every figure is a button that calls drill() on the parent
-     buyersReport() component and opens the detail popup (the leads behind the number). Expects $leadResponse
-     (LeadResponseService::report()) and the parent x-data. Figures come from the ONE LeadResponseService
+{{-- Lead Response report body (Johan, 2026-10-07; .ai/specs/lead-response-time.md §5). Every figure is a button
+     that calls drill() on the parent buyersReport() component and opens the detail popup (the leads behind the
+     number). Expects $leadResponse (LeadResponseService::report()), $agentRows (the viewer's cohort) and the parent x-data. Figures come from the ONE LeadResponseService
      calculation — the popup lists the same per-lead results, so a number and its list cannot disagree. --}}
 @php
     $lr = $leadResponse;
@@ -10,7 +9,6 @@
     $fmtMin = fn ($v) => $v === null ? '—' : $lrSvc->formatMinutes((int) $v);
 @endphp
 <div class="mb-6">
-    <h2 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Lead response</h2>
     <p class="text-[11px] mb-3" style="color: var(--text-muted);">
         Enquiries from portals, the website and shared links, in this period. Target: first contact within {{ $lr['target'] }} min,
         counting {{ $lrSvc->hoursSummary($lr['hours']) }}. Contact = the "Contacted" action, a message sent, a link shared, or feedback on an appointment — a note alone does not count.
@@ -65,7 +63,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @php $lrRows = collect($report['agents'])->filter(fn ($a) => ($lr['agents'][(int) $a['user_id']]['received'] ?? 0) > 0); @endphp
+                    @php $lrRows = collect($agentRows)->filter(fn ($a) => ($lr['agents'][(int) $a['user_id']]['received'] ?? 0) > 0); @endphp
                     @forelse($lrRows as $a)
                         @php $s = $lr['agents'][(int) $a['user_id']]; $uid = (int) $a['user_id']; @endphp
                         <tr style="border-bottom: 1px solid var(--border);">

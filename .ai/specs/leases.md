@@ -1972,3 +1972,6 @@ login's status and the personal portal link with Copy, Email link / Resend invit
 "Set up portal access & email the link" action when there is no login. A signed lease gives its parties portal
 access automatically (agency setting, default ON, in the Setup Wizard) and its signed-copy email carries their
 link. Behaviour, rules and tests: `.ai/specs/rental-portal-access.md` §16. View: `corex.leases._portal-access-person`.
+
+Paper-signed copy (7 Oct 2026): attaching a signed paper copy (New Lease, Renewal, renewal upload, APIs) also emails the tenant(s) and
+landlord(s) the copy with their portal link, once per lease — `.ai/specs/rental-portal-access.md` §18.

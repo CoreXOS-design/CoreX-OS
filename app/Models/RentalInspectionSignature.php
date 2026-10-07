@@ -67,12 +67,26 @@ class RentalInspectionSignature extends Model
         'disposition_recorded_at',
         'superseded_at',
         'superseded_by_signature_id',
+        // §46 — signed from a personal link or on the agent's device.
+        'signed_via',
+        'signing_link_id',
+        'signed_on_device_by_user_id',
+        'signed_typed_name',
+        'read_confirmed_at',
+        'signer_comment',
+        'signed_ip',
+        'signed_user_agent',
+        'signed_report_fingerprint',
     ];
 
     protected $casts = [
         'disposition_recorded_at' => 'datetime',
         'superseded_at' => 'datetime',
+        'read_confirmed_at' => 'datetime',
     ];
+
+    public const SIGNED_VIA_LINK = 'link';
+    public const SIGNED_VIA_AGENT_DEVICE = 'agent_device';
 
     public function inspection(): BelongsTo
     {

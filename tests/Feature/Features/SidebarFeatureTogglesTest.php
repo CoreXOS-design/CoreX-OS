@@ -96,7 +96,7 @@ class SidebarFeatureTogglesTest extends TestCase
             'rentals', 'rental-command-centre', 'rental-reports', 'rental-applications', 'rental-leases',
             'rental-take-on-import', 'rental-inspections', 'rental-faults', 'rental-work-orders', 'rental-notices',
             'rental-job-cards', 'rental-catalogue', 'rental-crews', 'deeds-capture', 'imported-stock',
-            'buyer-pipeline', 'performance-roi-report', 'buyers-report', 'performance-dashboards',
+            'buyer-pipeline', 'performance-roi-report', 'buyers-report', 'lead-response-report', 'performance-dashboards',
             'ppra-employment-letters', 'billing', 'soft-deletes', 'ppra-inspection-pack', 'misfiled-documents',
             'finance-engine', 'contact-governance',
         ] as $key) {
@@ -246,11 +246,26 @@ class SidebarFeatureTogglesTest extends TestCase
         $agency = $this->agency();
         $admin = $this->admin($agency);
 
-        $this->off($agency, 'performance-roi-report', 'buyers-report');
+        $this->off($agency, 'performance-roi-report', 'buyers-report', 'lead-response-report');
         $this->assertStringContainsString("push('reports')", $this->sidebarHtml($admin), 'Suburb Report (Market intelligence) is still on, so the group stays');
 
         $this->off($agency, 'prospecting');
-        $this->assertStringNotContainsString("push('reports')", $this->sidebarHtml($admin), 'all three off => the group hides itself');
+        $this->assertStringNotContainsString("push('reports')", $this->sidebarHtml($admin), 'all four off => the group hides itself');
+    }
+
+    public function test_lead_response_sits_in_the_reports_menu_and_obeys_its_own_switch(): void
+    {
+        $agency = $this->agency();
+        $admin = $this->admin($agency);
+        $href = 'href="' . route('lead-response-report.index') . '"';
+
+        $this->assertStringContainsString($href, $this->sidebarHtml($admin), 'Lead Response is in the Reports menu');
+
+        $this->off($agency, 'lead-response-report');
+        $this->assertStringNotContainsString($href, $this->sidebarHtml($admin), 'off => the link disappears');
+        $this->assertStringContainsString('href="' . route('buyers-report.index') . '"', $this->sidebarHtml($admin), 'the other reports are untouched');
+
+        $this->actingAs($admin)->get(route('lead-response-report.index'))->assertNotFound();
     }
 
     public function test_the_hr_group_hides_itself_when_payroll_and_the_ppra_letter_are_both_off(): void
@@ -294,7 +309,7 @@ class SidebarFeatureTogglesTest extends TestCase
             'rental-command-centre', 'rental-reports', 'rental-applications', 'rental-leases', 'rental-take-on-import',
             'rental-inspections', 'rental-faults', 'rental-work-orders', 'rental-notices', 'rental-job-cards',
             'rental-catalogue', 'rental-crews', 'deeds-capture', 'imported-stock', 'buyer-pipeline',
-            'performance-roi-report', 'buyers-report', 'performance-dashboards', 'ppra-employment-letters',
+            'performance-roi-report', 'buyers-report', 'lead-response-report', 'performance-dashboards', 'ppra-employment-letters',
             'billing', 'soft-deletes', 'ppra-inspection-pack', 'misfiled-documents', 'finance-engine', 'contact-governance',
         ] as $key) {
             $this->assertStringContainsString('name="' . $key . '" value="1"', $settings, "{$key} missing from Settings → Features");

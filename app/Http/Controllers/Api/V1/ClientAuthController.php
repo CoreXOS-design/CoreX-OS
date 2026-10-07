@@ -473,10 +473,7 @@ class ClientAuthController extends Controller
 
         $clientUser->delete();
 
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        }
+        $this->endPortalSession($request);
 
         return response()->json(['ok' => true, 'message' => 'Your account has been deleted.']);
     }
@@ -505,10 +502,7 @@ class ClientAuthController extends Controller
 
         // Stateful Sanctum may have established a session cookie; clear it so a
         // follow-up request with the same cookie can't authenticate as this user.
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        }
+        $this->endPortalSession($request);
 
         return response()->json(['ok' => true]);
     }
@@ -519,6 +513,30 @@ class ClientAuthController extends Controller
      * own inline pipeline closure). Mobile bearer-token requests never set
      * this, on any route — they don't carry a matching Origin/Referer.
      */
+    /**
+     * End the PORTAL login in the browser session. A browser can hold a STAFF login in the same session (the `web` and
+     * `client-web` guards keep separate keys), and invalidating the whole session used to sign that staff user out too.
+     * Only the portal login leaves; the session itself is destroyed only when no staff user is in it.
+     * Spec: .ai/specs/rental-portal-access.md §17.
+     */
+    private function endPortalSession(Request $request): void
+    {
+        if (! $request->hasSession()) {
+            return;
+        }
+
+        // Forget the portal login in the session directly rather than SessionGuard::logout(): that fires the global
+        // Logout event, whose staff-only listeners (e.g. RevokeCommsGrantsOnLogout) are typed for App\Models\User and
+        // 500 on a ClientUser — the same trap the Login listener already had to be scoped around.
+        $guard = Auth::guard('client-web');
+        $request->session()->forget($guard->getName());
+        $guard->forgetUser();
+        if (! Auth::guard('web')->check()) {
+            $request->session()->invalidate();
+        }
+        $request->session()->regenerateToken();
+    }
+
     private function isStatefulRequest(Request $request): bool
     {
         return (bool) $request->attributes->get('sanctum', false);

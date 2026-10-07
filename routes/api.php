@@ -167,12 +167,12 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
         ->name('client-auth.agent-qr.register');
 
     // Activation token OR client sanctum token (both checked in controller)
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware('client.auth')->group(function () {
         Route::post('/password/set', [ClientAuthController::class, 'setPassword'])->name('client-auth.password.set');
     });
 
     // Client sanctum token only
-    Route::middleware(['auth:sanctum', 'client.ability'])->group(function () {
+    Route::middleware(['client.auth', 'client.ability'])->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
@@ -180,7 +180,7 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     });
 });
 
-Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'auth:sanctum', 'client.ability'])->group(function () {
+Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability'])->group(function () {
     Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
     Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
 
