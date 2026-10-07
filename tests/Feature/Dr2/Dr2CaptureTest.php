@@ -58,6 +58,19 @@ class Dr2CaptureTest extends TestCase
         return [$agency, $branch, $admin, $l, $s];
     }
 
+    /** "There cannot be a deal without an owner" (DealPropertyOwnerGate): give the picked property a known seller. */
+    private function giveOwner(Property $property, Agency $agency): void
+    {
+        $seller = \App\Models\Contact::withoutGlobalScopes()->create([
+            'agency_id' => $agency->id, 'branch_id' => $property->branch_id,
+            'first_name' => 'Owner', 'last_name' => 'Seller ' . $property->id,
+        ]);
+        DB::table('contact_property')->insert([
+            'property_id' => $property->id, 'contact_id' => $seller->id, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
     public function test_dr2_create_screen_renders(): void
     {
         [, , $admin] = $this->scaffold('dr2-render');
@@ -68,7 +81,9 @@ class Dr2CaptureTest extends TestCase
             ->assertOk()
             // DR1-faithful header (visual parity), plus the DR2 capture enhancements.
             ->assertSee('Add Deal', false)
-            ->assertSee('Deal Type', false)      // enhancement 6 (compulsory radios)
+            // The Deal Type radios are gone (AT-334 P2): the structure — and so the effective deal type —
+            // is captured on the Deal Structure tab after capture.
+            ->assertDontSee('name="deal_type"', false)
             ->assertSee('Commission %', false);  // enhancement 5 (calc-on-load)
     }
 
@@ -98,7 +113,9 @@ class Dr2CaptureTest extends TestCase
         ]);
     }
 
-    public function test_dr2_deal_type_is_compulsory(): void
+    // AT-334 P2: deal_type is OPTIONAL at capture — the composable Deal Structure tab drives the pipeline from
+    // the suspensive conditions, so a capture no longer needs a type/pipeline pick (the column is nullable).
+    public function test_dr2_deal_type_is_optional_at_capture(): void
     {
         [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-dealtype');
 
@@ -109,9 +126,10 @@ class Dr2CaptureTest extends TestCase
                 'branch_id' => $branch->id,
                 'deal_type' => '', // no deal type chosen
             ]))
-            ->assertSessionHasErrors('deal_type');
+            ->assertSessionHasNoErrors();
 
-        $this->assertSame($before, DB::table('deals')->count(), 'No deal may be stored without a deal type.');
+        $this->assertSame($before + 1, DB::table('deals')->count());
+        $this->assertNull(DB::table('deals')->latest('id')->value('deal_type'));
     }
 
     public function test_dr2_store_links_the_picked_property_with_manual_exact_provenance(): void
@@ -132,6 +150,7 @@ class Dr2CaptureTest extends TestCase
             'price'         => 1000000,
             'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
 
         $this->actingAs($admin)
             ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
@@ -194,6 +213,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '9 Link Rd',
             'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
         $buyerC  = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Bob', 'last_name' => 'Buyer']);
         $sellerC = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sue', 'last_name' => 'Seller']);
 
@@ -232,6 +252,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '3 Party Rd',
             'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
         $buyer  = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Thandi', 'last_name' => 'Mkhize']);
         $joint  = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sipho', 'last_name' => 'Mkhize']);
         $seller = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sue', 'last_name' => 'Seller']);
@@ -264,6 +285,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '5 Bare Rd',
             'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
 
         $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
             'branch_id'   => $branch->id,
@@ -289,6 +311,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '7 Fix Rd',
             'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
         $wrong = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Wrong', 'last_name' => 'Buyer']);
         $right = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Right', 'last_name' => 'Buyer']);
 
@@ -320,6 +343,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '11 Keep Rd',
             'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
         $c = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Joint', 'last_name' => 'Party']);
         $property->contacts()->attach($c->id, ['role' => 'seller']);
 
@@ -348,6 +372,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'rental', 'address' => '651 Boboni Rd',
             'suburb' => 'Shelly Beach', 'price' => 0, 'rental_amount' => 9000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
         $landlord = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Premilla', 'last_name' => 'Swepath']);
         $tenant   = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Thabo', 'last_name' => 'Ndlovu']);
         $property->contacts()->attach($landlord->id, ['role' => 'landlord']);
@@ -374,6 +399,7 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '12 Marine Dr',
             'suburb' => 'Uvongo', 'price' => 1950000, 'property_type' => 'House',
         ]);
+        $this->giveOwner($property, $agency);
         $seller = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Owen', 'last_name' => 'Ridge']);
         $property->contacts()->attach($seller->id, ['role' => 'seller']);
 

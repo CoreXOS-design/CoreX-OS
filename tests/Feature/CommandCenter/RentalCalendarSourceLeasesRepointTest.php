@@ -40,7 +40,9 @@ class RentalCalendarSourceLeasesRepointTest extends TestCase
         return Property::create([
             'agency_id' => $agency->id, 'branch_id' => $branch->id, 'agent_id' => $agent->id,
             'title' => 'Rental property ' . uniqid(), 'status' => 'active', 'listing_type' => 'rental',
-            'address' => '1 Test Street',
+            // AT-266: `address` is DERIVED from the structured parts on save — give the parts, not just the
+            // legacy string (a bare '1 Test Street' would be re-composed from street_number alone, as '1').
+            'street_number' => '1', 'street_name' => 'Test Street',
         ]);
     }
 

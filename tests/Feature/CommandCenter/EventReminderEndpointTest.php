@@ -41,8 +41,8 @@ final class EventReminderEndpointTest extends TestCase
         $mine   = $this->log($event, $this->user, $now->copy()->subMinute());
         $other  = $this->log($event, $this->makeUser(), $now->copy()->subMinute());
 
-        Sanctum::actingAs($this->user);
-        $data = $this->getJson(route('v1.command-center.reminders.due'))->assertOk()->json();
+        $this->actingAs($this->user); // the reminder routes moved to the session-authenticated api/v1 group (browser poll)
+        $data = $this->getJson(route('api.v1.command-center.reminders.due'))->assertOk()->json();
 
         $ids = collect($data['reminders'])->pluck('id')->all();
         $this->assertContains($mine->id, $ids);
@@ -59,18 +59,18 @@ final class EventReminderEndpointTest extends TestCase
         $mine  = $this->log($event, $this->user, $now->copy()->subMinute());
         $other = $this->log($event, $this->makeUser(), $now->copy()->subMinute());
 
-        Sanctum::actingAs($this->user);
+        $this->actingAs($this->user); // the reminder routes moved to the session-authenticated api/v1 group (browser poll)
 
         // Cannot read someone else's reminder.
-        $this->postJson(route('v1.command-center.reminders.read', ['log' => $other->id]))
+        $this->postJson(route('api.v1.command-center.reminders.read', ['log' => $other->id]))
             ->assertOk()->assertJson(['success' => false]);
         $this->assertNull($other->fresh()->read_at);
 
         // Reading own works; it then drops off the due feed.
-        $this->postJson(route('v1.command-center.reminders.read', ['log' => $mine->id]))
+        $this->postJson(route('api.v1.command-center.reminders.read', ['log' => $mine->id]))
             ->assertOk()->assertJson(['success' => true]);
         $this->assertNotNull($mine->fresh()->read_at);
-        $this->assertCount(0, $this->getJson(route('v1.command-center.reminders.due'))->json('reminders'));
+        $this->assertCount(0, $this->getJson(route('api.v1.command-center.reminders.due'))->json('reminders'));
     }
 
     public function test_snooze_hides_the_reminder_then_it_resurfaces(): void
@@ -80,16 +80,16 @@ final class EventReminderEndpointTest extends TestCase
         $event = $this->event('Viewing', $now->copy()->addMinutes(30));
         $mine  = $this->log($event, $this->user, $now->copy()->subMinute());
 
-        Sanctum::actingAs($this->user);
-        $this->postJson(route('v1.command-center.reminders.snooze', ['log' => $mine->id]))
+        $this->actingAs($this->user); // the reminder routes moved to the session-authenticated api/v1 group (browser poll)
+        $this->postJson(route('api.v1.command-center.reminders.snooze', ['log' => $mine->id]))
             ->assertOk()->assertJson(['success' => true, 'snooze_minutes' => CalendarReminderService::SNOOZE_MINUTES]);
 
         // Hidden immediately after snooze.
-        $this->assertCount(0, $this->getJson(route('v1.command-center.reminders.due'))->json('reminders'));
+        $this->assertCount(0, $this->getJson(route('api.v1.command-center.reminders.due'))->json('reminders'));
 
         // Re-surfaces once the snooze window passes.
         Carbon::setTestNow($now->copy()->addMinutes(CalendarReminderService::SNOOZE_MINUTES + 1));
-        $this->assertCount(1, $this->getJson(route('v1.command-center.reminders.due'))->json('reminders'));
+        $this->assertCount(1, $this->getJson(route('api.v1.command-center.reminders.due'))->json('reminders'));
     }
 
     protected function tearDown(): void

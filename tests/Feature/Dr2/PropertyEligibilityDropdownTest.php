@@ -82,6 +82,8 @@ final class PropertyEligibilityDropdownTest extends TestCase
 
         return Property::withoutEvents(fn () => Property::withoutGlobalScopes()->create([
             'external_id' => 'ELIG-' . Str::random(8), 'title' => $address, 'address' => $address,
+            // AT-266: `address` is derived from the structured parts on save — supply them (number + street).
+            'street_number' => explode(' ', $address, 2)[0], 'street_name' => explode(' ', $address, 2)[1] ?? null,
             'agent_id' => $agent->id, 'branch_id' => $this->branchId, 'agency_id' => $this->agencyId,
             'listing_type' => 'sale', 'status' => 'for_sale',
         ]));

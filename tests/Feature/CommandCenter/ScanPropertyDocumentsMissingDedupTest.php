@@ -162,8 +162,7 @@ final class ScanPropertyDocumentsMissingDedupTest extends TestCase
 
     private function makeDocsMissingType(): NotificationEventType
     {
-        return NotificationEventType::create([
-            'key'               => 'property.documents_missing',
+        return NotificationEventType::updateOrCreate(['key' => 'property.documents_missing'], [
             'pillar'            => 'property',
             'group_label'       => 'Documents',
             'label'             => 'Documents not uploaded after listing',

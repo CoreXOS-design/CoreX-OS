@@ -33,7 +33,8 @@ final class Dr2LaneComposerTest extends TestCase
         [$deal, $agent] = $this->makeDeal();
         $this->actingAs($agent);
 
-        app(DealStructureAssembler::class)->assemble($deal, ['bond' => ['deposit' => false], 'cash' => ['payments' => 1]]);
+        // 'Proof of Funds' only exists when the buyer's funds are to be proven LATER (funds_mode, default 'available').
+        app(DealStructureAssembler::class)->assemble($deal, ['bond' => ['deposit' => false], 'cash' => ['payments' => 1, 'funds_mode' => 'proof_later']]);
         $deal->refresh();
 
         $steps = DealStepInstance::where('dr1_deal_id', $deal->id)->whereNull('deleted_at')->get();
@@ -42,21 +43,26 @@ final class Dr2LaneComposerTest extends TestCase
         $this->assertSame('Deal Signed', $board['anchor']->name);
         $this->assertSame('Granted', $board['gate']->name);
 
-        // Honest fan-in written to the EXISTING dependency table.
-        $lodgeId = $steps->firstWhere('name', 'Deeds Office Lodgement')->id;
-        $this->assertSame(4, DB::table('deal_step_instance_dependencies')->where('deal_step_instance_id', $lodgeId)->count());
+        // Honest fan-in written to the EXISTING dependency table: the lodgement's AND-gate parents
+        // (Electrical COC, Beetle Certificate, Transfer Duty / SARS Receipt), plus its PRIMARY trigger,
+        // Rates Clearance, held on the step itself — four things converge on lodgement. FICA is not a
+        // pipeline step any more (AT-334, 2026-07-29), so there is no FICA lane.
+        $lodge = $steps->firstWhere('name', 'Deeds Office Lodgement');
+        $this->assertSame(3, DB::table('deal_step_instance_dependencies')->where('deal_step_instance_id', $lodge->id)->count());
+        $this->assertSame($steps->firstWhere('name', 'Rates Clearance')->id, (int) $lodge->trigger_step_instance_id);
 
         $s2 = $board['stage2'];
-        $this->assertSame('sequence', $s2[0]['type']);
-        $this->assertSame('Attorneys Instructed', $s2[0]['step']->name);
-        $this->assertSame('band', $s2[1]['type']);
-        $this->assertCount(5, $s2[1]['lanes']);
-        $fica = collect($s2[1]['lanes'])->first(fn ($l) => $l[0]->name === 'FICA Completed (Buyer)');
-        $this->assertSame(['FICA Completed (Buyer)', 'FICA Completed (Seller)'], array_map(fn ($s) => $s->name, $fica));
-        $this->assertSame('sequence', $s2[2]['type']);
-        $this->assertSame('Deeds Office Lodgement', $s2[2]['step']->name);
-        $this->assertSame('band', $s2[3]['type']);
-        $this->assertCount(2, $s2[3]['lanes']);
+        $this->assertSame('band', $s2[0]['type']);                       // Capture Bond Attorney runs alongside
+        $this->assertSame('sequence', $s2[1]['type']);
+        $this->assertSame('Attorneys Instructed', $s2[1]['step']->name);
+        $this->assertSame('band', $s2[2]['type']);
+        $this->assertCount(4, $s2[2]['lanes']);
+        $signed = collect($s2[2]['lanes'])->first(fn ($l) => $l[0]->name === 'Documents Signed');
+        $this->assertSame(['Documents Signed', 'Transfer Duty / SARS Receipt'], array_map(fn ($s) => $s->name, $signed));
+        $this->assertSame('sequence', $s2[3]['type']);
+        $this->assertSame('Deeds Office Lodgement', $s2[3]['step']->name);
+        $this->assertSame('band', $s2[4]['type']);
+        $this->assertCount(2, $s2[4]['lanes']);
 
         // Stage 1 conditions read as lanes (they converge on the gate bar).
         $s1lanes = collect($board['stage1'])->where('type', 'band')->flatMap(fn ($seg) => $seg['lanes']);

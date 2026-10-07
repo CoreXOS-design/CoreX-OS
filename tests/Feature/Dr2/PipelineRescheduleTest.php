@@ -125,7 +125,8 @@ final class PipelineRescheduleTest extends TestCase
         $this->withoutVite();
         $this->get(route('deals-dr2.pipeline.timeline', $this->deal))
             ->assertOk()
-            ->assertSee('Pipeline timeline');
+            ->assertSee('Deal Pipeline')
+            ->assertSee('dr2_panels_open_', false); // the horizontal date-Gantt's collapsible panel state
     }
 
     private function dealWithGraph(): Deal

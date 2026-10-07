@@ -20,10 +20,17 @@ final class WorkOrderSendFailureTest extends TestCase
 
     private function order(array $attrs = []): DealStepWorkOrder
     {
+        // deal_step_work_orders.deal_step_instance_id is a real foreign key (the snapshot has no rows): the
+        // order needs an actual step instance, which needs an actual agency.
+        $agency = \App\Models\Agency::create(['name' => 'WO Agency', 'slug' => 'wo-' . uniqid()]);
+        $step = \App\Models\DealV2\DealStepInstance::forceCreate([
+            'agency_id' => $agency->id, 'name' => 'Order COC', 'trigger_type' => 'manual',
+        ]);
+
         return DealStepWorkOrder::create(array_merge([
-            'deal_step_instance_id' => 1,
+            'deal_step_instance_id' => $step->id,
             'dr1_deal_id'           => 1,
-            'agency_id'             => 1,
+            'agency_id'             => $agency->id,
             'service_type'          => 'COC',
             'responsible_party'     => 'supplier',
             'status'                => 'pending',

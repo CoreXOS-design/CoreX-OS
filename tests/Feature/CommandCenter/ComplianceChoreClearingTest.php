@@ -249,8 +249,7 @@ final class ComplianceChoreClearingTest extends TestCase
 
     private function makeDocsMissingType(): void
     {
-        NotificationEventType::create([
-            'key' => 'property.documents_missing', 'pillar' => 'property',
+        NotificationEventType::updateOrCreate(['key' => 'property.documents_missing'], [ 'pillar' => 'property',
             'group_label' => 'Documents', 'label' => 'Documents not uploaded after listing',
             'description' => 'Notify when a newly listed property has no documents on file.',
             'default_enabled' => true, 'threshold_unit' => 'hours', 'default_threshold' => 24,
