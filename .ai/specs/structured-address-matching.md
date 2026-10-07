@@ -167,10 +167,10 @@ Merging duplicate property records (decision 3); the Pull-as-my-own-listing flow
 | 4 | Writers wired: `Property::saving`, `TrackedProperty::creating/updating`, `TrackedPropertyAddress::creating`, `canonicalFactsForWrite` (+ `lpi_code`, `erf_portion`), CMA report parsers' `makeAddress`, the capture endpoints (LPI from the property block or `source_ref`) | landed (QA1) |
 | 5 | Scorer (`AddressFacts`, `AddressMatchScorer`, `AddressMatcher`); `resolveMatch` strategies 3 / 3b / 4, `findExistingStock`, `findSameStreetOthers`, `resolvePropertyMatch`, the Deeds evidence panel, the pre-check response (additive `tier` / `matched_on` / `columns`, possible tracked matches); promote asks on a possible match (Deeds screen and MIC) | landed (QA1) |
 | 6 | Other consumers: `DeedsCaptureLinkService`, `ContactAddressPropertyGuard`, `MapPinService` fold, `MicPropertyReconciliationService`, `PropertyCmaPropagationService`, `ProspectingStockMatchService` pass 2 — each with its own test file | landed (QA1) |
-| 7 | Backfill command `address:backfill-structured` (dry run first; QA/local/testing only) + QA1 dry run and run | command landed (QA1); QA1 run — see the build report |
+| 7 | Backfill command `address:backfill-structured` (dry run first; QA/local/testing only) + QA1 dry run and run | landed and run on QA1 (counts in the build report) |
 | 8 | Review list + settings page (navigation, permission, CRUD standard) | landed (QA1) |
 | 9 | Extension 3.9.0 | landed (QA1) |
-| 10 | QA1 walkthrough for Johan + final report | — |
+| 10 | QA1 walkthrough for Johan + final report | done — `/tmp/qa1-cc4-matching-build-2026-10-07.md` |
 
 ### 14.1 What the build found and decided on the way (steps 2–5)
 
