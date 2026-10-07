@@ -37,6 +37,7 @@ final class SyndicationRefreshPromptTest extends TestCase
 
     private int $agencyId;
     private User $user;
+    private User $agent;
     private int $propertyId;
 
     protected function setUp(): void
@@ -58,6 +59,10 @@ final class SyndicationRefreshPromptTest extends TestCase
         $this->user = User::factory()->create([
             'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'super_admin',
         ]);
+        // A listing's agent must be an agency member — an owner-role account can't be assigned as one.
+        $this->agent = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'agent',
+        ]);
 
         // Real KZN South Coast stock, not "Test / Test / 0000000000".
         $this->propertyId = (int) DB::table('properties')->insertGetId([
@@ -67,7 +72,7 @@ final class SyndicationRefreshPromptTest extends TestCase
             'suburb' => 'Uvongo', 'city' => 'Margate', 'province' => 'KwaZulu-Natal',
             'beds' => 3, 'baths' => 2, 'garages' => 2,
             'compliance_snapshot_at' => null,
-            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'agent_id' => $this->user->id,
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'agent_id' => $this->agent->id,
             'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -105,7 +110,7 @@ final class SyndicationRefreshPromptTest extends TestCase
                 'beds'     => 3,
                 'baths'    => 2,
                 'garages'  => 2,
-                'agent_id' => $this->user->id,
+                'agent_id' => $this->agent->id,
             ]
         );
     }

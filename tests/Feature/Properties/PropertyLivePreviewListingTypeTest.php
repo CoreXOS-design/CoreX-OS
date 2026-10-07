@@ -73,7 +73,9 @@ final class PropertyLivePreviewListingTypeTest extends TestCase
         $res = $this->get($this->previewUrl($rental))->assertOk();
 
         $res->assertDontSee('Bond calculator', false);
-        $res->assertDontSee('mortgageCalc(', false);
+        // The calculator SECTION is absent. (The page's script still defines function mortgageCalc() for every
+        // listing, so assert on the x-data instantiation, not the bare name.)
+        $res->assertDontSee('x-data="mortgageCalc(', false);
     }
 
     public function test_a_sale_still_reads_for_sale_and_keeps_its_bond_calculator(): void
@@ -111,7 +113,7 @@ final class PropertyLivePreviewListingTypeTest extends TestCase
         $imported = $this->property($agencyId, $agent, 'ZZZ-Imported-Rental', [
             'listing_type'  => 'Rental',   // exactly as P24ListingsCsvParser stores it
             'rental_amount' => 8500,
-            'price'         => null,
+            'price'         => 0,   // the parser emits null, but properties.price is NOT NULL — the importer stores 0 (ConfirmP24PropertyRowJob)
         ]);
 
         $res = $this->get($this->previewUrl($imported))->assertOk();
@@ -343,6 +345,7 @@ final class PropertyLivePreviewListingTypeTest extends TestCase
             'title'         => $title,
             'status'        => 'active',
             'property_type' => 'apartment',
+            'price'         => 0, // properties.price is NOT NULL (a rental fixture that sets only rental_amount still needs it)
             'suburb'        => 'Uvongo',
             'city'          => 'Margate',
             'province'      => 'KwaZulu-Natal',
