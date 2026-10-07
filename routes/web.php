@@ -4463,6 +4463,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — agency-configurable no-go/auto-take thresholds.
             Route::get('/duplicate-rules',                        [\App\Http\Controllers\Settings\Prospecting\DuplicateRulesController::class, 'edit'])->name('duplicate-rules.edit');
             Route::put('/duplicate-rules',                        [\App\Http\Controllers\Settings\Prospecting\DuplicateRulesController::class, 'update'])->name('duplicate-rules.update');
+            // Structured address matching (2026-10-07) — admin-only match-strictness settings; deliberately NOT in the Setup Wizard.
+            Route::get('/address-matching',                       [\App\Http\Controllers\Settings\Prospecting\AddressMatchingRulesController::class, 'edit'])->name('address-matching.edit');
+            Route::put('/address-matching',                       [\App\Http\Controllers\Settings\Prospecting\AddressMatchingRulesController::class, 'update'])->name('address-matching.update');
         });
 
     // ── Seller Outreach Templates (per-agency template CRUD) ──
@@ -7010,6 +7013,24 @@ Route::middleware(['auth', 'permission:deeds_capture.access'])
             ->whereNumber('trackedProperty')->whereNumber('trackedPropertyOwner')->name('owner-conflict.resolve');
         Route::post('/tva/{tvaContactCapture}/dismiss', [\App\Http\Controllers\CoreX\DeedsCaptureController::class, 'dismissTva'])
             ->whereNumber('tvaContactCapture')->name('tva.dismiss');
+    });
+
+// Structured address matching (spec .ai/specs/structured-address-matching.md §10) — the admin-only list of
+// addresses CoreX could not read confidently. Agency-admin scope only (permission address_review.manage);
+// every action re-checks the agency at the query layer, a direct URL by id is a 404 outside it.
+Route::middleware(['auth', 'permission:address_review.manage'])
+    ->prefix('corex/address-review')
+    ->name('corex.address-review.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\AddressReviewController::class, 'index'])->name('index');
+        Route::get('/{kind}/{id}', [\App\Http\Controllers\CoreX\AddressReviewController::class, 'edit'])
+            ->whereIn('kind', ['property', 'tracked'])->whereNumber('id')->name('edit');
+        Route::post('/{kind}/{id}/fix', [\App\Http\Controllers\CoreX\AddressReviewController::class, 'fix'])
+            ->whereIn('kind', ['property', 'tracked'])->whereNumber('id')->name('fix');
+        Route::post('/{kind}/{id}/dismiss', [\App\Http\Controllers\CoreX\AddressReviewController::class, 'dismiss'])
+            ->whereIn('kind', ['property', 'tracked'])->whereNumber('id')->name('dismiss');
+        Route::post('/{kind}/{id}/restore', [\App\Http\Controllers\CoreX\AddressReviewController::class, 'restore'])
+            ->whereIn('kind', ['property', 'tracked'])->whereNumber('id')->name('restore');
     });
 
 // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — BM/admin approval

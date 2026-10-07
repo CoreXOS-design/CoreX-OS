@@ -277,9 +277,25 @@ final class PropertyCmaPropagationService
      */
     private function findByAddress(int $agencyId, string $address, string $suburb): ?object
     {
-        $normalisedSubject = $this->normaliseAddress($address . ' ' . $suburb);
-        $suburbLower = mb_strtolower(trim($suburb));
+        // 2026-10-07 (structured address matching, step 6) — Pass 1 was an exact comparison of the lower-cased address
+        // text, so "19 Grindewald Drive" never met property "19 Grindewald" and a different street TYPE or an old row's
+        // number-inside-the-name defeated it; Pass 2 matched ANY two shared words with no street-number veto
+        // ("29 Grindewald Drive" == "19 Grindewald Drive"). Now the shared scored comparison decides first — an EXACT
+        // hit wins, a single POSSIBLE hit is taken — and Pass 2 only ever considers a candidate the scorer has not
+        // vetoed (a different number / unit / erf / suburb is never the same property).
+        $matcher = app(\App\Services\Address\AddressMatcher::class);
+        $hits = $matcher->properties($agencyId, \App\Services\Address\AddressFacts::fromPayload(['address' => $address, 'suburb' => $suburb]));
+        foreach ($hits as $h) {
+            if ($h['result']['tier'] === \App\Services\Address\AddressMatchScorer::TIER_EXACT) {
+                return $this->propertyRow($h['model']);
+            }
+        }
+        $possible = array_values(array_filter($hits, fn ($h) => $h['result']['tier'] === \App\Services\Address\AddressMatchScorer::TIER_POSSIBLE));
+        if (count($possible) === 1) {
+            return $this->propertyRow($possible[0]['model']);
+        }
 
+        $suburbLower = mb_strtolower(trim($suburb));
         $candidates = DB::table('properties')
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
@@ -287,28 +303,18 @@ final class PropertyCmaPropagationService
                 $q->whereRaw('LOWER(suburb) = ?', [$suburbLower])
                   ->orWhere('suburb', 'LIKE', '%' . $suburb . '%');
             })
-            ->select('id', 'agency_id', 'street_number', 'street_name', 'address', 'suburb',
+            ->select('id', 'agency_id', 'street_number', 'street_name', 'address', 'suburb', 'suburb_normalised', 'unit_number', 'erf_number',
                      'last_cma_at', 'last_cma_presentation_id')
             ->get();
 
         if ($candidates->isEmpty()) return null;
 
-        // Pass 1: exact normalised
-        foreach ($candidates as $cand) {
-            $candAddress = trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? ''));
-            if ($candAddress === '') {
-                $candAddress = (string) ($cand->address ?? '');
-            }
-            $candNorm = $this->normaliseAddress($candAddress . ' ' . ($cand->suburb ?? ''));
-            if ($candNorm !== '' && $candNorm === $normalisedSubject) {
-                return $cand;
-            }
-        }
-
-        // Pass 2: token overlap (≥2 significant tokens)
+        // Pass 2: token overlap (≥2 significant tokens), never on a candidate the scorer vetoes.
         $subjectTokens = $this->extractStreetTokens($address);
         if (empty($subjectTokens)) return null;
 
+        $facts = \App\Services\Address\AddressFacts::fromPayload(['address' => $address, 'suburb' => $suburb]);
+        $scorer = new \App\Services\Address\AddressMatchScorer();
         foreach ($candidates as $cand) {
             $candAddress = trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? ''));
             if ($candAddress === '') {
@@ -316,9 +322,15 @@ final class PropertyCmaPropagationService
             }
             $candTokens = $this->extractStreetTokens($candAddress);
             $overlap = array_intersect($subjectTokens, $candTokens);
-            if (count($overlap) >= 2) {
-                return $cand;
+            if (count($overlap) < 2) {
+                continue;
             }
+            $candFacts = \App\Services\Address\AddressFacts::fromModel((new \App\Models\Property())->forceFill((array) $cand));
+            if ($scorer->score($facts, $candFacts)['veto'] !== []) {
+                continue;
+            }
+
+            return $cand;
         }
 
         return null;
@@ -328,22 +340,34 @@ final class PropertyCmaPropagationService
     {
         $erfCanonical = trim(preg_replace('/^(erf|stand)\s+/i', '', $erf));
         if ($erfCanonical === '') return null;
-        $suburbLower = mb_strtolower(trim($suburb));
+
+        // 2026-10-07 (structured address matching, step 6) — the suburb used to be matched as a substring
+        // ("Uvongo" LIKE "%Uvongo%" also hit "Uvongo Beach"), and the same erf number exists in every township. The
+        // scorer's erf rule needs the SAME suburb (spelling twins and aliases count, a neighbour does not). The
+        // property_number / stand_number columns a CMA subject can also name are still tried, in the same suburb.
+        $keys = \App\Models\Prospecting\TrackedPropertyAddress::suburbSpellingKeys($suburb);
+        if ($keys === []) {
+            return null;
+        }
 
         return DB::table('properties')
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->where(function ($q) use ($suburb, $suburbLower) {
-                $q->whereRaw('LOWER(suburb) = ?', [$suburbLower])
-                  ->orWhere('suburb', 'LIKE', '%' . $suburb . '%');
-            })
+            ->whereIn('suburb_normalised', $keys)
             ->where(function ($q) use ($erfCanonical) {
                 $q->where('erf_number', $erfCanonical)
                   ->orWhere('property_number', $erfCanonical)
                   ->orWhere('stand_number', $erfCanonical);
             })
             ->select('id', 'agency_id', 'last_cma_at', 'last_cma_presentation_id')
+            ->orderBy('id')
             ->first();
+    }
+
+    /** The columns resolveTargetProperty()'s callers read, from a Property model. */
+    private function propertyRow(\App\Models\Property $p): object
+    {
+        return (object) $p->only(['id', 'agency_id', 'street_number', 'street_name', 'address', 'suburb', 'last_cma_at', 'last_cma_presentation_id']);
     }
 
     private function normaliseAddress(string $addr): string
