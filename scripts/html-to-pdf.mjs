@@ -101,8 +101,10 @@ try {
         new Promise(r => setTimeout(r, 8000)),
     ]);
 
-    // Generate PDF matching browser Ctrl+P output
-    await page.pdf({
+    // Generate PDF matching browser Ctrl+P output.
+    // Opt-in page-number footer (PDF_PAGE_NUMBERS=1, optional PDF_FOOTER_LABEL): used by the FICA
+    // questions & answers form. Every other caller leaves the env unset and gets exactly the old output.
+    const pdfOptions = {
         path: outputPath,
         format: 'A4',
         margin: {
@@ -113,7 +115,16 @@ try {
         },
         printBackground: true,
         preferCSSPageSize: true,
-    });
+    };
+    if (process.env.PDF_PAGE_NUMBERS === '1') {
+        const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const label = process.env.PDF_FOOTER_LABEL ? esc(process.env.PDF_FOOTER_LABEL) + ' &nbsp;&middot;&nbsp; ' : '';
+        pdfOptions.displayHeaderFooter = true;
+        pdfOptions.headerTemplate = '<span></span>';
+        pdfOptions.footerTemplate = '<div style="width:100%;font-size:8px;font-family:Arial,sans-serif;color:#64748b;text-align:center;">'
+            + label + 'Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>';
+    }
+    await page.pdf(pdfOptions);
 
     console.log(JSON.stringify({ success: true, output: outputPath }));
 } catch (err) {

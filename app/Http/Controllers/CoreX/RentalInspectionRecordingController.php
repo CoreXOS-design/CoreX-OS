@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\DocumentType;
 use App\Models\Property;
@@ -42,6 +43,55 @@ use Illuminate\Validation\Rule;
 class RentalInspectionRecordingController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use AuthorizesPropertyAccess;
+
+    /**
+     * rental-inspections.md §45.8 H2 — the guard for every action reached through a PROPERTY
+     * rather than a bound inspection (the property tab's data, start, item/room edits, seeding,
+     * photo matching). Route binding on {property} only enforces the agency boundary; without
+     * this, any same-agency user holding rental_inspections.create could read or change the
+     * inspection checklist of a colleague's or another branch's listing by id.
+     *
+     * Two layers, both required: (1) the property's own own/branch/agency scope — exactly what
+     * the property page itself applies, so the tab is never reachable here when the page is not;
+     * (2) the rental_inspections scope ceiling — a user held to their BRANCH's inspections cannot
+     * act on another branch's property even if their properties scope is wider. `own` needs no
+     * property-level check beyond (1): "own" for inspections is creator/inspector, enforced per
+     * inspection wherever one is addressed (guardRentalRecordScope on every {rentalInspection}
+     * action). Reads use view breadth, writes use mutation breadth (assistants), as the property
+     * page does.
+     */
+    private function authorizePropertyForInspections(Property $property, bool $forEdit = true): void
+    {
+        $this->authorizeProperty($property, $forEdit);
+
+        /** @var User $user */
+        $user = auth()->user();
+        $inspectionScope = \App\Services\PermissionService::getDataScope($user, 'rental_inspections');
+
+        $allowed = match ($inspectionScope) {
+            'all', 'own' => true,
+            'branch' => (int) $property->branch_id === (int) $user->effectiveBranchId(),
+            default => false,
+        };
+
+        abort_unless($allowed, 403);
+    }
+
+    /**
+     * §45.8 H2 — photo matching writes to the property's CURRENT inspection (the chain tail —
+     * assertPhotoMatchingUnlocked() already locks against it), so the actor must be allowed to
+     * work on that inspection under the rental_inspections own/branch/agency scope. Only the
+     * tail is guarded, deliberately: the other side of a match is the PREDECESSOR, usually a
+     * colleague's finished inspection, and comparing against it is exactly what the chain is for.
+     */
+    private function guardPhotoMatchTail(Property $property): void
+    {
+        $tail = RentalInspection::chainTailFor($property);
+        if ($tail) {
+            $this->guardRentalRecordScope($tail, 'rental_inspections', $property->branch_id);
+        }
+    }
 
     /**
      * GET /corex/properties/{property}/rental-inspection-tab — the data
@@ -54,6 +104,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function tabData(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property, forEdit: false);
         return response()->json(RentalInspection::tabPayloadFor($property));
     }
 
@@ -89,6 +140,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspections/start — §0.5, the deliberate action that begins one. */
     public function start(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
         ]);
@@ -121,6 +173,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function next(Request $request, Property $property, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($rentalInspection->property_id !== $property->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
@@ -168,6 +221,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeItem(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'kind' => ['required', 'in:' . RentalInspectionItem::KIND_SPACE . ',' . RentalInspectionItem::KIND_METER . ',item'],
             'label' => ['required', 'string', 'max:191'],
@@ -239,6 +293,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function assignType(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
         abort_if($item->kind !== RentalInspectionItem::KIND_SPACE, 422, 'Only a space can be given a room type.');
         abort_if($item->property_room_id !== null, 422, 'This space already has a room type.');
@@ -301,6 +356,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/retire — §3.3, never deleted, only retired. */
     public function retireItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
 
         $item->update(['is_retired' => true]);
@@ -311,6 +367,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/restore — the reverse of retire(), never a hard delete. */
     public function restoreItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
 
         $item->restoreItem();
@@ -321,6 +378,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/rename — label only, never touches observation history. */
     public function renameItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
 
         $validated = $request->validate(['label' => ['required', 'string', 'max:191']]);
@@ -339,6 +397,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function reorderItems(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'property_room_id' => ['required', 'integer'],
             'item_ids' => ['required', 'array', 'min:1'],
@@ -374,6 +433,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function applyDefaultRoomOrder(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $rooms = PropertyRoom::where('property_id', $property->id)->get();
 
         foreach ($rooms as $room) {
@@ -408,6 +468,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function reorderRooms(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'room_ids' => ['required', 'array', 'min:1'],
             'room_ids.*' => ['integer', 'distinct'],
@@ -441,6 +502,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function seedFromAdvertising(Request $request, Property $property, \App\Services\Rentals\RentalInspectionFormSeeder $seeder): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         try {
             $seeder->seedFromAdvertising($property, $request->user());
         } catch (\LogicException $e) {
@@ -1107,6 +1169,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhotoMatch(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
+        $this->guardPhotoMatchTail($property);
         $validated = $request->validate([
             'photo_id' => ['required', 'integer', 'different:anchor_photo_id'],
             'anchor_photo_id' => ['required', 'integer'],
@@ -1188,6 +1252,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function destroyPhotoMatch(Request $request, Property $property, \App\Models\RentalInspectionPhotoMatchGroupMember $member): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
+        $this->guardPhotoMatchTail($property);
         abort_if((int) $member->group?->property_id !== (int) $property->id, 404);
 
         // §41 — same lock as storePhotoMatch() above; unlinking after the
@@ -1229,6 +1295,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function autoPairPhotoMatches(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
+        $this->guardPhotoMatchTail($property);
         $tail = RentalInspection::chainTailFor($property);
         abort_if(! $tail, 422, 'No current inspection to auto-pair against.');
 
