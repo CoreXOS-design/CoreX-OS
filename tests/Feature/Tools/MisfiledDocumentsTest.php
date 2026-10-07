@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -23,6 +24,7 @@ use Tests\TestCase;
  */
 final class MisfiledDocumentsTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -49,10 +51,8 @@ final class MisfiledDocumentsTest extends TestCase
             'ids'     => ['ID Copy', 'contact'],
             'fica'    => ['FICA', 'contact'],
         ] as $slug => [$label, $grouping]) {
-            $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
-                'slug' => $slug, 'label' => $label, 'sort_order' => 0, 'is_active' => true,
-                'grouping' => $grouping, 'contact_roles' => json_encode(['seller_owner']),
-                'fica_slot' => 'none', 'created_at' => now(), 'updated_at' => now(),
+            $this->typeIds[$slug] = $this->documentTypeId($slug, $label, [
+                'grouping' => $grouping, 'contact_roles' => json_encode(['seller_owner']), 'fica_slot' => 'none',
             ]);
         }
 

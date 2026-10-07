@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Services\PartyRoleLabel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -38,6 +39,7 @@ use Tests\TestCase;
  */
 final class RentalInventoryPartyRolesTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -56,7 +58,7 @@ final class RentalInventoryPartyRolesTest extends TestCase
         ]);
         $this->actingAs($this->agent);
 
-        DocumentType::create(['slug' => 'inventory_list', 'label' => 'Inventory List', 'is_active' => true]);
+        $this->documentTypeId('inventory_list', 'Inventory List');
 
         // The 4 canonical ContactType parents (Lessor/Lessee/Seller/Buyer)
         // are meant to be backfilled by migration

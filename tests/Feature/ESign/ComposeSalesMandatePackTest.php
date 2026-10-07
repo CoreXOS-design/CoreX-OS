@@ -10,6 +10,7 @@ use App\Models\Docuperfect\Template;
 use App\Models\Docuperfect\WebPack;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -21,6 +22,7 @@ use Tests\TestCase;
  */
 final class ComposeSalesMandatePackTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -34,7 +36,7 @@ final class ComposeSalesMandatePackTest extends TestCase
 
     private function docType(string $slug, string $label): int
     {
-        return DocumentType::create(['slug' => $slug, 'label' => $label, 'sort_order' => 0, 'is_active' => true])->id;
+        return $this->documentTypeId($slug, $label);
     }
 
     private function template(string $name, int $docTypeId): Template

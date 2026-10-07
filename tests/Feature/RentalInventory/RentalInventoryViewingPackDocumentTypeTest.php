@@ -17,6 +17,7 @@ use App\Models\RentalInventorySignature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -33,6 +34,7 @@ use Tests\TestCase;
  */
 final class RentalInventoryViewingPackDocumentTypeTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -52,9 +54,9 @@ final class RentalInventoryViewingPackDocumentTypeTest extends TestCase
         ]);
         $this->actingAs($this->agent);
 
-        $this->inventoryListType = DocumentType::create([
-            'slug' => 'inventory_list', 'label' => 'Inventory List', 'is_active' => true, 'buyer_pack_eligible' => true,
-        ]);
+        $this->inventoryListType = DocumentType::find(
+            $this->documentTypeId('inventory_list', 'Inventory List', ['buyer_pack_eligible' => true])
+        );
     }
 
     public function test_completing_an_inventory_files_a_document_typed_for_the_viewing_pack(): void

@@ -159,6 +159,9 @@ final class RentalInventoryComparisonRebuildTest extends TestCase
         ]);
         $line->photos()->attach($moveInPhoto->id, ['agency_id' => $this->agency->id]);
 
+        // Move-out findings (and photos) can only be recorded once the inventory is COMPLETED.
+        $this->completeInventory();
+
         $response = $this->postJson(route('corex.rental-inventories.lines.move-out-photos.store', [$this->inventory, $line]), [
             'photos' => [UploadedFile::fake()->image('found.jpg', 800, 600)],
             'client_idempotency_keys' => [(string) \Illuminate\Support\Str::uuid()],
