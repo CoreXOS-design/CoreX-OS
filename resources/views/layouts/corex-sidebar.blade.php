@@ -301,7 +301,8 @@
         'agencies.*',
         'admin.agency-setup-progress',
         'admin.ai-usage.*',
-        'admin.billing.*'
+        'admin.billing.*',
+        'admin.agency-timelines.*'
     )) {
         $activeGroup = 'agency';
     } elseif (request()->routeIs(
@@ -2904,7 +2905,9 @@
         </div>
 
         {{-- Dev Settings --}}
-        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*') ? 'active' : '' }}">
+        {{-- Agency timeline defaults (AT-447) is a Dev Settings page (spec §4.1) reached from the Dev Settings index, so its own
+             route family (admin.timeline-defaults.*, a sibling prefix, not admin.dev-settings.*) lights this item too. --}}
+        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>

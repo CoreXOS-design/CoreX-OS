@@ -68,8 +68,14 @@ final class ViewingPackRedactionEndpointTest extends TestCase
             'suburb' => 'Margate', 'price' => 1500000, 'status' => 'active',
             'created_at' => now(), 'updated_at' => now(),
         ]);
+        // viewing_packs.contact_id is NOT NULL (every pack is built for one of our buyers); the "external agency, no contact"
+        // pack is only a DRAFT spec (viewing-pack-external-agency.md) and was never built — so the fixture needs a real buyer.
+        $buyer = \App\Models\Contact::create([
+            'agency_id' => $agencyId, 'branch_id' => $branchId, 'first_name' => 'Pack', 'last_name' => 'Buyer',
+            'email' => 'pack-buyer-' . Str::random(6) . '@example.test',
+        ]);
         $packId = (int) DB::table('viewing_packs')->insertGetId([
-            'agency_id' => $agencyId, 'contact_id' => null, 'agent_id' => $user->id,
+            'agency_id' => $agencyId, 'contact_id' => $buyer->id, 'agent_id' => $user->id,
             'status' => 'draft', 'title' => 'Test pack', 'created_at' => now(), 'updated_at' => now(),
         ]);
         $vppId = (int) DB::table('viewing_pack_properties')->insertGetId([
