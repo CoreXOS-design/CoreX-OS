@@ -4160,6 +4160,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'show'])->whereNumber('grant')->name('show');
         Route::get('/{grant}/edit',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'edit'])->whereNumber('grant')->name('edit');
         Route::put('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'update'])->whereNumber('grant')->name('update');
+        // Add time to a grant — additive and audited; no new code or terms needed. Spec: demo-access-control.md §9.1
+        Route::post('/{grant}/extend',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'extend'])->whereNumber('grant')->name('extend');
         Route::post('/{grant}/revoke',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'revoke'])->whereNumber('grant')->name('revoke');
         Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
         // "Delete" archives. The row is never removed (non-negotiable #1).

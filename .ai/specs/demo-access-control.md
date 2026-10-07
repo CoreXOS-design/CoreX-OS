@@ -507,7 +507,7 @@ primary is an extinction event.
 
 ## §7 — Domain events (non-negotiable #9)
 
-Five events, registered in `.ai/specs/corex-domain-events-spec.md` §5. Past-tense facts
+Six events, registered in `.ai/specs/corex-domain-events-spec.md` §5. Past-tense facts
 (E1), uniform payload (E3), idempotent listeners (E5).
 
 | Event | Fired when | Listener |
@@ -517,8 +517,9 @@ Five events, registered in `.ai/specs/corex-domain-events-spec.md` §5. Past-ten
 | `DemoTncAccepted` | Clickwrap accepted | — (audit) |
 | `DemoAccessRevoked` | Owner revokes | — (audit) |
 | `DemoAccessExpired` | Gate observes an expired grant | — (audit) |
+| `DemoAccessExtended` | Owner adds time to a grant (once per applied extension) | — (audit; also read back by the grant page's "Time added" list) |
 
-All five are caught by the existing wildcard `RecordDomainEvent` audit listener.
+All six are caught by the existing wildcard `RecordDomainEvent` audit listener.
 
 **Listener registration:** rely on Laravel 12 auto-discovery (`shouldDiscoverEvents`).
 Do **not** also add an explicit `Event::listen` — that binds the listener twice and the
@@ -556,14 +557,15 @@ new keys, a permission was added and it should not have been.
 **Dev Settings → Demo Access** (`/admin/dev-settings/demo-access`), alongside the
 existing Demo Sidebar Curation page.
 
-- **List** — company, email, status chip (derived), issued, first login, expires,
-  page-view count. Filters: status, company.
+- **List** — prospect cards with a Views panel; see §9.2.
 - **Create** — the §6.1 form. On save, the plaintext code is shown **once**, with a
   copy button and "this will not be shown again".
 - **Show** — grant detail, T&C acceptance (which version, when, IP), session list, page
-  views.
-- **Edit** — notes + CRM link only. **Not** `expiry_hours` (already sold), **not** the
-  code (it is a bcrypt hash; it cannot be recovered — only re-issued).
+  views, and the "Time added" history (§9.1).
+- **Edit** — notes + CRM link only. **Not** `expiry_hours` or the deadline (already sold —
+  time moves only through **Add time**, §9.1), **not** the code (it is a bcrypt hash; it
+  cannot be recovered — only re-issued).
+- **Add time** — §9.1.
 - **Revoke** — confirm dialog stating **"takes effect within 60 seconds"**.
 - **Archive** — confirm dialog. Sets `archived_at`. The row **stays**.
 - **T&C versions** — list + "Publish new version" (never edit).
@@ -573,6 +575,79 @@ Plus: sidebar link + the Dev Settings index card.
 
 Status chips are plain English (STANDARDS F.8): "Not used yet" (pending), "Active",
 "Expired", "Revoked", "Archived".
+
+### §9.1 Add time (extend a grant)
+
+**Why.** A prospect whose demo is running out — or has run out — should not need a new
+grant, a new code and a new terms acceptance just to get more time. The owner adds time to
+the grant they already have. *(Reverses the earlier rule that time could only change by
+issuing a new grant; the reason for that rule — a quoted deadline must not move silently —
+is kept: extending is additive, deliberate, and audited.)*
+
+**Where.** An **Add time** button on every card that can be extended, and in the header of
+the grant page. One shared dialog (`_extend-modal.blade.php`). Route
+`POST /admin/dev-settings/demo-access/{grant}/extend`, owner-only (§8).
+
+**What the owner picks.** 1 day · 3 days · 1 week · 2 weeks · 1 month, or a custom number of
+days (1–365), plus an optional reason kept on the record. The dialog says, for *this*
+grant, where the time lands — never a generic "extend".
+
+**Where the time lands** (decided under a row lock from the fresh row, never from the page
+the owner was looking at):
+
+| Grant is | Effect |
+|---|---|
+| **Not started** (rolling clock, `expires_at` NULL) | the trial length they get at first sign-in grows: `expiry_hours += hours`. No end date is invented. |
+| **Still running** (`expires_at` in the future) | the existing end date moves on: `expires_at += hours` |
+| **Already ended** (`expires_at` in the past) | access restarts from **now** for the period chosen. Adding to a date already in the past would leave them expired — silently. |
+| **Fixed deadline** (webinar cohort, `expiry_hours` NULL) | the deadline moves as above; the grant still carries exactly one clock. |
+| **Revoked** | **refused** — revoking was a deliberate withdrawal; extending would quietly undo it. Issue a new grant. |
+| **Archived** | **refused** until restored. |
+
+**Limits.** 1–365 days per extension; the result may not run more than a year from now (or
+make a not-started trial longer than a year) — the same ceiling the issue form uses.
+
+**Double-submit.** Each dialog-open mints a one-time token, consumed on the server after
+validation passes. A double-click or resubmitted form applies **once**; a validation typo
+does not burn the token, and a refused extension frees it.
+
+**Latency.** Reaches the demo within the gate cache TTL (≤60 s), like revoke — the success
+message says so.
+
+**Kept.** Same access code, same accepted terms, same session history. Nothing is resent.
+
+**Audit.** `DemoAccessExtended` (§7) carries who, how many hours, which clock moved
+(`before_start` / `from_deadline` / `from_now`), the previous and new values and the note.
+The grant page's **Time added** list is read back from that audit row — no second store.
+
+### §9.2 The list screen
+
+Replaces the old table. Same URL, owner-only.
+
+- **Header:** the flat Properties-style bar (no brand fill, thin rule beneath, tour launcher,
+  `corex-btn-outline` actions, `corex-btn-primary` New grant). No fold-on-scroll. The old
+  three tiles became two status chips in the header — *Terms version N* / *No terms
+  published*, *Demo connected* / *Demo not connected* — plus the "N grants issued" count. The
+  two loud red alerts (no terms, no connector) are unchanged.
+- **Cards** (24 a page): company → grant page, email, status chip, a 14-day pages-viewed
+  bar chart, *last seen* (with a green/amber/grey dot ≤24 h / ≤7 days / older), pages and
+  sessions, time left (red within 48 h), **View**, **Add time**, and **Restore** on archived.
+- **Views panel** (each with a live count): All grants · **Hot now** (active, seen in the last
+  24 h) · **Expiring soon** (usable, ends within 48 h) · **Went quiet** (active, not seen for
+  3+ days) · **Not used yet** · **Ended** (expired or revoked) · **Archived**. "All" excludes
+  archived; archived grants are never deleted. `?archived=1` still opens the Archived view.
+- **Search:** company, contact name, email. **Sort** (default *Most recent activity*; never-
+  opened last): Most recent activity · Expiring soonest · Most pages viewed · Newest issued ·
+  Company A–Z. **Filter:** *Issued between* date range; **Hide not used**; **Hide ended**.
+- **Counts follow the filters.** Every view count is computed over the same set the list is
+  cut from (search, date range and both hide switches applied) — a count always equals what
+  its view shows.
+- **Empty states:** "No demo grants yet" (with *Issue the first grant*) vs "No grants in this
+  view" (with *Clear all filters*).
+- **Scoping:** unchanged — owner-only (§8); the list is system-owner sales data and is not
+  tenant-scoped. Direct access by grant id stays owner-only.
+- Status remains **derived** (`DemoAccessGrant::status()`); the list classifies in PHP
+  (`App\Support\DemoAccessListing`) rather than re-implementing the rules in SQL.
 
 ---
 
@@ -612,6 +687,20 @@ must be **idempotent** (`firstOrCreate` on `version = 1`) since it runs on every
 | R18 | Page view POSTed with an unknown session token | 204, silently dropped (never 500 a demo page) | Absorb |
 | R19 | Watermark on a `corex.blade.php` page (not just `corex-app`) | Present | Absorb |
 | R20 | `DemoResetSchedule::next()` vs the scheduler | Identical instant | — |
+| R21 | List: each view's count vs the rows that view lists | Always equal | Prevent |
+| R22 | List: archived grants | Only in the Archived view; `?archived=1` still works; row never removed | Absorb |
+| R23 | List: Hide not used / Hide ended | Rows **and** counts both drop them | Prevent |
+| R24 | List: default sort | Most recent activity; never-opened last, newest invite first | — |
+| R25 | List: page views per day, last 14 days | Oldest first, today last; older views excluded | — |
+| R26 | Add time — grant **not started** | `expiry_hours` grows; `expires_at` stays NULL; still "Not used yet" | Absorb |
+| R27 | Add time — grant **running** | `expires_at` moves on by the amount | Absorb |
+| R28 | Add time — grant **already ended** | Restarts from **now** (not from the past date); status becomes Active | Absorb |
+| R29 | Add time — **fixed-deadline** (webinar) grant | Deadline moves; `expiry_hours` stays NULL (one clock) | Absorb |
+| R30 | Add time — **revoked** or **archived** grant | Refused with a plain-English reason; nothing changes; no event | Prevent |
+| R31 | Add time — days 0 / negative / >365 / non-numeric / missing token | Rejected; nothing changes; a typo does not consume the token | Prevent |
+| R32 | Add time — double-click / resubmit | Applied **once**; second request absorbed with a message | Absorb |
+| R33 | Add time — result would run past a year | Refused; token freed so a smaller request works | Prevent |
+| R34 | Add time — non-owner / guest | 403 / redirect to sign-in; nothing changes | Prevent |
 
 ---
 
@@ -636,7 +725,9 @@ app/Http/Controllers/Admin/DemoAccessController.php          (primary, owner-onl
 app/Jobs/Demo/FlushDemoPageViewJob.php
 app/Mail/DemoAccessGrantMail.php
 app/Listeners/Demo/SendDemoAccessGrantEmail.php
-app/Events/Demo/{DemoAccessGranted,DemoAccessFirstLogin,DemoTncAccepted,DemoAccessRevoked,DemoAccessExpired}.php
+app/Events/Demo/{DemoAccessGranted,DemoAccessFirstLogin,DemoTncAccepted,DemoAccessRevoked,DemoAccessExpired,DemoAccessExtended}.php
+app/Support/DemoAccessListing.php                            (list views/filters/sort/cards)
+resources/views/admin/demo-access/_extend-modal.blade.php   (shared "Add time" dialog)
 app/Console/Commands/Demo/DemoReset.php
 database/migrations/*_create_demo_access_tables.php  (×5)
 database/seeders/DemoTncVersionSeeder.php
@@ -662,7 +753,7 @@ resources/views/layouts/corex.blade.php            — watermark include  ← DO
 resources/views/partials/_env-banner.blade.php     — reset countdown
 resources/views/layouts/corex-sidebar.blade.php    — Demo Access link
 database/schema/mysql-schema.sql        — schema:dump (non-negotiable #12a)
-.ai/specs/corex-domain-events-spec.md   — register the 5 events
+.ai/specs/corex-domain-events-spec.md   — register the 6 events
 ```
 
 ---
@@ -702,6 +793,11 @@ database/schema/mysql-schema.sql        — schema:dump (non-negotiable #12a)
 10. The watermark renders on pages from **both** layouts.
 11. `corex:sync-permissions` is a **no-op**.
 12. Every row of §11 has a passing test.
+13. The list header matches the Properties header (flat bar, no brand fill, no fold-on-scroll);
+    each Views count equals the rows that view shows; archived grants only in *Archived*.
+14. **Add time** works on a not-started, running and already-ended grant; refuses revoked and
+    archived; applies once on a double-submit; keeps the same code and accepted terms; every
+    extension is in the audit log and listed under *Time added* on the grant page.
 
 ---
 

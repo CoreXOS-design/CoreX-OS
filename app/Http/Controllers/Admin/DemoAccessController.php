@@ -2,17 +2,22 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\Demo\DemoAccessExtended;
 use App\Http\Controllers\Controller;
 use App\Models\DemoAccessGrant;
 use App\Models\DemoConnector;
 use App\Models\DemoTncVersion;
 use App\Models\SiteConnector;
+use App\Models\User;
 use App\Services\Demo\DemoAccessService;
+use App\Support\DemoAccessListing;
 use App\Support\DemoResetSchedule;
 use App\Support\Instance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Demo Access Control — the system-owner admin surface.
@@ -51,33 +56,13 @@ class DemoAccessController extends Controller
     {
         $this->assertOwner();
 
-        $query = DemoAccessGrant::query()->with(['issuer', 'contact'])->withCount('sessions');
-
-        // Archived grants are hidden by default but NEVER deleted — the toggle is
-        // how you prove that to yourself.
-        if (! $request->boolean('archived')) {
-            $query->notArchived();
-        }
-
-        if ($search = trim((string) $request->input('q', ''))) {
-            $query->where(function ($w) use ($search) {
-                $w->where('company_name', 'like', "%{$search}%")
-                  ->orWhere('contact_email', 'like', "%{$search}%");
-            });
-        }
-
-        $grants = $query->orderByDesc('id')->paginate(25)->withQueryString();
-
-        // Status is DERIVED, so it cannot be filtered in SQL without re-implementing
-        // the rules (and drifting from them). Filter the page in PHP against the one
-        // authoritative method instead — correctness over a marginally cheaper query.
-        $statusFilter = $request->input('status');
+        // Archived grants are hidden from every view except "Archived" but NEVER
+        // deleted. Status is DERIVED, so it is classified in PHP against the one
+        // authoritative DemoAccessGrant::status() — see DemoAccessListing.
+        $listing = DemoAccessListing::build($request);
 
         return view('admin.demo-access.index', [
-            'grants'       => $grants,
-            'statusFilter' => $statusFilter,
-            'search'       => $search,
-            'showArchived' => $request->boolean('archived'),
+            'listing'      => $listing,
             'tncVersion'   => DemoTncVersion::current(),
             'nextReset'    => DemoResetSchedule::next(),
             // No connector = the demo cannot reach us = nobody can sign in to it.
@@ -140,11 +125,39 @@ class DemoAccessController extends Controller
             'sessions.pageViews' => fn ($q) => $q->orderByDesc('viewed_at')->limit(200),
         ]);
 
+        // "Time added" history — read back from the audit log, which is the record
+        // of every extension (DemoAccessExtended). Newest first.
+        $extensions = DB::table('domain_event_log')
+            ->where('event_name', DemoAccessExtended::class)
+            ->where('subject_type', DemoAccessGrant::class)
+            ->where('subject_id', $grant->getKey())
+            ->orderByDesc('occurred_at')
+            ->limit(50)
+            ->get(['actor_user_id', 'context', 'occurred_at']);
+
+        $actors = User::query()
+            ->whereIn('id', $extensions->pluck('actor_user_id')->filter()->unique())
+            ->pluck('name', 'id');
+
         return view('admin.demo-access.show', [
             'grant'      => $grant,
             // Flashed exactly once, straight after issue.
             'plainCode'  => session('demo_access_code'),
             'cacheTtl'   => (int) config('corex.instance.gate_cache_ttl', 60),
+            'extensions' => $extensions->map(function ($row) use ($actors) {
+                $c = json_decode((string) $row->context, true) ?: [];
+
+                return [
+                    'when'  => \Illuminate\Support\Carbon::parse($row->occurred_at),
+                    'by'    => $actors[$row->actor_user_id] ?? 'Unknown',
+                    'added' => DemoAccessListing::humanHours((int) ($c['hours_added'] ?? 0)),
+                    'basis' => $c['basis'] ?? null,
+                    'ends'  => ! empty($c['new_expires_at']) ? \Illuminate\Support\Carbon::parse($c['new_expires_at']) : null,
+                    'trial' => isset($c['new_expiry_hours']) ? DemoAccessListing::humanHours((int) $c['new_expiry_hours']) : null,
+                    'note'  => $c['note'] ?? null,
+                ];
+            }),
+            'extendPayload' => DemoAccessListing::meta($grant, \Illuminate\Support\Carbon::now())['extend'],
         ]);
     }
 
@@ -161,9 +174,10 @@ class DemoAccessController extends Controller
      *
      * Notes and the CRM link only.
      *
-     * NOT expiry_hours — that length was quoted to the prospect and copied onto
-     * the row at issue; editing it later would silently move a deadline they were
-     * told. Issue a new grant instead.
+     * NOT expiry_hours / the deadline — that length was quoted to the prospect and
+     * copied onto the row at issue; a free edit would silently move a deadline they
+     * were told. Time only ever MOVES through extend() below: additive, audited,
+     * and logged against who did it.
      *
      * NOT the access code — the DB holds bcrypt(code) and there is nothing to
      * recover. A "change the code" button would have to mint a new one, which is
@@ -188,6 +202,58 @@ class DemoAccessController extends Controller
         return redirect()
             ->route('admin.demo-access.show', $grant)
             ->with('status', 'Grant updated.');
+    }
+
+    /**
+     * POST /admin/dev-settings/demo-access/{grant}/extend
+     *
+     * Add time to a grant so a prospect needs no new code and no new terms
+     * acceptance. Works on a grant that has not started, is still running, or has
+     * already ended (see DemoAccessService::extend for where the time lands).
+     *
+     * `token` is minted per dialog-open and consumed here: a double-click or a
+     * resubmitted form applies ONCE. The second request is absorbed with a plain
+     * message, never a second extension — adding time twice by accident is not a
+     * mistake a person can see afterwards.
+     *
+     * Spec: .ai/specs/demo-access-control.md §9.1
+     */
+    public function extend(Request $request, DemoAccessGrant $grant)
+    {
+        $this->assertOwner();
+
+        $data = $request->validate([
+            'days'  => ['required', 'integer', 'min:1', 'max:365'],
+            'token' => ['required', 'string', 'min:16', 'max:64'],
+            'note'  => ['nullable', 'string', 'max:500'],
+        ], [
+            'days.required' => 'Choose how much time to add.',
+            'days.integer'  => 'Enter the number of days as a whole number.',
+            'days.min'      => 'Add at least 1 day.',
+            'days.max'      => 'You can add at most 365 days at a time.',
+        ]);
+
+        // Consumed only once validation has passed, so a typo can be corrected and resent.
+        if (! Cache::add('demo_extend_token:' . sha1($data['token']), true, now()->addHour())) {
+            return back()->with('status', 'That extension was already applied — nothing was added twice.');
+        }
+
+        try {
+            $updated = $this->service->extend($grant, (int) $data['days'] * 24, (int) Auth::id(), $data['note'] ?? null);
+        } catch (\DomainException $e) {
+            // Free the token: nothing was applied, so the person may try again.
+            Cache::forget('demo_extend_token:' . sha1($data['token']));
+
+            return back()->withErrors(['extend' => $e->getMessage()]);
+        }
+
+        $ttl   = (int) config('corex.instance.gate_cache_ttl', 60);
+        $added = DemoAccessListing::humanHours((int) $data['days'] * 24);
+        $where = $updated->expires_at
+            ? 'Access now runs until ' . $updated->expires_at->format('D j M Y, H:i') . '.'
+            : 'Their trial is now ' . DemoAccessListing::humanHours((int) $updated->expiry_hours) . ' long, starting when they first sign in.';
+
+        return back()->with('status', "Added {$added} for {$updated->company_name}. {$where} It reaches the demo within {$ttl} seconds.");
     }
 
     /** POST /admin/dev-settings/demo-access/{grant}/revoke */

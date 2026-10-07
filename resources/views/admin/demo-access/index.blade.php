@@ -1,60 +1,69 @@
 {{--
     DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20
     Demo Access Control — grant list. Owner-only.
-    Spec: .ai/specs/demo-access-control.md §9
+    Spec: .ai/specs/demo-access-control.md §9, §9.1, §9.2
+
+    Prospect cards with a Views panel (Hot now / Expiring soon / Went quiet / Not used
+    yet / Ended / Archived). Header is the flat Properties header — no brand fill, a
+    thin rule under it — without the fold-on-scroll behaviour.
 --}}
 @extends('layouts.corex')
 
 @section('title', 'Demo Access')
 
 @section('corex-content')
-<div class="w-full space-y-5">
+@php
+    /** @var \Illuminate\Pagination\LengthAwarePaginator $rows */
+    $rows    = $listing['rows'];
+    $views   = $listing['views'];
+    $f       = $listing['filters'];
+    $hasAny  = $listing['hasAny'];
 
-    {{-- Page header — §2.4 Pattern A (branded, full-bleed, one primary action). --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Access</h1>
-                <p class="text-xs" style="color: var(--text-muted);">
-                    Time-boxed, company-attributed access to demo1.corexos.co.za.
-                    Next demo reset {{ $nextReset->format('D j M, H:i') }} — the demo rebuilds every 3 days.
-                </p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('admin.demo-access.connection') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/>
-                    </svg>
-                    Demo connection
-                </a>
-                <a href="{{ route('admin.demo-access.tnc') }}" class="corex-btn-outline corex-btn-on-brand text-xs">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>
-                    </svg>
-                    Terms &amp; Conditions
-                </a>
-                <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-xs">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-                    </svg>
-                    New grant
-                </a>
+    // A link that changes one thing and keeps every other filter.
+    $to = fn (array $over) => route('admin.demo-access.index', array_filter(
+        array_merge($f, ['hide_unused' => $f['hide_unused'] ? 1 : null, 'hide_ended' => $f['hide_ended'] ? 1 : null], $over),
+        fn ($v) => $v !== null && $v !== '' && $v !== 'all' && $v !== 'recent'
+    ));
+
+    $dotVar = ['fresh' => 'var(--ds-green, #059669)', 'warm' => 'var(--ds-amber, #f59e0b)', 'cold' => 'var(--border-hover, #9ca3af)'];
+@endphp
+<div class="w-full space-y-4" x-data>
+
+    {{-- Header — the flat bar the Properties page uses (AT-336): no card fill, no rounded
+         corners, no brand block; the negative margins break it out of <main>'s padding so
+         the rule spans the full width and sits flush at the top. --}}
+    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6">
+        <div class="px-6 py-3.5" style="border-bottom: 1px solid var(--border);">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Access</h1>
+                    <p class="text-xs" style="color: var(--text-muted);">
+                        Time-boxed access to demo1.corexos.co.za · next demo reset {{ $nextReset->format('D j M, H:i') }} (the demo rebuilds every 3 days).
+                    </p>
+                    <p class="text-xs mt-1 flex flex-wrap items-center gap-2" style="color: var(--text-muted);">
+                        <span class="ds-badge {{ $tncVersion ? 'ds-badge-success' : 'ds-badge-danger' }}">{{ $tncVersion ? 'Terms version ' . $tncVersion->version : 'No terms published' }}</span>
+                        <span class="ds-badge {{ $connector ? 'ds-badge-success' : 'ds-badge-danger' }}">{{ $connector ? 'Demo connected' : 'Demo not connected' }}</span>
+                        <span>{{ number_format($listing['issued']) }} {{ $listing['issued'] === 1 ? 'grant' : 'grants' }} issued</span>
+                    </p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                    <a href="{{ route('admin.demo-access.connection') }}" class="corex-btn-outline text-xs">Demo connection</a>
+                    <a href="{{ route('admin.demo-access.tnc') }}" class="corex-btn-outline text-xs">Terms &amp; Conditions</a>
+                    <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-xs">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        New grant
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 
-    {{-- The three facts that decide whether the demo works at all. Buried in button
-         chrome before; a status is only useful when it is visible (STANDARDS — Status
-         Always Visible). §3.2 --}}
-    <div class="corex-kpi-grid">
-        <x-corex-kpi-card title="Grants issued" :value="number_format($grants->total())" />
-        <x-corex-kpi-card title="Terms in use" :value="$tncVersion ? 'Version ' . $tncVersion->version : '—'" />
-        <x-corex-kpi-card title="Demo connection" :value="$connector ? 'Connected' : 'Not set up'" />
-    </div>
-
     {{-- No T&C published = the clickwrap has nothing to show and EVERY prospect is
-         hard-blocked at the gate. Surface it loudly here rather than discovering it
-         when a prospect calls. §3.9 danger alert — a genuine blocked state. --}}
+         hard-blocked at the gate. Surface it loudly rather than discovering it when a
+         prospect calls. §3.9 danger alert — a genuine blocked state. --}}
     @unless ($tncVersion)
         <div role="alert" class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
@@ -109,131 +118,174 @@
         </div>
     @endif
 
-    {{-- Filter bar — §3.8. Search grows, filter is fixed width, count is always
-         visible, Clear appears only when a filter is active. --}}
-    <div class="rounded-md px-4 py-3" style="background:var(--surface); border:1px solid var(--border);">
-        <form method="GET" action="{{ route('admin.demo-access.index') }}" class="flex flex-wrap items-center gap-3">
+    <div class="flex flex-col lg:flex-row gap-4 items-start">
 
-            <div class="relative flex-1 min-w-[180px] max-w-xs">
-                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-                     style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
-                </svg>
-                <input type="text" name="q" value="{{ $search }}"
-                       placeholder="Search company or email…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); outline:none;">
-            </div>
+        {{-- ── Left rail: views (with counts), search, issued-date range, sort, hide switches ── --}}
+        <aside class="w-full lg:w-60 lg:flex-shrink-0 rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" aria-label="Filter grants">
 
-            <label class="list-header-filter inline-flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" name="archived" value="1" {{ $showArchived ? 'checked' : '' }}
-                       onchange="this.form.submit()"
-                       class="rounded" style="accent-color:var(--brand-button, #0ea5e9);">
-                Show archived
-            </label>
+            <form method="GET" action="{{ route('admin.demo-access.index') }}" class="space-y-3">
+                <input type="hidden" name="view" value="{{ $f['view'] }}">
 
-            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
-
-            @if ($search !== '' || $showArchived)
-                <a href="{{ route('admin.demo-access.index') }}" class="text-xs underline transition-all duration-300"
-                   style="color:var(--text-muted);">Clear</a>
-            @endif
-
-            <span class="ml-auto text-xs" style="color:var(--text-muted);">
-                Showing {{ number_format($grants->count()) }} of {{ number_format($grants->total()) }}
-            </span>
-        </form>
-    </div>
-
-    @if ($grants->isEmpty())
-        {{-- Empty state — §3.10. Distinct copy for "filtered to nothing" vs "none yet",
-             because the next step is different in each case. --}}
-        <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                 style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
-                <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/>
-                </svg>
-            </div>
-
-            @if ($search !== '' || $showArchived)
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No grants match this search</h3>
-                <p class="text-sm mb-4" style="color: var(--text-muted);">Nothing here matches what you typed. Clear the search to see every grant.</p>
-                <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-primary text-sm">Clear search</a>
-            @else
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No demo grants yet</h3>
-                <p class="text-sm mb-4" style="color: var(--text-muted);">Issue a grant to give a prospect time-boxed access to the demo. They get an emailed code; the clock starts when they first sign in.</p>
-                <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-sm">Issue the first grant</a>
-            @endif
-        </div>
-    @else
-        {{-- Table — §3.7. Container div carries the radius/border; pagination lives
-             inside it, below the table, separated by a border-top (§3.16). --}}
-        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm ds-table">
-                    <thead>
-                        <tr style="background: var(--surface-2);">
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Company</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Email</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">First login</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color:var(--text-muted);">Expires</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Sessions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    @foreach ($grants as $grant)
-                        @php
-                            // Plain-English chips, per STANDARDS F.8 — never the raw enum.
-                            // §1.5 semantics exactly: orange = invitation sent but unanswered
-                            // ("Not used yet"); amber = a passive lapse ("Expired"); crimson only
-                            // for the one genuinely-blocked state. Never red for a non-danger
-                            // state (strict rule 3). NOT ds-badge-info here — it resolves to
-                            // --ds-navy, the same colour as the branded header behind it.
-                            $badgeVariant = match ($grant->status()) {
-                                'active'   => 'ds-badge-success',
-                                'pending'  => 'ds-badge-orange',
-                                'expired'  => 'ds-badge-warning',
-                                'revoked'  => 'ds-badge-danger',
-                                'archived' => 'ds-badge-muted',
-                                default    => 'ds-badge-default',
-                            };
-                        @endphp
-                        <tr>
-                            <td class="px-4 py-3">
-                                <a href="{{ route('admin.demo-access.show', $grant) }}"
-                                   class="font-semibold" style="color:var(--brand-icon, #0ea5e9);">
-                                    {{ $grant->company_name }}
-                                </a>
-                            </td>
-                            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $grant->contact_email }}</td>
-                            <td class="px-4 py-3">
-                                <span class="ds-badge {{ $badgeVariant }}">{{ $grant->statusLabel() }}</span>
-                            </td>
-                            <td class="px-4 py-3 hidden md:table-cell" style="color:var(--text-secondary);">
-                                {{ $grant->first_login_at?->format('j M Y, H:i') ?? '—' }}
-                            </td>
-                            <td class="px-4 py-3 hidden md:table-cell" style="color:var(--text-secondary);">
-                                {{-- NULL until first login. "—" is the honest render; a date here
-                                     would be a guess about when they will open the email. --}}
-                                {{ $grant->expires_at?->format('j M Y, H:i') ?? '—' }}
-                            </td>
-                            <td class="px-4 py-3 text-right" style="color:var(--text-secondary);">
-                                {{ number_format($grant->sessions_count) }}
-                            </td>
-                        </tr>
-                    @endforeach
-                    </tbody>
-                </table>
-            </div>
-
-            @if ($grants->hasPages())
-                <div class="px-4 py-3" style="border-top: 1px solid var(--border);">
-                    {{ $grants->links() }}
+                <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
+                         style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                    </svg>
+                    <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Search company, name or email…"
+                           aria-label="Search company, contact name or email"
+                           class="w-full pl-10 pr-3 py-2 text-sm rounded-md"
+                           style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); outline: none;">
                 </div>
+
+                <div>
+                    <label for="da-sort" class="text-xs font-medium block mb-1" style="color: var(--text-secondary);">Sort by</label>
+                    <select id="da-sort" name="sort" onchange="this.form.submit()" class="list-header-filter w-full">
+                        @foreach (\App\Support\DemoAccessListing::SORTS as $key => $label)
+                            <option value="{{ $key }}" @selected($f['sort'] === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
+                    <div class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Issued between</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="date" name="issued_from" value="{{ $f['issued_from'] }}" onchange="this.form.submit()" aria-label="Issued from"
+                               class="text-xs rounded-md px-2 py-1.5" style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); color-scheme: light dark;">
+                        <input type="date" name="issued_to" value="{{ $f['issued_to'] }}" onchange="this.form.submit()" aria-label="Issued to"
+                               class="text-xs rounded-md px-2 py-1.5" style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); color-scheme: light dark;">
+                    </div>
+                </div>
+
+                <div class="space-y-2 pt-1">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer" style="color: var(--text-primary);">
+                        <input type="checkbox" name="hide_unused" value="1" @checked($f['hide_unused']) onchange="this.form.submit()" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                        Hide not used
+                    </label>
+                    <label class="flex items-center gap-2 text-sm cursor-pointer" style="color: var(--text-primary);">
+                        <input type="checkbox" name="hide_ended" value="1" @checked($f['hide_ended']) onchange="this.form.submit()" class="rounded" style="accent-color: var(--brand-button, #0ea5e9);">
+                        Hide ended
+                    </label>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+                    @if ($listing['anyFilter'])
+                        <a href="{{ route('admin.demo-access.index') }}" class="text-xs underline" style="color: var(--text-muted);">Clear all</a>
+                    @endif
+                </div>
+            </form>
+
+            <nav aria-label="Views" class="pt-3" style="border-top: 1px solid var(--border);">
+                <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Views</div>
+                <ul class="space-y-0.5">
+                    @foreach ($views as $v)
+                        <li>
+                            <a href="{{ $to(['view' => $v['key'], 'page' => null]) }}"
+                               @if ($v['active']) aria-current="page" @endif
+                               title="{{ $v['hint'] ?? '' }}"
+                               class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm no-underline"
+                               style="{{ $v['active']
+                                    ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, var(--surface)); color: var(--text-primary); font-weight: 600;'
+                                    : 'color: var(--text-secondary);' }}">
+                                <span>{{ $v['label'] }}</span>
+                                <span class="text-xs tabular-nums" style="color: var(--text-muted);">{{ number_format($v['count']) }}</span>
+                            </a>
+                        </li>
+                    @endforeach
+                </ul>
+            </nav>
+        </aside>
+
+        {{-- ── Right: prospect cards ── --}}
+        <section class="flex-1 min-w-0 w-full space-y-3">
+
+            @if ($rows->total() === 0)
+                {{-- Empty state — §3.10. Distinct copy for "no grants at all" vs "this view/filter is empty",
+                     because the next step is different in each case. --}}
+                <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
+                         style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
+                        <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/>
+                        </svg>
+                    </div>
+                    @if ($listing['anyFilter'])
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No grants in this view</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-muted);">Nothing matches the filters you have on. Pick another view on the left, or clear them to see every grant.</p>
+                        <a href="{{ route('admin.demo-access.index') }}" class="corex-btn-primary text-sm">Clear all filters</a>
+                    @else
+                        <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No demo grants yet</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-muted);">Issue a grant to give a prospect time-boxed access to the demo. They get an emailed code; the clock starts when they first sign in.</p>
+                        <a href="{{ route('admin.demo-access.create') }}" class="corex-btn-primary text-sm">Issue the first grant</a>
+                    @endif
+                </div>
+            @else
+                <div class="text-xs" style="color: var(--text-muted);">
+                    Showing {{ number_format($rows->firstItem()) }}–{{ number_format($rows->lastItem()) }} of {{ number_format($rows->total()) }}
+                    · bars show pages viewed per day over the last {{ \App\Support\DemoAccessListing::SPARK_DAYS }} days
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
+                    @foreach ($rows as $m)
+                        @php
+                            $usable = in_array($m['status'], ['pending', 'active'], true);
+                            $max    = max(1, max($m['spark']));
+                        @endphp
+                        <article class="rounded-md p-4 flex flex-col gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="min-w-0">
+                                    <a href="{{ route('admin.demo-access.show', $m['grant']) }}"
+                                       class="font-semibold text-sm no-underline hover:underline" style="color: var(--brand-icon, #0ea5e9);">{{ $m['company'] }}</a>
+                                    <div class="text-xs break-all" style="color: var(--text-secondary);">{{ $m['email'] }}</div>
+                                </div>
+                                <span class="ds-badge {{ $m['badge'] }} flex-shrink-0">{{ $m['label'] }}</span>
+                            </div>
+
+                            <div class="flex items-end gap-0.5 h-11 pb-1" style="border-bottom: 1px solid var(--border);"
+                                 role="img" aria-label="Pages viewed per day, last {{ \App\Support\DemoAccessListing::SPARK_DAYS }} days: {{ implode(', ', $m['spark']) }}">
+                                @foreach ($m['spark'] as $n)
+                                    <div class="flex-1 rounded-t-sm"
+                                         style="height: {{ $n === 0 ? 2 : 4 + (int) round($n / $max * 34) }}px; background: {{ $n === 0 ? 'var(--border)' : ($usable ? 'var(--brand-icon, #0ea5e9)' : 'var(--border-hover, #9ca3af)') }};"></div>
+                                @endforeach
+                            </div>
+
+                            <div class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                                <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background: {{ $dotVar[$m['dot']] }};"></span>
+                                {{ $m['last'] ? 'Last seen ' . $m['ago'] : $m['ago'] }}
+                            </div>
+
+                            <div class="flex items-center justify-between gap-2 text-xs" style="color: var(--text-secondary);">
+                                <span><strong style="color: var(--text-primary);">{{ number_format($m['pages']) }}</strong> pages · <strong style="color: var(--text-primary);">{{ number_format($m['sessions']) }}</strong> {{ $m['sessions'] === 1 ? 'session' : 'sessions' }}</span>
+                                <span class="font-semibold" style="color: {{ $m['urgent'] ? 'var(--ds-crimson, #c41e3a)' : 'var(--text-secondary)' }};">{{ $m['left'] }}</span>
+                            </div>
+
+                            <div class="flex items-center gap-2 pt-1">
+                                <a href="{{ route('admin.demo-access.show', $m['grant']) }}" class="corex-btn-outline text-xs">View</a>
+                                @if ($m['canExtend'])
+                                    <button type="button" class="corex-btn-outline text-xs"
+                                            @click="$dispatch('demo-extend', {{ \Illuminate\Support\Js::from($m['extend']) }})">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                                        Add time
+                                    </button>
+                                @endif
+                                @if ($m['status'] === 'archived')
+                                    <form method="POST" action="{{ route('admin.demo-access.restore', $m['grant']) }}">
+                                        @csrf
+                                        <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                                    </form>
+                                @endif
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+
+                @if ($rows->hasPages())
+                    <div class="pt-2">{{ $rows->links() }}</div>
+                @endif
             @endif
-        </div>
-    @endif
+        </section>
+    </div>
 </div>
+
+@include('admin.demo-access._extend-modal')
 @endsection
