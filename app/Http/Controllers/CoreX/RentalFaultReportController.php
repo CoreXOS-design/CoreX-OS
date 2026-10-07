@@ -59,7 +59,7 @@ class RentalFaultReportController extends Controller
 
         // AT-439 — own/branch/all "Showing:" control, same pattern as
         // RentalApplicationController::index()/LeaseController::index().
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_fault_reports');
+        $maxScope = \App\Services\Rentals\RentalDataScope::ceiling($user, 'rental_fault_reports');
         $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
         $scopeOptions = match ($maxScope) {
             'all' => ['own', 'branch', 'all'],
@@ -238,10 +238,7 @@ class RentalFaultReportController extends Controller
         if ($request->boolean('archived')) {
             $out['Archived'] = 'Yes';
         }
-        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
-            $request->get('scope'),
-            \App\Services\PermissionService::getDataScope($request->user(), 'rental_fault_reports')
-        ));
+        $out['Scope'] = ucfirst(\App\Services\Rentals\RentalDataScope::resolve($request->user(), 'rental_fault_reports', $request->get('scope')));
 
         return $out;
     }

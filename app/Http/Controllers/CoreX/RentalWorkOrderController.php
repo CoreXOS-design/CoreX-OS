@@ -60,7 +60,7 @@ class RentalWorkOrderController extends Controller
 
         // AT-439 — own/branch/all "Showing:" control, same pattern as
         // RentalApplicationController::index()/LeaseController::index().
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_work_orders');
+        $maxScope = \App\Services\Rentals\RentalDataScope::ceiling($user, 'rental_work_orders');
         $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
         $scopeOptions = match ($maxScope) {
             'all' => ['own', 'branch', 'all'],
@@ -258,10 +258,7 @@ class RentalWorkOrderController extends Controller
         if ($request->boolean('archived')) {
             $out['Archived'] = 'Yes';
         }
-        $out['Scope'] = ucfirst(\App\Services\PermissionService::clampScope(
-            $request->get('scope'),
-            \App\Services\PermissionService::getDataScope($request->user(), 'rental_work_orders')
-        ));
+        $out['Scope'] = ucfirst(\App\Services\Rentals\RentalDataScope::resolve($request->user(), 'rental_work_orders', $request->get('scope')));
 
         return $out;
     }

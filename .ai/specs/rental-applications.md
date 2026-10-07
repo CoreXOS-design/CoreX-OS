@@ -14908,3 +14908,23 @@ was proven red on the old code and green on the new.
    null ceiling and otherwise clamps as before; used by `RentalInspection`, `RentalInspectionPlannedDate`,
    `Lease`, `RentalWorkOrder`, `RentalFaultReport`, `RentalJobCard`, `RentalInventory`,
    `RentalTakeOnImportRun`. Test: `RentalDataScopeNoGrantTest`.
+
+### 7 Oct 2026 (2) — the rentals list screens' controllers refuse a no-scope role too (cc1, QA1)
+
+Item 5 above fixed the eight model `scopeVisibleTo()`s; the **controllers** of the list screens
+still passed the null straight into `PermissionService::clampScope()` (TypeError → 500) for a role
+that clears the route check but has no scope row for the module. All twelve call sites now go through
+`App\Services\Rentals\RentalDataScope` (`ceiling()` for the index screens, `resolve()` for the printed
+"Scope" label): `LeaseController` (index, filter summary), `RentalInspectionController` (index, filter
+summary), `RentalWorkOrderController` (index, filter summary), `RentalFaultReportController` (index,
+filter summary), `RentalApplicationController::index`, `RentalInspectionDueController` (`scopes()`,
+`propertyScope()`, `baseRows()` — so the tab, its print and its export). No scope row = plain 403,
+never a 500; a role that has a row behaves exactly as before. Test: `RentalListControllersNoGrantTest`
+(calls the controllers directly, because the route permission check usually refuses first).
+
+**Policy question left open (Johan's call, nothing changed):** `RentalApplication::clampScope()` treats
+a null ceiling as `own`, so a role with no scope row for applications still sees its own applications
+instead of being refused. `RentalReportController` / `RentalReportService` / `RentalCommandCentreService`
+and `RentalJobCardListQuery::ceilingFor()` do the same (`?? 'own'`). `Rental`, `Docuperfect\LeaseRecord`
+and the eight scopes above refuse instead. Whether "no scope row" means refuse or own, rentals-wide, is
+a policy decision.
