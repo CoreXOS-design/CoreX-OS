@@ -3208,6 +3208,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/contractor-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateContractorLinksEnabled'])->name('corex.settings.rental-portal.contractor-links-enabled');
         Route::post('/notify-landlord-on-decision-needed', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnDecisionNeeded'])->name('corex.settings.rental-portal.notify-landlord-on-decision-needed');
         Route::post('/notify-tenant-on-status-change', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyTenantOnStatusChange'])->name('corex.settings.rental-portal.notify-tenant-on-status-change');
+        Route::post('/auto-portal-access-on-signing', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateAutoPortalAccessOnSigning'])->name('corex.settings.rental-portal.auto-portal-access-on-signing');
         // §14.27.3 — crew links (rental-work-orders.md): Build 1's five settings.
         Route::post('/crew-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinksEnabled'])->name('corex.settings.rental-portal.crew-links-enabled');
         Route::post('/crew-job-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewJobLinkExpiryDays'])->name('corex.settings.rental-portal.crew-job-link-expiry-days');
@@ -3571,6 +3572,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{lease}/agreement/confirm', [\App\Http\Controllers\CoreX\LeaseAgreementConfirmController::class, 'store'])
             ->middleware('permission:leases.view')->name('corex.leases.agreement.confirm.store');
         // LEASE-CAPTURE END
+        // .ai/specs/rental-portal-access.md §16 — the lease screen's tenant / landlord portal access cards.
+        Route::post('/{lease}/portal-access/{contact}/setup', [\App\Http\Controllers\CoreX\LeasePortalAccessController::class, 'setup'])
+            ->whereNumber('contact')->name('corex.leases.portal-access.setup');
+        Route::post('/{lease}/portal-access/{contact}/invite', [\App\Http\Controllers\CoreX\LeasePortalAccessController::class, 'invite'])
+            ->whereNumber('contact')->name('corex.leases.portal-access.invite');
+        Route::post('/{lease}/portal-access/{contact}/switch', [\App\Http\Controllers\CoreX\LeasePortalAccessController::class, 'switchEmail'])
+            ->whereNumber('contact')->name('corex.leases.portal-access.switch');
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
@@ -3737,6 +3745,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.public-link.generate');
         Route::delete('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'revokePublicLink'])
             ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.public-link.revoke');
+        // §46 — signing by personal link. Managing links is the same act as sharing the public report link
+        // (.public_link, checked in the controller for the per-link actions); signing on the agent's device is the same
+        // act as recording a signature on the recording screen (.create, checked in the controller).
+        Route::get('/{rentalInspection}/signing-links', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'index'])
+            ->name('corex.rental-inspections.signing-links.index');
+        Route::post('/{rentalInspection}/signing-links', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'issue'])
+            ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.signing-links.issue');
+        Route::post('/{rentalInspection}/signing-links/send-all', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'sendAll'])
+            ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.signing-links.send-all');
+        Route::post('/{rentalInspection}/signing-links/{link}/email', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'email'])
+            ->name('corex.rental-inspections.signing-links.email');
+        Route::post('/{rentalInspection}/signing-links/{link}/revoke', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'revoke'])
+            ->name('corex.rental-inspections.signing-links.revoke');
+        Route::get('/{rentalInspection}/signing-links/{link}/qr', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'qr'])
+            ->name('corex.rental-inspections.signing-links.qr');
+        Route::get('/{rentalInspection}/signing-links/{link}/device', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'device'])
+            ->name('corex.rental-inspections.signing-links.device');
+        Route::post('/{rentalInspection}/signing-links/{link}/device', [\App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class, 'deviceSubmit'])
+            ->name('corex.rental-inspections.signing-links.device-submit');
         // §13 — the OMR scan reader, part 2 of cc5's two-part job. Upload/
         // apply/archive are mutating (.create gate, matching cancel/destroy
         // above); review/download are read (the group's own .view gate).
@@ -6753,6 +6780,23 @@ Route::prefix('rental-inspection-report')->group(function () {
     Route::get('/{token}/signatures/{signature}/{kind}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'signatureFile'])
         ->where(['signature' => '[0-9]+', 'kind' => 'signature|wet-ink'])
         ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.signature-file');
+});
+
+// ===== RENTAL INSPECTION — a party's personal signing link, public, no auth, token-based =====
+// §46 — the page a tenant or landlord (or the agent, read-only) reaches from the link emailed or shown as a QR code by
+// the agent. Read the full report, then sign or decline. The token is the credential; the submit is CSRF-exempt for the
+// same reason the other token-gated public POSTs are (bootstrap/app.php) — an expired session must not turn a signature
+// into "this link has expired".
+Route::prefix('rental-inspection-sign')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\RentalInspectionSigningController::class, 'show'])
+        ->middleware('throttle:rental-inspection-sign-show')->name('rental-inspections.sign.show');
+    Route::post('/{token}/submit', [\App\Http\Controllers\RentalInspectionSigningController::class, 'submit'])
+        ->middleware('throttle:rental-inspection-sign-submit')->name('rental-inspections.sign.submit');
+    Route::get('/{token}/report.pdf', [\App\Http\Controllers\RentalInspectionSigningController::class, 'pdf'])
+        ->middleware('throttle:rental-inspection-sign-show')->name('rental-inspections.sign.pdf');
+    Route::get('/{token}/signatures/{signature}/{kind}', [\App\Http\Controllers\RentalInspectionSigningController::class, 'signatureFile'])
+        ->where(['signature' => '[0-9]+', 'kind' => 'signature|wet-ink'])
+        ->middleware('throttle:rental-inspection-sign-show')->name('rental-inspections.sign.signature-file');
 });
 
 // ===== RENTAL INVENTORY REPORT — public, no auth, token-based =====

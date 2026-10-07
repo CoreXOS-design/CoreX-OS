@@ -169,6 +169,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // Agency Timeline public page: the 48-char token is the credential and the tick is
             // idempotent (an expired session would otherwise bounce the agency to the CoreX login).
             'agency-timeline/*/steps/*',
+            // §46 — a party signing an inspection from their personal link: the token is the credential and
+            // there is no session to protect. (The agent's own "sign on this device" POST is NOT excepted.)
+            'rental-inspection-sign/*/submit',
         ]);
 
     })

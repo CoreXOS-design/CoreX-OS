@@ -318,6 +318,7 @@ class ClientAuthService
             ->withoutGlobalScope(ContactScope::class)
             ->where('client_user_id', $clientUser->id)
             ->where('agency_id', $agencyId)
+            ->orderBy('id')
             ->first();
     }
 

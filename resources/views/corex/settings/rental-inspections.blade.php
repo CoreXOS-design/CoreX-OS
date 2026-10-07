@@ -81,6 +81,29 @@
                 </div>
                 <div>
                     <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="signing_link_enabled" value="0">
+                        <input type="checkbox" name="signing_link_enabled" value="1" @checked(old('signing_link_enabled', $signingLinkEnabled))>
+                        Let tenants and landlords sign an inspection from a personal link
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        On (the default): the agent can send each party a personal link (email, WhatsApp or a QR code shown
+                        on the agent's phone), the party reads the whole report and signs from their own phone, and the
+                        signature is recorded on the inspection. Off: signing stays on the agent's own screen, on paper, or on
+                        the agent's device — the link controls disappear.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a personal signing link stays live</label>
+                    <input type="number" name="signing_link_expiry_days" value="{{ old('signing_link_expiry_days', $signingLinkExpiryDays) }}"
+                           min="1" max="365"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $defaultSigningLinkExpiryDays }} days from the day the link is issued. After this the link stops
+                        working — the agent can issue a new one from the inspection.
+                    </p>
+                </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                         <input type="hidden" name="require_notes_blocks_progression" value="0">
                         <input type="checkbox" name="require_notes_blocks_progression" value="1" @checked(old('require_notes_blocks_progression', $requireNotesBlocksProgression))>
                         Block an inspection from moving on while a required note is missing

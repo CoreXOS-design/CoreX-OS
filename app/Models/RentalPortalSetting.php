@@ -23,6 +23,8 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS = 14;
     public const DEFAULT_NOTIFY_LANDLORD_ON_DECISION_NEEDED = true;
     public const DEFAULT_NOTIFY_TENANT_ON_STATUS_CHANGE = true;
+    /** rental-portal-access.md §16 — a signed lease gives its tenant(s) and landlord(s) portal access automatically. */
+    public const DEFAULT_AUTO_PORTAL_ACCESS_ON_SIGNING = true;
 
     // .ai/specs/rental-work-orders.md §14.27.3 — crew links (Build 1's five).
     public const DEFAULT_CREW_LINKS_ENABLED = true;
@@ -50,6 +52,7 @@ class RentalPortalSetting extends Model
         'contractor_secure_link_expiry_days',
         'notify_landlord_on_decision_needed',
         'notify_tenant_on_status_change',
+        'auto_portal_access_on_signing',
         'crew_links_enabled',
         'crew_job_link_expiry_days',
         'crew_link_show_costs',
@@ -68,6 +71,7 @@ class RentalPortalSetting extends Model
         'contractor_secure_link_expiry_days' => 'integer',
         'notify_landlord_on_decision_needed' => 'boolean',
         'notify_tenant_on_status_change' => 'boolean',
+        'auto_portal_access_on_signing' => 'boolean',
         'crew_links_enabled' => 'boolean',
         'crew_job_link_expiry_days' => 'integer',
         'crew_link_show_costs' => 'boolean',
@@ -121,6 +125,11 @@ class RentalPortalSetting extends Model
     public static function notifyTenantOnStatusChangeFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'notify_tenant_on_status_change', self::DEFAULT_NOTIFY_TENANT_ON_STATUS_CHANGE);
+    }
+
+    public static function autoPortalAccessOnSigningFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'auto_portal_access_on_signing', self::DEFAULT_AUTO_PORTAL_ACCESS_ON_SIGNING);
     }
 
     // ── §14.27.3 Build 2 accessors ──────────────────────────────────────

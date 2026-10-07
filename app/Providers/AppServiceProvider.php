@@ -1196,6 +1196,19 @@ class AppServiceProvider extends ServiceProvider
                 ], 429));
         });
 
+        // §46 — a party's personal signing link. Opening/reading is budgeted per link (a phone reloading a long
+        // report is normal); the signing POST is much tighter, per link AND per address, because it writes.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inspection-sign-show', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(60)
+                ->by('rental-inspection-sign-show:' . (string) $request->route('token'))
+                ->response(fn () => response()->view('rental-inspections.public.unavailable', ['reason' => 'rate_limited'], 429));
+        });
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inspection-sign-submit', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(10)
+                ->by('rental-inspection-sign-submit:' . (string) $request->route('token') . ':' . $request->ip())
+                ->response(fn () => response()->json(['message' => 'Too many attempts — please wait a minute and try again.'], 429));
+        });
+
         // PDF — read-only render, generous default, same window as
         // documents for one consistent rule.
         \Illuminate\Support\Facades\RateLimiter::for('rental-application-pdf', function (\Illuminate\Http\Request $request) {

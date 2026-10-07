@@ -292,6 +292,13 @@
     </div>
 
     {{-- §45.6 (Build I-4) — who the completed report went to, and what happened. --}}
+    {{-- §46 — Sign by link: per-party status + send / QR / sign on this device. --}}
+    @if(! $inspection->trashed() && $inspection->isRecordable() && app(\App\Services\Rentals\RentalInspectionSigningLinkService::class)->enabledFor($inspection))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="signing-links-card">
+            @include('corex.rental-inspections.partials._signing-links', ['inspectionIdJs' => (string) $inspection->id, 'reloadOnChange' => true])
+        </div>
+    @endif
+
     @include('corex.rental-inspections.partials._copies-sent', ['inspection' => $inspection])
 
     {{-- §45.8 (Build I-6b) — History: who did what to this inspection, and when. Append-only; newest first. --}}

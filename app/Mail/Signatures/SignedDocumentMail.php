@@ -24,6 +24,12 @@ class SignedDocumentMail extends BaseSignatureMail
         public ?string $pdfPath = null,
         public ?string $pdfFilename = null,
         public array $documents = [],
+        /**
+         * rental-portal-access.md §16 — a signed LEASE copy to its tenant / landlord carries their personal CoreX
+         * portal link. Null for every other document and whenever the portal is off for the agency.
+         * @var array{url:string, roles:array<int,string>, offers:array<int,string>}|null
+         */
+        public ?array $portal = null,
     ) {}
 
     public function envelope(): Envelope

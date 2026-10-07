@@ -39,6 +39,14 @@
             </div>
         @endif
 
+        @if(!empty($portal))
+            <div style="background-color: #f0f9ff; border-left: 4px solid #00b4d8; padding: 15px; margin: 20px 0;" data-portal-block>
+                <p style="margin: 0 0 6px;"><strong>Your CoreX portal</strong></p>
+                <p style="margin: 0;">In your portal you can {{ implode('; and ', $portal['offers']) }}.</p>
+                @include('emails.rentals.partials.portal-link-button', ['url' => $portal['url']])
+            </div>
+        @endif
+
         @if($envelopeUrl)
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{{ $envelopeUrl }}" style="display: inline-block; background-color: #276749; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">

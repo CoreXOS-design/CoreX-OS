@@ -355,6 +355,10 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
 
+    /** §46 — signing an inspection by a personal link: on, and live for 30 days from when it is issued. */
+    public const DEFAULT_SIGNING_LINK_ENABLED = true;
+    public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
+
     /**
      * §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
      * setting, default ON." When true, a completed inspection's signed
@@ -391,6 +395,9 @@ class RentalInspectionSetting extends Model
         'move_out_classification_labels',
         'omr_mark_threshold',
         'public_link_expiry_days',
+        // §46 — signing by personal link.
+        'signing_link_enabled',
+        'signing_link_expiry_days',
         'auto_pair_photos_enabled',
         'auto_send_report_enabled',
         // §45.6 (Build I-4) — who else gets a copy of a completed report.
@@ -427,6 +434,8 @@ class RentalInspectionSetting extends Model
         'move_out_classification_labels' => 'array',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
+        'signing_link_enabled' => 'boolean',
+        'signing_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
         'auto_send_report_enabled' => 'boolean',
         'report_copy_inspector' => 'boolean',
@@ -629,6 +638,28 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('public_link_expiry_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+    }
+
+    /** §46 — whether this agency lets parties sign an inspection from a personal link. Read-time default: on. */
+    public static function signingLinkEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SIGNING_LINK_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_link_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_SIGNING_LINK_ENABLED;
+    }
+
+    /** §46 — days a personal signing link stays live from the day it is issued. Read-time default: 30. */
+    public static function signingLinkExpiryDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SIGNING_LINK_EXPIRY_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_link_expiry_days');
+
+        return $value !== null && (int) $value > 0 ? (int) $value : self::DEFAULT_SIGNING_LINK_EXPIRY_DAYS;
     }
 
     /**

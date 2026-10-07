@@ -6114,6 +6114,26 @@ class SignatureService
      *   HD-7 (§11-B) — what `autoFileSignedDocument()` actually filed, which now runs FIRST. A pack
      *   signed as one ceremony is distributed as the many documents it really is.
      */
+    /**
+     * rental-portal-access.md §16 — when this envelope is a lease's agreement, the signer's copy carries their
+     * personal CoreX portal link (tenant / landlord of that lease only; null when the agency has portal access off).
+     * A fault here is never a reason to fail a completed signing's email.
+     *
+     * @return array{url:string, roles:array<int,string>, offers:array<int,string>}|null
+     */
+    private function leasePortalBlockFor(SignatureTemplate $template, string $signerEmail): ?array
+    {
+        try {
+            $lease = \App\Models\Lease::withoutGlobalScopes()->where('signature_template_id', $template->id)->first();
+
+            return $lease ? app(\App\Services\Rentals\RentalPortalAccessService::class)->mailBlockForLease($lease, $signerEmail) : null;
+        } catch (\Throwable $e) {
+            Log::warning('Portal link block for a signed lease copy failed', ['template_id' => $template->id, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
     private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null, array $signedDocuments = []): void
     {
         try {
@@ -6200,6 +6220,7 @@ class SignatureService
                     pdfPath: $clientPdfPath,
                     pdfFilename: $clientPdfPath ? $pdfFilename : null,
                     documents: $attachments,
+                    portal: $this->leasePortalBlockFor($template, (string) $request->signer_email),
                 ))->fromAgent($agent);
 
                 // AT-294 — per-recipient try/catch: a single failed send records
