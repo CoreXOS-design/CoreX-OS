@@ -466,6 +466,19 @@ class ContactMatchController extends Controller
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
         }
 
+        // Who the viewer may move on the Buyer Pipeline from this board ("Update buyer pipeline").
+        // The move itself is the pipeline board's own endpoints (command-center.buyers.update-state /
+        // .mark-lost), which bind the contact under its normal ContactScope — so the button is shown
+        // for exactly the contacts that bind there (NOT the oversight bypass this board uses to LIST),
+        // and nothing broader: the server stays the authority, this only avoids a button that 404s.
+        // The Rental Pipeline board is gated on buyer_pipeline.view, so the rentals lens requires it too.
+        $pipelineMovableContactIds = [];
+        if ($pageContactIds->isNotEmpty() && (! $isRentalEntry || $user->hasPermission('buyer_pipeline.view'))) {
+            $pipelineMovableContactIds = Contact::query()->whereIn('id', $pageContactIds)
+                ->whereIn('buyer_state', \App\Services\BuyerStateService::PIPELINE_STATES)
+                ->pluck('id')->map(fn ($id) => (int) $id)->all();
+        }
+
         $rows = collect($contacts->items())->map(fn ($c) => [
             'contact' => $c,
             'matches' => $matchesByContact->get($c->id, collect()),
@@ -476,7 +489,7 @@ class ContactMatchController extends Controller
         $totalMatches = $allMatches->count();
 
         return view('corex.core-matches.index', compact(
-            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds',
+            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'pipelineMovableContactIds',
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
             'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',
