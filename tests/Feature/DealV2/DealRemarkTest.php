@@ -107,20 +107,6 @@ final class DealRemarkTest extends TestCase
         $this->assertSoftDeleted('deal_v2_remarks', ['id' => $remark->id]);
     }
 
-    public function test_timeline_interleaves_remarks_with_activity_log(): void
-    {
-        $this->withoutVite();
-        $agent = $this->user('agent');
-        $deal = $this->deal($agent); // createDeal writes a 'deal_created' activity entry
-        DealRemark::create(['agency_id' => $this->agencyId, 'deal_id' => $deal->id, 'user_id' => $agent->id, 'body' => 'First contact made with the seller.']);
-
-        $resp = $this->actingAs($agent)->get(route('deals-v2.show', $deal->id));
-        $resp->assertOk();
-        $resp->assertSee('Deal Timeline');
-        $resp->assertSee('First contact made with the seller.');
-        $resp->assertSee('created'); // the deal_created log line also present in the one stream
-    }
-
     // ── helpers ──────────────────────────────────────────────────────────
 
     private function user(string $role): User
@@ -159,4 +145,8 @@ final class DealRemarkTest extends TestCase
             'agents' => [['side' => 'listing', 'user_id' => $listingAgent->id]],
         ]);
     }
+
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // Removed, not skipped: test_timeline_interleaves_remarks_with_activity_log.
+    // AT-219 soft-retired the Deal Register V2 prototype screens: show/overview/create/create-wizard now redirect to the DR2 register (DealV2Controller::dr2RetiredRedirect()), original bodies archived — there is no screen left to assert on.
 }
