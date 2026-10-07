@@ -94,6 +94,16 @@ final class BuyerNotesScopeTest extends TestCase
         PermissionService::clearCache();
     }
 
+    protected function tearDown(): void
+    {
+        // Role::allRoles() caches in a static for the whole process. This test creates role rows inside a
+        // transaction that is rolled back; without this the cached list leaks into every later test in the
+        // folder (they then see super_admin as a System Owner and cannot be assigned as a property agent).
+        Role::clearCache();
+        PermissionService::clearCache();
+        parent::tearDown();
+    }
+
     // ── per level, Intelligence tab + the notes address ──────────────────
 
     public function test_own_level_only_buyers_whose_primary_agent_is_the_viewer(): void
