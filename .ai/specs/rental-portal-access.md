@@ -520,10 +520,9 @@ only documents flagged by hand); the owner had no Documents tab in the web porta
 2. **Inspection reports** — only reports that have been **distributed**, using cc6's definition (rental-inspections.md §47,
    `RentalInspection::isDistributed()` = Completed, or an email copy logged as sent to a tenant/landlord): never a draft, one in progress, one
    still in signing, or a cancelled one. Tenant: reports on their own lease(s); owner: reports on leases of their own properties. The row is the
-   signed PDF the completion step filed (`source_type` `rental_inspection_report`). **Hook for cc6:** `isDistributed()` is not on QA1 yet (it is
-   uncommitted in their lane), so the portal asks the model when the method exists and otherwise applies the identical rule in
-   `RentalPortalDocumentService::inspectionIsShareable()` — when cc6 lands the method, the fallback can be deleted; no inspection code was
-   touched. (`rental_inspections.lease_id` is required, so there is no lease-less inspection.)
+   signed PDF the completion step filed (`source_type` `rental_inspection_report`). The portal keeps **no rule of its own**: it calls
+   `RentalInspection::isDistributed()` (cc6, landed on QA1 the same day) and only adds "not cancelled". No inspection code was touched.
+   (`rental_inspections.lease_id` is required, so there is no lease-less inspection.)
 3. **Documents the agency shared on purpose** — the pre-existing `tenant_portal_visible` / `landlord_portal_visible` flag + contact attachment,
    unchanged; merged into the same list (a document that is both a filed lease copy and flagged appears once, as the lease agreement).
 

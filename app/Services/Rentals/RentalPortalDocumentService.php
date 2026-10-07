@@ -8,7 +8,6 @@ use App\Models\Document;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
-use App\Models\SignedDocumentDistributionLog;
 use App\Services\ClientAuthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -242,32 +241,13 @@ class RentalPortalDocumentService
     }
 
     /**
-     * cc6's definition (rental-inspections.md §47, `RentalInspection::isDistributed()`): DISTRIBUTED = the moment copies are
-     * sent, which in the code is the agent pressing Complete — Completed counts, and so does any email copy logged as sent to a
-     * tenant or landlord. The portal never invents its own: it asks the model when that method is present on this branch and
-     * otherwise applies the identical rule. A cancelled inspection is never shown (its public link is dead too, §44a).
+     * "Distributed" is cc6's definition and nobody else's (rental-inspections.md §47): RentalInspection::isDistributed() — the
+     * moment copies are sent, i.e. Completed, or an email copy logged as sent to a tenant or landlord. The portal asks the model;
+     * it keeps no rule of its own. A cancelled inspection is never shown (its public link is dead too, §44a).
      */
     private function inspectionIsShareable(RentalInspection $inspection): bool
     {
-        if ($inspection->status === RentalInspection::STATUS_CANCELLED) {
-            return false;
-        }
-
-        if (method_exists($inspection, 'isDistributed')) {
-            return (bool) $inspection->isDistributed();
-        }
-
-        if ($inspection->status === RentalInspection::STATUS_COMPLETED) {
-            return true;
-        }
-
-        return SignedDocumentDistributionLog::withoutGlobalScopes()
-            ->where('distributable_type', RentalInspection::class)
-            ->where('distributable_id', $inspection->id)
-            ->where('channel', 'email')
-            ->where('status', 'sent')
-            ->whereIn('recipient_role', ['tenant', 'landlord'])
-            ->exists();
+        return $inspection->status !== RentalInspection::STATUS_CANCELLED && $inspection->isDistributed();
     }
 
     /** The signed report filed by SignedDocumentDistributionService::fileToProperty() (source `rental_inspection_report`). */
