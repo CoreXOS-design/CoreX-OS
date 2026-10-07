@@ -156,7 +156,10 @@ stats; older ranges return HTTP 200 with an empty array (harmless).
 
 **Engagement chart.** Below Portal Leads on the Intelligence tab, a Chart.js line
 graph (`_portal-engagement-chart.blade.php`) plots daily **Views** and **P24 lead
-counts** with a **30D / 90D / 6M** range filter. Data is the zero-filled daily
+counts** with a range filter: **7 days / Month to date / 30D / 90D / 6M** (default
+30D; the list and the slicing rule live once in `resources/js/engagement-ranges.js`
+and are shared with the seller live link — see `seller-live-link.md` §4 "Range
+buttons"). The "P24 Views (…)" stat card follows the same selection. Data is the zero-filled daily
 series from `PropertyIntelligenceService::getPortalEngagementSeries()` (≤180 days),
 embedded in the page and sliced client-side by Alpine — no extra endpoint. Chart
 built via `window.NexusCharts.portalEngagement()` (added to `nexus-charts.js`;
