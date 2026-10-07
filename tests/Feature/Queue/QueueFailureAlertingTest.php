@@ -35,6 +35,22 @@ final class QueueFailureAlertingTest extends TestCase
     {
         parent::setUp();
         Cache::flush();
+        // The digest EMAIL is held off by default (Johan, 2026-08-23 — config/queue_alerting.php); the log is
+        // not. These tests exercise the email path, so switch it on; the default-off case has its own test.
+        config(['queue_alerting.failure_digest_emails_enabled' => true]);
+    }
+
+    public function test_the_digest_email_is_off_by_default_but_the_failure_is_still_logged(): void
+    {
+        config(['queue_alerting.failure_digest_emails_enabled' => false]);
+        Log::spy();
+        DevSetting::set('queue_backlog_alert_emails', json_encode(['ops@example.test']));
+        Mail::fake();
+
+        QueueFailureAlerter::handle($this->fakeFailedEvent('App\\Jobs\\HeldOffJob', 'default'));
+
+        Log::shouldHaveReceived('critical')->once();
+        Mail::assertNothingSent();
     }
 
     // ──────────────────────── Mail-namespace fix ────────────────────────
@@ -55,7 +71,13 @@ final class QueueFailureAlertingTest extends TestCase
 
     public function test_feedback_report_mail_renders_without_the_mail_namespace_error(): void
     {
-        $report = (object) ['type' => 'bug', 'title' => 'Test report', 'severity' => 'high', 'description' => 'x'];
+        // Every field the view reads, as the real FeedbackReport row carries them.
+        $report = (object) [
+            'id' => 1, 'type' => 'bug', 'title' => 'Test report', 'severity' => 'high', 'description' => 'x',
+            'submitted_at' => now(), 'module_tag' => 'listings', 'page_url' => 'https://example.test/corex/properties',
+            'browser' => 'Chrome', 'os' => 'Windows', 'viewport_width' => 1440, 'viewport_height' => 900,
+            'steps_to_reproduce' => 'open the page', 'expected_behaviour' => 'it loads', 'actual_behaviour' => 'it does not',
+        ];
         $html = (new FeedbackReportMail($report, null, collect()))->render();
 
         $this->assertNotEmpty($html);
