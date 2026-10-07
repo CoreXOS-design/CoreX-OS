@@ -38,6 +38,16 @@ class HierarchyResolver
             $q->whereKey($scope->userId);
         }
 
+        // The viewer's own entitlement — ANDed on top of the requested filters
+        // above, so a requested branch/agent outside it yields nobody, never
+        // somebody else's figures. See PerformanceScope.
+        if ($scope->ceilingLevel === PerformanceScope::CEILING_OWN) {
+            $scope->ceilingUserId !== null ? $q->whereKey($scope->ceilingUserId) : $q->whereRaw('1 = 0');
+        } elseif ($scope->ceilingLevel === PerformanceScope::CEILING_BRANCH) {
+            // A branch-level viewer with no branch sees nobody, never "everybody".
+            $scope->ceilingBranchId !== null ? $q->where('branch_id', $scope->ceilingBranchId) : $q->whereRaw('1 = 0');
+        }
+
         return $q->orderBy('name')->get(['id', 'name', 'branch_id', 'agency_id']);
     }
 

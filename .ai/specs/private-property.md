@@ -676,3 +676,17 @@ integration's dedicated state store).
 
 **Files:** `app/Jobs/ProcessPrivatePropertyEventFeed.php`,
 `tests/Feature/Syndication/PrivatePropertyEventFeedTest.php`.
+
+---
+
+## 11a. Webhook idempotency and lead-source scoping (2026-10-07)
+
+**Idempotency.** PP re-delivers a webhook on any non-2xx / timeout, so the same enquiry can arrive more than once. `PpWebhookController::receive` is idempotent:
+
+- **Key:** PP's own reference for the enquiry — the payload's **`leadId`** — within the property's agency (`properties.agency_id`).
+- **Where it is recorded:** `command_tasks.metadata.pp_lead_id` on the follow-up task, and `portal_leads.lead_source_raw.__corex_lead_id` on the mirrored row (copied by `CommandTaskPortalLeadObserver`). That is the same key `PpLeadService::isDuplicate()` reads, so the webhook and the pull recognise each other's rows **if PP uses the same id in both feeds** (not verified against PP — if the ids differ, the webhook + pull both-on double-record gap from the 2026-10-07 audit remains).
+- **No `leadId` on a delivery:** fallback fingerprint = sha1(property id, lowercased email, digits of phone, message), matched against webhook tasks created in the last **10 minutes**.
+- **A duplicate** creates no contact note, no task, no `portal_leads` row, fires no `NewPortalLeadReceived` (no notification), is logged at **INFO** (`PP webhook: duplicate lead ignored`, with `leadId`, `matched_on`) and answered **200**. Two simultaneous deliveries are serialised by a 60 s cache lock keyed on agency + leadId (or fingerprint).
+- **Known limit:** a property with no agent creates no task, so nothing records the key — a repeat for it appends the contact note twice (no lead row or notification exists to duplicate).
+
+**Lead-source lookups.** Webhook/pull ingress has no logged-in user, so `BelongsToAgency` does not filter. Every lookup of the "Private Property" / "Property24" contact source goes through `ContactSource::idForAgencyByName($agencyId, $name)` (this agency's row, or `null` — never another agency's). An agency with no such source row gets `contact_source_id = null`; the row is not auto-created (the Website and Agent-QR paths do auto-create — see the report for the open question).

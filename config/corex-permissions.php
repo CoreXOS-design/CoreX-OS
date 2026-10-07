@@ -79,6 +79,14 @@ return [
         // are scoped more tightly, by their own key, like every other report.
         ['key' => 'view_buyers_report',      'label' => 'View Buyers Report',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 40],
         ['key' => 'buyers_report.view',      'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'buyers_report',    'sort_order' => 41],
+        // Performance & ROI report scope (QA1 scope-fix, 2026-10-07) — the ROI report's
+        // OWN breadth key, same shape as buyers_report.view above: view_performance only
+        // says whether a role can open the report at all; THIS says how much it sees
+        // inside it (own / branch / all via scope_defaults: agent=own, branch_manager=branch,
+        // admin=all). A role with view_performance but no row here sees its OWN figures only
+        // (fails closed) until an admin raises it in Role Manager. Enforced at the query
+        // layer by PerformanceReportScopeResolver -> PerformanceScope ceiling.
+        ['key' => 'performance_report.view', 'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'performance_report', 'sort_order' => 17.5],
         ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 18],
         // AT-439 (2026-10-05) — 'view_rentals' retired: every route/tour step it
         // gated (RentalsController, RentalDivisionController, the rent-* tour
@@ -1021,7 +1029,7 @@ return [
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
-                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view', 'manage_targets',
                 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
@@ -1185,7 +1193,7 @@ return [
                 'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
-                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view',
                 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
@@ -1320,7 +1328,7 @@ return [
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
-                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
+                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view',
                 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all

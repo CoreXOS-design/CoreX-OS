@@ -39,6 +39,11 @@ class AgentPerformanceController extends Controller
         abort_unless($targetUser, 404);
         abort_unless((int) $targetUser->branch_id === $bmBranchId, 404);
 
+        // Scope-report fix (2026-10-07): same branch is not enough — an agent
+        // (own ceiling) must not read a colleague's commission page. branch /
+        // agency ceiling -> any agent in the branch; own -> self only.
+        abort_unless(app(\App\Services\Performance\PerformanceReportScopeResolver::class)->canViewAgent($u, $userId), 403);
+
         $period = $request->query('period') ?: Carbon::now()->format('Y-m');
         abort_unless((bool)preg_match('/^\d{4}-\d{2}$/', $period), 422);
 

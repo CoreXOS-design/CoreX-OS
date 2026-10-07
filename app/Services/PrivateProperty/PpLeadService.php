@@ -379,7 +379,7 @@ class PpLeadService
                 ?? ContactType::query()->where('name', 'Lead')->value('id'))
             : (ContactType::query()->where('name', 'Buyer')->value('id')
                 ?? ContactType::query()->where('name', 'Lead')->value('id'));
-        $sourceId    = ContactSource::query()->where('name', 'Private Property')->value('id');
+        $sourceId    = ContactSource::idForAgencyByName((int) $agencyId, 'Private Property'); // this agency's row — see ContactSource::idForAgencyByName()
 
         [$first, $last] = $this->splitName($name);
 

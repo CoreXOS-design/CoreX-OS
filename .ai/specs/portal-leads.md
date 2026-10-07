@@ -160,3 +160,10 @@ on an emulator without Google Play Services) — mobile-app-repo territory, not 
 - `resources/views/layouts/corex-sidebar.blade.php` — new nav entry
 - `resources/views/corex/properties/show.blade.php` — include Intelligence panel partial
 - `resources/views/layouts/corex-app.blade.php` — mount toast component
+
+---
+
+## Ingress rules added 2026-10-07 (QA1 scope-fix)
+
+- **Source label is per agency.** P24 pull, PP pull and PP webhook stamp `contacts.contact_source_id` from `ContactSource::idForAgencyByName($agencyId, 'Property24' | 'Private Property')` — the agency of the lead being created, never an unscoped name lookup (an unscoped lookup returned the first agency's row for the second agency's leads).
+- **PP webhook is idempotent** on PP's `leadId` — see `private-property.md` §11a for the key, the fallback, and the duplicate-handling contract.

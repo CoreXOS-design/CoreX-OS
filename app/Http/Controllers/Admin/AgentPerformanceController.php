@@ -40,6 +40,18 @@ class AgentPerformanceController extends Controller
             );
         }
 
+        // Scope-report fix (2026-10-07): the agency check above says nothing
+        // about WHICH agent in the agency this viewer may see — any
+        // view_performance holder could edit {userId} and read another
+        // agent's commission splits and income. agency ceiling -> any agent;
+        // branch ceiling -> agents in own branch; own -> self only. Platform
+        // owners are exempt by design (see above).
+        abort_unless(
+            $actingUser->isOwnerRole()
+                || app(\App\Services\Performance\PerformanceReportScopeResolver::class)->canViewAgent($actingUser, $userId),
+            403
+        );
+
         $period = $request->query('period') ?: Carbon::now()->format('Y-m');
         $start = Carbon::createFromFormat('Y-m', $period)->startOfMonth();
         $end   = (clone $start)->endOfMonth();

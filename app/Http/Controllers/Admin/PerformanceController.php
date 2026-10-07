@@ -34,6 +34,13 @@ class PerformanceController extends Controller
         // guaranteed-empty rollup instead of falling through to the unscoped
         // company-wide query — fail closed, not open.
         $user = $request->user();
+        // Scope-report fix (2026-10-07): this is the COMPANY-wide page. The route
+        // only checks `view_performance`, which the agent / branch-manager role
+        // templates also hold, so without this an agent could open every
+        // agent's and branch's income by URL. Company pages need the agency
+        // ceiling (performance_report.view = all); platform owners are exempt
+        // by design (cross-agency view, as above).
+        abort_unless($user && ($user->isOwnerRole() || app(\App\Services\Performance\PerformanceReportScopeResolver::class)->canOpenCompanyPages($user)), 403);
         $agencyId = $user?->effectiveAgencyId();
         if ($agencyId === null && !($user && $user->isOwnerRole())) {
             $agencyId = -1; // sentinel: no agency has this id, guarantees an empty rollup
