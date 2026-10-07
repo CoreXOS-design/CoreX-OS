@@ -245,7 +245,7 @@ agency, so the visible count is ≤ 13.
 | 5 | `commission` | Commission & revenue share | `commission_settings` |
 | 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04) |
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
-| 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
+| 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) and `agency_contact_settings.core_matches_excluded_buyer_states` (Won/Lost buyers — 2026-10-07, new `multiselect` control type + `_present` marker, `core_matches` source) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
 | 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
 | 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude) |
 | 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |

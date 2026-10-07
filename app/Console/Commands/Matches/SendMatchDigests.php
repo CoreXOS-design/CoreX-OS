@@ -7,6 +7,7 @@ use App\Models\CommandCenter\UserDashboardSetting;
 use App\Models\ContactMatchNotification;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Matching\CoreMatchBuyerGate;
 use App\Services\Matching\MatchingService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -155,14 +156,22 @@ class SendMatchDigests extends Command
             $property = $properties->get($row->property_id);
 
             // Off-market / deleted re-check at send time — never email a stale match.
+            // AT-Core-Matches (2026-09-29) — agency-aware allow-list, same predicate
+            // the matcher uses everywhere else.
             if (!$property || $property->deleted_at
-                || !MatchingService::isMatchableStatus($property->status)) {
+                || !MatchingService::isMatchableStatus($property->status, $property->agency_id)) {
                 continue;
             }
 
             $match = $matches->get($row->contact_match_id);
             $contact = $match?->contact;
             $contactId = (int) ($match?->contact_id ?? 0);
+
+            // The buyer was marked Won/Lost (or any status the agency excludes) AFTER this
+            // alert was queued — a buyer with no Core Matches is never emailed one.
+            if (CoreMatchBuyerGate::isExcluded($contact?->buyer_state, (int) $property->agency_id)) {
+                continue;
+            }
 
             $name = $contact
                 ? trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''))

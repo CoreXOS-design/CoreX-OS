@@ -48,7 +48,7 @@ class SettingsController extends Controller
             'agency', 'user', 'system', 'notifications',
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
-            'leave-visibility', 'remote-access', 'commission', 'command-center', 'prospecting-setup',
+            'leave-visibility', 'remote-access', 'commission', 'command-center', 'core-matches', 'prospecting-setup',
             'outreach-templates', 'team-inbox',
         ];
         if (!in_array($section, $validSections, true)) {
@@ -222,6 +222,28 @@ class SettingsController extends Controller
         } else {
             $data['automationRules'] = collect();
             $data['docExpectations'] = collect();
+        }
+
+        // Operations tab: Core Matches (working window + status allow-list).
+        // Moved here from Contact Governance, 2026-09-29 (Johan) — same
+        // stored AgencyContactSettings columns, same permission gate as the
+        // mutation route (command-center.settings.core-matches.update).
+        // Contact Governance now only links to this section.
+        if ($user?->hasPermission('command_center.settings')) {
+            $coreMatchesAgencyId = (int) ($user->effectiveAgencyId() ?: 0);
+            $data['coreMatchesSettings'] = \App\Models\AgencyContactSettings::forAgency($coreMatchesAgencyId);
+            // Pickable "known statuses" for the allow-list multi-select: the
+            // code default (always offered, even before an agency has
+            // activated any of them as a property_status setting item)
+            // union this agency's own configured status vocabulary.
+            $data['coreMatchStatusOptions'] = collect(\App\Models\Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES)
+                ->merge(\App\Models\Property::allowedStatuses($coreMatchesAgencyId ?: null))
+                ->unique()
+                ->values()
+                ->all();
+        } else {
+            $data['coreMatchesSettings'] = null;
+            $data['coreMatchStatusOptions'] = [];
         }
 
         // Operations tab: Prospecting Setup (towns/suburbs, property types,

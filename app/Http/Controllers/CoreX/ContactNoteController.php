@@ -53,7 +53,7 @@ class ContactNoteController extends Controller
             'type'           => ['nullable', 'required_without:body', 'string', \Illuminate\Validation\Rule::in(ContactNote::QUICK_PICK_TYPES)],
             'body'           => 'nullable|required_without:type|string|max:5000',
             'mark_contacted' => 'nullable|boolean',
-            'redirect_to'    => 'nullable|in:info,notes,buyer-notes',
+            'redirect_to'    => 'nullable|in:info,notes,buyer-notes,back',
         ]);
 
         $markContacted = $request->boolean('mark_contacted');
@@ -84,6 +84,11 @@ class ContactNoteController extends Controller
         });
 
         $successMessage = $markContacted ? 'Note saved and contact marked as contacted.' : 'Note added.';
+
+        // Core Matches board — return to the exact board (filters, page) the note was written on.
+        if ($request->input('redirect_to') === 'back') {
+            return redirect()->back()->with('success', $successMessage);
+        }
 
         if ($request->input('redirect_to') === 'buyer-notes') {
             return redirect()->route('command-center.buyers.show', ['contact' => $contact, 'tab' => 'notes'])

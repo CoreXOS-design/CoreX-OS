@@ -684,3 +684,258 @@ the endpoint is gated the same as the rest of Core Matches.
   (`buyer_warm_days`/`buyer_cold_days`/`buyer_lost_days`) are themselves
   absent from the Setup Wizard — pre-existing gap, not introduced or
   widened here, not fixed here either (out of scope).
+
+---
+
+## Status gate — blacklist → allow-list (2026-09-29)
+
+Johan's ruling: Core Matches shows ONLY on-market (active) stock, expired
+stock, and other-agency-sold stock. Everything else — drafts, withdrawn,
+sold, rented, under offer, pending, prospecting, not_selling, archived,
+and any status this code has never heard of — is excluded.
+
+### Why this needed a rewrite, not a patch
+
+Read-only investigation (this same date) found the previous predicate —
+`Property::matchingExcludedStatusList()` / `isMatchableStatus()`, a
+BLACKLIST derived from `OFF_MARKET_STATUSES` +
+`MATCHING_EXCLUDED_ON_MARKET_STATUSES` — governing every Core Matches
+surface: `MatchingService::propertiesForMatch()`,
+`MatchingService::matchableCandidatePool()` (feeds the
+`property_buyer_matches` cache the Buyer/Rental Pipeline reads for
+badges/counts), the daily digest (`SendMatchDigests`), the "why is this
+new" reason classifier (`CoreMatchReasonClassifier`), and — via the same
+`MatchingService::isMatchableStatus()` — the property-page's own Core
+Matches tab (`MatchingService::candidatesForProperty()` /
+`matchesForProperty()`, consumed by `PropertyController`,
+`RentalInventoryCaptureController`, `SellerLinkController`,
+`PropertyIntelligenceService`, `SellerOutreachComposerService`).
+
+A blacklist fails OPEN: a status this code has never heard of (an
+agency-defined status, a typo, a future portal export label) matched by
+default, because it wasn't on the excluded list —
+`RentalStatusAndIncompleteDataMatchingTest::test_an_agency_defined_status_…`
+used to assert exactly this as CORRECT behaviour. Johan's ruling inverts
+it: **an allow-list fails CLOSED** — a status not explicitly permitted is
+excluded, full stop, including a status that lands after this ships.
+
+`BuyerCoreMatchService::isCoreMatch()` was a separate gap the blacklist
+rewrite alone wouldn't have closed: it calls `MatchingService::score()`
+directly (the pure numeric scorer, which never reads `status` at all) and
+had always TRUSTED that whatever `Property` it was handed had already
+been status-filtered upstream. It now checks
+`Property::isMatchableStatus()` itself, first, so it is correct on its
+own regardless of the caller.
+
+### The one shared definition
+
+`Property::isMatchableStatus(?string $status, ?int $agencyId = null): bool`
+— agency-aware, case-insensitive, NULL/blank status stays matchable
+(unrelated pre-existing leniency for an incomplete-but-live listing,
+unchanged). Backed by `Property::coreMatchAllowedStatuses(?int $agencyId)`,
+which resolves `AgencyContactSettings::coreMatchAllowedStatusesFor()`
+(read-only — this predicate runs on the public shared-match link too,
+where a GET must never write a settings row) and falls back to the code
+default when the agency has no override.
+
+`Property::matchingExcludedStatusList()` is REMOVED — the two remaining
+raw-SQL call sites (`propertiesForMatch()`, `matchableCandidatePool()`,
+both build `LOWER(TRIM(status)) IN (...)` now instead of `NOT IN`) and
+`CoreMatchReasonClassifier::wentBackOnMarket()` (now reads "not allowed →
+allowed" instead of "excluded → not excluded") all call the new
+allow-list resolver instead. `MatchingService::isMatchableStatus()` keeps
+its name (still the entry point every existing external caller uses) but
+its signature grew an optional `?int $agencyId` and its body now
+delegates to the new predicate — this is why `candidatesForProperty()`
+and `matchesForProperty()` (the property-page tab) automatically inherit
+the same allow-list with no separate call-site change beyond threading
+`$property->agency_id` through.
+
+`Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES` (`under_offer`,
+`pending`, `rented`) is left defined but unused by `isMatchableStatus()`
+now — kept as the historical record of which statuses were previously
+matching-only exclusions, in case a future consumer needs that narrower
+concept specifically. `Property::OFF_MARKET_STATUSES` and everything
+built on it (`isOnMarket()`, the Properties list, syndication,
+`importedStockStatuses()`) is completely untouched — this change is
+scoped to Core Matches matchability only, never to what counts as
+"on-market" for the rest of the app.
+
+### The default allow-list
+
+```php
+Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES = [
+    'active', 'for_sale', 'to_let', 'expired', Property::STATUS_OTHER_AGENCY_STOCK,
+];
+```
+
+`Property::STATUS_OTHER_AGENCY_STOCK = 'other_agency_stock'` — a new
+constant, referenced (never re-typed as a literal) specifically so cc3's
+separate `other_agency_stock` property-status addition lines up with this
+allow-list on merge with no coordination needed beyond both sides reading
+the same constant. Harmless before cc3's branch lands: the status simply
+never occurs in `properties.status` yet, so this list entry is inert
+until it does.
+
+**Deliberately narrower than "everything on-market"**: Johan's literal
+list is `active, for_sale, to_let, expired, other_agency_stock` — it does
+NOT include `on_show`/`on_auction` (both On-Market per
+`OFF_MARKET_STATUSES`'s own definition) or `under_offer` (explicitly OUT
+per this ruling, reversing its own separate matching-only-exclusion
+history). No `on_show`/`on_auction` row exists in QA1's live `properties`
+table today (verified by direct count at investigation time), so this is
+not observable there yet — flagged here so it's a recorded decision, not
+a silent gap, if either status appears on a future agency. An agency
+that wants them included adds them to its own configured list.
+
+### The agency setting
+
+**"Statuses included in Core Matches"** — `agency_contact_settings.core_matches_allowed_statuses`
+(nullable JSON array), migration `2026_09_29_090000_…`. Sits next to
+`core_matches_working_window_days` on the same table (same rationale as
+that column's own migration note: one more Core Matches knob on the table
+that already owns the others, not a second source of truth).
+
+- **Null/empty = the default list** (Johan's own words) — this is why the
+  column stays OUT of `AgencyContactSettings::forAgency()`'s `$defaults`
+  array (the `min_countable_criteria` pattern, not the
+  `core_matches_working_window_days` pattern, which bakes its default
+  into every newly-created row). `AgencyContactSettings::coreMatchesAllowedStatuses()`
+  is the null-safe resolved accessor; `coreMatchAllowedStatusesFor()` is
+  its per-request-cached, read-only static lookup (mirrors
+  `minCountableFor()` exactly).
+- **An empty selection is rejected at validation** (`ContactGovernanceController::updateContactGovernance()`
+  — `required|array|min:1` on `core_matches_allowed_statuses`, each
+  member validated against the SAME known-status list the picker offers,
+  so a crafted request can't smuggle in an unoffered status).
+- **UI**: Contact Governance settings page
+  (`command-center.settings.contact-governance.blade.php`), inside the
+  existing "Core Matches" panel, a checkbox multi-select. Options offered
+  = `Property::CORE_MATCH_DEFAULT_ALLOWED_STATUSES` ∪ this agency's own
+  configured status vocabulary (`Property::allowedStatuses($agencyId)` —
+  system statuses + whatever this agency has added as a `property_status`
+  setting item), so the five code defaults are always pickable even
+  before an agency has separately activated any of them, and an agency's
+  own custom statuses (e.g. `on_show`, `on_auction`, or a future
+  agency-specific label) are pickable too.
+- **Setup Wizard**: NOT added, for the identical reason its sibling
+  `core_matches_working_window_days` isn't (CLAUDE.md #10a, and this
+  spec's own §5.1-equivalent note above) — flagged for the same future
+  ruling rather than decided unilaterally here, alongside the other three
+  Core Matches settings already on that list.
+
+### Cache invalidation — `property_buyer_matches`
+
+The Buyer/Rental Pipeline's badge/count query
+(`BuyerPipelineController::coreMatchCounts()`) reads `property_buyer_matches`,
+a cache table populated by `PropertyMatchScoringService::recomputeForBuyer()`
+(via `MatchingService::matchableCandidatePool()`/`propertiesForMatch()` —
+already allow-list-aware after this change) — it does NOT re-check status
+itself, so a stale cache row for a now-excluded status would otherwise
+survive until the next unrelated recompute trigger.
+
+`ContactGovernanceController::updateContactGovernance()` compares the
+agency's resolved allow-list before and after a save (normalised,
+order-independent); if it changed, it clears the per-request
+`AgencyContactSettings` cache and dispatches
+`RegenerateBuyerMatchesJob::dispatch($agencyId, null, truncate: true)` —
+the EXISTING agency-scoped rebuild path (already `ShouldQueue`, already
+does a full delete-then-repopulate sync against the live allow-list), not
+a new mechanism. "Queued if large" is inherent: this job was already
+built to run on a queue and to self-chain in bounded chunks for a big
+agency (`AGENCY_REGEN_MAX_PER_RUN`).
+
+**QA1-specific caveat, recorded so a stale badge isn't misread as a
+bug**: per `BUILD_STANDARD.md` §8 ("QA is web-only — no queue worker /
+scheduler"), a dispatched job sits pending on QA1 until manually run —
+the Core Matches BOARD itself is unaffected (it queries
+`MatchingService`/`ClientMatchResolver` live, never the cache), but a
+Pipeline badge count on QA1 specifically won't reflect a settings change
+until the job is run by hand (`RegenerateBuyerMatchesJob::dispatchSync(...)`
+via Tinker, or on Staging/live where the queue worker actually runs).
+
+### Tests
+
+`tests/Feature/CoreMatches/CoreMatchStatusAllowListTest.php` — the default
+list (all five, individually); draft/under_offer/withdrawn/`Pending`/`Rented`/
+sold/prospecting excluded; an unknown agency-defined status fails CLOSED;
+blank/null status stays matchable (unrelated leniency preserved); expired
+included end-to-end through `propertiesForMatch()`; a custom agency list
+narrows matches to only what it names; null/empty setting resolves to the
+code default; `isCoreMatch()` refuses an excluded status even with a
+passing score and accepts an allow-listed one; the daily digest skips an
+excluded-status property at send time (and still stamps `emailed_at` so it
+never re-queues) while still emailing the allow-listed one in the same
+run; `property_buyer_matches` drops a row once a status change takes it
+off the allow-list.
+
+Two pre-existing tests in `RentalStatusAndIncompleteDataMatchingTest.php`
+had their assertions DELIBERATELY REVERSED, not silently changed: an
+agency-defined unknown status used to be asserted as correctly matching
+(fail OPEN) — now asserted as correctly excluded (fail CLOSED), per this
+ruling. The off-market-statuses-are-non-matchable loop now excludes
+`expired` from its universal claim, with `expired`'s specific exception
+asserted in its own new test right beside it.
+
+---
+
+## Won / Lost buyers have no Core Matches — one rule, agency setting (2026-10-07)
+
+Johan: a buyer marked Won or Lost in the Buyer / Rental Pipeline must not have Core Matches.
+Investigation (QA1, read-only, 7 Oct): true on the board (hard-coded in `ContactMatchController`), FALSE on
+the property-page Core Matches tab, new-listing alert candidates, the daily digest, the mobile list and the
+pipeline cards' "N matches" badge (QA1: a Lost buyer's card read "258 matches"; Cobus Van Niekerk, Lost, still
+listed on a property's tab). Fixed by ONE rule, read live from the buyer's current status — no flag to set
+or restore, so a buyer moved back to an active status returns everywhere at once.
+
+### The rule — `App\Services\Matching\CoreMatchBuyerGate`
+* `excludedStates($agencyId)` — the agency's excluded Buyer Pipeline statuses.
+* `ContactMatch::scopeBuyerInPlay($agencyId)` → `applyToMatchQuery()` — `contact_id NOT IN (raw DB subquery on
+  contacts WHERE buyer_state IN excluded)`. A raw subquery on purpose (never `whereHas('contact')`): it must not
+  re-apply Contact's ContactScope/BranchScope, and a scope bypass inside a relation closure does not propagate
+  (see "The ContactScope trap" above). A NULL `buyer_state` (no pipeline record) is never excluded.
+* `isExcluded($state, $agencyId)` / `filterContactIds()` — the same rule for row-level and id-list callers.
+* `saveExcludedStates()` — the single write path (settings page AND wizard); drops unknown slugs; one append-only
+  audit row (`core_match_buyer_state_audit`: agency, who, old, new, when) only when the effective list changed.
+
+### Setting
+`agency_contact_settings.core_matches_excluded_buyer_states` (JSON, nullable). NULL = code default
+`AgencyContactSettings::DEFAULT_CORE_MATCHES_EXCLUDED_BUYER_STATES = ['won','lost']`; a stored `[]` = "exclude no one".
+Values must be one of `BuyerStateService::PIPELINE_STATES` (new, warm, cold, lost, won). Settings page: Settings →
+Core Matches ("No Core Matches for buyers in these pipeline statuses"). **Setup Wizard** (CLAUDE.md #10a): Core Matches
+step, new `multiselect` control `core_matches_excluded_buyer_states` (source `core_matches`), narrow saver
+`ContactGovernanceController@updateCoreMatchesExcludedBuyerStates` guarded by the `core_matches_excluded_buyer_states_present`
+marker (spec agency-onboarding-setup.md §6.1) so a post that never rendered it cannot wipe the choice.
+
+### Surfaces now using the rule
+| Surface | Where |
+|---|---|
+| Board (Mine / Branch / Agency, sale + rental) | `ContactMatchController::renderBoard()` `$matchConstraints` → drives contact list, sort aggregates, match rows |
+| Property-page Core Matches tab, Intelligence buyer signals, seller buyer-demand | `MatchingService::matchesForProperty()` |
+| New-listing alerts (bell / digest queue) | `MatchingService::candidatesForProperty()` (← `MatchPropertyJob`) |
+| Daily match digest | `SendMatchDigests::buildGroups()` re-checks the buyer at send time |
+| Mobile Core Matches list | `MobileCoreMatchController::index()` |
+| Pipeline cards' "N matches" badge | `BuyerPipelineController::coreMatchCounts()` |
+
+NOT changed (reported to Johan): the public shared-match link's lifetime (`SharedMatchController::isBuyerActive()` — its own
+"dies when Won/Lost" ruling), a buyer's own portal (`ClientPortalController`), per-buyer Viewing Pack / `BuyerCoreMatchService`,
+and the `property_buyer_matches` cache rows themselves (they keep existing for Lost/Won buyers; every reader that shows them as
+Core Matches goes through the rule, MIC/seller demand have their own state filters). The older `set_aside_at` listener pair
+remains (history; the board no longer depends on it).
+
+### Board row: status chip + notes control
+* `<x-buyer-state-chip :state>` next to the buyer's name — the pipeline's own labels (New/Warm/Cold/Lost/Won) and `ds-badge`
+  colours; renders nothing when the buyer has no pipeline status.
+* "+ Note" button next to the name opens ONE page-level modal with "Note only" / "Contacted and note", posting to the
+  contact screen's own endpoint `ContactNoteController::store` (`redirect_to=back` returns to the same board, filters intact).
+  "Note only" still resets Last Contacted / the working clock (any note does — `ContactNoteObserver`, earlier ruling) but records
+  no explicit "contacted" mark. "Contacted and note" = `mark_contacted=1` → also `Contact::markContacted()` (sets
+  `contacted_marked_at`; last contacted = later of latest sent message and that mark) — identical to the contact screen. The button shows only where the store would succeed: `access_contacts`,
+  the contact bound under its normal ContactScope, and `canMutateContact()` (assistants). The existing read-only "N notes"
+  popup stays and shows the same notes.
+
+### Tests
+`tests/Feature/CoreMatches/CoreMatchBuyerStatusGateTest.php` — default exclusion for every state incl. none; setting drives it
+(`[cold]`, `[]`, NULL→default); return on reactivation (and won again); rentals + agency scope; property tab / alerts / digest /
+mobile / pipeline-count filter; chip renders per state and not without a record; note-only vs contacted-and-note effects +
+redirect back to the board; cross-agency contact refused; audit only on change; settings saver marker guard; wizard row + saver.

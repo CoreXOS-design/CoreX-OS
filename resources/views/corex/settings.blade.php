@@ -147,6 +147,14 @@
                     $can('command_center.settings')
                         ? ['key'=>'command-center', 'label'=>'Command Center Rules', 'type'=>'section', 'keywords'=>'expectations reminders automation rules document event classes thresholds']
                         : null,
+                    // Findability fix, 2026-09-29 (Johan, revised) — Core Matches settings
+                    // (working window + status allow-list) live HERE now, their own section,
+                    // moved off Contact Governance (which only links to this section).
+                    // Single stored setting — see AgencyContactSettings; this is where its
+                    // ONE editable form lives, not a second copy of it.
+                    $can('command_center.settings')
+                        ? ['key'=>'core-matches', 'label'=>'Core Matches', 'type'=>'section', 'keywords'=>'core match core matches statuses status allow-list allowlist which statuses shown included working window gone quiet on show on auction']
+                        : null,
                     $can('prospecting_setup.manage')
                         ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'section', 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting buyer match tiers']
                         : null,
@@ -1054,6 +1062,93 @@
                     </form>
                 </div>
             </div>
+        </div>
+        @endpermission
+
+        {{-- ============================================================
+             CORE MATCHES — working window + status allow-list
+             Moved here from Contact Governance, 2026-09-29 (Johan). Single
+             stored setting (AgencyContactSettings) — this is its one and
+             only editable form; Contact Governance now only links here.
+             ============================================================ --}}
+        @permission('command_center.settings')
+        <div x-show="activeSection === 'core-matches'" x-cloak class="p-6 space-y-5">
+            @if(isset($coreMatchesSettings) && $coreMatchesSettings)
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
+                        {{ session('success') }}
+                    </div>
+                @endif
+
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:10px;">Core Matches</h3>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">How buyer/renter Core Matches decide when a contact has gone quiet, and which property statuses are ever shown as a match.</p>
+                </div>
+
+                <form method="POST" action="{{ route('command-center.settings.core-matches.update') }}"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf @method('PUT')
+
+                    <div>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many days a buyer can go without a note, a message, a live link share, or "Last Contacted" being pressed before the Core Matches board shows them as gone quiet.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Working window (days)</label>
+                                <input type="number" name="core_matches_working_window_days" value="{{ $coreMatchesSettings->core_matches_working_window_days ?? \App\Models\AgencyContactSettings::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS }}" min="1" max="90"
+                                       class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface); color:var(--text-primary); border:1px solid var(--border);">
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- AT-Core-Matches (2026-09-29), Johan's ruling — Core Matches is an
+                         allow-list, not a blacklist: only the statuses ticked here are ever
+                         shown. Unticking everything is rejected server-side (an empty
+                         selection is never a valid state), so there's no "show nothing" trap.
+                         On Show / On Auction default as shipped — agencies tick what they want. --}}
+                    <div class="pt-3 border-t" style="border-color:var(--border);">
+                        <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">Statuses included in Core Matches</p>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">Only ticked statuses ever appear as a Core Match — everything else, including any status added later, is excluded.</p>
+                        <div class="flex flex-wrap gap-4">
+                            @php
+                                $selectedCoreMatchStatuses = $coreMatchesSettings->coreMatchesAllowedStatuses();
+                            @endphp
+                            @foreach($coreMatchStatusOptions as $statusOption)
+                                <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                    <input type="checkbox" name="core_matches_allowed_statuses[]" value="{{ $statusOption }}"
+                                           {{ in_array($statusOption, $selectedCoreMatchStatuses, true) ? 'checked' : '' }}>
+                                    {{ \Illuminate\Support\Str::headline($statusOption) }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    {{-- Won / Lost buyers (Johan, 2026-10-07) — a buyer whose Buyer Pipeline status
+                         is ticked here has no Core Matches anywhere (board, property page, alerts,
+                         digest, mobile). Moving them back to an active status brings them back. --}}
+                    <div class="pt-3 border-t" style="border-color:var(--border);">
+                        <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">No Core Matches for buyers in these pipeline statuses</p>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">A buyer in a ticked status is hidden from Core Matches everywhere; move them back to an active status and their matches return.</p>
+                        <input type="hidden" name="core_matches_excluded_buyer_states_present" value="1">
+                        <div class="flex flex-wrap gap-4">
+                            @php
+                                $excludedCoreMatchBuyerStates = $coreMatchesSettings->coreMatchesExcludedBuyerStates();
+                            @endphp
+                            @foreach(\App\Services\BuyerStateService::PIPELINE_STATES as $pipelineState)
+                                <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                    <input type="checkbox" name="core_matches_excluded_buyer_states[]" value="{{ $pipelineState }}"
+                                           {{ in_array($pipelineState, $excludedCoreMatchBuyerStates, true) ? 'checked' : '' }}>
+                                    {{ ucfirst($pipelineState) }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                    </div>
+                </form>
+            @endif
         </div>
         @endpermission
 
