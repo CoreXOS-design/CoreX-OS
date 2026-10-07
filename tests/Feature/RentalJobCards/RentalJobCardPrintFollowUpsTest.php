@@ -269,9 +269,22 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
         return $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $card));
     }
 
-    public function test_schedule_boxes_carry_the_saved_dates(): void
+    /**
+     * §17.6.5 / §17.12 — a card can only be scheduled once it is authorised, and a card with nothing priced is not ("price the job
+     * or send the quote first"). So a card these tests schedule carries one priced line inside the owner's no-approval limit
+     * (setUp sets it to R100 000), which authorises it by the limit — the dates then save as they always did.
+     */
+    private function schedulableCard(): RentalJobCard
     {
         $card = $this->card();
+        $this->service->addLine($card, ['description' => 'Part', 'quantity' => 1, 'unit_price' => 50, 'rental_vat_type_id' => $this->vatType()->id], $this->admin);
+
+        return $card->fresh();
+    }
+
+    public function test_schedule_boxes_carry_the_saved_dates(): void
+    {
+        $card = $this->schedulableCard();
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), [
             'scheduled_at' => '2026-10-12T09:00', 'due_at' => '2026-10-14T17:30',
         ])->assertRedirect();
@@ -290,7 +303,7 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
 
     public function test_changing_only_due_keeps_the_scheduled_date(): void
     {
-        $card = $this->card();
+        $card = $this->schedulableCard();
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), [
             'scheduled_at' => '2026-10-12T09:00', 'due_at' => '2026-10-14T17:30',
         ]);
@@ -309,7 +322,7 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
 
     public function test_set_with_nothing_touched_is_an_exact_round_trip(): void
     {
-        $card = $this->card();
+        $card = $this->schedulableCard();
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), ['scheduled_at' => '2026-10-12T09:00', 'due_at' => '2026-10-14T17:30']);
         $before = [$card->fresh()->getRawOriginal('scheduled_at'), $card->fresh()->getRawOriginal('due_at')];
 
@@ -326,7 +339,7 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
 
     public function test_typed_values_still_win_over_saved_ones_after_a_refused_set(): void
     {
-        $card = $this->card();
+        $card = $this->schedulableCard();
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), ['scheduled_at' => '2026-10-12T09:00', 'due_at' => '2026-10-14T17:30']);
         $this->actingAs($this->admin)->from(route('corex.rental-job-cards.show', $card))
             ->post(route('corex.rental-job-cards.schedule', $card), ['scheduled_at' => '2026-10-20T09:00', 'due_at' => '2026-10-19T09:00'])

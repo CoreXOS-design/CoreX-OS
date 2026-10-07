@@ -94,7 +94,9 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
             ->assertSee('Marketing')
             ->assertSee('Core Matches')
             ->assertSee('Multi-branch offices')
-            ->assertSee('Public website')
+            // "Public website" was deliberately pulled from onboarding (Johan, 2026-08-12 — agency-onboarding-setup.md §5.1 /
+            // agency-onboarding-copy.php): the go-live switch lives on the agency's website-settings page, never in the wizard.
+            ->assertDontSee('Public website')
             ->assertSee('Publish to Property24')
             ->assertSee('Publish to Private Property')
             // The portal sub-heading.
@@ -106,8 +108,8 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // AT-379 — 'welcome' is now the first step, so capabilities (still
         // immediately after identity) moved from index 1 to index 2.
         $this->assertSame('capabilities', AgencyOnboardingSetup::STEPS[2]);
-        // proforma + market_intelligence + welcome brought the total to 16.
-        $this->assertSame(16, AgencyOnboardingSetup::totalSteps());
+        // proforma + market_intelligence + welcome brought the total to 16; AT-395's outgoing_mail and the leases step to 18.
+        $this->assertSame(18, AgencyOnboardingSetup::totalSteps());
     }
 
     // ── Round-trip: writes through the SAME store the settings page writes ────
@@ -138,27 +140,21 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // Agency columns.
         $agency->refresh();
         $this->assertTrue((bool) $agency->split_branches_enabled);
-        $this->assertTrue((bool) $agency->website_enabled);
+        // The wizard no longer carries the website switch (Johan, 2026-08-12): even a posted website_enabled changes nothing.
+        $this->assertFalse((bool) $agency->website_enabled);
     }
 
-    public function test_website_enabled_round_trips_through_the_wizard(): void
+    public function test_website_enabled_can_not_be_switched_on_from_the_wizard(): void
     {
         $agency = $this->agency();
         $agency->forceFill(['website_enabled' => false])->save();
         $admin  = $this->admin($agency);
         $this->setupFor($agency);
 
-        // ON.
         $this->actingAs($admin)
             ->post(route('corex.agency-setup.step.save', ['step' => 'capabilities']), $this->payload(['website_enabled' => '1']))
             ->assertRedirect();
-        $this->assertTrue((bool) $agency->fresh()->website_enabled, 'website_enabled is now settable inside onboarding');
-
-        // OFF (hidden-companion "0").
-        $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'capabilities']), $this->payload(['website_enabled' => '0']))
-            ->assertRedirect();
-        $this->assertFalse((bool) $agency->fresh()->website_enabled);
+        $this->assertFalse((bool) $agency->fresh()->website_enabled, 'the go-live switch is not an onboarding control');
     }
 
     public function test_saving_the_step_advances_to_branding(): void
@@ -183,11 +179,11 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
 
         PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => 0]);
 
-        // Not in the active-step list, and the denominator drops from 16 to 15
-        // (AT-379 — proforma + market_intelligence + welcome brought the total to 16).
+        // Not in the active-step list, and the denominator drops from 18 to 17
+        // (AT-379 — proforma + market_intelligence + welcome brought it to 16; outgoing_mail and leases to 18).
         $active = AgencyOnboardingSetup::activeSteps($agency);
         $this->assertNotContains('matches', $active);
-        $this->assertCount(15, $active);
+        $this->assertCount(17, $active);
 
         // show('matches') redirects forward (never 404s a legitimately-gated step).
         // market_intelligence is gated on a DIFFERENT feature (prospecting, still
@@ -215,7 +211,7 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // Default is ON (no PerformanceSetting row → default 1).
         $active = AgencyOnboardingSetup::activeSteps($agency);
         $this->assertContains('matches', $active);
-        $this->assertCount(16, $active);
+        $this->assertCount(18, $active);
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'matches']))
             ->assertOk()
@@ -228,13 +224,13 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         $this->admin($agency);
         // Everything except matches completed.
         $setup = $this->setupFor($agency, ['completed_steps' => [
-            'welcome', 'identity', 'capabilities', 'branding', 'branches', 'commission', 'proforma', 'properties',
-            'presentations', 'market_intelligence', 'contacts', 'compliance', 'notifications', 'roles', 'access',
+            'welcome', 'identity', 'capabilities', 'branding', 'branches', 'commission', 'proforma', 'leases', 'properties',
+            'presentations', 'market_intelligence', 'contacts', 'compliance', 'outgoing_mail', 'notifications', 'roles', 'access',
         ]]);
 
         PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => 0]);
 
-        // 15 of 15 active steps done → 100% reachable without ever doing matches.
+        // 17 of 17 active steps done → 100% reachable without ever doing matches.
         $this->assertSame(100, $setup->progressPercent($agency));
     }
 

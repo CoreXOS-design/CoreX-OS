@@ -673,7 +673,8 @@
                     </p>
                 @elseif($jobCard->workOrder?->hasApprovedBaseline())
                     {{-- BUILD 2 (§17.7.1) — once the owner has approved an amount a re-send would drop that approval; extra work now goes to the owner as a variation instead, raised automatically. --}}
-                    <p class="text-xs" style="color: var(--text-muted);">The owner has approved this job. Any extra work is put to the owner automatically as a variation — see the approval panel above.</p>
+                    {{-- Reconciliation 7 Oct: this used to say "The owner has approved this job" even when the job was only COVERED by the owner's no-approval limit (nobody asked him). The words follow the basis, as the approval panel's own chip does. --}}
+                    <p class="text-xs" style="color: var(--text-muted);">{{ $jobCard->workOrder->approval_basis === \App\Models\RentalWorkOrder::BASIS_OWNER_DECISION ? 'The owner has approved this job.' : ($jobCard->workOrder->approvalBasisLabel() ?: 'This job is approved') . ' — no quote to the owner is needed.' }} Any extra work is put to the owner automatically as a variation — see the approval panel above.</p>
                 @else
                 <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.send-quote', $jobCard) }}"
                       onsubmit="return confirm({{ \Illuminate\Support\Js::from($currentQuote ? 'Re-send this job card to the owner as Rev ' . ($currentQuote->revision + 1) . '? It replaces Rev ' . $currentQuote->revision . ', and any approval of Rev ' . $currentQuote->revision . ' no longer applies.' : 'Send this job card to the owner as a quote?') }});">

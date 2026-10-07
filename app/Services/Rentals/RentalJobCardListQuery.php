@@ -40,7 +40,8 @@ class RentalJobCardListQuery
 
     /**
      * @param array{
-     *   q?: ?string, status?: ?string, overdue?: bool, needs_pricing?: bool, rental_crew_id?: mixed, property_id?: mixed,
+     *   q?: ?string, status?: ?string, overdue?: bool, needs_pricing?: bool, awaiting_owner?: bool, variation_pending?: bool,
+     *   rental_crew_id?: mixed, property_id?: mixed,
      *   from?: ?Carbon, to?: ?Carbon, archived?: bool, sort?: ?string, direction?: ?string
      * } $filters  from/to are already-resolved instants (the controller owns agency-timezone parsing).
      */
@@ -119,6 +120,14 @@ class RentalJobCardListQuery
         if (! empty($this->filters['needs_pricing'])) {
             $query->needsPricing();
         }
+        // §17.17 — "Awaiting owner" (the quote is out and the owner has not decided) and "Variation pending" (extra work is
+        // waiting on the owner). Both narrow the already own/branch/agency-scoped query; neither can widen it.
+        if (! empty($this->filters['awaiting_owner'])) {
+            $query->awaitingOwner();
+        }
+        if (! empty($this->filters['variation_pending'])) {
+            $query->variationPending();
+        }
 
         if (! empty($this->filters['overdue'])) {
             $query->overdue();
@@ -158,6 +167,8 @@ class RentalJobCardListQuery
         }
         $counts['overdue'] = $this->filtered()->overdue()->count();
         $counts['needs_pricing'] = $this->filtered()->needsPricing()->count();
+        $counts['awaiting_owner'] = $this->filtered()->awaitingOwner()->count();
+        $counts['variation_pending'] = $this->filtered()->variationPending()->count();
 
         return $counts;
     }

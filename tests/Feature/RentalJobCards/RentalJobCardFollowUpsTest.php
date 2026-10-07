@@ -505,19 +505,24 @@ final class RentalJobCardFollowUpsTest extends TestCase
         Mail::fake();
         $card = $this->card();
         $this->line($card, 'One', 100);
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertRedirect();
-        $quote = $card->quoteRevisions()->firstOrFail();
+        // The quote is made through the service and the other agency exists BEFORE the first web request of the test: the test
+        // process keeps agency state from the first request it serves, so asking as the other agency first is the honest question.
+        $quote = $this->service->sendToOwnerAsQuote($card, $this->admin, app(\App\Services\Rentals\RentalDocumentPdfService::class));
         $url = route('corex.rental-job-cards.quotes.download', [$card, $quote->id]);
 
-        // A fresh application per agency — the agency scope is resolved once per request lifecycle.
-        $this->refreshApplication();
-        $this->withoutVite();
-        Storage::fake('local');
+        // This used to call refreshApplication() "for a fresh agency scope". That boots a NEW application on a NEW database
+        // connection OUTSIDE RefreshDatabase's wrapping transaction, so (a) the card and quote above — still uncommitted on the
+        // old connection — were invisible to the intruder's request, making the 404 vacuous, and (b) the "Other" agency, its
+        // branch and user (and the fault types the Agency hook seeds) were COMMITTED to the persistent lane-test schema, where
+        // they broke every later test that counts rows (RentalFaultTypeCatalogueTest and others).
         $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
         $otherBranch = Branch::forceCreate(['name' => 'B', 'agency_id' => $otherAgency->id]);
         $intruder = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'admin']);
 
         $this->actingAs($intruder)->get($url)->assertNotFound();
+
+        // …and the 404 means something only because the card's own agency CAN reach this very URL.
+        $this->actingAs($this->admin)->get($url)->assertOk();
     }
 
     public function test_signature_ignores_cosmetic_formatting_but_sees_every_real_edit(): void

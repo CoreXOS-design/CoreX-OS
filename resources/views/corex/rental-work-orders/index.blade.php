@@ -47,7 +47,11 @@
         foreach (['reported', 'ordered', 'in_progress', 'disputed', 'completed', 'cancelled'] as $s) {
             if (($filters['status'] ?? '') === $s) { $currentTile = $s; break; }
         }
-        if (!$currentTile && ($filters['overdue'] ?? false)) { $currentTile = 'overdue'; }
+        // Yes/no filters (not statuses). §17.17 added "Awaiting owner" and "Variation pending" beside "Overdue".
+        $flagKeys = ['overdue', 'awaiting_owner', 'variation_pending'];
+        foreach ($flagKeys as $f) {
+            if (!$currentTile && ($filters[$f] ?? false)) { $currentTile = $f; }
+        }
         if (!$currentTile && !($filters['status'] ?? null)) { $currentTile = 'total'; }
 
         $tileDefs = [
@@ -60,8 +64,11 @@
             // §17.10 — a tenant said finished work is not complete; the office must resolve it.
             'disputed' => ['label' => 'Disputed', 'params' => ['status' => 'disputed']],
             'overdue' => ['label' => 'Overdue', 'params' => ['overdue' => 1]],
+            // §17.17 — the owner owes an answer: the quote is out with him / extra work was put to him.
+            'awaiting_owner' => ['label' => 'Awaiting owner', 'params' => ['awaiting_owner' => 1]],
+            'variation_pending' => ['label' => 'Variation pending', 'params' => ['variation_pending' => 1]],
         ];
-        $tileClearParams = ['status' => null, 'overdue' => null, 'page' => null];
+        $tileClearParams = ['status' => null, 'overdue' => null, 'awaiting_owner' => null, 'variation_pending' => null, 'page' => null];
         $tileHref = fn ($key, $def) => route('corex.rental-work-orders.index', array_merge(
             request()->except(array_keys($tileClearParams)),
             $key === 'total' || $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
@@ -161,8 +168,16 @@
             <input type="checkbox" name="overdue" value="1" @checked(($filters['overdue'] ?? false))>
             Overdue only
         </label>
+        <label class="flex items-center gap-1 text-xs pb-2">
+            <input type="checkbox" name="awaiting_owner" value="1" @checked(($filters['awaiting_owner'] ?? false))>
+            Awaiting owner
+        </label>
+        <label class="flex items-center gap-1 text-xs pb-2">
+            <input type="checkbox" name="variation_pending" value="1" @checked(($filters['variation_pending'] ?? false))>
+            Variation pending
+        </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue']))
+        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending']))
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>

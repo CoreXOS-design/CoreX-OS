@@ -1042,6 +1042,27 @@ class RentalWorkOrder extends Model
     }
 
     /**
+     * §17.12 / §17.17 — the "Awaiting owner" list filter: the work order's quote (or approval) is out with the owner and he has
+     * not decided (`owner_approval_status = pending`). A closed (completed / cancelled) work order is no longer waiting on anyone,
+     * so it is left out — the filter lists what the office can still chase.
+     */
+    public function scopeAwaitingOwner(Builder $query): Builder
+    {
+        return $query->where('rental_work_orders.owner_approval_status', self::APPROVAL_PENDING)
+            ->whereNotIn('rental_work_orders.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED]);
+    }
+
+    /**
+     * §17.7 / §17.17 — the "Variation pending" list filter: extra work has been put to the owner (an open
+     * `awaiting_owner` variation) and he has not yet answered. Closed work orders are left out, as above.
+     */
+    public function scopeVariationPending(Builder $query): Builder
+    {
+        return $query->whereHas('variations', fn ($v) => $v->awaitingOwner())
+            ->whereNotIn('rental_work_orders.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED]);
+    }
+
+    /**
      * §6 — OWN/BRANCH/AGENCY scoping, same convention as
      * RentalFaultReport::scopeVisibleTo()/RentalInspection::scopeVisibleTo().
      */

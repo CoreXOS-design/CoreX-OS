@@ -128,6 +128,9 @@ class RentalWorkOrderController extends Controller
             'cancelled' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_CANCELLED)->count(),
             'disputed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_DISPUTED)->count(),
             'overdue' => $woTileBase()->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()))->count(),
+            // §17.17 — the owner owes an answer: the quote is out / extra work was put to him. Same own/branch/agency base as every tile.
+            'awaiting_owner' => $woTileBase()->awaitingOwner()->count(),
+            'variation_pending' => $woTileBase()->variationPending()->count(),
         ];
 
         return view('corex.rental-work-orders.index', [
@@ -138,7 +141,7 @@ class RentalWorkOrderController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue']),
+            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
@@ -208,6 +211,13 @@ class RentalWorkOrderController extends Controller
         if ($request->boolean('overdue')) {
             $query->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()));
         }
+        // §17.17 — "Awaiting owner" / "Variation pending". Applied here so the screen, the print list and the export all agree.
+        if ($request->boolean('awaiting_owner')) {
+            $query->awaitingOwner();
+        }
+        if ($request->boolean('variation_pending')) {
+            $query->variationPending();
+        }
 
         return $query;
     }
@@ -232,6 +242,12 @@ class RentalWorkOrderController extends Controller
         }
         if ($request->boolean('overdue')) {
             $out['Overdue'] = 'Yes';
+        }
+        if ($request->boolean('awaiting_owner')) {
+            $out['Awaiting owner'] = 'Yes';
+        }
+        if ($request->boolean('variation_pending')) {
+            $out['Variation pending'] = 'Yes';
         }
         if ($df = $request->get('date_from')) {
             $out['Reported from'] = $df;
@@ -754,6 +770,15 @@ class RentalWorkOrderController extends Controller
             'cost_amount' => ['nullable', 'numeric', 'min:0'],
             'completion_notes' => ['nullable', 'string'],
         ]);
+
+        // §17.12 — an internal job is closed from its JOB CARD, which closes the card and this work order together (or neither).
+        // This Complete form is the outside contractor's close; posting it for an internal job would close the work order and
+        // leave its job card open — the half-closed pair §17.10.9 / §17.23 defect #1 forbids.
+        // (An open tenant dispute is refused by the model with its own, more specific words — let that message win.)
+        $openCard = $rentalWorkOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL && ! $rentalWorkOrder->hasOpenDispute() ? $rentalWorkOrder->jobCard : null;
+        if ($openCard && ! $openCard->isClosed()) {
+            return back()->withErrors(['rental_work_order' => 'Our own team\'s job is closed from its job card — use "Complete job card" there, which closes this work order with it.']);
+        }
 
         try {
             $rentalWorkOrder->complete($request->user(), $validated);

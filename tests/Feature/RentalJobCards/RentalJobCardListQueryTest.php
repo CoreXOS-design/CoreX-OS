@@ -243,6 +243,11 @@ final class RentalJobCardListQueryTest extends TestCase
     public function test_quote_indicator_shows_only_where_it_applies(): void
     {
         Mail::fake();
+        // §17.0 item 1 / §17.7.1 — a revised quote can be re-sent only while the owner has NOT yet approved an amount; once an
+        // amount is approved (by the owner, or by the no-approval limit covering it) extra work is a variation instead. setUp's
+        // R100 000 limit would auto-approve every R100 card here, so this test uses a limit BELOW the quoted amount: the quote
+        // is genuinely waiting on the owner, which is the case the "Changed since sent" indicator and Rev tag exist for.
+        RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['no_approval_spend_threshold' => 10]);
         $landlord = Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Jane', 'last_name' => 'Landlord', 'email' => 'owner@example.test']);
         $property = $this->property('Quoted Place');
         \App\Services\Property\ContactPropertyLinker::link($landlord->id, $property->id, 'landlord');

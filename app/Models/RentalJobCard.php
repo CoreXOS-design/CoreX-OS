@@ -248,6 +248,23 @@ class RentalJobCard extends Model
         });
     }
 
+    /**
+     * §17.17 — "Awaiting owner": the card's work order is waiting on the owner's decision on the quote. The card's own closed
+     * states are left out (a completed / cancelled card is waiting on nobody); the work-order side applies the same rule.
+     */
+    public function scopeAwaitingOwner(Builder $query): Builder
+    {
+        return $query->whereNotIn('rental_job_cards.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED])
+            ->whereHas('workOrder', fn ($w) => $w->awaitingOwner());
+    }
+
+    /** §17.17 — "Variation pending": extra work on this card's work order is waiting on the owner. */
+    public function scopeVariationPending(Builder $query): Builder
+    {
+        return $query->whereNotIn('rental_job_cards.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED])
+            ->whereHas('workOrder', fn ($w) => $w->variationPending());
+    }
+
     public function updates(): HasMany
     {
         return $this->hasMany(RentalJobCardUpdate::class)->orderByDesc('created_at');

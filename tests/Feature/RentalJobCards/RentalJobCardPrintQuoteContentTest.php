@@ -63,8 +63,11 @@ final class RentalJobCardPrintQuoteContentTest extends TestCase
     {
         $jobCard->load(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder']);
 
+        // §17.4.7 — the worker print (`print`) is the COST copy and takes costsOn / costVat; the owner quote (`quote-pdf`)
+        // is the SELLING copy and takes pricesOn / vat. Passing both lets one helper render either document.
         return view("corex.rental-job-cards.{$view}", [
             'jobCard' => $jobCard, 'pricesOn' => true, 'vat' => $this->noVat(), 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
+            'costsOn' => true, 'costVat' => app(\App\Services\Rentals\RentalJobCardVatService::class)->costBreakdown($jobCard),
         ])->render();
     }
 
@@ -81,12 +84,28 @@ final class RentalJobCardPrintQuoteContentTest extends TestCase
         $this->assertStringContainsString('Member One', $html);
     }
 
-    public function test_print_and_quote_show_no_source_when_created_directly(): void
+    public function test_a_card_created_directly_shows_its_own_work_order_as_the_source(): void
     {
+        // §17.3.1 — a job card never exists without its work order any more (createStandalone makes it up front), so a card made with
+        // no fault report still has a source: the work order. It must not claim "No source".
         $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
 
-        $this->assertStringContainsString('No source — created directly.', $this->renderJobCard($jobCard, 'print'));
-        $this->assertStringContainsString('No source — created directly.', $this->renderJobCard($jobCard, 'quote-pdf'));
+        foreach (['print', 'quote-pdf'] as $view) {
+            $html = $this->renderJobCard($jobCard, $view);
+            $this->assertStringContainsString('Work order #' . $jobCard->rental_work_order_id, $html);
+            $this->assertStringNotContainsString('No source', $html);
+            $this->assertStringNotContainsString('Fault report #', $html);
+        }
+    }
+
+    public function test_an_older_card_with_neither_fault_report_nor_work_order_still_says_no_source(): void
+    {
+        // Rows from before §17.3.1 can still have no work order at all.
+        $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
+        $jobCard->forceFill(['rental_work_order_id' => null])->save();
+
+        $this->assertStringContainsString('No source — created directly.', $this->renderJobCard($jobCard->fresh(), 'print'));
+        $this->assertStringContainsString('No source — created directly.', $this->renderJobCard($jobCard->fresh(), 'quote-pdf'));
     }
 
     public function test_print_and_quote_show_the_fault_report_source_reference(): void
@@ -115,15 +134,19 @@ final class RentalJobCardPrintQuoteContentTest extends TestCase
         $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
         $service = app(RentalJobCardService::class);
         $task = $service->addTask($jobCard, 'Task one', $this->admin);
-        $service->addLine($jobCard, ['description' => 'Line A', 'quantity' => 1, 'unit_price' => 100], $this->admin, $task);
-        $service->addLine($jobCard, ['description' => 'Line B', 'quantity' => 1, 'unit_price' => 50], $this->admin, $task);
+        // §17.4.5 — the worker print shows COST (never selling), so the lines carry a cost and a DIFFERENT selling price.
+        $service->addLine($jobCard, ['description' => 'Line A', 'quantity' => 1, 'unit_cost' => 100, 'unit_price' => 120], $this->admin, $task);
+        $service->addLine($jobCard, ['description' => 'Line B', 'quantity' => 1, 'unit_cost' => 50, 'unit_price' => 60], $this->admin, $task);
         $jobCard->refresh();
 
         $printHtml = $this->renderJobCard($jobCard, 'print');
 
-        // The task's own subtotal (100 + 50 = 150) distinct from the lines'
-        // own individual totals (R100.00 / R50.00) already on the page.
-        $this->assertStringContainsString('Subtotal', $printHtml);
+        // The task's own cost subtotal (100 + 50 = 150) distinct from the lines'
+        // own individual costs (R100.00 / R50.00) already on the page.
+        $this->assertStringContainsString('Cost subtotal', $printHtml);
         $this->assertStringContainsString('R150.00', $printHtml);
+        // …and the owner's selling figures (120 + 60 = 180) never reach the worker's copy.
+        $this->assertStringNotContainsString('R180.00', $printHtml);
+        $this->assertStringNotContainsString('R120.00', $printHtml);
     }
 }

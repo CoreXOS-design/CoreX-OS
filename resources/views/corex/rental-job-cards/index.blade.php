@@ -32,10 +32,15 @@
         ['key' => 'disputed', 'label' => 'Disputed', 'value' => $tileCounts['disputed'] ?? 0],
         ['key' => 'overdue', 'label' => 'Overdue', 'value' => $tileCounts['overdue']],
         ['key' => 'needs_pricing', 'label' => 'Needs pricing', 'value' => $tileCounts['needs_pricing'] ?? 0],
+        // §17.17 — the owner owes an answer: the quote is out (awaiting owner), or extra work was put to him (variation pending).
+        ['key' => 'awaiting_owner', 'label' => 'Awaiting owner', 'value' => $tileCounts['awaiting_owner'] ?? 0],
+        ['key' => 'variation_pending', 'label' => 'Variation pending', 'value' => $tileCounts['variation_pending'] ?? 0],
         ['key' => 'completed', 'label' => 'Completed', 'value' => $tileCounts['completed']],
         ['key' => 'cancelled', 'label' => 'Cancelled', 'value' => $tileCounts['cancelled']],
     ];
-    $filterKeys = ['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', 'overdue', 'needs_pricing', 'archived'];
+    // Yes/no filters (not statuses): a tile for one of these clears the others, exactly as the status tiles do.
+    $flagKeys = ['overdue', 'needs_pricing', 'awaiting_owner', 'variation_pending'];
+    $filterKeys = ['q', 'status', 'rental_crew_id', 'property_id', 'date_from', 'date_to', ...$flagKeys, 'archived'];
     $isFiltered = request()->hasAny($filterKeys);
 @endphp
 
@@ -75,15 +80,15 @@
         </div>
     @endif
 
-    <div class="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-10 gap-2 flex-shrink-0">
+    <div class="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-7 gap-2 flex-shrink-0">
         @foreach($tiles as $tile)
             @php
-                // overdue and needs_pricing (§17.5.5) are yes/no filters, not statuses.
-                $flagTile = in_array($tile['key'], ['overdue', 'needs_pricing'], true);
-                $noFlags = !request()->boolean('overdue') && !request()->boolean('needs_pricing');
+                // overdue, needs_pricing (§17.5.5), awaiting_owner and variation_pending (§17.17) are yes/no filters, not statuses.
+                $flagTile = in_array($tile['key'], $flagKeys, true);
+                $noFlags = collect($flagKeys)->every(fn ($k) => !request()->boolean($k));
                 $tileParams = $flagTile
-                    ? array_merge(request()->except(['page', 'status', 'overdue', 'needs_pricing']), [$tile['key'] => 1])
-                    : array_merge(request()->except(['page', 'status', 'overdue', 'needs_pricing']), $tile['key'] ? ['status' => $tile['key']] : []);
+                    ? array_merge(request()->except(['page', 'status', ...$flagKeys]), [$tile['key'] => 1])
+                    : array_merge(request()->except(['page', 'status', ...$flagKeys]), $tile['key'] ? ['status' => $tile['key']] : []);
                 $isActive = $flagTile
                     ? request()->boolean($tile['key'])
                     : (request('status') === $tile['key'] && $noFlags)
@@ -104,8 +109,9 @@
     <form method="GET" action="{{ route('corex.rental-job-cards.index') }}" class="flex flex-wrap items-end gap-3 flex-shrink-0">
         <input type="hidden" name="scope" value="{{ $resolvedScope }}">
         @if(request('status'))<input type="hidden" name="status" value="{{ request('status') }}">@endif
-        @if(request()->boolean('overdue'))<input type="hidden" name="overdue" value="1">@endif
-        @if(request()->boolean('needs_pricing'))<input type="hidden" name="needs_pricing" value="1">@endif
+        @foreach($flagKeys as $flagKey)
+            @if(request()->boolean($flagKey))<input type="hidden" name="{{ $flagKey }}" value="1">@endif
+        @endforeach
         @if(request('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
         @if(request('direction'))<input type="hidden" name="direction" value="{{ request('direction') }}">@endif
         <div>

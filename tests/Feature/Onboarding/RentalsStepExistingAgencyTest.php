@@ -21,6 +21,8 @@ use Tests\TestCase;
 final class RentalsStepExistingAgencyTest extends TestCase
 {
     use RefreshDatabase;
+    // A real browser's full POST as the baseline; the hand-written fields below override it (see the trait's docblock).
+    use \Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 
     private function admin(Agency $agency): User
     {
@@ -87,7 +89,7 @@ final class RentalsStepExistingAgencyTest extends TestCase
         [$agency, $admin, $setup] = $this->preExistingCompletedAgency();
 
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
                 'expiry_notice_window_days' => 45, // unchanged, re-submitted as the form would
                 'fault_report_window_days' => 14,
                 'out_inspection_signing_window_days' => 21,
@@ -108,7 +110,7 @@ final class RentalsStepExistingAgencyTest extends TestCase
                 'tag_contact_as_tenant_on_approval' => '1',
                 'require_fica_before_authorisation' => '0',
                 'document_uploads_open_after_approval' => '1',
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 
