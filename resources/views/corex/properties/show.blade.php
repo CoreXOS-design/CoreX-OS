@@ -512,6 +512,7 @@
                         listedPrice: {{ $property->price ? (int) $property->price : 'null' }},
                     })"
                     x-init="loadCoverage()"
+                    @corex:generate-presentation.window="onClickGenerate()"
                     class="space-y-2">
 
                     {{-- Generate button + comp-coverage status dot. The coverage sentence
@@ -10563,25 +10564,60 @@
                 <div>
                     <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Presentations & Market Positioning</h3>
 
-                    {{-- Market Position card (if snapshot exists) --}}
-                    @if($marketPosition)
-                        <div class="rounded-md p-3 mb-3 grid grid-cols-3 gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);">
-                            <div>
-                                @if(!empty($marketPosition['recommended_price']))
-                                    <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['recommended_price']) }}</div>
+                    {{-- Market Position card. The RECOMMENDED PRICE is the latest presentation's
+                         price (the same figure the presentation screen and the seller PDF show) —
+                         never a separate calculation. No presentation → "No presentation done yet"
+                         + Generate (agent screen only; Preview-as-Seller simply omits the price).
+                         Rentals have no presentations, so no card. --}}
+                    @php
+                        $recPrice = $property->isRental() ? null : $intel->getRecommendedPrice($property->id);
+                        $canGeneratePresentation = auth()->user()->hasPermission('create_presentations');
+                        $canOpenPresentation = auth()->user()->hasPermission('access_presentations') && \Illuminate\Support\Facades\Route::has('presentations.show');
+                    @endphp
+                    @if($recPrice)
+                        <div class="rounded-md p-3 mb-3 grid {{ $marketPosition ? 'grid-cols-3' : 'grid-cols-1' }} gap-3 text-center" style="background: var(--surface-2); border: 1px solid var(--border);" data-recommended-price-card>
+                            <div x-show="{{ $recPrice['state'] === 'price' ? 'true' : '!sellerPreview' }}">
+                                @if($recPrice['state'] === 'price')
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);" data-recommended-price>R {{ number_format($recPrice['price']) }}</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);" x-show="!sellerPreview">
+                                        From the presentation{{ $recPrice['as_of'] ? ' of ' . $recPrice['as_of']->format('d M Y') : '' }}
+                                        @if($canOpenPresentation)
+                                            · <a href="{{ route('presentations.show', $recPrice['presentation_id']) }}" target="_blank" class="no-underline" style="color: var(--brand-icon);">Open</a>
+                                        @endif
+                                    </div>
+                                @elseif($recPrice['state'] === 'no_price')
+                                    <div class="text-sm font-bold" style="color: var(--text-muted);">&mdash;</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);" data-no-presentation-price>
+                                        The presentation has no price yet
+                                        @if($canOpenPresentation)
+                                            · <a href="{{ route('presentations.show', $recPrice['presentation_id']) }}" target="_blank" class="no-underline" style="color: var(--brand-icon);">Open it</a>
+                                        @endif
+                                    </div>
                                 @else
-                                    <div class="text-sm font-bold" style="color: var(--text-muted);" title="No profile-matched comparable sales in this suburb yet — showing a price would be misleading.">—</div>
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);" data-no-presentation>No presentation done yet</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
+                                    @if($canGeneratePresentation)
+                                        <button type="button" data-generate-presentation
+                                                @click="$dispatch('corex:generate-presentation')"
+                                                class="mt-1 text-[10px] font-semibold px-2 py-1 rounded"
+                                                style="background: color-mix(in srgb, #00d4aa 15%, transparent); color: #00d4aa; border: 1px solid #00d4aa;">
+                                            Generate presentation
+                                        </button>
+                                    @endif
                                 @endif
-                                <div class="text-[10px]" style="color: var(--text-muted);">Recommended Price</div>
                             </div>
-                            <div>
-                                <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
-                                <div class="text-[10px]" style="color: var(--text-muted);">Area Average</div>
-                            </div>
-                            <div>
-                                <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $marketPosition['comparable_sales_count'] ?? 0 }}</div>
-                                <div class="text-[10px]" style="color: var(--text-muted);">Recent Comps</div>
-                            </div>
+                            @if($marketPosition)
+                                <div>
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);">R {{ number_format($marketPosition['area_avg_price'] ?? 0) }}</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Area Average</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-bold" style="color: var(--text-primary);">{{ $marketPosition['comparable_sales_count'] ?? 0 }}</div>
+                                    <div class="text-[10px]" style="color: var(--text-muted);">Recent Comps</div>
+                                </div>
+                            @endif
                         </div>
                     @endif
 
