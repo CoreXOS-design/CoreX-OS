@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\ReportsUnreachableRecipients;
 use App\Contracts\SignedDocumentDistributable;
 use App\Exceptions\RentalInspectionNotRecordableException;
 use App\Models\Concerns\BelongsToAgency;
@@ -23,7 +24,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * never a bespoke inspection-only path. See that interface's own
  * docblock + .ai/specs/signed-document-distribution.md for the contract.
  */
-class RentalInspection extends Model implements SignedDocumentDistributable
+class RentalInspection extends Model implements ReportsUnreachableRecipients, SignedDocumentDistributable
 {
     use BelongsToAgency, SoftDeletes;
 
@@ -1186,50 +1187,92 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
-     * Every signing party on this inspection: the lease's own tenant(s)
-     * plus the property's landlord (Property::sellerOwnerContact(), the
-     * SAME resolver outstandingSignatories() above already uses for the
-     * landlord's own signature gate — one source of truth for "who is
-     * the landlord on this inspection", never a second lookup). A party
-     * with no email on file is silently excluded — there's no address to
-     * send to — rather than failing the whole send for a real signer
-     * someone else can still reach.
+     * §45.6 (Build I-4) — everyone who gets a copy of the completed report, in this order: every tenant on the
+     * lease, every landlord, the agency's own copy address(es), the inspector, the agent who created the
+     * inspection (the last three per the agency's settings). Tenants and landlords are resolved by the SAME
+     * strict resolvers the scheduling emails use (RentalInspectionNotificationService::tenantContacts() /
+     * landlordContacts(): ContactScope-bypassing, never "the only contact on file"), so an invitation and a copy
+     * can never disagree about who the parties are — and so a party the completing agent's own contact scope
+     * cannot see still gets their copy. De-duplicated by email address (one mail to a person who is listed twice,
+     * under the first role they hold). A party with no usable address is NOT dropped — see
+     * distributionUnreachableRecipients().
      *
      * @return array<int, array{contact_id: int|null, name: string, email: string, role: string}>
      */
     public function distributionRecipients(): array
     {
-        $recipients = [];
-
-        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
-            $contact = $leaseTenant->contact;
-            if ($contact?->email) {
-                $recipients[] = [
-                    'contact_id' => $contact->id,
-                    'name' => $contact->full_name,
-                    'email' => $contact->email,
-                    'role' => 'tenant',
-                ];
-            }
-        }
-
-        $landlord = $this->property?->sellerOwnerContact();
-        if ($landlord?->email) {
-            $recipients[] = [
-                'contact_id' => $landlord->id,
-                'name' => $landlord->full_name,
-                'email' => $landlord->email,
-                'role' => 'landlord',
-            ];
-        }
-
-        return $recipients;
+        return $this->resolveDistributionParties()['reachable'];
     }
 
-    /** The agent who ran this inspection — whose mailbox an AUTOMATIC send uses by default. A manual Resend may override this (see the controller). */
+    /**
+     * §45.6 — parties who should have had a copy but have no (valid) email address on file. The shared service
+     * records each as a `skipped` row with this reason, so the "Copies sent" panel shows them rather than the
+     * party silently vanishing.
+     *
+     * @return array<int, array{contact_id: int|null, name: string, role: string, reason: string}>
+     */
+    public function distributionUnreachableRecipients(): array
+    {
+        return $this->resolveDistributionParties()['unreachable'];
+    }
+
+    /** @return array{reachable: array<int, array{contact_id: int|null, name: string, email: string, role: string}>, unreachable: array<int, array{contact_id: int|null, name: string, role: string, reason: string}>} */
+    private function resolveDistributionParties(): array
+    {
+        $notifications = app(\App\Services\Rentals\RentalInspectionNotificationService::class);
+        $reachable = [];
+        $unreachable = [];
+        $seen = [];
+
+        $add = function (string $role, ?int $contactId, string $name, ?string $email) use (&$reachable, &$unreachable, &$seen): void {
+            $email = trim((string) $email);
+            if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $unreachable[] = [
+                    'contact_id' => $contactId,
+                    'name' => $name,
+                    'role' => $role,
+                    'reason' => $email === '' ? 'No email address on file' : 'The email address on file is not valid',
+                ];
+
+                return;
+            }
+            $key = mb_strtolower($email);
+            if (isset($seen[$key])) {
+                return;
+            }
+            $seen[$key] = true;
+            $reachable[] = ['contact_id' => $contactId, 'name' => $name, 'email' => $email, 'role' => $role];
+        };
+
+        foreach ($notifications->tenantContacts($this) as $contact) {
+            $add('tenant', $contact->id, $contact->full_name, $contact->email);
+        }
+        foreach ($notifications->landlordContacts($this) as $contact) {
+            $add('landlord', $contact->id, $contact->full_name, $contact->email);
+        }
+
+        $agencyName = \App\Models\Agency::withoutGlobalScopes()->whereKey($this->agency_id)->value('name') ?: 'Agency';
+        foreach (RentalInspectionSetting::reportAgencyCopyEmailsFor($this->agency_id) as $address) {
+            $add('agency', null, $agencyName, $address);
+        }
+
+        if (RentalInspectionSetting::reportCopyInspectorFor($this->agency_id) && $this->inspector) {
+            $add('inspector', null, (string) $this->inspector->name, $this->inspector->outward_email ?: $this->inspector->email);
+        }
+        if (RentalInspectionSetting::reportCopyCreatorFor($this->agency_id) && $this->createdBy) {
+            $add('creator', null, (string) $this->createdBy->name, $this->createdBy->outward_email ?: $this->createdBy->email);
+        }
+
+        return ['reachable' => $reachable, 'unreachable' => $unreachable];
+    }
+
+    /**
+     * The agent whose mailbox the copies are sent from: the inspector who actually ran the inspection, falling back
+     * to whoever created it, then (null) the shared CoreX mailer. A manual Resend may override this (see the controller).
+     */
     public function distributionAgent(): ?User
     {
-        return $this->createdBy;
+        return $this->inspector ?? $this->createdBy;
     }
 
     public function distributionSubject(): string

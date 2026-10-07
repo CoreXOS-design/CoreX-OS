@@ -270,6 +270,9 @@
         @endif
     </div>
 
+    {{-- §45.6 (Build I-4) — who the completed report went to, and what happened. --}}
+    @include('corex.rental-inspections.partials._copies-sent', ['inspection' => $inspection])
+
     @if($inspection->discrepancies->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Discrepancies</h2>

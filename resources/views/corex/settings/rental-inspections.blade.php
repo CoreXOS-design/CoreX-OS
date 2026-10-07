@@ -569,6 +569,41 @@
         </div>
     </form>
 
+    {{-- §45.6 (Build I-4) — who else is copied on the completed report. The tenant(s) and landlord(s) always are. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.report-copies') }}" class="space-y-3" data-qa="report-copies-form">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Who else gets a copy of the report</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The tenant(s) and landlord(s) on the lease always receive the signed report. These are the extra copies.
+                </p>
+                <div>
+                    <label for="report_agency_copy_emails" class="block text-sm" style="color: var(--text-primary);">Agency copy address(es)</label>
+                    <input id="report_agency_copy_emails" type="text" name="report_agency_copy_emails" maxlength="2000"
+                           value="{{ old('report_agency_copy_emails', $reportAgencyCopyEmails) }}" placeholder="e.g. rentals@youragency.co.za"
+                           class="mt-1 w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">Separate several with commas. Leave empty for none. Up to {{ \App\Models\RentalInspectionSetting::MAX_REPORT_AGENCY_COPY_ADDRESSES }}.</p>
+                </div>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="report_copy_inspector" value="0">
+                    <input type="checkbox" name="report_copy_inspector" value="1" @checked($reportCopyInspector)>
+                    Send a copy to the inspector who ran the inspection
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="report_copy_creator" value="0">
+                    <input type="checkbox" name="report_copy_creator" value="1" @checked($reportCopyCreator)>
+                    Send a copy to the agent who created the inspection
+                </label>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
+
     {{-- §43 — which parties are notified on schedule/reschedule/cancel,
          which channel(s), the minimum notice period, and the reminder
          offset. WhatsApp is logged as queued, not actually sent — see

@@ -3149,6 +3149,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
     Route::post('/settings/rental-inspections/auto-send-report', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoSendReportEnabled'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-send-report');
+    // §45.6 (Build I-4) — who else is copied on a completed report (agency address, inspector, creator).
+    Route::post('/settings/rental-inspections/report-copies', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateReportCopies'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.report-copies');
     // §43 — schedule/reschedule/cancel notification settings.
     Route::post('/settings/rental-inspections/schedule-notifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateScheduleNotifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.schedule-notifications');
@@ -3782,6 +3785,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // an agent who could complete the inspection can resend its report.
         Route::post('/{rentalInspection}/resend-report', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resendReport'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-report');
+        // §45.6 (Build I-4) — re-send the completed report to ONE recipient from the "Copies sent" panel.
+        Route::post('/{rentalInspection}/resend-recipient', [\App\Http\Controllers\CoreX\RentalInspectionCopiesController::class, 'resendRecipient'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-recipient');
 
         // rental-inspection-form.md §7 — the in-vs-out deposit comparison.
         // Read gated at the group's own .view; recording a wear-and-tear/

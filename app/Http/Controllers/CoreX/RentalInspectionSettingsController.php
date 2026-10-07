@@ -91,6 +91,10 @@ class RentalInspectionSettingsController extends Controller
             // §41, 2026-09-28, Johan's ruling — auto-send the signed report
             // on completion, defaults ON.
             'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
+            // §45.6 (Build I-4) — who else is copied on a completed report.
+            'reportAgencyCopyEmails' => implode(', ', RentalInspectionSetting::reportAgencyCopyEmailsFor($agencyId)),
+            'reportCopyInspector' => RentalInspectionSetting::reportCopyInspectorFor($agencyId),
+            'reportCopyCreator' => RentalInspectionSetting::reportCopyCreatorFor($agencyId),
             'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
             'allItemsRequiredToComplete' => RentalInspectionSetting::allItemsRequiredToCompleteFor($agencyId),
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
@@ -449,6 +453,46 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Auto-send setting saved.');
+    }
+
+    /**
+     * §45.6 (Build I-4) — who else is copied on a completed inspection report: the agency's own copy address(es), the
+     * inspector, the agent who created the inspection. Every field is has()-guarded, so a wizard step that renders only
+     * some of them (agency-onboarding-setup.md §6.1) never wipes the others. The address list is validated as a whole:
+     * one bad address saves nothing and names the offender, rather than silently dropping it.
+     */
+    public function updateReportCopies(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $request->validate(['report_agency_copy_emails' => ['nullable', 'string', 'max:2000']]);
+
+        $attributes = [];
+        if ($request->has('report_agency_copy_emails')) {
+            $parsed = RentalInspectionSetting::parseEmailList((string) $request->input('report_agency_copy_emails'));
+            if ($parsed['invalid'] !== []) {
+                return redirect()->route('corex.settings.rental-inspections.edit')->withInput()
+                    ->withErrors(['report_agency_copy_emails' => 'These do not look like email addresses: ' . implode(', ', $parsed['invalid']) . '. Nothing was saved.']);
+            }
+            if (count($parsed['valid']) > RentalInspectionSetting::MAX_REPORT_AGENCY_COPY_ADDRESSES) {
+                return redirect()->route('corex.settings.rental-inspections.edit')->withInput()
+                    ->withErrors(['report_agency_copy_emails' => 'Please list at most ' . RentalInspectionSetting::MAX_REPORT_AGENCY_COPY_ADDRESSES . ' copy addresses. Nothing was saved.']);
+            }
+            $attributes['report_agency_copy_emails'] = $parsed['valid'] === [] ? null : implode(', ', $parsed['valid']);
+        }
+        foreach (['report_copy_inspector', 'report_copy_creator'] as $field) {
+            if ($request->has($field)) {
+                $attributes[$field] = $request->boolean($field);
+            }
+        }
+
+        if ($attributes === []) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['report_copies' => 'That did not save — please try again.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Report copy settings saved.');
     }
 
     /**

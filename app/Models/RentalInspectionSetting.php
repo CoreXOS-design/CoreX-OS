@@ -367,6 +367,11 @@ class RentalInspectionSetting extends Model
      * (that part was never optional).
      */
     public const DEFAULT_AUTO_SEND_REPORT_ENABLED = true;
+    /** §45.6 — the inspector and the creating agent are copied on the completed report unless the agency says otherwise. */
+    public const DEFAULT_REPORT_COPY_INSPECTOR = true;
+    public const DEFAULT_REPORT_COPY_CREATOR = true;
+    /** Sanity ceiling on the agency copy list — a mistyped paste must not become a mass mail-out. */
+    public const MAX_REPORT_AGENCY_COPY_ADDRESSES = 10;
 
     protected $fillable = [
         'agency_id',
@@ -386,6 +391,10 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
         'auto_send_report_enabled',
+        // §45.6 (Build I-4) — who else gets a copy of a completed report.
+        'report_agency_copy_emails',
+        'report_copy_inspector',
+        'report_copy_creator',
         // §43 — schedule/reschedule/cancel notifications.
         'notify_tenant_enabled',
         'notify_landlord_enabled',
@@ -416,6 +425,8 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
         'auto_send_report_enabled' => 'boolean',
+        'report_copy_inspector' => 'boolean',
+        'report_copy_creator' => 'boolean',
         'notify_tenant_enabled' => 'boolean',
         'notify_landlord_enabled' => 'boolean',
         'notify_inspector_enabled' => 'boolean',
@@ -570,6 +581,68 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('auto_send_report_enabled');
 
         return $value !== null ? (bool) $value : self::DEFAULT_AUTO_SEND_REPORT_ENABLED;
+    }
+
+    /**
+     * §45.6 — the agency's own copy address(es) for a completed report, valid + lower-cased + de-duplicated,
+     * in the order saved. Empty list when none are set (the default — an agency chooses to add one; nothing
+     * is assumed). Every address is re-validated at read time too, so a bad value that reached the column by
+     * some other route can never reach the mailer.
+     *
+     * @return array<int, string>
+     */
+    public static function reportAgencyCopyEmailsFor(?int $agencyId): array
+    {
+        if (! $agencyId) {
+            return [];
+        }
+
+        return self::parseEmailList((string) static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('report_agency_copy_emails'))['valid'];
+    }
+
+    public static function reportCopyInspectorFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REPORT_COPY_INSPECTOR;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('report_copy_inspector');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REPORT_COPY_INSPECTOR;
+    }
+
+    public static function reportCopyCreatorFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REPORT_COPY_CREATOR;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('report_copy_creator');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REPORT_COPY_CREATOR;
+    }
+
+    /**
+     * Splits a typed/pasted list (commas, semicolons, spaces or new lines) into valid and invalid addresses.
+     * Trimmed, lower-cased, de-duplicated; order kept.
+     *
+     * @return array{valid: array<int, string>, invalid: array<int, string>}
+     */
+    public static function parseEmailList(string $raw): array
+    {
+        $valid = [];
+        $invalid = [];
+        foreach (preg_split('/[\s,;]+/', trim($raw)) ?: [] as $candidate) {
+            $candidate = mb_strtolower(trim($candidate));
+            if ($candidate === '') {
+                continue;
+            }
+            if (filter_var($candidate, FILTER_VALIDATE_EMAIL) === false) {
+                $invalid[] = $candidate;
+                continue;
+            }
+            $valid[$candidate] = $candidate;
+        }
+
+        return ['valid' => array_values($valid), 'invalid' => $invalid];
     }
 
     /**

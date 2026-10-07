@@ -435,6 +435,8 @@ return [
             // (a checkbox, never has()-guarded on its own field — see that
             // saver's own docblock).
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
+            // §45.6 (Build I-4) — the report's extra copy recipients; own narrow, has()-guarded saver.
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateReportCopies'],
             // §43 (2026-10-05) — schedule/reschedule/cancel notifications:
             // which parties, which channel(s), minimum notice, reminder
             // offset. Own narrow saver, same _submitted-marker discipline
@@ -574,6 +576,20 @@ return [
              'label' => 'Email the signed inspection report automatically on completion',
              'explain' => 'The moment an inspection completes (every required party has signed or been dispositioned), CoreX emails the signed report to the tenant(s) and landlord from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inspection and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
+            // §45.6 (Build I-4) — who else is copied on the completed report. All three on ONE narrow saver
+            // (RentalInspectionSettingsController::updateReportCopies, registered in 'savers' above) — every field has()-guarded.
+            ['key' => 'report_agency_copy_emails', 'source' => 'rental_inspections', 'type' => 'text', 'default' => '',
+             'label' => 'Agency copy address(es) for completed inspection reports',
+             'explain' => 'An address your agency wants a copy of every completed inspection report to land in, e.g. a shared rentals mailbox. Separate several with commas; leave empty for none. The tenant(s) and landlord(s) always receive the report regardless.',
+             'affects' => 'Whether your agency keeps its own emailed copy of each signed report, separate from the property\'s filed copy. Empty by default — nothing is assumed.'],
+            ['key' => 'report_copy_inspector', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send a copy of the report to the inspector',
+             'explain' => 'The agent who actually ran the inspection (who may not be whoever created it) is emailed the signed report along with the tenant(s) and landlord(s).',
+             'affects' => 'Whether the inspector receives their own copy. The report is also sent from the inspector\'s mailbox. On by default.'],
+            ['key' => 'report_copy_creator', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send a copy of the report to the agent who created the inspection',
+             'explain' => 'The agent who first set the inspection up is emailed the signed report too, when that is a different person from the inspector.',
+             'affects' => 'Whether the creating agent receives their own copy. On by default.'],
             // §43 (2026-10-05) — schedule/reschedule/cancel notifications.
             // All seven on the SAME saver (updateScheduleNotifications) —
             // see that method's own docblock for why none of them is

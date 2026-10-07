@@ -693,6 +693,10 @@ class AgencySetupWizardController extends Controller
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
+                    // §45.6 (Build I-4) — who else is copied on the completed report.
+                    'report_agency_copy_emails' => implode(', ', \App\Models\RentalInspectionSetting::reportAgencyCopyEmailsFor($agency->id)),
+                    'report_copy_inspector' => \App\Models\RentalInspectionSetting::reportCopyInspectorFor($agency->id),
+                    'report_copy_creator' => \App\Models\RentalInspectionSetting::reportCopyCreatorFor($agency->id),
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
                     'all_items_required_to_complete' => \App\Models\RentalInspectionSetting::allItemsRequiredToCompleteFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),

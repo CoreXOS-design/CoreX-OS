@@ -1639,13 +1639,13 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
+        // §45.6 (Build I-4) — a failure to send never undoes the completion, but it is no longer swallowed: the inspector
+        // is alerted and the per-recipient outcome is readable in the "Copies sent" panel.
+        $copies = app(\App\Services\Rentals\RentalInspectionCopiesService::class);
         try {
-            $this->fileAndMaybeEmailReport($rentalInspection, $pdfService, $distributionService, autoOnly: true);
+            $copies->fileAndSend($rentalInspection, autoOnly: true);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Rental inspection completion distribution failed', [
-                'inspection_id' => $rentalInspection->id,
-                'error' => $e->getMessage(),
-            ]);
+            $copies->alertSendFailed($rentalInspection, $e);
         }
 
         return response()->json($rentalInspection->fresh());
@@ -1672,50 +1672,14 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => 'This inspection is not yet completed.'], 409);
         }
 
-        $results = $this->fileAndMaybeEmailReport($rentalInspection, $pdfService, $distributionService, autoOnly: false, triggeredBy: $request->user());
+        $all = app(\App\Services\Rentals\RentalInspectionCopiesService::class)
+            ->fileAndSend($rentalInspection, autoOnly: false, triggeredBy: $request->user());
 
-        return response()->json(['results' => $results]);
-    }
-
-    /**
-     * Shared by complete() (auto path) and resendReport() (manual path) so
-     * the two can never drift on WHAT gets filed/emailed — only whether
-     * the auto_send_report_enabled gate applies (auto path only) and
-     * which mode/triggering user gets logged.
-     *
-     * @return array<int, array{role:string, email:string, status:string, message_id:?string, error:?string}>
-     */
-    private function fileAndMaybeEmailReport(
-        RentalInspection $rentalInspection,
-        \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
-        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
-        bool $autoOnly,
-        ?User $triggeredBy = null,
-    ): array {
-        $distributionService->ensurePublicLink($rentalInspection);
-        $pdf = $pdfService->generate($rentalInspection);
-        $pdfBytes = $pdf->output();
-        $filename = $pdfService->filenameFor($rentalInspection);
-
-        $distributionService->fileToProperty($rentalInspection, $pdfBytes, $filename);
-
-        if ($autoOnly && ! RentalInspectionSetting::autoSendReportEnabledFor($rentalInspection->agency_id)) {
-            return [];
-        }
-
-        $pdfPath = tempnam(sys_get_temp_dir(), 'insp-report-') . '.pdf';
-        file_put_contents($pdfPath, $pdfBytes);
-
-        try {
-            return $distributionService->emailParties(
-                $rentalInspection,
-                $pdfPath,
-                $filename,
-                mode: $autoOnly ? 'auto' : 'manual',
-                triggeredBy: $triggeredBy,
-            );
-        } finally {
-            @unlink($pdfPath);
-        }
+        // The Inspections tab's Resend popover lists one line per ADDRESS; a party with no address (a `skipped` row)
+        // has none, so it is returned separately and shown in the inspection page's "Copies sent" panel instead.
+        return response()->json([
+            'results' => array_values(array_filter($all, fn ($r) => $r['status'] !== 'skipped')),
+            'skipped' => array_values(array_filter($all, fn ($r) => $r['status'] === 'skipped')),
+        ]);
     }
 }

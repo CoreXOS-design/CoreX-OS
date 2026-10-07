@@ -2,6 +2,7 @@
 
 namespace App\Services\Distribution;
 
+use App\Contracts\ReportsUnreachableRecipients;
 use App\Contracts\SignedDocumentDistributable;
 use App\Exceptions\Communications\OutgoingMailboxSendFailedException;
 use App\Mail\Distribution\SignedDocumentDistributionMail;
@@ -138,6 +139,12 @@ class SignedDocumentDistributionService
      * $mode is 'auto' (fired from a completion hook) or 'manual' (an
      * agent's own Resend click) — logged verbatim, never inferred.
      *
+     * §45.6 (Build I-4): `$onlyEmails` (lower-cased addresses) narrows the send to those recipients — the
+     * per-recipient Resend. A document that also implements ReportsUnreachableRecipients has its unreachable
+     * parties recorded as `skipped` rows (with the reason) on a FULL send, never silently dropped. The sending
+     * agent is CC'd unless their own address is already one of the recipients (no double copy).
+     *
+     * @param array<int, string>|null $onlyEmails
      * @return array<int, array{role:string, email:string, status:string, message_id:?string, error:?string}>
      */
     public function emailParties(
@@ -147,13 +154,29 @@ class SignedDocumentDistributionService
         string $mode,
         ?User $sendAs = null,
         ?User $triggeredBy = null,
+        ?array $onlyEmails = null,
     ): array {
         $agent = $sendAs ?? $doc->distributionAgent();
         $testOverride = ! app()->environment('production');
         $results = [];
         $testRecipient = (string) config('mail.non_production_redirect');
 
-        foreach ($doc->distributionRecipients() as $recipient) {
+        $recipients = $doc->distributionRecipients();
+        if ($onlyEmails !== null) {
+            $recipients = array_values(array_filter($recipients, fn ($r) => in_array(mb_strtolower($r['email']), $onlyEmails, true)));
+        } elseif ($doc instanceof ReportsUnreachableRecipients) {
+            foreach ($doc->distributionUnreachableRecipients() as $party) {
+                $this->log(
+                    doc: $doc, channel: 'email', status: 'skipped', mode: $mode,
+                    role: $party['role'], contactId: $party['contact_id'] ?? null,
+                    email: null, error: $party['reason'], sentByUserId: $triggeredBy?->id,
+                );
+                $results[] = ['role' => $party['role'], 'email' => '', 'status' => 'skipped', 'message_id' => null, 'error' => $party['reason'], 'contact_id' => $party['contact_id'] ?? null];
+            }
+        }
+        $recipientEmails = array_map(fn ($r) => mb_strtolower($r['email']), $recipients);
+
+        foreach ($recipients as $recipient) {
             if ($testOverride && $testRecipient === '') {
                 // No redirect target configured outside production: never
                 // reach a real inbox — suppress and log as not sent.
@@ -179,7 +202,7 @@ class SignedDocumentDistributionService
                 pdfFilename: $pdfFilename,
             );
             $mail->fromAgent($agent);
-            if ($agent?->outward_email) {
+            if ($agent?->outward_email && ! in_array(mb_strtolower($agent->outward_email), $recipientEmails, true)) {
                 $mail->cc($testOverride ? $testRecipient : $agent->outward_email);
             }
 
@@ -198,7 +221,7 @@ class SignedDocumentDistributionService
                 sentByUserId: $triggeredBy?->id,
             );
 
-            $results[] = array_merge(['role' => $recipient['role'], 'email' => $recipient['email']], $result);
+            $results[] = array_merge(['role' => $recipient['role'], 'email' => $recipient['email'], 'contact_id' => $recipient['contact_id'] ?? null], $result);
         }
 
         return $results;
