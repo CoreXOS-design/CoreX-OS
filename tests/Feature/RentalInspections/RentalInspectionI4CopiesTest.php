@@ -34,6 +34,7 @@ use Tests\TestCase;
 final class RentalInspectionI4CopiesTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
 
     private const TEST_ADDRESS = 'can.assurance@gmail.com';
     private const TEST_SIGNATURE_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -104,6 +105,8 @@ final class RentalInspectionI4CopiesTest extends TestCase
         ]);
         if ($type !== RentalInspection::TYPE_AD_HOC) {
             $inspection->startAwaitingSignature();
+            // I-3's completion guard: every expected party needs an attendance outcome before the inspection can complete.
+            $this->recordAttendanceForEveryParty($inspection);
         }
 
         return $inspection;
