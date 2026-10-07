@@ -210,18 +210,33 @@ is Johan's exact "badge that's always lit carries no information" case.
 It only earns space once Branch/Agency scope is selected, where it
 genuinely varies row to row.
 
-**The reassignment flag (rewritten 2026-10-07, Johan).** The old
-"Reassigned — first to X" badge inferred a move by comparing the first
-portal lead's receiver with the search owner. That produced a false
-"moved to Barbara" flag on searches Barbara simply created. It is gone.
-Now: **"Reassigned from X to Y (date)" is shown ONLY when a real
-`contact_match_reassignments` record exists for the search** (latest record
-wins) — never inferred from a portal lead or from the search owner. Where
-there is no such record and the search was created by someone other than
-the contact's primary agent (`contacts.agent_id`), the row says **"Search
-created by <name>"** instead. When creator and primary agent are the same
-person, neither shows. Tests:
-`tests/Feature/CoreMatches/ContactMatchReassignPrimaryAgentTest.php`.
+**The primary agent, reassignment and "Also enquired with" (rulings A–D,
+Johan, 2026-10-07; supersedes the earlier "Search created by" wording).**
+- **A — first lead wins.** The FIRST agent to receive a buyer's lead is the
+  primary agent (`contacts.agent_id`, set once when the contact is created —
+  `ContactObserver::creating`). A later lead to another agent's listing never
+  changes it, and `BuyerLeadCascadeService::seedFromListing()` seeds that
+  enquiry's search under the primary agent, not the second listing agent. The
+  board shows the other enquiries as information only, once per buyer under
+  the phone/email line: **"Also enquired with <agent>, <agent>"** (agents of
+  the listings the buyer's portal leads came in on, primary excluded). It is
+  never "moved" or "reassigned".
+- **B — only by hand.** "Reassigned from X to Y (date)" is shown only when a
+  real `contact_match_reassignments` record exists for the search (latest
+  wins) — never inferred from a portal lead, the search owner or its creator.
+  The old "first to X" and "Search created by" tags are gone.
+- **C — the buyer moves as a whole.** See "The reassignment mechanism" step 3.
+- **Move buyer to another agent.** `POST /corex/core-matches/buyers/{contact}/reassign`
+  (`corex.core-matches.reassign-buyer`, `ContactMatchReassignmentController::reassignBuyer`),
+  permission `core_matches.reassign` (branch manager / admin) on the route AND
+  in the controller; `{contact}` binds through ContactScope + AgencyScope so a
+  manager only reaches buyers they can already reach (a foreign-agency id 404s,
+  an agent 403s). Body: `to_agent_id` (active agent of the agency) + `reason`
+  (required). Buttons: "Move buyer" on each Core Matches row (next to "Update
+  buyer pipeline") and "Move to another agent" on the Buyer Pipeline card and
+  list row — one shared popup `corex/core-matches/_move-buyer-modal.blade.php`.
+Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`,
+`ContactMatchReassignPrimaryAgentTest.php`.
 
 **Type pill**: kept, but suppressed entirely when the whole board is
 already locked to one listing type (the Rentals entry point, or the
@@ -486,9 +501,13 @@ fact from two angles, never recorded separately.
    model, so the contact history gets its `agent_assigned` row (actor = the
    manager, old/new agent); the History tab already renders it as "{manager}
    moved this contact from X to Y". A co-agent (`second_agent_id`) equal to the
-   new primary is cleared. If any step fails, none of it sticks. Only the one
-   search moves — the buyer's other searches keep their owner (open question
-   to Johan). Existing data is NOT bulk-changed; a read-only list of
+   new primary is cleared. If any step fails, none of it sticks. **Ruling C
+   (Johan, 2026-10-07): ALL of the buyer's saved searches move to the new
+   agent in that same transaction** (one reassignment record per search that
+   changes owner, plus the one acted on) — `BuyerReassignmentService`. A
+   manager changing the primary agent on the contact edit screen
+   (`contacts.reassign_agent`) does the same (`moveSearches()`, reason "Primary
+   agent changed on the contact record."). Existing data is NOT bulk-changed; a read-only list of
    record-vs-primary disagreements is produced separately for a clean-up
    decision.
    Reassign routes that exist: `POST /corex/core-matches/{match}/reassign`

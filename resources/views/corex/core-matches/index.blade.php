@@ -266,10 +266,33 @@
                                style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
                                title="Move this {{ $matches->contains(fn ($m) => $m->listing_type !== 'rental') ? 'buyer' : 'tenant' }} to a different Buyer Pipeline status">Update buyer pipeline</button>
                             @endif
+                            {{-- Move buyer to another agent — managers only (core_matches.reassign), for
+                                 contacts the viewer can reach under their own/branch/agency scope. Moves the
+                                 primary agent AND all of the buyer's saved searches (one shared popup). --}}
+                            @if(in_array($contact->id, $reassignableContactIds, true))
+                            <button type="button" x-data
+                               @click="$dispatch('open-move-buyer', {
+                                   name: @js($contact->full_name),
+                                   current: @js(optional($moveBuyerAgents->firstWhere('id', $contact->agent_id))->name),
+                                   action: @js(route('corex.core-matches.reassign-buyer', $contact)),
+                                   currentId: {{ (int) $contact->agent_id }},
+                               })"
+                               class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
+                               style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
+                               title="Move this buyer, and all their saved searches, to another agent">Move buyer</button>
+                            @endif
                         </div>
                         <div class="flex items-center gap-3 mt-0.5 flex-wrap">
                             @if($contact->phone)<span class="text-xs" style="color:var(--text-secondary);">{{ $contact->phone }}</span>@endif
                             @if($contact->email)<span class="text-xs" style="color:var(--text-secondary);">{{ $contact->email }}</span>@endif
+                            {{-- Ruling A (Johan, 2026-10-07): the first agent to receive this buyer's
+                                 lead is their primary agent; leads they also sent to other agents are
+                                 shown as information only — never as "moved" or "reassigned". --}}
+                            @if($alsoEnquiredByContact->has($contact->id))
+                            <span class="text-xs" style="color:var(--text-muted);" title="This buyer also sent enquiries to these agents' listings. Their primary agent has not changed.">
+                                Also enquired with {{ $alsoEnquiredByContact->get($contact->id)->implode(', ') }}
+                            </span>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -336,16 +359,11 @@
                     @endif
 
                     {{-- "Reassigned from X to Y" — ONLY when a real reassignment
-                         record exists for this search (a manager moved the
-                         buyer). Never inferred from the portal lead or from the
-                         search owner (Johan, 2026-10-07: a search simply created
-                         by another agent was being flagged as "moved").
-                         Without a record, a search created by someone other than
-                         the contact's primary agent says so instead. --}}
-                    @php
-                        $reassignment = $reassignmentByMatch->get($match->id);
-                        $primaryAgentId = $row['contact']->agent_id;
-                    @endphp
+                         record exists for this search (a manager moved the buyer
+                         by hand). Never inferred from a portal lead, from who owns
+                         or created the search, or from which agents the buyer
+                         enquired with (Johan, 2026-10-07). --}}
+                    @php $reassignment = $reassignmentByMatch->get($match->id); @endphp
                     @if($reassignment)
                     <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
                           style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 22%, transparent);">
@@ -353,11 +371,6 @@
                         @if($reassignment->from_agent_id) from {{ $flagAgentNames->get($reassignment->from_agent_id, 'Unknown') }}@endif
                         to {{ $flagAgentNames->get($reassignment->to_agent_id, 'Unknown') }}
                         ({{ optional($reassignment->created_at)->format('d M Y') }})
-                    </span>
-                    @elseif($match->created_by_user_id && $primaryAgentId && (int) $match->created_by_user_id !== (int) $primaryAgentId)
-                    <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                          style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                        Search created by {{ $flagAgentNames->get($match->created_by_user_id, 'Unknown') }}
                     </span>
                     @endif
 
@@ -607,6 +620,10 @@
              points its form at the chosen buyer's mark-lost endpoint; markLost() returns here. --}}
         @include('command-center.buyers._mark-lost-dialog', ['ref' => 'coreMatchLostModal', 'agencyId' => (int) auth()->user()->effectiveAgencyId(), 'noun' => 'buyer', 'action' => null])
     </div>
+    @endif
+
+    @if(count($reassignableContactIds))
+        @include('corex.core-matches._move-buyer-modal', ['moveBuyerAgents' => $moveBuyerAgents])
     @endif
 
     {{-- "Send N new" popup — same shell/pattern as the notes popup above

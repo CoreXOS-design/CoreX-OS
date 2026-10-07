@@ -364,3 +364,8 @@ website "www.hfcoastal.co.za", office phone "039 315 0857" (values from Elize's 
 **Deliberately not done / reported.** `agencies.website_url` still has no settings screen; `viewing_pack_redaction_dpi` and
 `viewing_pack_default_duration_minutes` still have no settings UI; the preview frame uses the browser's own sans-serif where the PDF
 embeds Inter, so letter widths differ slightly; the agent sheet is unchanged.
+
+## Cover agent follows the buyer's primary agent (2026-10-07, Johan — ruling D)
+The buyer-pack cover (name, phone, email, photo) is built from the buyer's
+CURRENT primary agent each time the PDF is generated, not the pack's stored
+`agent_id` (the agent it was prepared by), which remains the fallback only.
