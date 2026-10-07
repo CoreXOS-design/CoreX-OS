@@ -28,9 +28,9 @@
         </div>
         <p>In the tenant's words:</p>
         <div class="quote">{{ $tenantNote }}</div>
-        @if(count($photoUrls))
+        @if(count($photoLinks))
             <p>Photos from the tenant:</p>
-            <ul>@foreach($photoUrls as $u)<li><a href="{{ $u }}">{{ $u }}</a></li>@endforeach</ul>
+            <ul>@foreach($photoLinks as $u)<li><a href="{{ $u }}">{{ $u }}</a></li>@endforeach</ul>
         @endif
         <p class="muted">We are arranging for the work to be put right. You do not need to do anything; we will tell you when it is done.</p>
     </div>

@@ -283,7 +283,9 @@ class RentalJobCardController extends Controller
             'signedCopies' => $rentalJobCard->signedCopies()->with('uploadedBy')->get(),
             'quoteRevisions' => $quoteRevisions,
             'currentQuote' => $currentQuote,
-            'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote),
+            // §17.0 item 1 / §17.7.1 — once an amount is approved the quote is NOT re-sent: a change is a variation, raised automatically. "Changed since
+            // the quote was sent — re-send" is therefore only meaningful while the owner has not approved an amount (the model fact itself is unchanged).
+            'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote) && ! $rentalJobCard->workOrder?->hasApprovedBaseline(),
             'generalLines' => $rentalJobCard->generalLines()->accepted()->with(['catalogueItem', 'vatType'])->get(),
             'pricesOn' => $pricesOnForCard,
             // §17.4.5 / §17.15 — cost + margin are absent (not hidden) without `view_costs`.

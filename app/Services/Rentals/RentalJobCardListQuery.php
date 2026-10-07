@@ -232,7 +232,7 @@ class RentalJobCardListQuery
 
     private function withListRelations(Builder $query): Builder
     {
-        return $query->with(['property', 'lease.tenants.contact', 'crew', 'assignedUser', 'quoteRevisions', 'lines', 'agency']);
+        return $query->with(['property', 'lease.tenants.contact', 'crew', 'assignedUser', 'quoteRevisions', 'lines', 'agency', 'workOrder']);
     }
 
     /** SQL sorts. Rows with nothing to sort on (no due date, no crew…) always go last, either direction. */
