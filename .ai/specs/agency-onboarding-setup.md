@@ -294,7 +294,9 @@ by oversight — do not reinstate them without asking:
     (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
     guarded fields), and also added to the Rental Inspection Settings page so the two never drift.
   - The repeater lists — refusal reasons, inspection condition states (+ "All Good" baseline),
-    photo-note classifications, inventory condition states — rendered by the
+    photo-note classifications, inventory condition states (plus, in the same partial: how someone
+    attended, own room types, and — 7 Oct 2026, `rental-inspections.md` §45.14 — the agency's words for
+    the three move-out classifications, saver `inspectionMoveOutClassificationLabels`) — rendered by the
     `agency-setup.steps.rentals-inspection-lists` partial (the same repeater markup as the settings
     screens; the step's `partial` key now accepts a list). Each list posts its own `*_submitted`
     marker and saves through `RentalListsWizardSaver`, which is a no-op when the marker is absent and

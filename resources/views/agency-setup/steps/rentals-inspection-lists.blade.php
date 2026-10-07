@@ -20,10 +20,12 @@
      can never wipe or fail anything (agency-onboarding-setup.md §6.1).
 
      Vars: $wzRefusalPresets, $wzConditionStates, $wzBaselineConditionKey,
-           $wzPhotoClassifications, $wzInventoryConditionStates, $wzCustomRoomTypes, $wzAttendedAsLabels (Build I-3). --}}
+           $wzPhotoClassifications, $wzInventoryConditionStates, $wzCustomRoomTypes, $wzAttendedAsLabels (Build I-3),
+           $wzMoveOutClassificationLabels (§45.14). --}}
 
 @php
     $wzAttendedAsLabels = $wzAttendedAsLabels ?? \App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS;
+    $wzMoveOutClassificationLabels = $wzMoveOutClassificationLabels ?? \App\Models\RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS;
     $wzBox = 'background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); border-radius:6px;';
     $wzInput = 'border:1px solid var(--border,#e5e7eb);';
 @endphp
@@ -118,6 +120,25 @@
             <div class="flex items-center gap-2">
                 <span class="text-xs w-40" style="color:var(--text-muted);">{{ $wzAttendedDefault }} (default)</span>
                 <input type="text" name="attended_as_labels[{{ $wzAttendedKey }}]" maxlength="60" value="{{ $wzAttendedAsLabels[$wzAttendedKey] }}"
+                       class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+            </div>
+        @endforeach
+    </div>
+
+    {{-- Move-out classifications (§45.14) --}}
+    <div class="p-4 space-y-2" style="{{ $wzBox }}">
+        <input type="hidden" name="move_out_classification_labels_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">Move-out classifications</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: the three words an agent picks from when classifying a difference found at move-out &mdash; what was already there at move-in, what the landlord is responsible for, and what is charged to the tenant. The three are fixed; reword each to match your own paperwork. A blank box keeps the default.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> The wording of the classification choices and the &ldquo;Classified &hellip;&rdquo; line on the move-out comparison screen, from now on.
+        </p>
+        @foreach(\App\Models\RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS as $wzMoKey => $wzMoDefault)
+            <div class="flex items-center gap-2">
+                <span class="text-xs w-40" style="color:var(--text-muted);">{{ $wzMoDefault }} (default)</span>
+                <input type="text" name="move_out_classification_labels[{{ $wzMoKey }}]" maxlength="60" value="{{ $wzMoveOutClassificationLabels[$wzMoKey] }}"
                        class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
             </div>
         @endforeach
