@@ -40,7 +40,7 @@ final class DealPipelineWorkOrderConfigTest extends TestCase
             'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'super_admin', 'is_active' => true,
         ]);
         $this->template = DealPipelineTemplate::create([
-            'name' => 'Transfer', 'deal_type' => 'transfer', 'agency_id' => $this->agencyId,
+            'name' => 'Transfer', 'deal_type' => 'bond', 'agency_id' => $this->agencyId,
             'branch_id' => null, 'is_default' => true, 'is_active' => true, 'created_by_id' => $this->admin->id,
         ]);
     }
@@ -89,7 +89,9 @@ final class DealPipelineWorkOrderConfigTest extends TestCase
         $this->assertFalse((bool) $step->sends_work_order, 'a step offers no work order unless ticked');
     }
 
-    public function test_trigger_point_rejects_unknown_value(): void
+    // AT-229 save-block hotfix: an unrenderable/legacy value in an OPTIONAL trigger enum must never block a
+    // legitimate step from saving — it is coerced to the field's default instead of failing validation.
+    public function test_unknown_trigger_point_is_coerced_to_the_default_not_rejected(): void
     {
         $resp = $this->actingAs($this->admin)->postJson(
             route('deals-v2.pipeline.steps.store', $this->template),
@@ -99,6 +101,7 @@ final class DealPipelineWorkOrderConfigTest extends TestCase
                 'sends_work_order' => true, 'work_order_trigger_point' => 'whenever',
             ]
         );
-        $resp->assertStatus(422);
+        $resp->assertSuccessful();
+        $this->assertSame('activated', \App\Models\DealV2\DealPipelineStep::where('name', 'Bad')->value('work_order_trigger_point'));
     }
 }

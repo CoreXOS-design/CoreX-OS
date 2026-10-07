@@ -58,29 +58,6 @@ final class DealV2OverviewTest extends TestCase
         ]);
     }
 
-    public function test_cards_and_board_match_direct_queries(): void
-    {
-        [$dealA, $dealB] = [$this->makeDeal('12 Marine Dr, Margate'), $this->makeDeal('9 Beach Rd, Uvongo')];
-        // Push deal B's milestone step overdue (direct — the timer isn't run here).
-        $dealB->stepInstances()->update(['status' => 'overdue']);
-
-        $resp = $this->actingAs($this->admin)->get(route('deals-v2.overview'));
-        $resp->assertOk();
-
-        $cards = collect($resp->viewData('cards'))->keyBy('key');
-        $this->assertSame(2, $cards['active']['value'], 'two active deals');
-        $this->assertSame(
-            DealStepInstance::whereHas('deal', fn ($q) => $q->visibleTo($this->admin))->where('status', 'overdue')->count(),
-            $cards['overdue']['value'],
-            'overdue-steps card matches a direct query'
-        );
-
-        // Board: both deals sit under the "Bond Approval" milestone column.
-        $board = $resp->viewData('board');
-        $this->assertTrue($board->has('Bond Approval'));
-        $this->assertSame(2, $board->get('Bond Approval')->count());
-    }
-
     public function test_csv_row_count_equals_result_count(): void
     {
         $this->makeDeal('12 Marine Dr, Margate');
@@ -121,4 +98,8 @@ final class DealV2OverviewTest extends TestCase
             'agents' => [['side' => 'listing', 'user_id' => $this->admin->id]],
         ]);
     }
+
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // Removed, not skipped: test_cards_and_board_match_direct_queries.
+    // AT-219 soft-retired the Deal Register V2 prototype screens: show/overview/create/create-wizard now redirect to the DR2 register (DealV2Controller::dr2RetiredRedirect()), original bodies archived — there is no screen left to assert on.
 }

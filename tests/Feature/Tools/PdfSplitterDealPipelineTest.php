@@ -20,6 +20,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use ReflectionMethod;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,7 @@ use Tests\TestCase;
  */
 final class PdfSplitterDealPipelineTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -63,12 +65,10 @@ final class PdfSplitterDealPipelineTest extends TestCase
             'mandate' => ['Sole Mandate', 'property'],
             'otp'     => ['Offer to Purchase', 'shared'],
         ] as $slug => [$label, $grouping]) {
-            $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
-                'slug' => $slug, 'label' => $label, 'sort_order' => 0,
-                'is_active' => true, 'grouping' => $grouping,
+            $this->typeIds[$slug] = $this->documentTypeId($slug, $label, [
+                'grouping' => $grouping,
                 'contact_roles' => json_encode($grouping === 'shared' ? ['seller_owner', 'buyer'] : ['seller_owner']),
                 'fica_slot' => 'none',
-                'created_at' => now(), 'updated_at' => now(),
             ]);
         }
 

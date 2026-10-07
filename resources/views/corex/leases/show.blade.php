@@ -61,15 +61,17 @@
     $pendingRenewalDraft = $lease->status === 'active' ? $lease->renewalDrafts()->first() : null;
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4">
+@section('corex-content')
+<div class="lease-screen" id="leaseScreen">
     {{-- AT-444 follow-up 2 — session('success') is already surfaced by the
          app's standard toast (components.toast-notifications reads the
          same flash key on DOMContentLoaded); an inline banner here showed
          the same message twice. --}}
 
-    {{-- Header: address, status, tenant(s), rent, term, actions. --}}
-    <div class="flex flex-wrap items-start justify-between gap-3">
+    {{-- Header: address, status, tenant(s), rent, term, actions. Fixed at the
+         top of the locked screen (.lease-head); the two panels below it scroll
+         on their own. --}}
+    <div class="lease-head flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <div>
             <h1 class="text-lg font-semibold">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
@@ -103,6 +105,9 @@
                 @feature('rental-work-orders')
                 <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Work order</a>
                 @endfeature
+            @endpermission
+            @permission('rental_notices.create')
+                <a href="{{ route('corex.leases.notices.create', $lease) }}" class="corex-btn-outline text-xs">Send notice</a>
             @endpermission
             @permission('leases.create')
                 <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')">Edit</button>
@@ -342,9 +347,13 @@
         @endif
     @endif
 
-    <x-rental-context-bar :lease="$lease" current="lease" />
+    <div class="lease-ctx"><x-rental-context-bar :lease="$lease" current="lease" /></div>
 
-    {{-- Lifecycle strip — every state derived live, never stored. --}}
+    <div class="lease-panels">
+        {{-- LEFT panel (scrolls on its own): stage strip, next action, agreement,
+             job cards, tenancy log with its filters. --}}
+        <div class="lease-panel space-y-3">
+        {{-- Lifecycle strip — every state derived live, never stored. --}}
     <div class="rounded-md p-3 overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex items-center gap-1 text-xs whitespace-nowrap">
             @foreach($lifecycle as $i => $step)
@@ -355,10 +364,6 @@
             @endforeach
         </div>
     </div>
-
-    <div class="grid grid-cols-3 gap-4">
-        {{-- Main column: next-step, tenancy log. --}}
-        <div class="col-span-3 lg:col-span-2 space-y-4">
             @if($nextStep)
                 <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);">
                     <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}</span>
@@ -436,14 +441,12 @@
             </div>
         </div>
 
-        {{-- Side column: lease terms, open items, escalation history. --}}
-        <div class="col-span-3 lg:col-span-1 space-y-4">
+        {{-- RIGHT panel (scrolls on its own): lease terms, open items, edit (when opened),
+             escalation history, inventory, tenant and landlord portal access. --}}
+        <div class="lease-panel space-y-3">
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Lease terms</h2>
-                <div><span style="color: var(--text-muted);">Monthly rental:</span> R{{ number_format((float) $lease->rental_amount, 2) }}</div>
                 <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
-                <div><span style="color: var(--text-muted);">Term:</span> {{ $lease->start_date?->format('Y-m-d') }}
-                    &ndash; {{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</div>
                 @if($showLeaseType ?? false)
                     <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
                 @endif
@@ -656,17 +659,10 @@
             @if($lease->property)
                 @include('corex.rental-inventories.partials._related-inventories', ['property' => $lease->property])
             @endif
-        </div>
 
-        {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access for
+            {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access for
              this lease's own tenants and landlords, invited from here, same
              mechanism the Contact page already uses. --}}
-        <div class="col-span-3 lg:col-span-1 space-y-4">
-            @permission('rental_notices.create')
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                <a href="{{ route('corex.leases.notices.create', $lease) }}" class="corex-btn-outline text-xs">Send notice</a>
-            </div>
-            @endpermission
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Tenant portal access</h2>
                 @forelse($lease->tenantContacts() as $tenantContact)
@@ -688,4 +684,61 @@
         </div>
     </div>
 </div>
+
+@push('head')
+<style>
+    /* Locked two-panel working screen — same approach as the rental application
+       review screen (rental-applications/review.blade.php): the header is fixed at
+       the top, the two panels below it scroll independently, and the screen itself
+       never scrolls at laptop sizes. The panel height is measured from the real
+       space left (script below); the calc() is only the first-paint fallback.
+       Johan, 2026-10-07: "why do we not have a locked screen with the left panel
+       scrolling separately to the right panel" + the blank area where the portal
+       cards used to wrap onto a second grid row. */
+    .lease-screen { display: flex; flex-direction: column; gap: 8px; }
+    .lease-head { padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    .lease-panels { display: flex; flex-direction: column; gap: 12px; }
+    .lease-panel { min-width: 0; }
+    /* Compact: screen space goes to function. Overrides only the spacing of the
+       existing cards, so their own markup stays untouched. */
+    .lease-panel > .rounded-md.p-4 { padding: 10px 12px; }
+    .lease-panel .space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 8px; }
+    .lease-panel .space-y-2 > :not([hidden]) ~ :not([hidden]) { margin-top: 4px; }
+    @media (min-width: 1024px) {
+        .lease-screen { height: var(--ls-h, calc(100vh - 140px)); }
+        .lease-head, .lease-ctx { flex: 0 0 auto; }
+        .lease-panels {
+            flex: 1 1 auto; min-height: 0;
+            display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 30%, 420px); gap: 12px;
+        }
+        .lease-panel { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding-right: 2px; }
+    }
+</style>
+@endpush
+
+@push('scripts')
+<script>
+(function () {
+    var root = document.getElementById('leaseScreen');
+    if (!root) return;
+    function recalc() {
+        var scrollEl = document.getElementById('appScroll');
+        if (!scrollEl) return;
+        var cs = getComputedStyle(scrollEl);
+        var avail = scrollEl.getBoundingClientRect().bottom - root.getBoundingClientRect().top - parseFloat(cs.paddingBottom || 0) - 2;
+        root.style.setProperty('--ls-h', Math.max(360, avail) + 'px');
+    }
+    recalc();
+    window.addEventListener('resize', recalc);
+    // "Edit" toggles #lease-edit-panel (a card inside the right panel); bring it into view when it opens.
+    var edit = document.getElementById('lease-edit-panel');
+    if (edit && window.MutationObserver) {
+        new MutationObserver(function () {
+            if (!edit.classList.contains('hidden')) edit.scrollIntoView({ block: 'nearest' });
+        }).observe(edit, { attributes: true, attributeFilter: ['class'] });
+    }
+    setTimeout(recalc, 300);
+})();
+</script>
+@endpush
 @endsection
