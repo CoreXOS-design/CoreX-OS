@@ -93,6 +93,46 @@ class BuyerReassignmentService
     }
 
     /**
+     * Agent offboarding (Johan, 2026-10-07): when a departing agent's contacts move
+     * to the successor, those buyers' saved searches follow their primary agent.
+     * Bulk sibling of moveSearches(), called INSIDE the offboarding transaction with
+     * the ids of exactly the contacts whose primary agent just moved. One
+     * contact_match_reassignments row per search that changes owner (with the
+     * reason); a search already owned by the successor is skipped.
+     *
+     * @param  array<int,int>  $contactIds
+     * @return int  searches moved
+     */
+    public function moveSearchesOfContacts(array $contactIds, int $toAgentId, int $movedByUserId, string $reason): int
+    {
+        $moved = 0;
+
+        foreach (array_chunk(array_values(array_unique($contactIds)), 500) as $chunk) {
+            $searches = ContactMatch::withoutGlobalScopes()
+                ->whereIn('contact_id', $chunk)
+                ->where(fn ($q) => $q->whereNull('agent_id')->orWhere('agent_id', '!=', $toAgentId))
+                ->get();
+
+            foreach ($searches as $search) {
+                ContactMatchReassignment::record(
+                    $search,
+                    $search->agent_id !== null ? (int) $search->agent_id : null,
+                    $toAgentId,
+                    $movedByUserId,
+                    $reason,
+                );
+
+                $search->agent_id = $toAgentId;
+                $search->updated_by_user_id = $movedByUserId;
+                $search->save();
+                $moved++;
+            }
+        }
+
+        return $moved;
+    }
+
+    /**
      * Set contacts.agent_id. Saved through the model so ContactObserver writes
      * the `agent_assigned` history row; AuditContext is stamped with the
      * manager so that row names who did it even with no one logged in. Resolved

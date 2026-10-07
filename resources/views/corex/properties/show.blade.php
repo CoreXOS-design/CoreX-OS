@@ -10190,6 +10190,11 @@
                     $recommendations = $intel->getAgentRecommendations($property->id);
                     $comparables = $intel->getComparableListings($property->id);
                     $buyerSignals = $intel->getBuyerInterestSignals($property->id);
+                    // View-only "Notes (n)" per signal buyer — only for buyers whose contact this user may
+                    // see (ContactScope) and only if they may open contacts at all (route needs access_contacts).
+                    $buyerNoteCounts = auth()->user()?->hasPermission('access_contacts')
+                        ? $intel->getBuyerNoteCounts($buyerSignals)
+                        : [];
                 @endphp
 
                 {{-- Controls row: Preview toggle + Log Marketing Action + Mark as Sold --}}
@@ -10684,6 +10689,19 @@
                                     </span>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    {{-- Notes recorded on this buyer's contact — VIEW ONLY (newest first, author + date).
+                                         Same read-only fragment the Core Matches board uses; it is bound through
+                                         ContactScope, so a buyer this user cannot see has no control here and a hand-typed
+                                         address 404s. Agent-facing only — never on the seller live link. --}}
+                                    @if(array_key_exists($buyer['id'], $buyerNoteCounts))
+                                        @if($buyerNoteCounts[$buyer['id']] > 0)
+                                            <button type="button" data-buyer-notes
+                                                    @click="$dispatch('open-signal-notes', { url: '{{ route('corex.contacts.notes.quick-view', $buyer['id']) }}' })"
+                                                    class="text-[10px] font-medium" style="color: var(--brand-icon, #0ea5e9);">Notes ({{ $buyerNoteCounts[$buyer['id']] }})</button>
+                                        @else
+                                            <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-notes>Notes (0)</span>
+                                        @endif
+                                    @endif
                                     <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" title="Match strength: {{ $tierLabel }} ({{ $buyer['match_score'] }}% fit to this property)" style="background: {{ $tierColour }}20; color: {{ $tierColour }};">{{ $buyer['match_score'] }}% · {{ $tierLabel }}</span>
                                     {{-- AT-74 — pass THIS property so the viewing links to both buyer AND property
                                          (prefill_properties → handlePrefill → subject_property link → feedback.property_id). --}}
@@ -10693,6 +10711,31 @@
                             </div>
                         @endforeach
                     </div>
+
+                    @if(count($buyerNoteCounts))
+                    {{-- One read-only modal shell for the whole list; the notes are fetched on demand for whichever
+                         buyer was clicked (never pre-loaded). No add / edit / delete here. --}}
+                    <div x-show="!sellerPreview"
+                         x-data="{ loading: false, html: '' }"
+                         @open-signal-notes.window="
+                             loading = true; html = '';
+                             $dispatch('open-modal', 'signal-notes-view');
+                             fetch($event.detail.url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                                 .then(r => r.ok ? r.text() : Promise.reject())
+                                 .then(t => { html = t; loading = false; })
+                                 .catch(() => { html = '<p class=&quot;text-sm&quot; style=&quot;color:var(--ds-crimson);&quot;>Could not load notes.</p>'; loading = false; })
+                         ">
+                        <x-modal name="signal-notes-view" max-width="lg">
+                            <div class="p-6">
+                                <div x-show="loading" class="text-sm" style="color:var(--text-muted);">Loading…</div>
+                                <div x-show="!loading" x-html="html"></div>
+                                <div class="mt-5 text-right">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="$dispatch('close-modal', 'signal-notes-view')">Close</button>
+                                </div>
+                            </div>
+                        </x-modal>
+                    </div>
+                    @endif
                 </div>
                 @endif
 

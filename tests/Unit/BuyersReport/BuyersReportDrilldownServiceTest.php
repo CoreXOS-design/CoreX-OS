@@ -6,9 +6,9 @@ namespace Tests\Unit\BuyersReport;
 
 use App\Services\BuyersReport\BuyersReportDrilldownService;
 use App\Services\Performance\Period;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -20,22 +20,27 @@ use Tests\TestCase;
  * be summed from real losses (never auto — a system timeout never captured
  * a pre-approval value in the first place).
  *
- * DB approach: hand-built minimal schema, same ERROR-1419 workaround used
- * throughout tests/Unit/BuyersReport.
+ * DB approach: RefreshDatabase against the REAL tables, with real rows (no raw DDL — see
+ * BuyersReportScopeResolverTest for why this folder stopped dropping core tables).
  */
 final class BuyersReportDrilldownServiceTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const AGENCY_ID = 9202;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->buildSchema();
+        // Real tables, rolled back by RefreshDatabase. The rows below use made-up
+        // agency/branch/user ids whose parent rows are irrelevant to what is proved
+        // here, so foreign-key checks are off for this connection (restored in tearDown).
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
     }
 
     protected function tearDown(): void
     {
-        $this->dropSchema();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
         parent::tearDown();
     }
 
@@ -143,13 +148,16 @@ final class BuyersReportDrilldownServiceTest extends TestCase
 
     private function seedUser(int $id, string $name): void
     {
-        DB::table('users')->insert(['id' => $id, 'agency_id' => self::AGENCY_ID, 'name' => $name]);
+        DB::table('users')->insert([
+            'id' => $id, 'agency_id' => self::AGENCY_ID, 'name' => $name,
+            'email' => "agent{$id}@example.test", 'password' => 'x',
+        ]);
     }
 
     private function seedLoss(int $contactId, int $agentId, string $reasonCode, ?float $value, string $name = 'Test Buyer'): void
     {
         DB::table('contacts')->insert([
-            'id' => $contactId, 'agency_id' => self::AGENCY_ID, 'agent_id' => $agentId,
+            'id' => $contactId, 'agency_id' => self::AGENCY_ID, 'agent_id' => $agentId, 'branch_id' => 1,
             'first_name' => $name, 'last_name' => '',
         ]);
         DB::table('buyer_lost_records')->insert([
@@ -159,49 +167,5 @@ final class BuyersReportDrilldownServiceTest extends TestCase
             'preapproval_amount_at_loss' => $value,
             'recorded_at' => Carbon::now(), 'recovered_at' => null,
         ]);
-    }
-
-    private function dropSchema(): void
-    {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        Schema::dropIfExists('buyer_lost_records');
-        Schema::dropIfExists('contacts');
-        Schema::dropIfExists('users');
-        DB::statement('SET FOREIGN_KEY_CHECKS=1');
-    }
-
-    private function buildSchema(): void
-    {
-        $this->dropSchema();
-
-        Schema::create('users', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->string('name')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('contacts', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('agent_id')->nullable();
-            $table->unsignedBigInteger('contact_type_id')->nullable();
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('buyer_lost_records', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id');
-            $table->unsignedBigInteger('contact_id');
-            $table->string('reason_code', 40)->nullable();
-            $table->string('reason_label')->nullable();
-            $table->decimal('preapproval_amount_at_loss', 12, 2)->nullable();
-            $table->unsignedBigInteger('agent_owner_user_id_at_loss')->nullable();
-            $table->timestamp('recorded_at');
-            $table->timestamp('recovered_at')->nullable();
-            $table->timestamps();
-        });
     }
 }

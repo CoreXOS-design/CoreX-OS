@@ -1040,7 +1040,58 @@ would 404.
 **No new setting** (nothing for the Setup Wizard), no new route, no migration, no new permission.
 Tests: `tests/Feature/CoreMatches/CoreMatchUpdateBuyerPipelineTest.php`.
 
-**Known, deliberately untouched (reported, not changed):** the Buyer Pipeline board's drag-to-Lost
-redirects to `/buyers/{id}?action=mark-lost`, but the buyer page does not read `?action=mark-lost`, so
-that drag lands on the page without opening the dialog; and `updateState`/`markLost` do not call
-`authorizeContact()` (the assistant view-but-not-edit rule used by the contact screens).
+**Fixed 2026-10-07 (Johan) — the two items previously reported here:**
+1. *Drag-to-Lost.* Dropping a card on Lost now opens the shared Mark-Lost dialog on the board itself
+   (`command-center/buyers/_mark-lost-dialog`, the one copy also used by the buyer page and this screen),
+   aimed at that buyer's `mark-lost` endpoint — reason list required, same validation. A card only moves
+   after the server accepts it, so cancelling the dialog leaves the card where it was. To make "Lost
+   without a reason" impossible, `BuyerPipelineController::updateState` accepts only new / warm / cold;
+   Lost is reachable only through `markLost` (reason required).
+2. *Assistant rule on moves.* `updateState`, `markLost`, `ContactMatchReassignmentController::reassignBuyer`
+   and the search-level `reassign` now call `authorizeContact()` (`AuthorizesContactAccess`): an assistant
+   may SEE a colleague's buyer but not move, lose or reassign them (403); they still act on their agent's own
+   buyers. The board omits the drag handle and "Move to another agent" for such cards, and this screen omits
+   "Update buyer pipeline" and "Move buyer" for them (`canMutateContact()`); non-assistants are unaffected.
+
+Tests: `tests/Feature/CoreMatches/BuyerPipelineLostAndAssistantTest.php`.
+
+## Agent offboarding moves the buyers' saved searches too (2026-10-07, Johan)
+
+When an agent is deleted and their contacts move to the successor
+(`AgentDeletionService::transferForOffboarding()`), every saved search of each contact whose
+**primary agent** moved now moves to the successor in the SAME transaction
+(`BuyerReassignmentService::moveSearchesOfContacts()`), one `contact_match_reassignments` row per
+search (from → to, moved-by = the admin, reason "Agent offboarded: <old> → <new>."). A search the
+successor already owns is skipped; searches of buyers whose primary agent is someone else (even if the
+departing agent is their co-agent) are untouched; the transfer's audit event carries a
+`contact_searches` count. If any step fails the whole offboarding rolls back. Deactivating an agent
+moves no contacts (only deleting does), so nothing changes there.
+
+**Not done, by ruling:** no clean-up of existing searches whose owner differs from the buyer's primary
+agent (58 on QA1, 73 on Staging) — test data, nothing to do.
+
+Tests: `tests/Feature/Admin/AgentOffboardingMovesSearchesTest.php`.
+
+## Buyer Interest Signals — view-only notes (2026-10-07, Johan)
+
+On the property Intelligence tab each Buyer Interest Signals row gains ONE control: **Notes (n)**.
+Click opens the buyer contact's notes in a popup, newest first, each with author and date. The list
+itself is unchanged (no remove, no status change). Nothing can be added, edited or deleted from there.
+
+- **Rule (visibility).** Notes have no visibility flag of their own — whoever may see the contact may
+  read all its (non-deleted) notes, exactly as on the contact screen and the Core Matches popup. So the
+  control follows the **contact's own scope** (`ContactScope`): admin/super_admin see every buyer in the
+  agency; a role with contacts scope `all` sees every buyer; `branch` sees buyers whose contact is in
+  their branch; `own` sees buyers they captured (`created_by_user_id`) — NOT "buyers whose primary agent
+  they are". A listing agent on `own` scope who did not capture the buyer sees no Notes control on that
+  row (the row already shows the buyer as an anonymous "Buyer"), and the notes address answers 404.
+  The control also needs `access_contacts` (the route's gate). Nothing was widened.
+- **Mechanism.** `PropertyIntelligenceService::getBuyerNoteCounts()` (visible buyers only, one query
+  each for visibility and counts) → `corex/properties/show.blade.php` Section E; the popup fetches the
+  existing read-only `corex.contacts.notes.quick-view` fragment (`ContactNoteController::quickView`,
+  `_notes-quick-view` / `_note-item` with `readOnly`). No new route, permission, setting or migration.
+- **Not on the seller live link.** The seller page only receives counts by tier; the notes control and
+  fragment URL never reach it (tested).
+- **Zero notes** shows a plain "Notes (0)" (not clickable).
+
+Tests: `tests/Feature/Intelligence/BuyerSignalNotesViewTest.php`.

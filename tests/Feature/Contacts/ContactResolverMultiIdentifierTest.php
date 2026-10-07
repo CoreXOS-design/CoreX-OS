@@ -143,7 +143,13 @@ final class ContactResolverMultiIdentifierTest extends TestCase
         ]);
     }
 
-    public function test_ingestion_still_discards_a_truly_unmatched_email(): void
+    /**
+     * Since AT-33 (Johan, 2026-09-08) a genuinely unknown sender who is NOT no-reply /
+     * service mail is HELD for the agency's grace window (communication_pending), not
+     * discarded — it is the mail most likely to be a real new enquiry. It still never
+     * creates an archived Communication, and it matches no contact's identifiers.
+     */
+    public function test_ingestion_holds_a_truly_unmatched_email_for_review_and_archives_nothing(): void
     {
         $this->multiContact();
 
@@ -152,6 +158,24 @@ final class ContactResolverMultiIdentifierTest extends TestCase
             'from' => 'stranger@nowhere.test', 'counterpart' => 'stranger@nowhere.test',
             'participants' => ['stranger@nowhere.test'], 'subject' => 'spam', 'body_text' => 'x',
             'occurred_at' => now(), 'raw' => 'Message-ID: y', 'attachments' => [],
+        ];
+        $result = app(EmailArchiveIngestor::class)->ingest($this->mailbox, $msg, Communication::DIRECTION_INBOUND);
+
+        $this->assertSame(EmailArchiveIngestor::RESULT_PENDING, $result);
+        $this->assertSame(0, Communication::count(), 'An unmatched sender must never be archived against anyone.');
+        $this->assertSame(1, CommunicationPending::count(), 'It is held for the grace window instead.');
+    }
+
+    /** The never-business filter (AT-43) still discards no-reply/service mail outright. */
+    public function test_ingestion_still_discards_a_no_reply_sender(): void
+    {
+        $this->multiContact();
+
+        $msg = [
+            'external_id' => '<nr-' . Str::random(8) . '@x>', 'thread_key' => '<t@x>',
+            'from' => 'noreply@nowhere.test', 'counterpart' => 'noreply@nowhere.test',
+            'participants' => ['noreply@nowhere.test'], 'subject' => 'Your statement', 'body_text' => 'x',
+            'occurred_at' => now(), 'raw' => 'Message-ID: z', 'attachments' => [],
         ];
         $result = app(EmailArchiveIngestor::class)->ingest($this->mailbox, $msg, Communication::DIRECTION_INBOUND);
 

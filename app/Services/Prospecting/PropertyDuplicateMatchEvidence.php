@@ -100,7 +100,7 @@ class PropertyDuplicateMatchEvidence
             'freehold_erf' => Property::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)->whereNull('deleted_at')
                 ->whereNotNull('erf_number')
-                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($tp->suburb))
                 ->get()
                 ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->erf_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number))
                 ->values(),
@@ -114,13 +114,7 @@ class PropertyDuplicateMatchEvidence
                     ->get()
                     ->filter(fn ($p) => TrackedPropertyAddress::haversineMetres((float) $tp->latitude, (float) $tp->longitude, (float) $p->latitude, (float) $p->longitude) <= 25.0)
                     ->values(),
-            default => Property::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)->whereNull('deleted_at')
-                ->where('street_number', trim((string) $tp->street_number))
-                ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
-                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->get()
-                ->values(),
+            default => app(TrackedPropertyMatchOrCreateService::class)->addressFallbackCandidates($tp),
         };
     }
 

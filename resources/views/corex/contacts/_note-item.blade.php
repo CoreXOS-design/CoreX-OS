@@ -40,7 +40,8 @@
         @endif
     </div>
 
-    {{-- Edit view --}}
+    {{-- Edit view — never rendered in a read-only fragment (Core Matches popup, property Intelligence tab) --}}
+    @unless($readOnly ?? false)
     <form x-show="editing" x-cloak method="POST" action="{{ route('corex.contacts.notes.update', [$note->contact_id, $note]) }}" class="mt-3 space-y-3">
         @csrf @method('PUT')
         <textarea name="body" rows="3" required class="w-full rounded-md px-3 py-2 text-sm resize-none"
@@ -50,4 +51,5 @@
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>
     </form>
+    @endunless
 </div>
