@@ -55,6 +55,20 @@
                    class="w-32 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             <p class="text-xs mt-1" style="color:var(--text-muted);">Must be ≥ the reuse window. Past this the tile always recalculates before it is shown. Suggested: 300.</p>
         </div>
+        {{-- Johan 2026-10-07 — a mandate normally runs 90 days; the nightly job used a fixed 30. --}}
+        <div class="pt-4 mt-2" style="border-top:1px solid var(--border);">
+            <h2 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Portal stock freshness</h2>
+            <p class="text-xs mb-3" style="color:var(--text-muted);">
+                A portal listing that no capture (the CoreX Chrome extension) has seen again for this many days is presumed off the market
+                and drops out of Market Intelligence and out of a presentation's Active Competition. Capturing the listing again switches it back on.
+            </p>
+        </div>
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Presume a listing off the market after (days unseen)</label>
+            <input type="number" name="listing_off_market_days" min="1" max="365" required value="{{ old('listing_off_market_days', $offMarketDays) }}"
+                   class="w-32 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">A shorter window hides listings an agent simply hasn't re-searched lately. Suggested: 90 — a mandate normally runs 90 days.</p>
+        </div>
         <div>
             <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save rules</button>
         </div>

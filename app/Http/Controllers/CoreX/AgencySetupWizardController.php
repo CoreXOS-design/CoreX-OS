@@ -569,6 +569,13 @@ class AgencySetupWizardController extends Controller
             $key = $control['key'];
             $values[$key] = match ($control['source'] ?? 'agency') {
                 'perf'      => PerformanceSetting::get($key, $control['default'] ?? null),
+                // Market Intelligence — per-agency prospecting thresholds row. Explicit per-key
+                // arm (spec §6.2): never fall through to an Agency column.
+                'prospecting_thresholds' => match ($key) {
+                    'listing_off_market_days' => (int) app(\App\Services\Prospecting\ProspectingConfigurationService::class)
+                        ->getSuggestedActionThresholds($agency->id)->listing_off_market_days,
+                    default => $control['default'] ?? null,
+                },
                 // A PerformanceSetting whose value is a JSON list (the
                 // `user_multiselect` control type needs an array of ids back,
                 // not the raw JSON string it is stored as).
