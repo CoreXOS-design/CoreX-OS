@@ -77,10 +77,14 @@ class DisplayEmailOverrideTest extends TestCase
 
     public function test_signature_mailable_uses_outward_email_for_from_replyto_footer(): void
     {
+        // The agent sends AS themselves only when their agency is on a company domain (their address ends in it);
+        // an agent with no agency falls back to the system sender. So the fixture needs the agency.
+        $agency = \App\Models\Agency::create(['name' => 'Coastal', 'slug' => 'coastal-' . uniqid(), 'email' => 'info@hfcoastal.co.za']);
         $agent = User::factory()->create([
             'name'          => 'Elize',
             'email'         => 'elizeballito@hfcoastal.co.za',
             'display_email' => 'elize@hfcoastal.co.za',
+            'agency_id'     => $agency->id,
         ]);
 
         $mail = (new SalesDocumentMail(

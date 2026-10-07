@@ -90,8 +90,16 @@ final class JobTimeoutRetryAfterGuardTest extends TestCase
             return (int) $m[1];
         }
 
-        // Matches the fallback in config/queue.php's 'database' connection.
-        return 90;
+        // No .env override (a fresh checkout / worktree has none): use the fallback config/queue.php's 'database'
+        // connection really ships with, read from the file so this can never drift from it again (it was a
+        // hard-coded 90 while the config default is 3900 — the guard then reported 14 jobs against a limit the
+        // app does not have).
+        $config = (string) file_get_contents(base_path_for_tests('config/queue.php'));
+        if (preg_match("/'database'\s*=>\s*\[.*?DB_QUEUE_RETRY_AFTER'\s*,\s*(\d+)/s", $config, $m)) {
+            return (int) $m[1];
+        }
+
+        $this->fail("Could not read the database queue's retry_after default from config/queue.php.");
     }
 }
 

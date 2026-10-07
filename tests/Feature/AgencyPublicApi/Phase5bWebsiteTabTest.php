@@ -30,6 +30,13 @@ class Phase5bWebsiteTabTest extends TestCase
 
     public function test_website_tab_renders_in_company_settings(): void
     {
+        // The tab is only rendered once the agency has a live website (an active API key) — see the view.
+        $minted = \App\Models\AgencyApiKey::mintSecret();
+        \App\Models\AgencyApiKey::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->create([
+            'agency_id' => $this->agency->id, 'name' => 'Site', 'key_prefix' => $minted['prefix'],
+            'secret_hash' => $minted['hash'], 'scopes' => [\App\Models\AgencyApiKey::SCOPE_AGENCY_READ],
+        ]);
+
         $this->actingAs($this->user)
             ->get(route('admin.company-settings', ['agency' => $this->agency->id]))
             ->assertOk()
