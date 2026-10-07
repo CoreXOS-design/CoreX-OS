@@ -337,10 +337,11 @@
         $activeGroup = 'communication';
     } elseif (request()->routeIs(
         'buyers-report.*',
+        'lead-response-report.*',
         'performance.agency-report*',
         'market-intelligence.suburb-report*'
     )) {
-        // All three links live in the Reports panel, so their routes must open it.
+        // All four links live in the Reports panel, so their routes must open it.
         $activeGroup = 'reports';
     }
 
@@ -2305,7 +2306,7 @@
              link off Market Intelligence). Gated by its own existing permission
              (access_prospecting + prospecting feature — same as the route
              itself), not a new key. --}}
-        @if($user && (($user->hasPermission('view_performance') && feature('performance-roi-report')) || ($user->hasPermission('view_buyers_report') && feature('buyers-report')) || ($user->hasPermission('access_prospecting') && feature('prospecting'))))
+        @if($user && (($user->hasPermission('view_performance') && feature('performance-roi-report')) || ($user->hasPermission('view_buyers_report') && (feature('buyers-report') || feature('lead-response-report'))) || ($user->hasPermission('access_prospecting') && feature('prospecting'))))
         <div>
             <button type="button" @click="push('reports')"
                     class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('reports') ? 'active' : '' }}">
@@ -2333,6 +2334,15 @@
                 @permission('view_buyers_report')
                 @if(\Illuminate\Support\Facades\Route::has('buyers-report.index'))
                 <a href="{{ route('buyers-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('buyers-report.*') ? 'active' : '' }}">Buyers Report</a>
+                @endif
+                @endpermission
+                @endfeature
+
+                {{-- Lead Response (Johan, 2026-10-07) — rides view_buyers_report like the Buyers Report; own switch under Settings → Features. --}}
+                @feature('lead-response-report')
+                @permission('view_buyers_report')
+                @if(\Illuminate\Support\Facades\Route::has('lead-response-report.index'))
+                <a href="{{ route('lead-response-report.index') }}" class="corex-nav-subitem {{ request()->routeIs('lead-response-report.*') ? 'active' : '' }}">Lead Response</a>
                 @endif
                 @endpermission
                 @endfeature

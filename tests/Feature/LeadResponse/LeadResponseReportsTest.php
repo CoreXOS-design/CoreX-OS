@@ -7,8 +7,9 @@ namespace Tests\Feature\LeadResponse;
 use App\Models\PortalLead;
 
 /**
- * Lead response on the two interactive reports (Johan, 2026-10-07): built with each report's own components —
- * every figure clickable, opens the leads behind it — and under each report's own / branch / agency scope.
+ * The Lead Response report (Johan, 2026-10-07) — its own page under Reports: every figure clickable, opens the
+ * leads behind it, under the Buyers Report's own / branch / agency scope. It is no longer a section inside the
+ * Buyers Report or the Performance & ROI report (one obvious home).
  */
 final class LeadResponseReportsTest extends LeadResponseTestCase
 {
@@ -27,31 +28,73 @@ final class LeadResponseReportsTest extends LeadResponseTestCase
 
     private function bDrill(array $q, $as = null)
     {
-        return $this->actingAs($as ?? $this->admin)->getJson(route('buyers-report.drilldown', array_merge(['metric' => 'lead_response', 'period' => 'this_month'], $q)));
+        return $this->actingAs($as ?? $this->admin)->getJson(route('lead-response-report.drilldown', array_merge(['period' => 'this_month'], $q)));
     }
 
-    // ── Buyers Report ────────────────────────────────────────────────────
+    // ── The page ─────────────────────────────────────────────────────────
 
-    public function test_the_buyers_report_shows_every_lead_response_figure_as_a_clickable_number(): void
+    public function test_the_page_shows_every_lead_response_figure_as_a_clickable_number(): void
     {
-        $html = $this->actingAs($this->admin)->get(route('buyers-report.index', ['period' => 'this_month']))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('lead-response-report.index', ['period' => 'this_month']))->assertOk()->getContent();
 
-        $this->assertStringContainsString('Lead response', $html);
+        $this->assertStringContainsString('Lead Response', $html);
         foreach (['Leads received', 'Responded in target', 'Responded late', 'Not yet contacted', 'Average response', 'Median response'] as $label) {
             $this->assertStringContainsString($label, $html);
             $this->assertStringContainsString("drill('lead_response', '{$label}'", $html, "{$label} opens the leads behind it");
         }
         $this->assertStringContainsString('Lead response by agent', $html);
         $this->assertStringContainsString('Lead response by source', $html);
-        $this->assertStringContainsString("drill('lead_response', ", $html);
         $this->assertStringContainsString('Anna Agent', $html);
         $this->assertStringContainsString('Property24', $html);
         $this->assertStringContainsString('Private Property', $html);
         $this->assertStringContainsString('first contact within 60 min', $html, 'the report states the target');
         $this->assertStringContainsString('08:00–20:00', $html, 'and the counting hours');
         $this->assertStringContainsString('a note alone does not count', $html);
-        // the popup can link a lead to its contact
-        $this->assertStringContainsString('row.href', $html);
+        $this->assertStringContainsString('row.href', $html, 'the popup can link a lead to its contact');
+        $this->assertStringContainsString(route('lead-response-report.drilldown'), str_replace('\\/', '/', $html), 'the popup reads this report\'s own drill-down');
+        $this->assertStringContainsString(route('lead-response-report.print'), $html);
+        $this->assertStringContainsString(route('lead-response-report.pdf'), $html);
+    }
+
+    public function test_the_page_follows_the_period_and_a_bad_custom_range_never_500s(): void
+    {
+        $this->actingAs($this->admin)->get(route('lead-response-report.index', ['period' => 'this_year']))->assertOk();
+        $this->actingAs($this->admin)->get(route('lead-response-report.index', ['period' => 'custom']))->assertOk();
+        $this->actingAs($this->admin)->get(route('lead-response-report.index', ['period' => 'nonsense']))->assertOk();
+    }
+
+    public function test_the_old_homes_no_longer_carry_a_lead_response_section(): void
+    {
+        $buyers = $this->actingAs($this->admin)->get(route('buyers-report.index', ['period' => 'this_month']))->assertOk()->getContent();
+        $this->assertStringNotContainsString('Lead response by agent', $buyers);
+        $this->assertStringNotContainsString("drill('lead_response'", $buyers);
+
+        $perf = $this->actingAs($this->admin)->get(route('performance.agency-report', ['period' => 'this_month']))->assertOk()->getContent();
+        $this->assertStringNotContainsString('Lead response by agent', $perf);
+        $this->assertStringNotContainsString("drill('lead_response'", $perf);
+    }
+
+    public function test_print_and_pdf_carry_the_summary_under_the_same_scope(): void
+    {
+        $print = $this->actingAs($this->admin)->get(route('lead-response-report.print', ['scope' => 'agency', 'period' => 'this_month']))->assertOk()->getContent();
+        $this->assertStringContainsString('Lead Response', $print);
+        $this->assertStringContainsString('Responded in target', $print);
+        $this->assertStringContainsString('first contact within 60 min', $print);
+        $this->assertStringContainsString('Anna Agent', $print);
+
+        $agentPrint = $this->actingAs($this->agentA)->get(route('lead-response-report.print', ['scope' => 'agency', 'period' => 'this_month']))->assertOk()->getContent();
+        $this->assertStringContainsString('Anna Agent', $agentPrint);
+        $this->assertStringNotContainsString('Cara Agent', $agentPrint);
+
+        $this->actingAs($this->admin)->get(route('lead-response-report.pdf', ['scope' => 'agency', 'period' => 'this_month']))
+            ->assertOk()->assertHeader('content-type', 'application/pdf');
+    }
+
+    public function test_it_needs_the_report_access_permission(): void
+    {
+        $nobody = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch1->id, 'role' => 'viewer_none', 'is_active' => true]);
+        $this->actingAs($nobody)->get(route('lead-response-report.index'))->assertForbidden();
+        $this->actingAs($nobody)->getJson(route('lead-response-report.drilldown', ['subtype' => 'received']))->assertForbidden();
     }
 
     public function test_each_figure_opens_exactly_the_leads_behind_it_with_the_required_columns(): void
@@ -101,7 +144,7 @@ final class LeadResponseReportsTest extends LeadResponseTestCase
         $this->assertSame(5, $this->bDrill(['scope' => 'agency', 'subtype' => 'received'])->json('total'));
 
         // The page itself carries the same ceiling.
-        $html = $this->actingAs($this->agentA)->get(route('buyers-report.index', ['period' => 'this_month']))->assertOk()->getContent();
+        $html = $this->actingAs($this->agentA)->get(route('lead-response-report.index', ['period' => 'this_month']))->assertOk()->getContent();
         $this->assertStringContainsString('Anna Agent', $html);
         $this->assertStringNotContainsString('Ben Agent', $html);
         $this->assertStringNotContainsString('Cara Agent', $html);
@@ -117,63 +160,5 @@ final class LeadResponseReportsTest extends LeadResponseTestCase
             'name' => 'Foreign', 'lead_source_raw' => [], 'received_at' => now()->subHour(), 'response_tracked' => true]);
 
         $this->assertSame(5, $this->bDrill(['scope' => 'agency', 'subtype' => 'received'])->json('total'));
-    }
-
-    public function test_the_agent_and_branch_pages_and_print_carry_the_same_block(): void
-    {
-        $this->actingAs($this->admin)->get(route('buyers-report.agent', ['user' => $this->agentA->id, 'period' => 'this_month']))
-            ->assertOk()->assertSee('Lead response')->assertSee('Leads received');
-        $this->actingAs($this->admin)->get(route('buyers-report.branch', ['branch' => $this->branch1->id, 'period' => 'this_month']))
-            ->assertOk()->assertSee('Lead response by source');
-
-        $print = $this->actingAs($this->admin)->get(route('buyers-report.print', ['scope' => 'agency', 'period' => 'this_month']))->assertOk()->getContent();
-        $this->assertStringContainsString('Lead response', $print);
-        $this->assertStringContainsString('Responded in target', $print);
-        $this->assertStringContainsString('first contact within 60 min', $print);
-
-        // a colleague's dedicated page is still blocked
-        $this->actingAs($this->agentA)->get(route('buyers-report.agent', ['user' => $this->agentB->id]))->assertNotFound();
-    }
-
-    // ── Performance & ROI report ─────────────────────────────────────────
-
-    private function pDrill(array $q, $as = null)
-    {
-        return $this->actingAs($as ?? $this->admin)->getJson(route('performance.agency-report.drilldown', array_merge(['metric' => 'lead_response', 'period' => 'this_month', 'level' => 'company'], $q)));
-    }
-
-    public function test_the_performance_report_shows_the_same_figures_each_clickable(): void
-    {
-        $html = $this->actingAs($this->admin)->get(route('performance.agency-report', ['period' => 'this_month']))->assertOk()->getContent();
-
-        $this->assertStringContainsString('Lead response', $html);
-        foreach (['Leads received', 'Responded in target', 'Responded late', 'Not yet contacted', 'Average response', 'Median response'] as $label) {
-            $this->assertStringContainsString("drill('lead_response', 'company', null, '{$label}'", $html);
-        }
-        $this->assertStringContainsString("drill('lead_response', 'agent', {$this->agentA->id}", $html);
-        $this->assertStringContainsString("source=pp", $html);
-        $this->assertStringContainsString('Anna Agent', $html);
-    }
-
-    public function test_the_performance_drilldown_lists_the_leads_and_obeys_that_reports_scope(): void
-    {
-        $this->assertSame(5, $this->pDrill(['subtype' => 'received'])->assertOk()->json('total'));
-        $this->assertSame(1, $this->pDrill(['subtype' => 'late'])->json('total'));
-        $this->assertSame(3, $this->pDrill(['subtype' => 'received', 'level' => 'agent', 'id' => $this->agentA->id])->json('total'));
-        $this->assertSame(1, $this->pDrill(['subtype' => 'received', 'source' => 'website'])->json('total'));
-        $this->pDrill(['subtype' => 'received', 'source' => 'nope'])->assertStatus(422);
-
-        // own: only my leads; a colleague's agent drill is refused
-        $this->assertSame(3, $this->pDrill(['subtype' => 'received'], $this->agentA)->json('total'));
-        $this->pDrill(['subtype' => 'received', 'level' => 'agent', 'id' => $this->agentB->id], $this->agentA)->assertForbidden();
-        // branch manager: branch only
-        $this->assertSame(4, $this->pDrill(['subtype' => 'received'], $this->manager)->json('total'));
-    }
-
-    public function test_the_performance_print_carries_lead_response(): void
-    {
-        $print = $this->actingAs($this->admin)->get(route('performance.agency-report.print', ['period' => 'this_month']))->assertOk()->getContent();
-        $this->assertStringContainsString('Lead response', $print);
-        $this->assertStringContainsString('Source: Property24', $print);
     }
 }

@@ -1671,6 +1671,18 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('permission:view_buyers_report')->name('buyers-report.print');
     Route::get('/corex/buyers-report/pdf', [\App\Http\Controllers\BuyersReport\BuyersReportController::class, 'pdf'])
         ->middleware('permission:view_buyers_report')->name('buyers-report.pdf');
+
+    // Lead Response report (Johan, 2026-10-07) — its own page in the Reports menu. Same access gate and the same
+    // own/branch/agency scoping as the Buyers Report (BuyersReportScopeResolver, inside the controller).
+    // .ai/specs/lead-response-time.md §5. Switchable under Settings → Features ('lead-response-report').
+    Route::get('/corex/lead-response-report', [\App\Http\Controllers\LeadResponse\LeadResponseReportController::class, 'index'])
+        ->middleware('permission:view_buyers_report')->name('lead-response-report.index');
+    Route::get('/corex/lead-response-report/drilldown', [\App\Http\Controllers\LeadResponse\LeadResponseReportController::class, 'drilldown'])
+        ->middleware('permission:view_buyers_report')->name('lead-response-report.drilldown');
+    Route::get('/corex/lead-response-report/print', [\App\Http\Controllers\LeadResponse\LeadResponseReportController::class, 'print'])
+        ->middleware('permission:view_buyers_report')->name('lead-response-report.print');
+    Route::get('/corex/lead-response-report/pdf', [\App\Http\Controllers\LeadResponse\LeadResponseReportController::class, 'pdf'])
+        ->middleware('permission:view_buyers_report')->name('lead-response-report.pdf');
           Route::get('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'index'])
           ->middleware('permission:access_worksheet_market')->name('bm.worksheet.market');
       Route::post('/bm/worksheet-market', [\App\Http\Controllers\BM\WorksheetMarketController::class, 'save'])
