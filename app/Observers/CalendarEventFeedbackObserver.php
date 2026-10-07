@@ -40,6 +40,27 @@ class CalendarEventFeedbackObserver
             }
         }
 
+        // Lead response time (Johan, 2026-10-07): feedback provided on an appointment the contact is part of
+        // is a genuine first contact. Never breaks the feedback save.
+        if ($feedback->calendar_event_id && $feedback->captured_at !== null) {
+            try {
+                $contactIds = $feedback->contact_id
+                    ? [(int) $feedback->contact_id]
+                    : \Illuminate\Support\Facades\DB::table('calendar_event_links')
+                        ->where('calendar_event_id', $feedback->calendar_event_id)
+                        ->where('linkable_type', Contact::class)
+                        ->pluck('linkable_id')->map(fn ($i) => (int) $i)->all();
+                foreach (Contact::withoutGlobalScopes()->whereIn('id', $contactIds)->get() as $c) {
+                    $c->recordAgentContact('appointment_feedback', $feedback->captured_at, $feedback->captured_by_user_id);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Lead response feedback hook caught exception, feedback save proceeds', [
+                    'feedback_id' => $feedback->id ?? null,
+                    'message'     => $e->getMessage(),
+                ]);
+            }
+        }
+
         if (!$feedback->contact_id || !$feedback->calendar_event_id) {
             return;
         }

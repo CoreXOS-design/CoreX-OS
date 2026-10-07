@@ -262,7 +262,9 @@ final class VisualUpgradeStructureTest extends TestCase
 
         $defaultPayload = [
             'subject_property' => ['address' => '1 Robberg Road', 'suburb' => 'Manaba Beach'],
-            'cma_valuation'    => [],
+            // A seller page is only served for a version that HAS a price (Johan,
+            // 2026-10-07) — the fixture carries one; tests override as needed.
+            'cma_valuation'    => ['cma_lower' => 1_770_000, 'cma_middle' => 1_900_000, 'cma_upper' => 2_030_000],
             'comparable_sales' => ['vicinity' => ['count' => 0, 'rows' => []]],
             'active_competition' => ['count' => 0, 'rows' => []],
             'competitor_stock' => ['visible' => [], 'competing_count' => 0, 'price_position_canonical' => ['has_data' => false]],

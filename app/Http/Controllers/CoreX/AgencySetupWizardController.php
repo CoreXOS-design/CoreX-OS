@@ -117,6 +117,11 @@ class AgencySetupWizardController extends Controller
             'commission' => [
                 'commission' => \App\Models\CommissionSetting::forAgency($agency->id),
             ],
+            // Other Agency Stock "who can see it" — this agency's own roles, the SAME
+            // list Company Settings → Other Agency Stock offers (spec §6).
+            'properties' => [
+                'agencyRoles' => \App\Models\Role::allRoles($agency->id),
+            ],
             'branches' => [
                 'branches' => \App\Models\Branch::orderBy('name')->get(),
             ],
@@ -591,7 +596,21 @@ class AgencySetupWizardController extends Controller
                 // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // Lead response time — explicit per-key arm (spec §6.2), never an Agency column fall-through.
+                'lead_response' => match ($key) {
+                    'lead_response_target_minutes' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->leadResponseTargetMinutes(),
+                    default => $control['default'] ?? null,
+                },
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Explicit per-key match
+                // (spec §6.2). Visible roles: stored NULL/empty means "visible to everyone", which the
+                // settings page shows as every role ticked — so the wizard does the same.
+                'other_agency_stock' => match ($key) {
+                    'other_agency_stock_visible_roles' => $agency->other_agency_stock_visible_roles
+                        ?: \App\Models\Role::allRoles($agency->id)->pluck('name')->all(),
+                    'other_agency_stock_consent_wording' => $agency->other_agency_stock_consent_wording,
+                    default => $control['default'] ?? null,
+                },
                 // Core Matches — which Buyer Pipeline statuses take a buyer off Core Matches.
                 // Explicit per-key match (spec §6.2): never fall through to an Agency column.
                 'core_matches' => match ($key) {

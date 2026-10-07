@@ -137,19 +137,39 @@
     </form>
 </div>
 @endif
+@php
+    // "A presentation must always have a price" — one shared check. No price =
+    // no Confirm & Generate and no download, only the plain reason below.
+    $priceOk = !isset($priceReadiness) || $priceReadiness['ready'];
+@endphp
+@unless($priceOk)
+    <div id="price-missing-banner" class="ds-status-card mb-4" role="alert"
+         style="border-left-color: var(--ds-red, #dc2626); background: color-mix(in srgb, var(--ds-red, #dc2626) 8%, transparent);">
+        <div class="text-sm font-semibold" style="color: var(--text-primary);">No price yet</div>
+        <div class="text-xs mt-1" style="color: var(--text-secondary);">{{ $priceReadiness['message'] }}</div>
+        @if(!$isConfirmed && isset($latestVersion) && $latestVersion)
+            <a href="{{ route('presentations.review.show', $latestVersion->id) }}" class="corex-btn-outline mt-3 inline-block">
+                Open the comparable sales
+            </a>
+        @endif
+    </div>
+@endunless
 <div class="flex flex-wrap items-center gap-3 mb-6">
     @unless($isConfirmed)
         {{-- The single forward action. Recompiles from the confirmed edits,
              freezes the snapshot, and generates the exec summary from those
              confirmed numbers, then lands on the Overview/dispatch screen.
-             Replaces the old "Compile Pack" path. --}}
+             Replaces the old "Compile Pack" path. Hidden — never dead — while
+             there is no price (the server refuses it as well). --}}
+        @if($priceOk)
         <form method="POST" action="{{ route('presentations.analysis.confirm', $presentation) }}" class="inline">
             @csrf
             <button type="submit" class="corex-btn-primary" style="background:var(--ds-green,#059669);" data-tour="pres-analysis-confirm">
                 Confirm &amp; Generate
             </button>
         </form>
-    @else
+        @endif
+    @elseif($priceOk)
         {{-- Confirmed: the report is frozen and the exec summary exists, so the
              dispatch/download actions are now available. --}}
         <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"

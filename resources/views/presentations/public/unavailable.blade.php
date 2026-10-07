@@ -9,11 +9,13 @@
     $copy = match($reason) {
         'revoked' => 'This share link has been revoked by the agent. They may have sent you an updated link.',
         'expired' => 'This share link has expired. Reach out to the agent for a refreshed version.',
+        'updating' => 'Your agent is still finalising this presentation, so it is not ready to view yet. Please check back shortly or contact them directly.',
         default   => 'This share link is no longer available. It may have expired, been revoked, or never existed.',
     };
     $heading = match($reason) {
         'revoked' => 'Link revoked',
         'expired' => 'Link expired',
+        'updating' => 'Presentation being finalised',
         default   => 'Link unavailable',
     };
 @endphp

@@ -596,6 +596,13 @@ return [
         // can move a buyer between agents. Ever." Never granted to agent —
         // mirrors contacts.reassign_agent's existing role placement exactly.
         ['key' => 'core_matches.reassign',       'label' => 'Reassign buyer to another agent', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches', 'sort_order' => 16],
+        // Johan, 2026-10-07 — "role manager setting … own / branch / agency … agency decides how they want
+        // it to show": WHO may read the notes recorded on a buyer, from the Intelligence tab's Buyer Interest
+        // Signals and from Core Matches (view only). A `.view` action key, so Role Manager draws the standard
+        // Own / Branch / Agency selector and PermissionService::getDataScope($user, 'buyer_notes') reads it.
+        // Own = buyers whose primary agent is the viewer; Branch = buyers whose primary agent is in the
+        // viewer's branch; Agency = any buyer in the agency. Resolved by App\Services\Buyers\BuyerNotesAccess.
+        ['key' => 'buyer_notes.view',            'label' => 'View buyer notes (Intelligence tab & Core Matches)', 'section' => 'core-matches', 'type' => 'action', 'module' => 'buyer_notes', 'sort_order' => 17],
 
         // ── Portal Leads (P24 + PP unified) ──
         ['key' => 'access_portal_leads',         'label' => 'Access Portal Leads',         'section' => 'portal-leads',     'type' => 'access',  'module' => 'portal_leads',     'sort_order' => 1],
@@ -1162,6 +1169,7 @@ return [
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
+                'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager
                 'core_matches.all_view', 'core_matches.reassign',
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
@@ -1298,6 +1306,7 @@ return [
                 'contacts.whatsapp', 'contacts.email', 'contacts.export',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
+                'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
@@ -1373,6 +1382,7 @@ return [
                 'access_properties', 'access_imported_stock', 'properties.view',
                 'access_contacts', 'contacts.view', 'contacts.export',
                 'access_core_matches', 'core_matches.view',
+                'buyer_notes.view',
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',

@@ -479,6 +479,10 @@ class ContactMatchController extends Controller
             }
         }
 
+        // Whose notes the viewer may READ from the "N notes" pill: the Role Manager scope buyer_notes.view
+        // (own / branch / agency) — BuyerNotesAccess, one rule shared with the Intelligence tab.
+        $buyerNotesViewableIds = app(\App\Services\Buyers\BuyerNotesAccess::class)->visibleContactIds($user, $pageContactIds);
+
         // Who the viewer may write a note for from this board — the contact-notes store route's
         // own rules, evaluated up front so no "+ Note" button is shown that would only 404/403:
         // contacts access permission, the contact bound under its normal ContactScope (own/branch/
@@ -498,8 +502,12 @@ class ContactMatchController extends Controller
         // The Rental Pipeline board is gated on buyer_pipeline.view, so the rentals lens requires it too.
         $pipelineMovableContactIds = [];
         if ($pageContactIds->isNotEmpty() && (! $isRentalEntry || $user->hasPermission('buyer_pipeline.view'))) {
+            // …and canMutateContact(): an assistant may see a colleague's buyer but not move them
+            // (the endpoints refuse with authorizeContact(); no button that would only 403).
             $pipelineMovableContactIds = Contact::query()->whereIn('id', $pageContactIds)
                 ->whereIn('buyer_state', \App\Services\BuyerStateService::PIPELINE_STATES)
+                ->get()
+                ->filter(fn (Contact $c) => $this->canMutateContact($c))
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
         }
 
@@ -511,6 +519,8 @@ class ContactMatchController extends Controller
         $moveBuyerAgents = collect();
         if ($user->hasPermission('core_matches.reassign') && $pageContactIds->isNotEmpty()) {
             $reassignableContactIds = Contact::query()->whereIn('id', $pageContactIds)
+                ->get()
+                ->filter(fn (Contact $c) => $this->canMutateContact($c))
                 ->pluck('id')->map(fn ($id) => (int) $id)->all();
             if ($reassignableContactIds) {
                 $moveBuyerAgents = User::agencyMembers()->where('is_active', 1)->orderBy('name')->get(['id', 'name']);
@@ -526,7 +536,7 @@ class ContactMatchController extends Controller
         $totalMatches = $allMatches->count();
 
         return view('corex.core-matches.index', compact(
-            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'pipelineMovableContactIds',
+            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'buyerNotesViewableIds', 'pipelineMovableContactIds',
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
             'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',

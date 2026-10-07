@@ -739,7 +739,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->where('erf_number', trim((string) $facts['erf_number']))
-                ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
+                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($facts['suburb']))
                 ->first();
             if ($erfMatch && ! $this->numbersConflict($facts, $erfMatch) && $this->acceptCandidate($agencyId, $source, $erfMatch, '3_erf_suburb')) {
                 return $erfMatch;
@@ -800,7 +800,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->whereNull('deleted_at')
                 ->where('street_number', trim((string) $facts['street_number']))
                 ->where('street_name', $this->normaliseStreetName($facts['street_name']))
-                ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
+                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($facts['suburb']))
                 ->first();
             // street_number already matches exactly here; the gate adds the UNIT
             // dimension so Unit 1 and Unit 2 at "1 The Oval" don't collapse.
@@ -814,7 +814,7 @@ final class TrackedPropertyMatchOrCreateService
             $candidates = TrackedProperty::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
-                ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
+                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($facts['suburb']))
                 ->limit(50)
                 ->get();
 
@@ -838,6 +838,17 @@ final class TrackedPropertyMatchOrCreateService
                     // which is exactly how "1 The Oval" used to match "2 The Oval".
                     // Veto a differing number before any token comparison.
                     if ($this->numbersConflict($facts, $cand)) {
+                        continue;
+                    }
+                    // 2026-10-07 (tracked property 373: four different streets in
+                    // one suburb merged into one record). Words alone are not an
+                    // address: old CMA report imports stored the whole line in
+                    // street_name ("4 Garden Place   Cadastral Extent  1 605 M²"),
+                    // so any two such rows shared "cadastral" + "extent" — two
+                    // tokens — and passed the overlap test while naming
+                    // different streets. When BOTH sides yield a street name,
+                    // the streets themselves must agree (street type ignored).
+                    if (! $this->streetsAgree($facts['street_name'] ?? $facts['address'] ?? null, $cand->street_name)) {
                         continue;
                     }
                     $candTokens = $this->extractAddressTokens(
@@ -1218,8 +1229,10 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         // Last meaningful segment: polluted cmainfo rows append "Cadastral Extent 1 375 M²".
+        // The pollution is cut off inline first: rows written since the street normaliser
+        // collapsed whitespace carry it on the SAME line ("1 Como Drive Cadastral Extent 1 225 M").
         $segments = array_values(array_filter(
-            array_map('trim', preg_split('/[\r\n,]+|\s{2,}/u', (string) $name) ?: []),
+            array_map('trim', preg_split('/[\r\n,]+|\s{2,}/u', $this->stripExtentPollution((string) $name)) ?: []),
             fn ($s) => $s !== '' && ! preg_match('/extent|m²|\bm2\b/iu', $s)
         ));
         $line = $segments !== [] ? end($segments) : (string) $name;
@@ -1236,6 +1249,72 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return [implode(' ', $words), $type];
+    }
+
+    /**
+     * Do two street lines name the same street? Street number, unit prefix,
+     * street type and CMA "Cadastral Extent … M²" pollution are all ignored
+     * (streetParts()); the remaining name words must be the same, or one
+     * side's words wholly contained in the other's ("Baumbach" ⊂ "Von
+     * Baumbach"). When either side has no readable street name there is
+     * nothing to contradict, so the answer is true — this only ever REMOVES a
+     * candidate that positively names a different street.
+     */
+    private function streetsAgree(?string $a, ?string $b): bool
+    {
+        $coresA = $this->streetCores($a);
+        $coresB = $this->streetCores($b);
+        if ($coresA === [] || $coresB === []) {
+            return true;
+        }
+        foreach ($coresA as $wordsA) {
+            foreach ($coresB as $wordsB) {
+                if (array_diff($wordsA, $wordsB) === [] || array_diff($wordsB, $wordsA) === []) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Cut a CMA "Cadastral Extent 1 375 M²" tail (and anything after it on the
+     * same line) off a street/address text — the pollution of old report
+     * imports, which is not part of any address.
+     */
+    private function stripExtentPollution(string $text): string
+    {
+        return (string) preg_replace('/\s*\b(?:cadastral\s+)?extent\b.*$/imu', '', $text);
+    }
+
+    /**
+     * Street-name word lists of EVERY readable segment of a street/address text
+     * (line, comma and double-space separated), number, unit prefix, street
+     * type and "Cadastral Extent … M²" pollution removed. A free-text address
+     * such as "15 Sandpiper Avenue, somewhere" yields two candidates; an old
+     * report row yields one. Empty when nothing street-like can be read.
+     *
+     * @return array<int, array<int,string>>
+     */
+    private function streetCores(?string $text): array
+    {
+        if (! filled($text)) {
+            return [];
+        }
+        $cores = [];
+        foreach (preg_split('/[\r\n,]+|\s{2,}/u', (string) $text) ?: [] as $segment) {
+            $segment = trim($this->stripExtentPollution($segment));
+            if ($segment === '' || preg_match('/extent|m²|\bm2\b/iu', $segment)) {
+                continue;
+            }
+            [$core] = $this->streetParts($segment);
+            if ($core !== null) {
+                $cores[] = explode(' ', $core);
+            }
+        }
+
+        return $cores;
     }
 
     /** Street types are compatible when either side has none or both are the same word. */
@@ -1286,7 +1365,7 @@ final class TrackedPropertyMatchOrCreateService
      */
     public function findExistingStock(int $agencyId, array $facts): array
     {
-        $suburb = TrackedPropertyAddress::normaliseSuburb($facts['suburb'] ?? null);
+        $suburbKeys = TrackedPropertyAddress::suburbSpellingKeys($facts['suburb'] ?? null);
         $found = []; // property id => hit
 
         $base = fn () => Property::queryWithoutAgencyScope()
@@ -1311,10 +1390,10 @@ final class TrackedPropertyMatchOrCreateService
             foreach ($hits as $p) {
                 $add($p, $hits->count() === 1, 'Same sectional scheme and section/unit number (' . $factUnit . ').', ['scheme', 'section']);
             }
-        } elseif (filled($facts['erf_number'] ?? null) && $suburb !== null) {
+        } elseif (filled($facts['erf_number'] ?? null) && $suburbKeys !== []) {
             // B. Freehold erf + suburb (a sectional scheme's erf is shared, so never used there).
             $erfKey = TrackedPropertyAddress::normaliseNumericIdentifier($facts['erf_number']);
-            $hits = $base()->whereNotNull('erf_number')->where('suburb_normalised', $suburb)->get()
+            $hits = $base()->whereNotNull('erf_number')->whereIn('suburb_normalised', $suburbKeys)->get()
                 ->filter(fn (Property $p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->erf_number) === $erfKey)
                 ->reject(function (Property $p) use ($factNumbers) {
                     $theirs = $this->streetNumberSet($p->street_number, $p->street_name);
@@ -1327,42 +1406,90 @@ final class TrackedPropertyMatchOrCreateService
             }
         }
 
-        // C. Street number + street + suburb.
-        [$factCore, $factType] = $this->streetParts($facts['street_name'] ?? $facts['address'] ?? null);
-        if ($suburb !== null && $factNumbers !== [] && $factCore !== null) {
-            $candidates = $base()->where('suburb_normalised', $suburb)
-                ->where(function ($q) use ($factNumbers) {
-                    $q->whereIn('street_number', $factNumbers)->orWhereNull('street_number');
-                })
-                ->get();
-            foreach ($candidates as $p) {
-                $theirs = $this->streetNumberSet($p->street_number, $p->street_name);
-                if ($theirs === [] || array_intersect($factNumbers, $theirs) === []) {
-                    continue; // a different (or unknown) number is NEVER the same property
-                }
-                [$core, $type] = $this->streetParts($p->street_name);
-                if ($core === null || $core !== $factCore) {
-                    continue;
-                }
-                $theirUnit = $this->numberKey($p->unit_number);
-                if ($factUnit !== null && $theirUnit !== null && $factUnit !== $theirUnit) {
-                    continue; // another unit at the same address
-                }
-                $confident = $this->streetTypesCompatible($factType, $type) && ($factUnit === null || $theirUnit !== null);
-                $add(
-                    $p,
-                    $confident,
-                    $confident
-                        ? 'Street number, street name and suburb all match.'
-                        : ($factUnit !== null && $theirUnit === null
-                            ? 'Same street number, street and suburb, but this record has no unit number — it may be a different unit.'
-                            : 'Same street number and suburb; the street type differs (' . $factType . ' / ' . $type . ').'),
-                    ['street_number', 'street_name', 'suburb'],
-                );
-            }
+        // C. Street number + street + suburb (shared with the promote-to-stock link).
+        foreach ($this->stockByStreetNumber($agencyId, $facts, true) as $hit) {
+            $add($hit['property'], $hit['confident'], $hit['reason'], $hit['matched_fields']);
         }
 
         return array_values($found);
+    }
+
+    /**
+     * Agency stock at the same street number + street + suburb — the ONE
+     * street-address comparison for properties, shared by the capture pre-check
+     * (findExistingStock) and the promote-to-stock link (resolvePropertyMatch),
+     * so a capture can never be "found" by one and "not found" by the other
+     * (2026-10-07: promoting "19 Grindewald Drive" used to compare the street
+     * name column exactly and would not link to property "19 Grindewald").
+     *
+     * Street type may be missing on one side; the number may live in the
+     * street text of old rows; a different number is NEVER a match. Suburb is
+     * the same suburb by spelling (suburbSpellingKeys); with $withNeighbours a
+     * hit recorded under a neighbouring Property24 suburb (Uvongo ↔ Uvongo
+     * Beach) is returned too, always as possible-only, never confident.
+     *
+     * @return array<int, array{property: Property, confident: bool, reason: string, matched_fields: array<int,string>}>
+     */
+    private function stockByStreetNumber(int $agencyId, array $facts, bool $withNeighbours): array
+    {
+        $suburbKeys  = TrackedPropertyAddress::suburbSpellingKeys($facts['suburb'] ?? null);
+        $factNumbers = $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null);
+        [$factCore, $factType] = $this->streetParts($facts['street_name'] ?? $facts['address'] ?? null);
+        if ($suburbKeys === [] || $factNumbers === [] || $factCore === null) {
+            return [];
+        }
+        $factUnit = $this->numberKey($facts['section_number'] ?? $facts['unit_number'] ?? null);
+
+        $neighbourKeys = $withNeighbours
+            ? TrackedPropertyAddress::neighbouringSuburbKeys(
+                $facts['suburb'] ?? null,
+                isset($facts['latitude']) ? (float) $facts['latitude'] : null,
+                isset($facts['longitude']) ? (float) $facts['longitude'] : null,
+            )
+            : [];
+
+        $candidates = Property::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->whereIn('suburb_normalised', array_merge($suburbKeys, $neighbourKeys))
+            ->where(function ($q) use ($factNumbers) {
+                $q->whereIn('street_number', $factNumbers)->orWhereNull('street_number')->orWhere('street_number', '');
+            })
+            ->get();
+
+        $out = [];
+        foreach ($candidates as $p) {
+            $theirs = $this->streetNumberSet($p->street_number, $p->street_name);
+            if ($theirs === [] || array_intersect($factNumbers, $theirs) === []) {
+                continue; // a different (or unknown) number is NEVER the same property
+            }
+            [$core, $type] = $this->streetParts($p->street_name);
+            if ($core === null || $core !== $factCore) {
+                continue;
+            }
+            $theirUnit = $this->numberKey($p->unit_number);
+            if ($factUnit !== null && $theirUnit !== null && $factUnit !== $theirUnit) {
+                continue; // another unit at the same address
+            }
+            $neighbour = ! in_array((string) $p->suburb_normalised, $suburbKeys, true);
+            $confident = ! $neighbour
+                && $this->streetTypesCompatible($factType, $type)
+                && ($factUnit === null || $theirUnit !== null);
+            $out[] = [
+                'property'       => $p,
+                'confident'      => $confident,
+                'reason'         => $confident
+                    ? 'Street number, street name and suburb all match.'
+                    : ($neighbour
+                        ? 'Same street number and street, but CoreX has it under the neighbouring suburb ' . trim((string) $p->suburb) . '.'
+                        : ($factUnit !== null && $theirUnit === null
+                            ? 'Same street number, street and suburb, but this record has no unit number — it may be a different unit.'
+                            : 'Same street number and suburb; the street type differs (' . $factType . ' / ' . $type . ').')),
+                'matched_fields' => $neighbour ? ['street_number', 'street_name'] : ['street_number', 'street_name', 'suburb'],
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -1377,9 +1504,9 @@ final class TrackedPropertyMatchOrCreateService
      */
     public function findSameStreetOthers(int $agencyId, array $facts, array $excludeTrackedIds = [], array $excludePropertyIds = [], int $limit = 5): array
     {
-        $suburb = TrackedPropertyAddress::normaliseSuburb($facts['suburb'] ?? null);
+        $suburbKeys = TrackedPropertyAddress::suburbSpellingKeys($facts['suburb'] ?? null);
         [$factCore] = $this->streetParts($facts['street_name'] ?? $facts['address'] ?? null);
-        if ($suburb === null || $factCore === null || mb_strlen($factCore) < 3) {
+        if ($suburbKeys === [] || $factCore === null || mb_strlen($factCore) < 3) {
             return [];
         }
         $factNumbers = $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null);
@@ -1407,7 +1534,7 @@ final class TrackedPropertyMatchOrCreateService
 
         TrackedProperty::queryWithoutAgencyScope()
             ->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->where('suburb_normalised', $suburb)
+            ->whereIn('suburb_normalised', $suburbKeys)
             ->whereNotIn('id', $excludeTrackedIds)
             ->where('street_name', 'like', $like)
             ->limit(60)->get(['id', 'street_number', 'street_name', 'suburb'])
@@ -1415,7 +1542,7 @@ final class TrackedPropertyMatchOrCreateService
 
         Property::queryWithoutAgencyScope()
             ->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->where('suburb_normalised', $suburb)
+            ->whereIn('suburb_normalised', $suburbKeys)
             ->whereNotIn('id', $excludePropertyIds)
             ->where('street_name', 'like', $like)
             ->limit(60)->get(['id', 'street_number', 'street_name', 'suburb'])
@@ -2031,7 +2158,7 @@ final class TrackedPropertyMatchOrCreateService
                 ->where('agency_id', $tp->agency_id)
                 ->whereNull('deleted_at')
                 ->whereNotNull('erf_number')
-                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
+                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($tp->suburb))
                 ->get()
                 ->filter(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->erf_number) === $erfKey)
                 ->values();
@@ -2040,18 +2167,18 @@ final class TrackedPropertyMatchOrCreateService
             }
         }
 
-        // Fallback: normalised address + suburb, for either title type.
-        if (filled($tp->street_number) && filled($tp->street_name) && filled($tp->suburb)) {
-            $matches = Property::queryWithoutAgencyScope()
-                ->where('agency_id', $tp->agency_id)
-                ->whereNull('deleted_at')
-                ->where('street_number', trim((string) $tp->street_number))
-                ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
-                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->get()
-                ->reject(fn ($candidate) => $this->propertyIdentityConflicts($tp, $candidate))
-                ->values();
-            if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'address_fallback')) {
+        // Fallback: street number + street + suburb, for either title type.
+        // 2026-10-07: this used to compare the street-name column EXACTLY
+        // ("19 Grindewald Drive" never linked to property "19 Grindewald" and
+        // promoting created a second property). It now runs the SAME street
+        // comparison as the capture pre-check (stockByStreetNumber): street
+        // type may be missing on one side, an old row's number may live in its
+        // street text, spelling twins of the suburb count, a different number
+        // or unit never does. Only a CONFIDENT hit is linked; a neighbouring-
+        // suburb or street-type-clash hit is "possible" and is left for a human.
+        if (filled($tp->street_number) || filled($tp->street_name)) {
+            $hits = $this->addressFallbackCandidates($tp);
+            if ($match = $this->resolveOrLogAmbiguous($tp, $hits, 'address_fallback')) {
                 return $match;
             }
         }
@@ -2091,6 +2218,29 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return null;
+    }
+
+    /**
+     * The Property rows the promote link's street-address fallback would accept
+     * for this tracked property (confident hits only, unit conflicts removed).
+     * Public so the Deeds-screen evidence panel (PropertyDuplicateMatchEvidence)
+     * lists exactly what Promote will act on — the two must never disagree.
+     *
+     * @return \Illuminate\Support\Collection<int, Property>
+     */
+    public function addressFallbackCandidates(TrackedProperty $tp): \Illuminate\Support\Collection
+    {
+        return collect($this->stockByStreetNumber((int) $tp->agency_id, [
+            'street_number'  => $tp->street_number,
+            'street_name'    => $tp->street_name,
+            'suburb'         => $tp->suburb,
+            'unit_number'    => $tp->unit_number,
+            'section_number' => $tp->section_number,
+        ], false))
+            ->filter(fn ($h) => $h['confident'])
+            ->reject(fn ($h) => $this->propertyIdentityConflicts($tp, $h['property']))
+            ->pluck('property')
+            ->values();
     }
 
     /**

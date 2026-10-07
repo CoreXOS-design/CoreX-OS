@@ -37,6 +37,9 @@ class AgencyContactSettings extends Model
         // Buyer Pipeline statuses that take a buyer OFF Core Matches (Johan, 2026-10-07).
         // JSON array of pipeline status slugs; NULL = code default [won, lost]; [] = exclude no one.
         'core_matches_excluded_buyer_states',
+        // Lead response time (Johan, 2026-10-07): respond within N minutes (default 60) and the per-weekday
+        // counting hours (JSON {mon..sun: {counted,start,end}}, NULL = every day 08:00–20:00). Audited.
+        'lead_response_target_minutes', 'lead_response_hours',
         // AT-81 — days a contact may sit PENDING (consent-request sent, no reply)
         // before being lapsed to a no_response opt-out.
         'outreach_no_response_days',
@@ -76,6 +79,8 @@ class AgencyContactSettings extends Model
         'core_matches_working_window_days' => 'integer',
         'core_matches_allowed_statuses' => 'array',
         'core_matches_excluded_buyer_states' => 'array',
+        'lead_response_target_minutes' => 'integer',
+        'lead_response_hours' => 'array',
         'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
@@ -226,6 +231,22 @@ class AgencyContactSettings extends Model
             : null;
 
         return $existing ?? (new self())->forceFill(['agency_id' => $agencyId]);
+    }
+
+    public const DEFAULT_LEAD_RESPONSE_TARGET_MINUTES = 60;
+
+    /** Lead response: "respond within N minutes" (null-safe, clamped 1–10080 = one week). */
+    public function leadResponseTargetMinutes(): int
+    {
+        $v = (int) ($this->lead_response_target_minutes ?? self::DEFAULT_LEAD_RESPONSE_TARGET_MINUTES);
+
+        return max(1, min(10080, $v ?: self::DEFAULT_LEAD_RESPONSE_TARGET_MINUTES));
+    }
+
+    /** Lead response: the counting hours per weekday, canonical shape (NULL stored = every day 08:00–20:00). */
+    public function leadResponseHours(): array
+    {
+        return \App\Support\LeadResponse\BusinessHours::normalise(is_array($this->lead_response_hours) ? $this->lead_response_hours : null);
     }
 
     /** Buyer/Rental Pipeline kanban: resolved column card limit (null-safe, clamped 10–500). */

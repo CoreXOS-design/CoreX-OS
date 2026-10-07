@@ -1905,6 +1905,19 @@ class Contact extends Model
         $at = $at ? \Illuminate\Support\Carbon::parse($at) : now();
         $this->forceFill(['contacted_marked_at' => $at])->save();
         $this->recomputeLastContacted();
+
+        // Lead response time (Johan, 2026-10-07): the explicit contacted action IS a genuine first contact.
+        $this->recordAgentContact('contacted_action', $at);
+    }
+
+    /**
+     * Announce a GENUINE contact with this contact (contacted action, message sent, link shared, appointment
+     * feedback) so any open portal enquiry of theirs records its first response. A note never calls this.
+     * Spec: .ai/specs/lead-response-time.md.
+     */
+    public function recordAgentContact(string $channel, ?\Carbon\CarbonInterface $at = null, ?int $byUserId = null): void
+    {
+        event(new \App\Events\Contact\ContactContactedByAgent($this, $channel, $at, $byUserId ?? auth()->id()));
     }
 
     /**

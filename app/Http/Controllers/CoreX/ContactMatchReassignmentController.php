@@ -18,6 +18,8 @@ use Illuminate\Http\RedirectResponse;
  */
 class ContactMatchReassignmentController extends Controller
 {
+    use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
+
     public function reassign(Request $request, ContactMatch $match): RedirectResponse
     {
         $validated = $request->validate([
@@ -28,6 +30,12 @@ class ContactMatchReassignmentController extends Controller
             'to_agent_id' => ['required', 'integer', new \App\Rules\ExistsInScope(User::class)],
             'reason'      => ['required', 'string', 'min:1', 'max:2000'],
         ]);
+
+        // A move of this search moves the whole buyer (primary agent + every search), so the same
+        // assistant rule applies: view a colleague's buyer, not move them.
+        if ($contact = Contact::withoutGlobalScopes()->find($match->contact_id)) {
+            $this->authorizeContact($contact);
+        }
 
         $toAgent = User::findOrFail($validated['to_agent_id']);
 
@@ -50,6 +58,9 @@ class ContactMatchReassignmentController extends Controller
         // Defence in depth — the route middleware is the first gate.
         abort_unless($request->user()->hasPermission('core_matches.reassign'), 403,
             'Only a branch manager or admin can move a buyer between agents.');
+
+        // Same rule as every contact write: an assistant may view a colleague's buyer, not move them.
+        $this->authorizeContact($contact);
 
         $validated = $request->validate([
             'to_agent_id' => ['required', 'integer', new \App\Rules\ExistsInScope(User::class)],

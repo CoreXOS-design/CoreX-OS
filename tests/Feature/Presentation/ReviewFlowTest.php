@@ -106,7 +106,9 @@ final class ReviewFlowTest extends TestCase
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $version = $this->seedPresentationWithVersion($agencyId, $user->id);
-        [$comp] = $this->seedComps($agencyId, $version->presentation_id, 1);
+        // Two comps: the LAST ticked comp can no longer be unticked (a presentation
+        // must always have a price) — see AlwaysHasPriceTest.
+        [$comp] = $this->seedComps($agencyId, $version->presentation_id, 2);
 
         $this->actingAs($user)
             ->post(
@@ -135,7 +137,7 @@ final class ReviewFlowTest extends TestCase
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $version = $this->seedPresentationWithVersion($agencyId, $user->id);
-        [$comp] = $this->seedComps($agencyId, $version->presentation_id, 1);
+        [$comp] = $this->seedComps($agencyId, $version->presentation_id, 2);
 
         // First exclude.
         $this->actingAs($user)->post(
@@ -190,6 +192,8 @@ final class ReviewFlowTest extends TestCase
         $version = $this->seedPresentationWithVersion($agencyId, $user->id, [
             'review_status' => PresentationVersion::REVIEW_IN_ANALYSIS,
         ]);
+        // Confirm & Generate freezes a price — it is refused without comps (AlwaysHasPriceTest).
+        $this->seedComps($agencyId, $version->presentation_id, 3);
 
         $this->actingAs($user)
             ->post(route('presentations.analysis.confirm', $version->presentation_id))
@@ -211,6 +215,7 @@ final class ReviewFlowTest extends TestCase
             'review_status' => PresentationVersion::REVIEW_PUBLISHED,
             'published_at'  => $first,
         ]);
+        $this->seedComps($agencyId, $version->presentation_id, 3);
 
         $this->actingAs($user)
             ->post(route('presentations.analysis.confirm', $version->presentation_id))
@@ -426,9 +431,11 @@ final class ReviewFlowTest extends TestCase
         ]);
     }
 
-    /** [] = the agent unticked everything. The checkboxes must say so —
-     *  they used to render all ticked while the tiles computed from nothing. */
-    public function test_show_renders_an_empty_selection_as_unticked(): void
+    /** [] is no longer a valid agent decision (a presentation must always have a
+     *  price): a stored [] is read as "all comps", so the boxes are drawn TICKED —
+     *  exactly what the CMA tiles are calculated from. The stored column is not
+     *  touched by a page view. */
+    public function test_show_renders_a_stored_empty_selection_as_all_ticked(): void
     {
         [$agencyId, $user] = $this->seedAgencyAndUser();
         $version = $this->seedPresentationWithVersion($agencyId, $user->id);
@@ -443,7 +450,7 @@ final class ReviewFlowTest extends TestCase
         // `[data-included="1"]` in a selector, so a blanket assertDontSee would match
         // that text instead of a ticked row.
         preg_match_all('/data-comp-id="\d+"\s+data-included="([01])"/', $resp->getContent(), $rowFlags);
-        $this->assertSame(['0', '0'], $rowFlags[1], 'both comp rows must render unticked when the selection is []');
+        $this->assertSame(['1', '1'], $rowFlags[1], 'both comp rows must render ticked when the stored selection is []');
         $this->assertSame([], $version->fresh()->included_comp_ids_json);
     }
 

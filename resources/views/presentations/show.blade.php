@@ -105,6 +105,13 @@
                 $pdfBlockMsg  = !$latestVersion
                     ? 'Run Analysis first to produce a compiled snapshot'
                     : (!$hasAiSummary ? 'Generate the Executive Summary to enable the PDF' : '');
+
+                // "A presentation must always have a price" — the seller PDF and
+                // Complete Pack are only offered when the shared price check passes;
+                // otherwise the tooltip says exactly what is missing.
+                $priceOk    = !isset($priceReadiness) || $priceReadiness['ready'];
+                $docReady   = $pdfReady && $priceOk;
+                $docBlockMsg = !$pdfReady ? $pdfBlockMsg : ($priceOk ? '' : $priceReadiness['message']);
             @endphp
             @if(config('features.presentation_blueprint'))
                 <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="block">
@@ -118,7 +125,7 @@
                 </form>
             @endif
             @if(config('features.presentation_pdf_v1') && isset($latestVersion) && $latestVersion)
-                @if($pdfReady)
+                @if($docReady)
                     <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
                        class="corex-btn-primary w-full justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
@@ -134,12 +141,12 @@
                          the same readiness boolean + tooltip as Compile Pack so
                          the agent sees consistent messaging across all three. --}}
                     <span class="corex-btn-primary w-full justify-center" style="opacity:0.5;cursor:not-allowed;"
-                          title="{{ $pdfBlockMsg }}">
+                          title="{{ $docBlockMsg }}">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                         Download PDF (v{{ $latestVersion->id }})
                     </span>
                     <span class="corex-btn-primary w-full justify-center" style="opacity:0.5;cursor:not-allowed;"
-                          title="{{ $pdfBlockMsg }}">
+                          title="{{ $docBlockMsg }}">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
                         Complete Pack (ZIP)
                     </span>
@@ -218,6 +225,21 @@
 {{-- ── MAIN COLUMN — the working sections ──────────────────────────────── --}}
 <div class="min-w-0 space-y-4">
 {{-- Error flash handled by global toast system --}}
+
+{{-- "A presentation must always have a price" — say plainly what is missing. --}}
+@if(isset($priceReadiness) && !$priceReadiness['ready'])
+    <div id="price-missing-banner" class="ds-status-card" role="alert"
+         style="border-left-color: var(--ds-red, #dc2626); background: color-mix(in srgb, var(--ds-red, #dc2626) 8%, transparent);">
+        <div class="text-sm font-semibold" style="color: var(--text-primary);">No price yet</div>
+        <div class="text-xs mt-1" style="color: var(--text-secondary);">{{ $priceReadiness['message'] }}</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+            @if(isset($latestVersion) && $latestVersion && $latestVersion->review_status !== \App\Models\PresentationVersion::REVIEW_PUBLISHED)
+                <a href="{{ route('presentations.review.show', $latestVersion->id) }}" class="corex-btn-outline">Open the comparable sales</a>
+            @endif
+            <a href="{{ route('presentations.analysis', $presentation) }}" class="corex-btn-outline">Open the analysis</a>
+        </div>
+    </div>
+@endif
 
 {{-- ── PHASE 8: OUTCOME PANEL ──────────────────────────────────────────── --}}
 @include('presentations.partials._outcome-panel', ['presentation' => $presentation])
@@ -1494,7 +1516,10 @@
             const errors = j.errors || {};
             collected.forEach((r, i) => {
                 const cell = document.querySelector('[data-status="' + i + '"]');
-                if (errors[i]) {
+                if (errors.presentation) {
+                    // Presentation-level refusal (no price): every recipient is blocked, say why.
+                    cell.innerHTML = '<span style="color:#dc2626;font-size:0.6875rem;">' + escHtml(errors.presentation) + '</span>';
+                } else if (errors[i]) {
                     cell.innerHTML = '<span style="color:#dc2626;font-size:0.6875rem;">' + escHtml(errors[i]) + '</span>';
                 } else {
                     cell.innerHTML = '<span style="color:var(--ds-green,#16a34a);">Ready</span>';
@@ -1521,7 +1546,8 @@
             });
             const j = await resp.json();
             if (!resp.ok || !j.ok) {
-                $('send-progress').innerHTML = '<span style="color:#dc2626;">Send failed: ' + escHtml(j.errors ? JSON.stringify(j.errors) : 'unknown error') + '</span>';
+                const failMsg = (j.errors && j.errors.presentation) ? j.errors.presentation : (j.errors ? JSON.stringify(j.errors) : 'unknown error');
+                $('send-progress').innerHTML = '<span style="color:#dc2626;">Send failed: ' + escHtml(failMsg) + '</span>';
                 return;
             }
             renderResults(j.results, j.summary);

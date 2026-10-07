@@ -2281,6 +2281,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/settings/leave-visibility', [CommandCenterContactGovernanceController::class, 'updateLeaveVisibility'])->middleware('permission:command_center.settings')->name('command-center.settings.leave-visibility.update');
         // Core Matches settings — moved to main Settings, 2026-09-29 (own section, own save action).
         Route::put('/settings/core-matches', [CommandCenterContactGovernanceController::class, 'updateCoreMatches'])->middleware('permission:command_center.settings')->name('command-center.settings.core-matches.update');
+        // Lead response time — target minutes + per-weekday counting hours (Settings → Lead response; also the Setup Wizard's Contacts step).
+        Route::put('/settings/lead-response', [CommandCenterContactGovernanceController::class, 'updateLeadResponse'])->middleware('permission:command_center.settings')->name('command-center.settings.lead-response.update');
         Route::patch('/settings/rules/{rule}/toggle', [CommandCenterSettingsController::class, 'toggleRule'])->name('command-center.settings.toggle-rule');
         Route::post('/settings/expectations', [CommandCenterSettingsController::class, 'storeExpectation'])->name('command-center.settings.store-expectation');
         Route::delete('/settings/expectations/{expectation}', [CommandCenterSettingsController::class, 'destroyExpectation'])->name('command-center.settings.destroy-expectation');
@@ -5598,6 +5600,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.reassign')
         ->name('corex.core-matches.reassign-buyer');
 
+    // Johan, 2026-10-07 — read-only notes on a buyer, for the Core Matches popup AND the Intelligence tab's
+    // Buyer Interest Signals. Gated by the Role Manager data scope buyer_notes.view (own / branch / agency);
+    // BuyerNotesAccess re-checks the scope per buyer (outside it = 404). View only; never on a public link.
+    Route::get('/core-matches/buyers/{contactId}/notes', [\App\Http\Controllers\CoreX\BuyerNotesController::class, 'show'])
+        ->whereNumber('contactId')
+        ->middleware(['permission:buyer_notes.view', 'agency.required'])
+        ->name('corex.buyer-notes.show');
+
     // AT-Core-Matches, Johan's dated-link ruling — confirms a share that was
     // already MINTED server-side when the composer rendered (see
     // ContactMatch::mintShareLink()); this is the actual send click, and is
@@ -5736,7 +5746,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/communications/{communication}/mark-sent',     [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationSent'])->name('communications.mark-sent');
 
         // Notes
-        Route::get('/{contact}/notes/quick-view', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'quickView'])->name('notes.quick-view');
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::put('/{contact}/notes/{note}',    [\App\Http\Controllers\CoreX\ContactNoteController::class, 'update'])->name('notes.update');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');

@@ -85,6 +85,26 @@ final class PublicPresentationController extends Controller
             ], 410);
         }
 
+        // A seller never meets a presentation without a price (Johan,
+        // 2026-10-07): where the full valuation would be shown and the
+        // version has none, say the agent is finalising it — no dash, no
+        // silently missing valuation section, and no "view" recorded.
+        $showsFullView = $link->mode !== 'teaser' || $this->teaserLeadCaptured($request, $link);
+        if ($showsFullView) {
+            $price = \App\Services\Presentations\PresentationPriceReadiness::forDocument(
+                $link->presentation,
+                $link->presentationVersion,
+            );
+            if (!$price['ready']) {
+                \Illuminate\Support\Facades\Log::warning('[PRES-WARN] public page refused — presentation has no price', [
+                    'link_id'    => $link->id,
+                    'version_id' => $link->presentation_version_id,
+                    'reason'     => $price['reason'],
+                ]);
+                return $this->renderUnavailable('updating', $link);
+            }
+        }
+
         // Fingerprint the request server-side. The track beacon (POST below)
         // extends this with client-side screen + timezone data.
         $fingerprint = $this->serverFingerprint($request);

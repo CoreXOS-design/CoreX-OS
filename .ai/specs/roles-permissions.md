@@ -304,3 +304,9 @@ New-letter picker (`letterCandidatesFor()`, direct role-row read) and in the use
 (`hasPermission`, so owner roles keep it). Backfill = agent/branch_manager/admin everywhere + roles of
 everyone in the old picker + roles of everyone with a letter on record; template rows get only the three
 practitioner roles. Spec: ppra-ffc-employment-letter.md §17.
+
+
+## `buyer_notes.view` — buyer-notes data scope (2026-10-07)
+A `.view` action key in module `buyer_notes` (own / branch / all via the normal Role Manager selector and
+`PermissionService::getDataScope($user, 'buyer_notes')`). Governs read-only buyer notes on the Intelligence
+tab and Core Matches. Independent of `contacts.view`. See `core-matches.md` ("Buyer notes — Role Manager scope").

@@ -1040,10 +1040,20 @@ would 404.
 **No new setting** (nothing for the Setup Wizard), no new route, no migration, no new permission.
 Tests: `tests/Feature/CoreMatches/CoreMatchUpdateBuyerPipelineTest.php`.
 
-**Known, deliberately untouched (reported, not changed):** the Buyer Pipeline board's drag-to-Lost
-redirects to `/buyers/{id}?action=mark-lost`, but the buyer page does not read `?action=mark-lost`, so
-that drag lands on the page without opening the dialog; and `updateState`/`markLost` do not call
-`authorizeContact()` (the assistant view-but-not-edit rule used by the contact screens).
+**Fixed 2026-10-07 (Johan) — the two items previously reported here:**
+1. *Drag-to-Lost.* Dropping a card on Lost now opens the shared Mark-Lost dialog on the board itself
+   (`command-center/buyers/_mark-lost-dialog`, the one copy also used by the buyer page and this screen),
+   aimed at that buyer's `mark-lost` endpoint — reason list required, same validation. A card only moves
+   after the server accepts it, so cancelling the dialog leaves the card where it was. To make "Lost
+   without a reason" impossible, `BuyerPipelineController::updateState` accepts only new / warm / cold;
+   Lost is reachable only through `markLost` (reason required).
+2. *Assistant rule on moves.* `updateState`, `markLost`, `ContactMatchReassignmentController::reassignBuyer`
+   and the search-level `reassign` now call `authorizeContact()` (`AuthorizesContactAccess`): an assistant
+   may SEE a colleague's buyer but not move, lose or reassign them (403); they still act on their agent's own
+   buyers. The board omits the drag handle and "Move to another agent" for such cards, and this screen omits
+   "Update buyer pipeline" and "Move buyer" for them (`canMutateContact()`); non-assistants are unaffected.
+
+Tests: `tests/Feature/CoreMatches/BuyerPipelineLostAndAssistantTest.php`.
 
 ## Agent offboarding moves the buyers' saved searches too (2026-10-07, Johan)
 
@@ -1068,20 +1078,60 @@ On the property Intelligence tab each Buyer Interest Signals row gains ONE contr
 Click opens the buyer contact's notes in a popup, newest first, each with author and date. The list
 itself is unchanged (no remove, no status change). Nothing can be added, edited or deleted from there.
 
-- **Rule (visibility).** Notes have no visibility flag of their own — whoever may see the contact may
-  read all its (non-deleted) notes, exactly as on the contact screen and the Core Matches popup. So the
-  control follows the **contact's own scope** (`ContactScope`): admin/super_admin see every buyer in the
-  agency; a role with contacts scope `all` sees every buyer; `branch` sees buyers whose contact is in
-  their branch; `own` sees buyers they captured (`created_by_user_id`) — NOT "buyers whose primary agent
-  they are". A listing agent on `own` scope who did not capture the buyer sees no Notes control on that
-  row (the row already shows the buyer as an anonymous "Buyer"), and the notes address answers 404.
-  The control also needs `access_contacts` (the route's gate). Nothing was widened.
-- **Mechanism.** `PropertyIntelligenceService::getBuyerNoteCounts()` (visible buyers only, one query
-  each for visibility and counts) → `corex/properties/show.blade.php` Section E; the popup fetches the
-  existing read-only `corex.contacts.notes.quick-view` fragment (`ContactNoteController::quickView`,
-  `_notes-quick-view` / `_note-item` with `readOnly`). No new route, permission, setting or migration.
+- **Rule (visibility)** — superseded the same day by the Role Manager scope, see "Buyer notes — Role
+  Manager scope" below. (First cut followed the contact's own scope; Johan: "role manager setting … agency
+  decides how they want it to show".)
+- **Mechanism.** `PropertyIntelligenceService::getBuyerNoteCounts()` (readable buyers only) →
+  `corex/properties/show.blade.php` Section E; the popup fetches the shared read-only fragment
+  `corex.buyer-notes.show` (`BuyerNotesController::show`, `_notes-quick-view` / `_note-item` with `readOnly`).
 - **Not on the seller live link.** The seller page only receives counts by tier; the notes control and
   fragment URL never reach it (tested).
 - **Zero notes** shows a plain "Notes (0)" (not clickable).
 
 Tests: `tests/Feature/Intelligence/BuyerSignalNotesViewTest.php`.
+
+## Buyer notes — Role Manager scope (2026-10-07, Johan)
+
+*"Role manager setting. Add intelligence and core match notes — own / branch / agency like we have the whole
+role manager set up. Agency decides how they want it to show."*
+
+**What it is.** A Role Manager permission `buyer_notes.view` ("View buyer notes (Intelligence tab & Core
+Matches)", section Core Matches). Like every `.view` action key it carries the standard **Own / Branch /
+Agency** selector per role (same `role_permissions` table, same Role Manager screen, read through
+`PermissionService::getDataScope($user, 'buyer_notes')` by `App\Services\Buyers\BuyerNotesAccess` — no parallel
+mechanism). It governs who may READ the notes recorded on a buyer from (a) the property Intelligence tab's
+Buyer Interest Signals "Notes (n)" and (b) the Core Matches "N notes" pill. View only; never on the seller's
+public live link; nothing can be added, edited or deleted from either popup.
+
+| Level | May read notes on… |
+|---|---|
+| Own | buyers whose **primary agent** (`contacts.agent_id`) is the viewer (an assistant: their agent's, capped by the agent's own level) |
+| Branch | buyers whose primary agent is in the viewer's **branch**; a buyer with no primary agent counts for the contact's own branch |
+| Agency | any buyer in the agency (another agency is never reachable) |
+| (no permission) | none: no control is drawn and the address answers 403 |
+
+It is **independent of the contact's own scope** (`contacts.view`): the contact scope decides who may open the
+contact, this setting decides who may read its notes. The popup's "Open full contact record" link is only shown
+when the viewer may actually open the contact.
+
+**One endpoint.** `GET /corex/core-matches/buyers/{contactId}/notes` (`corex.buyer-notes.show`, middleware
+`permission:buyer_notes.view`); a buyer outside the viewer's level is a 404 (direct-URL access blocked, not just
+hidden). It replaced the earlier `corex.contacts.notes.quick-view` (removed).
+
+**Defaults — nobody gains or loses access.** Migration `2026_10_14_000200_seed_buyer_notes_view_permission`
+gives every existing (agency, role) that holds BOTH `access_contacts` and `contacts.view` the level its current
+access implies: admin / super_admin → Agency; contacts scope Own → Own; Branch → Branch; Agency (or unset) →
+Agency, **or Branch where the agency has Data Isolation (`split_branches_enabled`) on**. A role that could not
+open contacts today gets no row. An agency's existing row is never overridden; assistant matrices mirror their
+`contacts.view` grant. New agencies get the standard role defaults (`scope_defaults`: admin Agency, branch
+manager Branch, agent Own, viewer Branch) via `role_defaults`.
+**Known shift:** today's "Own" meant buyers the viewer *captured* (`created_by_user_id`); the new Own is the
+buyer's *primary agent*, as ruled. (QA1: 27 of 470 buyers were captured by someone other than their primary
+agent, 61 have no primary agent — those are visible at Branch/Agency level only.)
+
+**Setup Wizard.** Not added: this is a per-role Role Manager permission, not an agency setting (the wizard
+configures agency settings, not the role matrix) — recorded in `agency-onboarding-setup.md` §5.1.
+
+Tests: `tests/Feature/Intelligence/BuyerNotesScopeTest.php` (each level on both surfaces + the address, Core
+Matches pill, independence from contact scope, other agency, assistant ceiling, Role Manager round trip, fresh
+agency defaults, migration defaults + idempotence), `tests/Feature/Intelligence/BuyerSignalNotesViewTest.php`.

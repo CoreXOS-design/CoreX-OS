@@ -919,7 +919,10 @@ return [
             'body'  => 'Whether CoreX markets your listings, and whether it publishes them to Property24 and '
                 . 'Private Property, you already chose back in the Capabilities step. Here you set how the '
                 . 'Properties list itself behaves — how much of your stock an agent sees at a time when they '
-                . 'open the page in the field or at a desk.',
+                . 'open the page in the field or at a desk. It also covers Other Agency Stock — a listing from '
+                . 'another agency that your agent imports so they can take their own buyers to view it — '
+                . 'who in your agency can see those listings and the consent sentence an agent agrees to when '
+                . 'they import one.',
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
@@ -932,6 +935,11 @@ return [
             // always post a hidden "0" companion (wizard.blade.php), so this
             // step can never partially-post and silently flip one off.
             ['controller' => DealPropertySyncSettingsController::class, 'method' => 'update'],
+            // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Same saver as
+            // Company Settings → Other Agency Stock. Both fields are has()-guarded
+            // inside it (the roles via their `_submitted` marker), so a post that
+            // never rendered them leaves the saved values alone (§6.1).
+            ['controller' => SettingsController::class, 'method' => 'updateOtherAgencyStock'],
         ],
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
@@ -960,6 +968,23 @@ return [
              'label' => 'Revert the property when a deal is declined or lapses',
              'explain' => 'If a deal on an Under Offer property falls through, CoreX can automatically put the property back to the on-market status it held before — the safety companion to the toggle above.',
              'affects' => 'Whether a property that was auto-flagged Under Offer returns to its previous status on its own when the deal dies, or stays stuck as Under Offer until someone fixes it manually.'],
+
+            // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a/§10.
+            // Roles: a live list of THIS agency's own roles (control type `role_multiselect`,
+            // posts the `_submitted` marker the saver keys on). All ticked = visible to
+            // everyone = the stored default (NULL).
+            ['key' => 'other_agency_stock_visible_roles', 'source' => 'other_agency_stock', 'type' => 'role_multiselect',
+             'heading' => 'Other Agency Stock',
+             'label' => 'Who can see Other Agency Stock',
+             'explain' => 'Other Agency Stock is a listing that belongs to another agency, which your agent has imported from Property24 or Private Property so they can show it to their own buyers. Every role is ticked as standard, so everyone in your agency sees it; untick a role to hide these listings from that role. Buyers always see them in viewing packs like any other property, whatever you choose here.',
+             'affects' => 'Which of your own staff see Other Agency Stock on their Properties list and property pages. It never changes what a buyer sees, and it never publishes the listing anywhere.'],
+
+            // Blank = the standard wording (shown greyed out as the placeholder, like the settings page).
+            ['key' => 'other_agency_stock_consent_wording', 'source' => 'other_agency_stock', 'type' => 'textarea', 'rows' => 4,
+             'placeholder' => \App\Models\OtherAgencyStockConsent::DEFAULT_WORDING,
+             'label' => 'Import consent wording',
+             'explain' => 'Before an agent imports another agency\'s listing, they must tick a box confirming they have that agency\'s permission. This is the sentence beside that box. Leave it blank to use the standard wording (shown greyed out below); write your own if your agency\'s policy needs different words.',
+             'affects' => 'The exact words the agent agrees to on the import screen of the Chrome tool. The wording as it stood is saved with each import, so changing it later never rewrites an earlier consent.'],
         ],
     ],
 
@@ -1101,14 +1126,24 @@ return [
                 . 'eventually asks: which of our marketing is actually producing business? Add the channels you '
                 . 'genuinely use; a short honest list beats a long aspirational one.',
         ],
+        // Lead response time (Johan, 2026-10-07; .ai/specs/lead-response-time.md) — the counting hours per
+        // weekday render through this partial (a repeating 7-row control the generic loop cannot express); the
+        // target is the generic number control below. Both post `lead_response_present` and save through the
+        // one narrow, has()-guarded saver (spec §6.1) — the same saver Settings → Lead response uses.
+        'partial' => 'agency-setup.steps.lead-response-hours',
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateContactsPerPage'],
+            ['controller' => \App\Http\Controllers\CommandCenter\ContactGovernanceController::class, 'method' => 'updateLeadResponse'],
         ],
         'controls' => [
             ['key' => 'contacts_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Contacts per page',
              'explain' => 'How many contacts load at a time on the Contacts page.',
              'affects' => 'How far an agent scrolls before paging to the next set of contacts.'],
+            ['key' => 'lead_response_target_minutes', 'source' => 'lead_response', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 10080,
+             'label' => 'Respond to a new enquiry within (minutes)',
+             'explain' => 'The time your agency aims to make first contact with someone who enquires through a portal, your website or a shared link. Only the hours chosen above count towards it.',
+             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Buyers Report and the Performance Report, and when a waiting enquiry is flagged as past target.'],
         ],
         'aux_partial' => 'agency-setup.steps.contacts-collections',
     ],
@@ -1137,6 +1172,9 @@ return [
             // §6.7/§10a. A required <select> always posts a value, so no §6.1
             // has()-guard is needed here (that rule protects optional checkboxes only).
             ['controller' => SettingsController::class, 'method' => 'savePpraInspectionPackSettings'],
+            // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
+            // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
+            ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1170,6 +1208,14 @@ return [
              'label' => 'PPRA ZIP max files',
              'explain' => 'The most files the PPRA Inspection Pack\'s mandate register "Download ZIP" (and other per-list ZIP exports) will ever bundle in one download.',
              'affects' => 'How many files the mandate register\'s bulk ZIP export includes before it stops and reports the rest as available-but-not-included.'],
+            // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
+            // Leave blank = the PPRA's own published address (shown greyed out as the
+            // placeholder, exactly like the settings page), so it is correct for any agency.
+            ['key' => 'ppra_employment_letter_address_block', 'source' => 'agency', 'type' => 'textarea', 'rows' => 4,
+             'placeholder' => \App\Models\Compliance\PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK,
+             'label' => 'PPRA employment letter — who it is addressed to',
+             'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
+             'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
         ],
     ],
 

@@ -229,9 +229,9 @@
                                  popup (Johan) rather than redirecting off the
                                  board and losing the filters — read-only, fetched
                                  on demand, never pre-loaded for every row. --}}
-                            @if($contact->contact_notes_count > 0)
+                            @if($contact->contact_notes_count > 0 && in_array((int) $contact->id, $buyerNotesViewableIds ?? [], true))
                             <button type="button" x-data
-                               @click="$dispatch('open-notes-quick-view', { url: '{{ route('corex.contacts.notes.quick-view', $contact) }}' })"
+                               @click="$dispatch('open-notes-quick-view', { url: '{{ route('corex.buyer-notes.show', $contact->id) }}' })"
                                class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap inline-flex items-center gap-1 border-0 cursor-pointer"
                                style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                title="Read the notes on this contact">
@@ -504,7 +504,7 @@
     {{-- Notes popup — Johan: "the notes should open in a popup not
          redirect to the contact", so a manager can read them without
          losing the board and its filters. Read-only (see
-         ContactNoteController::quickView()); one modal shell for the whole
+         BuyerNotesController::show()); one modal shell for the whole
          page, content fetched on demand for whichever contact was
          clicked — never pre-loaded for every row. --}}
     <div x-data="{ loading: false, html: '' }"
