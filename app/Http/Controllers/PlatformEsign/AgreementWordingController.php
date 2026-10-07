@@ -17,6 +17,7 @@ use App\Services\PlatformEsign\Agreement\AgreementSettings;
 use App\Services\PlatformEsign\Agreement\AgreementVersions;
 use App\Services\PlatformEsign\Agreement\WordingInvalid;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Owner-only wording editor for the Subscription Agreement (spec §11.14): versions list, drafts, clause-level section
@@ -27,6 +28,33 @@ class AgreementWordingController extends Controller
 {
     public function __construct(private AgreementVersions $versions, private AgreementRenderer $renderer, private AgreementLayout $layout, private AgreementPdf $pdf)
     {
+    }
+
+    /**
+     * Preview, sample PDF and publish each run a real PDF layout calibration (up to a dozen renders) inside the request, so they are
+     * rate-limited per owner on their own counters (not the live-preview counter of /render, which fires on every keystroke).
+     */
+    private function calibrationThrottle(Request $request, string $what, int $perMinute): void
+    {
+        $key = 'wording-calibrate:' . $what . ':' . ($request->user()?->id ?? $request->ip());
+        if (RateLimiter::tooManyAttempts($key, $perMinute)) {
+            abort(429, 'That was done a lot in the last minute. Wait ' . RateLimiter::availableIn($key) . ' seconds and try again.');
+        }
+        RateLimiter::hit($key, 60);
+    }
+
+    /** The pagination to show for a version. A PUBLISHED version's stored layout is never recomputed or rewritten from a preview. */
+    private function layoutFor(WordingVersion $v): array
+    {
+        $l = $v->layout_json;
+        if ($v->is_published && is_array($l) && !empty($l['parts'])) {
+            return $l;
+        }
+        if ($v->is_published) {
+            return $this->layout->compute($v); // a published row is never written to here; the recipient path owns its stored layout
+        }
+
+        return $this->layout->ensure($v);
     }
 
     private function owner(Request $request)
@@ -263,9 +291,10 @@ class AgreementWordingController extends Controller
     public function preview(Request $request, int $version)
     {
         $this->owner($request);
+        $this->calibrationThrottle($request, 'preview', 20);
         $v = $this->version($version);
         $view = $request->query('view') === 'print' ? 'print' : 'form';
-        $layout = $this->layout->ensure($v);
+        $layout = $this->layoutFor($v);
         $rates = (array) $v->rates_json;
         if ($view === 'print') {
             $ctx = AgreementSample::ctx($v);
@@ -284,8 +313,9 @@ class AgreementWordingController extends Controller
     public function previewPdf(Request $request, int $version)
     {
         $this->owner($request);
+        $this->calibrationThrottle($request, 'preview', 20);
         $v = $this->version($version);
-        $layout = $this->layout->ensure($v);
+        $layout = $this->layoutFor($v);
         [$bin] = $this->pdf->renderWithTotal($v, $layout, 'pdf', AgreementSample::ctx($v));
 
         return response($bin, 200, ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="agreement-' . ($v->is_published ? $v->version : 'draft') . '-sample.pdf"', 'Cache-Control' => 'no-store']);
@@ -297,10 +327,13 @@ class AgreementWordingController extends Controller
     {
         $u = $this->owner($request);
         $v = $this->openDraft($version);
-        $data = $request->validate(['version' => 'required|string|max:12', 'version_date' => 'required|date_format:Y-m-d', 'change_note' => 'required|string|max:500'],
-            ['change_note.required' => 'Write a short change note — it is shown with the version.']);
+        $this->calibrationThrottle($request, 'publish', 6);
+        $data = $request->validate(['version' => 'required|string|max:12', 'version_date' => 'required|date_format:Y-m-d', 'change_note' => 'required|string|max:500', 'rev' => 'required|integer|min:0'],
+            ['change_note.required' => 'Write a short change note — it is shown with the version.', 'rev.required' => 'This page is out of date — reload it and review the draft again before publishing.']);
         try {
-            $pub = $this->versions->publish($v, $data['version'], $data['version_date'], $data['change_note'], $u->id);
+            $pub = $this->versions->publish($v, $data['version'], $data['version_date'], $data['change_note'], $u->id, (int) $data['rev']);
+        } catch (AgreementConflict) {
+            return back()->withInput()->withErrors(['publish' => ['This draft was changed after you opened this page (in another window or tab). Reload the page, review the draft as it is now, and publish again.']]);
         } catch (WordingInvalid $e) {
             return back()->withInput()->withErrors(['publish' => $e->errors]);
         } catch (\DomainException $e) {

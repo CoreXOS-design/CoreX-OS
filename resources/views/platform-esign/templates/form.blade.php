@@ -6,7 +6,7 @@
 @php
     $isNew = !$template->exists;
     $isPdf = $template->source === 'pdf';
-    $roles = old('roles', collect($template->roles())->map(fn ($r) => ['label' => $r['label']])->all() ?: [['label' => 'Agency Principal'], ['label' => 'CoreX']]);
+    $roles = old('roles', collect($template->roles())->map(fn ($r) => ['key' => $r['key'], 'label' => $r['label']])->all() ?: [['key' => '', 'label' => 'Agency Principal'], ['key' => '', 'label' => 'CoreX']]);
 @endphp
 <div class="w-full space-y-5" x-data="{ roles: {{ \Illuminate\Support\Js::from(array_values($roles)) }} }">
     @include('platform-esign._header', [
@@ -33,12 +33,14 @@
                 <template x-for="(r, i) in roles" :key="i">
                     <div class="flex items-center gap-2">
                         <span class="text-xs w-6 text-center tabular-nums" style="color: var(--text-muted);" x-text="i + 1"></span>
+                        {{-- The key is the signer's stable identity: fields placed on a PDF point at it, so it is carried through every save. --}}
+                        <input type="hidden" :name="'roles[' + i + '][key]'" :value="r.key || ''">
                         <input :name="'roles[' + i + '][label]'" x-model="r.label" maxlength="80" placeholder="e.g. Agency Principal" class="ds-field flex-1">
                         <button type="button" class="corex-btn-outline corex-btn-xs" @click="roles.splice(i, 1)" x-show="roles.length > 1">Remove</button>
                     </div>
                 </template>
             </div>
-            <button type="button" class="corex-btn-outline corex-btn-xs mt-2" @click="roles.length < 6 && roles.push({label: ''})">+ Add signer</button>
+            <button type="button" class="corex-btn-outline corex-btn-xs mt-2" @click="roles.length < 6 && roles.push({key: '', label: ''})">+ Add signer</button>
             <p class="text-xs mt-1" style="color: var(--text-muted);">Signers sign in this order when a contract is sent in sequence. The names and email addresses are entered when you send.</p>
         </div>
 
@@ -68,5 +70,6 @@
             <a href="{{ route('platform-esign.templates.index') }}" class="corex-btn-outline">Cancel</a>
         </div>
     </form>
+    @include('platform-esign._end')
 </div>
 @endsection

@@ -159,6 +159,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'outreach/opt-out/*',
             'outreach/opt-in/*',
             'unsubscribe/*',
+            // Agency Timeline public page: the 48-char token is the credential and the tick is
+            // idempotent (an expired session would otherwise bounce the agency to the CoreX login).
+            'agency-timeline/*/steps/*',
         ]);
 
     })

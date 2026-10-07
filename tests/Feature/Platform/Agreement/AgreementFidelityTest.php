@@ -116,7 +116,8 @@ class AgreementFidelityTest extends TestCase
 
         Mail::fake();
         $svc = app(AgreementService::class);
-        $doc = $svc->send(['name' => 'Pat Principal', 'email' => 'pat@caprivi.test', 'cell' => '+27 82 555 0123', 'take_on_month' => now()->format('Y-m')], $owner->id);
+        // --seal / --cleanup only ever touch a throwaway made for the proof (the recipient is the proof address), never a real agreement.
+        $doc = $svc->send(['name' => 'Pat Principal', 'email' => \App\Console\Commands\PlatformEsignVerifyWording::THROWAWAY_EMAIL, 'cell' => '+27 82 555 0123', 'take_on_month' => now()->format('Y-m')], $owner->id);
         $this->assertSame('1.0', $doc->wording->version);
 
         // The recipient page as the server renders it for the browser (fields carry no text; the browser run reads the same).

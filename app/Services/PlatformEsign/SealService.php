@@ -19,6 +19,12 @@ class SealService
             return app(\App\Services\PlatformEsign\Agreement\AgreementService::class)->sealedPdf($doc);
         }
         $doc->loadMissing(['signers', 'events', 'agency', 'values']);
+        // Never hand the renderer a drawn signature that fails the size limits (legacy rows): the typed name is shown instead. In-memory only.
+        foreach ($doc->signers as $s) {
+            if ($s->signature_image && !EsignService::signatureUsable($s->signature_image)) {
+                $s->signature_image = null;
+            }
+        }
 
         $pages = [];
         if ($doc->isPdf()) {

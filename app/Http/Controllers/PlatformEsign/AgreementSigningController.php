@@ -35,8 +35,29 @@ class AgreementSigningController extends Controller
         return $signer;
     }
 
+    /**
+     * The invite link retired when the agreement completed (the token was replaced, only its hash is kept): it opens nothing, it just
+     * says where the live link is. Anything else unknown stays a plain 404.
+     */
+    private function retiredLinkOrNull(string $token)
+    {
+        $signer = Signer::where('previous_token_hash', hash('sha256', $token))->where('role_key', 'r1')->first();
+        $doc = $signer?->document;
+        if (!$doc || !$doc->isWebdoc() || $doc->trashed() || $doc->status !== 'completed') {
+            return null;
+        }
+
+        return response()->view('platform-esign.agreement.message', [
+            'doc' => $doc, 'signer' => $signer, 'token' => '', 'canDownload' => false, 'canReplaceUpload' => false, 'files' => collect(),
+            'message' => 'This agreement is complete. This is the link from your original invitation, which no longer opens the signed agreement — please use the link in the email we sent you when it was countersigned. If you cannot find that email, reply to the invitation and we will send you a fresh link.',
+        ], 200)->withHeaders(['Cache-Control' => 'no-store', 'X-Robots-Tag' => 'noindex']);
+    }
+
     public function show(Request $request, string $token)
     {
+        if (!Signer::where('token', $token)->where('role_key', 'r1')->exists() && ($retired = $this->retiredLinkOrNull($token))) {
+            return $retired;
+        }
         $signer = $this->signerOr404($token);
         $doc = $signer->document->load(['wording', 'agency']);
         $blocked = $this->svc->blockedReason($doc, $signer);
@@ -124,7 +145,8 @@ class AgreementSigningController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
         if ($errors) {
-            return response()->json(['errors' => $errors, 'message' => 'Some details still need attention.'], 422);
+            // 'rev': the failed submit stored what was typed and bumped the revision — the page adopts it so its next autosave is not a conflict.
+            return response()->json(['errors' => $errors, 'message' => 'Some details still need attention.', 'rev' => (int) $doc->fresh()->form_rev], 422);
         }
 
         return response()->json(['ok' => true, 'redirect' => route('platform-esign.agreement.show', $token)]);
@@ -202,7 +224,7 @@ class AgreementSigningController extends Controller
         abort_unless($f && Storage::disk(EsignService::DISK)->exists($f->stored_path), 404);
         $this->esign->log($doc, 'wetink_downloaded', 'Uploaded hand-signed file downloaded from the agency link: ' . $f->original_name, $signer, null, $request->ip());
 
-        return Storage::disk(EsignService::DISK)->download($f->stored_path, $f->original_name, ['Cache-Control' => 'no-store']);
+        return Storage::disk(EsignService::DISK)->download($f->stored_path, AgreementService::safeFileName($f->original_name, AgreementService::WET_MIMES[$f->mime] ?? 'pdf'), ['Cache-Control' => 'no-store']);
     }
 
     /** Values safe to hand back to the browser (never RR-side). */

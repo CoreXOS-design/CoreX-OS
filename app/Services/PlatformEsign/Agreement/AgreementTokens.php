@@ -2,6 +2,8 @@
 
 namespace App\Services\PlatformEsign\Agreement;
 
+use App\Support\Platform\SafeHtml;
+
 /**
  * Field markers inside the agreement wording (spec §11.4, §11.14). The editor may rewrite the words around a marker,
  * but a marker that drives the form (an input, tick, quantity, amount, signature, initials) can never be removed,
@@ -38,8 +40,8 @@ class AgreementTokens
         if (str_contains($rest, '{{') || str_contains($rest, '}}')) {
             $errors[] = $where . ': a field marker is damaged (a "{{" or "}}" is left over). Field markers look like {{f:reg_no}} and must not be edited — put the cursor beside them instead.';
         }
-        if (preg_match('/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|base|svg|math)\b|<[^>]*\son[a-z]+\s*=|javascript\s*:/i', $md)) {
-            $errors[] = $where . ': scripts, forms and embedded content cannot be used in the agreement wording.';
+        foreach (self::markupProblems($md) as $problem) {
+            $errors[] = $where . ': ' . $problem;
         }
         $schema = AgreementFields::schema();
         foreach (array_unique(self::extract($md)) as $t) {
@@ -65,6 +67,38 @@ class AgreementTokens
         }
 
         return $errors;
+    }
+
+    /**
+     * Anything in the wording that the allow-list sanitiser (SafeHtml::cleanWording — the same one every rendering goes through) would
+     * have to remove or that looks like an attempt to hide script. The owner is told at SAVE time, in plain words, instead of
+     * discovering that their text was silently changed. Cheap pattern checks run first (they catch the obfuscated forms an HTML parser
+     * quietly repairs, e.g. "<img/src=x/onerror=…>"); then every rendered block is checked against the real sanitiser.
+     *
+     * @return string[] human messages (without the section name)
+     */
+    public static function markupProblems(string $md): array
+    {
+        $problems = [];
+        if (preg_match('/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|base|svg|math|img|video|audio|input|button|textarea|select)\b/i', $md)
+            || preg_match('/<[^>]*[\s\/"\'`]on[a-z]{3,}\s*=/i', $md)
+            || preg_match('/(java|vb)script\s*:|data\s*:\s*text\/html|<\s*\?/i', $md)) {
+            $problems[] = 'scripts, forms, images and embedded content cannot be used in the agreement wording.';
+        }
+        if (!$problems) {
+            $removed = [];
+            foreach (AgreementBlocks::rawHtmlBlocks($md) as $html) {
+                SafeHtml::cleanWording($html, $blockRemoved);
+                $removed = array_merge($removed, $blockRemoved);
+            }
+            $removed = array_values(array_unique($removed));
+            if ($removed) {
+                $problems[] = 'this wording uses markup that is not allowed (' . implode(', ', array_slice($removed, 0, 4)) . (count($removed) > 4 ? ' and more' : '')
+                    . '). Use ordinary text, lists, tables, bold/italic and links (web, email or in-page) only.';
+            }
+        }
+
+        return $problems;
     }
 
     /**

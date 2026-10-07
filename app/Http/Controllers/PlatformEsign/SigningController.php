@@ -17,9 +17,20 @@ class SigningController extends Controller
 
     private function signerOr404(string $token): Signer
     {
-        $signer = $this->svc->resolve($token);
-        abort_unless($signer && !$signer->document->trashed(), 404);
+        // Look the token up WITHOUT side effects first: a web document's token must 404 here before anything can change its status.
+        $signer = Signer::where('token', $token)->first();
+        abort_unless($signer && $signer->document && !$signer->document->trashed(), 404);
         abort_if($signer->document->isWebdoc(), 404); // web documents are signed on platform-esign/agreement/{token}
+        $this->svc->expireIfDue($signer->document);
+
+        return $signer;
+    }
+
+    /** Page images and attachments are refused once the document is expired or declined — only the neutral status message remains. */
+    private function assetsOr404(string $token): Signer
+    {
+        $signer = $this->signerOr404($token);
+        abort_if(in_array($signer->document->status, ['expired', 'declined'], true), 404);
 
         return $signer;
     }
@@ -39,6 +50,7 @@ class SigningController extends Controller
 
         return response()->view('platform-esign.public.sign', [
             'signer' => $signer, 'doc' => $doc, 'blocked' => $blocked, 'token' => $token, 'consent' => EsignService::CONSENT,
+            'hideDoc' => in_array($doc->status, ['expired', 'declined'], true), // an expired / declined document shows its status only
             'myFields' => $doc->isPdf() ? collect($doc->fields_json)->where('role_key', $signer->role_key)->values() : collect(),
         ])->header('Cache-Control', 'no-store')->header('X-Robots-Tag', 'noindex');
     }
@@ -48,7 +60,7 @@ class SigningController extends Controller
         $this->signerOr404($token);
         $data = $request->validate([
             'typed_name' => 'required|string|max:255', 'id_number' => 'nullable|string|max:40',
-            'signature' => 'nullable|string', 'fields' => 'nullable|array', 'fields.*' => 'nullable|string|max:500',
+            'signature' => 'nullable|string|max:400000', 'fields' => 'nullable|array', 'fields.*' => 'nullable|string|max:500',
             'consent' => 'accepted',
         ], ['consent.accepted' => 'Tick the box to confirm you agree to sign electronically.']);
         try {
@@ -75,7 +87,7 @@ class SigningController extends Controller
 
     public function page(Request $request, string $token, int $page)
     {
-        $signer = $this->signerOr404($token);
+        $signer = $this->assetsOr404($token);
         $doc = $signer->document;
         abort_unless($doc->isPdf() && $page >= 0 && $page < $doc->page_count, 404);
         $path = $this->svc->pagePath('platform-esign/documents/' . $doc->id, $page);
@@ -86,7 +98,7 @@ class SigningController extends Controller
 
     public function attachment(Request $request, string $token, int $attachment)
     {
-        $signer = $this->signerOr404($token);
+        $signer = $this->assetsOr404($token);
         $att = $signer->document->attachments()->findOrFail($attachment);
         abort_unless(Storage::disk(EsignService::DISK)->exists($att->stored_path), 404);
 
@@ -99,6 +111,8 @@ class SigningController extends Controller
         $signer = $this->signerOr404($token);
         $doc = $signer->document;
         abort_unless($doc->status === 'completed' && $doc->sealed_pdf_path && Storage::disk(EsignService::DISK)->exists($doc->sealed_pdf_path), 404);
+        // The file must still match the SHA-256 recorded when it was sealed; if not, it is not served (and the mismatch is logged on the audit trail).
+        abort_unless($this->svc->sealedIntact($doc), 409, 'This signed copy is temporarily unavailable. Please contact the sender.');
 
         return Storage::disk(EsignService::DISK)->download($doc->sealed_pdf_path, \Illuminate\Support\Str::slug($doc->title) . '-signed.pdf');
     }

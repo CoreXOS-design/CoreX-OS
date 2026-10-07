@@ -8,6 +8,7 @@ use App\Models\Platform\PlatformCompanyAudit;
 use App\Models\Platform\PlatformCompanyLogo;
 use App\Services\Platform\PlatformCompanyService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Platform Company Profile (RR Technologies / CoreX OS). Owner-only screens (route middleware AND re-checked here);
@@ -31,14 +32,17 @@ class PlatformCompanyController extends Controller
     public function logo(Request $request)
     {
         // `l` = the exact logo version a pinned document was sent with (0 = built-in); absent = the current logo.
-        $company = $request->query->has('l')
-            ? PlatformCompany::fromSnapshot(['logo_id' => (int) $request->query('l') ?: null])
-            : PlatformCompany::current();
+        $versioned = $request->query->has('l');
+        $id = (int) $request->query('l');
+        // Only the current logo, the built-in one, or a version a sent document is pinned to is public (A-F3).
+        abort_unless(! $versioned || PlatformCompany::logoIsPublic($id), 404);
+        $company = $versioned ? PlatformCompany::fromSnapshot(['logo_id' => $id ?: null]) : PlatformCompany::current();
         $f = $company->logoFile();
 
         return response($f['bytes'], 200, [
             'Content-Type'            => $f['mime'],
-            'Cache-Control'           => 'public, max-age=3600',
+            // A version's bytes never change, so a mail-image proxy or browser can keep it for good (fewer hits on the throttle).
+            'Cache-Control'           => $versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
             'X-Content-Type-Options'  => 'nosniff',
             // An SVG opened directly can never run script or load anything.
             'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
@@ -78,11 +82,38 @@ class PlatformCompanyController extends Controller
             'action'            => $action,
             'labels'            => PlatformCompanyService::LABELS,
             'previewWeb'        => $company->letterheadHtml('web'),
-            'previewPdf'        => $company->letterheadHtml('pdf'),
+            'previewPdf'        => $company->letterheadHtml('pdf', false),
+            'senderDomainWarning' => $this->senderDomainWarning((string) $company->send_from_address),
             'previewFooter'     => $company->letterheadFooterHtml('web'),
             'previewSignature'  => $company->emailSignatureHtml(),
             'standardSignature' => $company->defaultEmailSignatureHtml(),
         ]);
+    }
+
+    /**
+     * Sender-address hint (A-F4): a sending address on a domain this install does not itself mail from is the usual cause of
+     * agreement emails landing in spam or being refused. Advisory only — never blocks a save, never does a DNS lookup.
+     */
+    private function senderDomainWarning(string $address): ?string
+    {
+        $domain = mb_strtolower((string) Str::after($address, '@'));
+        if ($domain === '' || ! str_contains($address, '@')) {
+            return null;
+        }
+        $known = array_values(array_filter([
+            mb_strtolower((string) Str::after((string) config('mail.from.address'), '@')),
+            mb_strtolower((string) parse_url((string) config('app.url'), PHP_URL_HOST)),
+        ]));
+        foreach ($known as $k) {
+            $k = preg_replace('/^www\./', '', $k);
+            if ($domain === $k || str_ends_with($domain, '.' . $k) || str_ends_with($k, '.' . $domain)) {
+                return null;
+            }
+        }
+
+        return 'The sending address is on ' . $domain . ', which is not the domain this system sends mail from'
+            . ($known ? ' (' . implode(' / ', array_unique($known)) . ')' : '')
+            . '. Agreement emails from another domain can be refused by the mail server or land in spam unless that domain is set up to send for CoreX.';
     }
 
     public function update(Request $request)
@@ -107,8 +138,9 @@ class PlatformCompanyController extends Controller
             'email_general'        => ['required', 'email', 'max:255'],
             'email_support'        => ['nullable', 'email', 'max:255'],
             'email_accounts'       => ['nullable', 'email', 'max:255'],
-            'send_from_address'    => ['required', 'email', 'max:255'],
-            'send_from_name'       => ['required', 'string', 'max:150'],
+            // A bare mailbox only: no display name, brackets, quotes, commas or spaces smuggled into the address. Syntax only — no DNS lookup, so saving works offline.
+            'send_from_address'    => ['required', 'email:rfc', 'max:255', 'regex:/^[^\s<>",;]+@[^\s<>",;]+$/'],
+            'send_from_name'       => ['required', 'string', 'max:150', 'not_regex:/[\x00-\x1F<>"]/'],
             'phones'               => ['nullable', 'array', 'max:8'],
             'phones.*.label'       => ['nullable', 'string', 'max:40'],
             'phones.*.number'      => ['required', 'string', 'regex:/^[0-9+()\-\/. ]{5,40}$/'],
@@ -134,6 +166,8 @@ class PlatformCompanyController extends Controller
             'email_accounts.email'              => 'The accounts email address is not a valid email address.',
             'send_from_address.required'        => 'Enter the sending address the agreement emails are sent from.',
             'send_from_address.email'           => 'The sending address is not a valid email address.',
+            'send_from_address.regex'           => 'The sending address must be just an email address (like admin@example.co.za) — no name, brackets or spaces.',
+            'send_from_name.not_regex'          => 'The sender name cannot contain line breaks, quotes or < > characters.',
             'send_from_name.required'           => 'Enter the sender name the agreement emails are sent as.',
             'vat_number.required_if'            => 'Enter the VAT number, or untick "VAT registered".',
             'vat_number.regex'                  => 'A South African VAT number is 10 digits (spaces are fine).',
@@ -171,9 +205,10 @@ class PlatformCompanyController extends Controller
         $user = $this->owner($request);
         abort_unless($logo === 'built-in' || ctype_digit($logo), 404);
 
-        $this->svc->restoreLogo($logo === 'built-in' ? null : (int) $logo, $user);
+        $changed = $this->svc->restoreLogo($logo === 'built-in' ? null : (int) $logo, $user);
 
-        return redirect()->route('admin.platform-company.index')->with('success', 'Logo restored.');
+        return redirect()->route('admin.platform-company.index')
+            ->with($changed ? 'success' : 'warning', $changed ? 'Logo restored.' : 'That logo is already the current one — nothing changed.');
     }
 
     /** Live preview of UNSAVED form values — never validated (absorb: show what we can), never stored. */
@@ -184,7 +219,8 @@ class PlatformCompanyController extends Controller
 
         return response()->json([
             'web'       => $c->letterheadHtml('web'),
-            'pdf'       => $c->letterheadHtml('pdf'),
+            // The PDF layout, but the logo by URL — never the whole image as base64 on every keystroke refresh (A-F5).
+            'pdf'       => $c->letterheadHtml('pdf', false),
             'footer'    => $c->letterheadFooterHtml('web'),
             'signature' => $c->emailSignatureHtml(),
             'standard'  => $c->defaultEmailSignatureHtml(),

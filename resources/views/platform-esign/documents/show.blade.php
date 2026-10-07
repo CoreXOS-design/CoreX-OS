@@ -75,6 +75,9 @@
                 @endif
                 @if($doc->status === 'completed' && !$doc->sealed_pdf_path)
                     <form method="POST" action="{{ route('platform-esign.documents.reseal', $doc->id) }}">@csrf<button class="corex-btn-primary w-full">Rebuild the signed PDF</button></form>
+                @elseif($doc->status === 'completed' && !$doc->isWebdoc())
+                    {{-- Already sealed and emailed: a rebuild replaces evidence, so it is a deliberate owner action. The previous copy is kept; nobody is re-emailed. --}}
+                    <form method="POST" action="{{ route('platform-esign.documents.reseal', $doc->id) }}" onsubmit="return confirm('This document is already sealed and the signers hold that copy. Rebuilding creates a NEW sealed file with a different fingerprint; the current file is kept as a superseded version and nobody is re-emailed. Continue?');">@csrf<input type="hidden" name="force" value="1"><button class="text-xs underline" style="color: var(--text-muted);">Force a rebuild of the sealed PDF (owner)</button></form>
                 @endif
                 @if(!in_array($doc->status, ['completed', 'voided'], true))
                     <button type="button" class="corex-btn-outline w-full" style="color: var(--ds-crimson);" @click="voiding = !voiding">Void this document</button>
@@ -92,5 +95,6 @@
             @endif
         </div>
     </div>
+    @include('platform-esign._end')
 </div>
 @endsection
