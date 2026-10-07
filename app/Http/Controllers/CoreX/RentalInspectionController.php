@@ -522,6 +522,7 @@ class RentalInspectionController extends Controller
             // §43 — the reschedule form's inspector picker.
             'inspectorOptions' => User::where('agency_id', $rentalInspection->agency_id)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'followUpObservations' => $followUpObservations,
+            'followUpMarkers' => $followUpService->comparisonMarkersFor($rentalInspection, $followUpObservations),
             'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
             'followUpWorkOrdersByObservation' => $followUpLinked['work_orders'],
         ]);

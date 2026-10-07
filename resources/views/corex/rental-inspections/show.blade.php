@@ -56,7 +56,7 @@
             @endif
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
-                <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-in vs move-out comparison</a>
+                <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
         </div>
@@ -445,6 +445,10 @@
                                     @if($observation->notes) — <span style="color: var(--text-muted);">{{ $observation->notes }}</span> @endif
                                     @if($observation->photos->isNotEmpty())
                                         <span class="text-xs" style="color: var(--text-muted);">· {{ $observation->photos->count() }} photo(s)</span>
+                                    @endif
+                                    {{-- §45.7a item 5 — out-inspection only: how this compares with move-in. Never preselects anything. --}}
+                                    @if(!empty($followUpMarkers[$observation->id]['label']))
+                                        <span class="text-xs font-semibold" style="color: {{ ($followUpMarkers[$observation->id]['key'] ?? '') === 'same' ? 'var(--text-muted)' : '#b45309' }};" data-qa="follow-up-marker-{{ $observation->id }}">· {{ $followUpMarkers[$observation->id]['label'] }}</span>
                                     @endif
                                 </span>
                             </label>
