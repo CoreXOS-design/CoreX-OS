@@ -46,10 +46,13 @@
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Compliance
                 </a>
+                @include('compliance.fica.partials.qa-header-actions', ['submission' => $submission])
                 @if($submission->status === 'approved')
-                    <a href="{{ route('compliance.fica.pdf', $submission) }}" target="_blank" class="corex-btn-outline text-xs">
+                    {{-- The FICA Compliance Certificate (completion report, frozen at approval) — NOT the questions & answers form above. --}}
+                    <a href="{{ route('compliance.fica.pdf', $submission) }}" target="_blank" class="corex-btn-outline text-xs" data-fica-certificate-pdf
+                       title="The FICA Compliance Certificate issued when this FICA was approved">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                        Download PDF
+                        Download FICA certificate (PDF)
                     </a>
                 @endif
                 @if($submission->status === 'agent_approved' && auth()->user()->isComplianceOfficer((int) $submission->agency_id))
