@@ -3558,6 +3558,33 @@ Build 2 appends at the end of the rental_portal block), `corex/settings/rental-p
 Build order recommendation: Build 1 merges its migrations first (token table, crew fields, photo/caption columns); Build 2 starts
 in parallel against §14.27.6.
 
+### 14.31 Catalogue item EDIT — the price box shows the agency's own basis, so a plain Save never moves the price (2026-10-07, cc2, QA1)
+
+**What was wrong.** For an agency that captures prices INCLUDING VAT, the Parts & Labour Catalogue edit screen showed the stored EXCL-VAT price in the "Incl VAT" box. Typing R115.00 incl saved R100.00 (correct), but re-opening the item showed 100 in the incl box, so every plain Save re-converted that excl figure as if it were incl and quietly lowered the price: 100.00 → 86.96 → 75.62 … An agency that captures excl was never affected.
+
+**Rule (unchanged, now honoured on the way OUT as well as IN).** `default_price` and `default_cost` are ALWAYS stored excl VAT (§14.3a). The editable price/cost box is in the agency's capture basis (incl or excl, `agencies.vat_capture_mode`). Save converts box → stored (`RentalCatalogueItemController::validated()` via `RentalJobCardVatService::splitAmount()`); the edit screen must convert stored → box with the matching inverse, using the item's own saved VAT type / custom rate.
+
+**Fix.** `RentalCatalogueItemController::edit()` now passes `itemPrice` = `RentalJobCardVatService::catalogueDefaultPriceForLine()` (the same stored→capture-basis conversion the job card line prefill already used) and `edit.blade.php` seeds the Alpine `price` from it. The cost box was already converted correctly (`catalogueDefaultCostForLine()`); it is untouched. A validation-bounce still re-shows `old('default_price')`, which is already in the capture basis.
+
+**Why it is stable to the cent.** The stored value has 2 decimals; the shown incl is `round(excl × (1+r), 2)`; the saved excl is `round(shown / (1+r), 2)`. One excl cent is worth (1+r)×0.01 of incl, so a shown incl identifies exactly one excl cent and dividing back lands within 0.005/(1+r) < 0.005 of it — the pair is the identity for every 2-decimal amount at any rate ≥ 0. Proven by test over R0.00–R3,000.00 at 15 %, 7.5 %, 14 %, 0.5 % and 33.33 %.
+
+**Same-class check (every other place a price/cost goes through the capture-basis conversion):**
+- Catalogue **default price** edit — WAS faulty, fixed here.
+- Catalogue **default cost** edit — no fault (already converted on the way out, same rate as price).
+- Catalogue **create** — no fault (empty box; save converts incl→excl).
+- Catalogue **list** (Excl / VAT type / Incl columns) — no fault, read-only, computed from stored excl by `catalogueItemPrices()`.
+- Catalogue **import** — no fault: separate named `price_excl` / `price_incl` / `cost_excl` columns, a one-way file→stored conversion, nothing re-displayed for re-saving.
+- **Job card line** unit price / line total / unit cost — no fault: stored AS TYPED in the capture basis (no conversion on save), the card freezes the mode at quote/completion (§14.21), and the edit guard compares typed vs stored with a 0.004 tolerance.
+- **Job card line prefill from a catalogue item** (job-card Add line, `RentalPricingService` step 5, crew-cost prefill) — no fault: a pure read of stored excl converted to the capture basis, never written back.
+
+**Existing data.** Nothing rewritten. On QA1 the only agency on incl capture is the reconcile lane's own test agency; its single catalogue item (`ZZ-INCL`) was archived and sits at 75.62 — exactly the 100 → 86.96 → 75.62 drift from that reproduction. No real agency's catalogue is affected on QA1. (There is no catalogue audit trail, so "edited more than once" can only be read from `updated_at`; Staging / live were not looked at.)
+
+**Tests.** `tests/Feature/RentalMaintenanceFlow/CatalogueVatEditRoundTripTest.php` — incl agency create → edit → plain Save ×10 keeps price and cost; odd-cent prices and a custom-rate VAT type ×10; the every-cent identity sweep; excl agency unaffected; switching the capture basis changes what is shown but never what is stored; job-card prefill does not drift.
+
+**Real-browser check (QA1, 7 Oct, throwaway incl-VAT agency, archived afterwards).** Create typing R115.00 incl with Standard VAT → stored 100.00; the edit screen showed 115 in the Incl VAT box; five plain Saves in a row each left the stored price at 100.00; the catalogue list showed R100.00 / R115.00.
+
+**Reported, not changed.** (a) An item created with NO price is stored as R0.00, not blank (the create form's box starts at 0 and posts it; an edit + plain Save keeps 0.00). `RentalPricingService` step 5 tests `default_price !== null`, so a catalogue item saved this way counts as "has a catalogue price of R0" and a line picking it prices at R0 instead of falling through to the agency markup. Same on excl and incl agencies — not a capture-basis fault. (b) The catalogue LIST's Archive button answers **405**: its form posts a plain POST to `corex.rental-catalogue-items.archive`, which is registered as `DELETE` (`routes/web.php` ~4078), and the form in `rental-catalogue-items/index.blade.php` (~106) has no `@method('DELETE')`. Nothing can be archived from the list screen until that line is added. (c) Changing the item's VAT type on the edit screen re-reads the figure in the box under the NEW rate (incl 115 under Standard becomes excl 115 under No VAT); the create screen behaves the same way.
+
 ## 15. Inspection Follow-up (AT-447, built 2026-10-05) — the marked-item-to-record bridge
 
 **Johan's requirement, verbatim (via the conductor's investigation brief):** "at the end of an
