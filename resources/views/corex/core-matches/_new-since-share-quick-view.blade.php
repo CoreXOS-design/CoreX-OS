@@ -34,6 +34,8 @@
                     {{ $property->suburb }}
                     @if($reason === \App\Services\Matching\CoreMatchReasonClassifier::REASON_REDUCED && isset($meta['old_price'], $meta['new_price']))
                         · R{{ number_format($meta['old_price']) }} → R{{ number_format($meta['new_price']) }}
+                    @elseif($property->price_on_application)
+                        · Price on Application
                     @elseif($property->price)
                         · R{{ number_format($property->price) }}
                     @endif

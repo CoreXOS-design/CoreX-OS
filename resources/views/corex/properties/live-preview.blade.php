@@ -22,7 +22,8 @@
     // rental reads "To Let", never "For Sale". Concluded and interim states mean the
     // same thing on both sides of the sale/rental line, so they ignore listing type.
     $isRental = $property->isRental();
-    $liveLabel = $isRental ? 'To Let' : 'For Sale';
+    // AT-432 — a property being sold at auction is advertised "On Auction", not "For Sale".
+    $liveLabel = $isRental ? 'To Let' : ($property->isAuction() ? 'On Auction' : 'For Sale');
 
     $statusMap = [
         // Live — advertised as available.
@@ -305,11 +306,13 @@
                 </section>
             @endif
 
+            @include('corex.properties.partials._auction-preview')
+
             {{-- Bond calculator — sales only. A tenant takes no bond out on a rental,
                  and the sale `price` column is 0/null on a rental anyway, so on a
                  rental this section rendered a repayment schedule for a purchase
                  that will never happen. --}}
-            @unless($isRental)
+            @unless($isRental || $property->price_on_application)
             <section class="mt-10" x-data="mortgageCalc({{ (int) $property->effectivePrice() }})">
                 <h2 class="text-navy text-2xl font-light">Bond calculator</h2>
                 <p class="mt-1 text-sm text-neutral-500">Estimate your monthly repayment. Indicative only.</p>
@@ -384,9 +387,9 @@
 
                 {{-- Price card --}}
                 <div class="rounded-sm border border-slate-200 bg-slate-50 p-6" id="enquire">
-                    <p class="text-marine text-xs font-semibold tracking-[0.2em] uppercase">{{ $isRental ? 'Monthly rental' : 'Asking price' }}</p>
+                    <p class="text-marine text-xs font-semibold tracking-[0.2em] uppercase">{{ $property->price_on_application ? 'Price' : ($isRental ? 'Monthly rental' : ($property->isAuction() ? 'Auction' : 'Asking price')) }}</p>
                     <p class="text-brand-red mt-2 text-2xl font-semibold num">
-                        {{ $property->formattedPrice() }}{{ $isRental ? ' / month' : '' }}
+                        {{ $property->formattedPrice() }}{{ ($isRental && ! $property->price_on_application) ? ' / month' : '' }}
                     </p>
                     @if($property->suburb || $property->city)
                         <p class="mt-1 text-sm text-neutral-500">{{ $property->suburb }}{{ $property->city ? ', '.$property->city : '' }}</p>

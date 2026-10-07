@@ -732,6 +732,7 @@ class ContactMatchController extends Controller
             'price_min'               => 'nullable|integer|min:0',
             'price_max'               => 'nullable|integer|min:0',
             'beds_min'                => 'nullable|integer|min:0|max:20',
+            'open_to_auction'         => 'nullable|boolean',
             'bedrooms_max'            => 'nullable|integer|min:0|max:20',
             'baths_min'               => 'nullable|integer|min:0|max:20',
             'garages_min'             => 'nullable|integer|min:0|max:20',

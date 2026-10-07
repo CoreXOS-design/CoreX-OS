@@ -81,6 +81,9 @@ class PropertyController extends Controller
         // down, AFTER the query string is read — see $listingType below.
         $indexRouteName = $request->route()->getName();
         $isRentalEntry  = $indexRouteName === 'corex.rentals.properties.index';
+        // AT-432 — same lock mechanism, the OTHER axis (sale_method, not
+        // listing_type) per .ai/specs/auctions.md §2/§8.2.
+        $isAuctionEntry = $indexRouteName === 'corex.auctions.properties.index';
 
         // AT-401 — remembers which lens the user most recently entered
         // Properties through, so the sidebar can keep highlighting "Rentals →
@@ -91,6 +94,10 @@ class PropertyController extends Controller
         // used for the listing_type lock above — that always derives from the
         // route name itself, never from session state.
         session(['corex.lens.properties' => $isRentalEntry]);
+        // AT-432 — the fourth lens (see M14's comment on the third, just
+        // below): a property opened FROM Auctions → Properties returns
+        // there and lights up the Auctions sidebar panel, not Real Estate.
+        session(['corex.lens.auctions' => $isAuctionEntry]);
         // Prod-audit 2026-09-16 (M14) — the third lens. A property opened FROM
         // Imported Stock returns there (Back link + sidebar highlight), not to
         // Properties, where the row is by construction not listed. Kept as a
@@ -106,15 +113,19 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        // One list, three entry points (Properties, Rentals -> Properties, Imported Stock) and
-        // three saved-filter sets, so a pick on one list never bleeds into another (AT-401 / AT-419).
+        // One list, FOUR entry points (Properties, Rentals -> Properties, Imported Stock,
+        // Auctions -> Properties) and four saved-filter sets, so a pick on one list never
+        // bleeds into another (AT-401 / AT-419 / AT-432).
         $SESSION_KEY = $importedStock
             ? 'corex.properties.imported_stock.filters'
-            : ($isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters');
+            : ($isRentalEntry ? 'corex.rentals.properties.filters'
+                : ($isAuctionEntry ? 'corex.auctions.properties.filters' : 'corex.properties.filters'));
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
             'beds_min', 'baths_min', 'sort', 'dir', 'agent_ids',
+            // AT-432 — §8.2's own additions: auction, lot status, reserve met.
+            'sale_method', 'auction_id', 'lot_status', 'reserve_met',
         ];
 
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
@@ -158,6 +169,17 @@ class PropertyController extends Controller
         if ($isRentalEntry) {
             $listingType = 'rental';
         }
+
+        // AT-432 — the same lock, applied to sale_method instead of
+        // listing_type: ?sale_method=private_treaty on this entry point is
+        // overridden exactly as the rental lock overrides listing_type above.
+        $saleMethod = $request->query('sale_method', '');
+        if ($isAuctionEntry) {
+            $saleMethod = 'auction';
+        }
+        $auctionIdFilter = $request->query('auction_id', '');
+        $lotStatusFilter = $request->query('lot_status', '');
+        $reserveMetFilter = $request->query('reserve_met', '');
         $propertyType   = $request->query('property_type', '');
         $category       = $request->query('category', '');
         $mandateType    = $request->query('mandate_type', '');
@@ -175,6 +197,9 @@ class PropertyController extends Controller
             'agent', 'branch', 'secondAgent',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
         ]);
+        if ($isAuctionEntry) {
+            $query->with('auctionLots.auction');
+        }
 
         // AT-419 — the two pages partition every property between them: Imported
         // Stock gets P24-imported off-market rows, Properties gets everything
@@ -322,6 +347,17 @@ class PropertyController extends Controller
             $query->where('status', $status);
         }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
+        // AT-432 (.ai/specs/auctions.md §8.2) — the lock above; the three
+        // lens-only additions (auction, lot status, reserve met) apply ONLY
+        // through a real join to auction_lots, never a bare column guess.
+        if ($saleMethod !== '')   $query->where('sale_method', $saleMethod);
+        if ($auctionIdFilter !== '' || $lotStatusFilter !== '' || $reserveMetFilter !== '') {
+            $query->whereHas('auctionLots', function ($q) use ($auctionIdFilter, $lotStatusFilter, $reserveMetFilter) {
+                if ($auctionIdFilter !== '') $q->where('auction_id', (int) $auctionIdFilter);
+                if ($lotStatusFilter !== '') $q->where('status', $lotStatusFilter);
+                if ($reserveMetFilter !== '') $q->where('reserve_met', $reserveMetFilter === '1');
+            });
+        }
         if ($propertyType !== '') {
             // 2026-08-20 audit — also match legacy/imported labels for the same
             // type (Property::propertyTypeSynonyms), so older and P24-imported
@@ -395,7 +431,9 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting,"
             // AT-448 — the Expired tile. Same clone-of-$query aggregate, same
             // case-insensitive match as its filter keyword above.
-            . " SUM(CASE WHEN LOWER(status) = 'expired' THEN 1 ELSE 0 END) as expired"
+            . " SUM(CASE WHEN LOWER(status) = 'expired' THEN 1 ELSE 0 END) as expired,"
+            // AT-432 — Auctions lens "On Auction" tile (same clone-of-$query rule).
+            . " SUM(CASE WHEN status = '" . Property::STATUS_ON_AUCTION . "' THEN 1 ELSE 0 END) as on_auction"
         )->first();
         $stats = [
             'total'      => (int) ($agg->total ?? 0),
@@ -405,6 +443,7 @@ class PropertyController extends Controller
             'rentedOut'  => (int) ($agg->rented_out ?? 0),
             'prospecting'=> (int) ($agg->prospecting ?? 0),
             'expired'    => (int) ($agg->expired ?? 0),
+            'onAuction'  => (int) ($agg->on_auction ?? 0),
         ];
 
         // Layer 3 — the "Awaiting approval" tile. Counted ONLY when the agency
@@ -499,6 +538,18 @@ class PropertyController extends Controller
             } else {
                 $query->orderByDesc('created_at');
             }
+        } elseif ($isAuctionEntry && in_array($sort, ['lot_number', 'auction_date'], true)) {
+            // AT-432 (§8.2) — sort by lot number / auction date. Correlated
+            // sub-selects over the property's live (non-deleted) lots; a property
+            // with no lot sorts last either way. $dir is already whitelisted.
+            $concluded = "'" . implode("','", \App\Models\AuctionLot::CONCLUDED_STATUSES) . "'";
+            $expr = $sort === 'lot_number'
+                ? "(SELECT MIN(al.lot_number) FROM auction_lots al WHERE al.property_id = properties.id AND al.deleted_at IS NULL AND al.status NOT IN ($concluded))"
+                : "(SELECT MIN(a.starts_at) FROM auction_lots al JOIN auctions a ON a.id = al.auction_id WHERE al.property_id = properties.id AND al.deleted_at IS NULL AND a.deleted_at IS NULL)";
+            $query->select('properties.*')
+                  ->orderByRaw("$expr IS NULL")
+                  ->orderByRaw("$expr " . ($dir === 'asc' ? 'asc' : 'desc'))
+                  ->orderByDesc('properties.created_at');
         } elseif (isset($sortableColumns[$sort])) {
             $query->orderBy($sortableColumns[$sort], $dir);
         } else {
@@ -625,6 +676,20 @@ class PropertyController extends Controller
             'bedsMin', 'bathsMin', 'sort'
         );
 
+        // AT-432 — lens-only filter controls (§8.2): which auction, lot status, reserve met.
+        $isAuctionEntry = $isAuctionEntry ?? false;
+        $auctionFilters = [
+            'auctionId' => (string) $auctionIdFilter,
+            'lotStatus' => (string) $lotStatusFilter,
+            'reserveMet' => (string) $reserveMetFilter,
+        ];
+        $auctionOptions = $isAuctionEntry
+            ? \App\Models\Auction::query()->orderByDesc('starts_at')->get(['id', 'reference', 'title', 'starts_at'])
+            : collect();
+        $lotStatusLabels = $isAuctionEntry
+            ? PropertySettingItem::auctionLotStatusLabelsFor((int) ($user?->effectiveAgencyId() ?? 0))
+            : [];
+
         $scope = $viewScope;
 
         $currentSort = $sort;
@@ -692,7 +757,8 @@ class PropertyController extends Controller
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
             'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
             'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds',
-            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl'
+            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl',
+            'isAuctionEntry', 'auctionFilters', 'auctionOptions', 'lotStatusLabels'
         ));
     }
 
@@ -1161,6 +1227,21 @@ class PropertyController extends Controller
         /** @var User $user */
         $user = auth()->user();
 
+        // AT-432 — "On Auction" is a third choice in the Listing Type picker
+        // (spec §2.1). It is stored as a SALE listing with sale_method='auction';
+        // the chosen auction takes the property as a lot once it exists.
+        $auctionChoice = $request->input('listing_type') === 'auction';
+        $chosenAuction = null;
+        if ($auctionChoice) {
+            abort_unless($user->hasPermission('auctions.create'), 403);
+            $request->validate(['auction_id' => 'required|integer']);
+            $chosenAuction = \App\Models\Auction::find((int) $request->input('auction_id'));
+            if (! $chosenAuction) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['auction_id' => 'Pick the auction this property is going into.']);
+            }
+            $request->merge(['listing_type' => 'sale']);
+        }
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
@@ -1506,6 +1587,10 @@ class PropertyController extends Controller
 
             return $property;
         });
+
+        if ($chosenAuction) {
+            app(\App\Services\Auctions\AuctionLotAttacher::class)->attach($chosenAuction, $property);
+        }
 
         // The create form falls back to an AJAX submit when it carries more
         // gallery images than PHP's max_file_uploads cap (default 20): the

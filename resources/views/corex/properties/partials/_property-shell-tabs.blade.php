@@ -35,6 +35,7 @@
     $tabs = [
         ['key'=>'overview',  'label'=>'Overview'],
         ['key'=>'info',      'label'=>'Info'],
+        ['key'=>'auction',   'label'=>'Auction'],
         ['key'=>'gallery',   'label'=>'Gallery'],
         ['key'=>'rental',    'label'=>'Rental'],
         ['key'=>'rental-images', 'label'=>'Rental Images'],
@@ -59,6 +60,10 @@
      @endif>
     @foreach($tabs as $tab)
     @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
+        @continue
+    @endif
+    {{-- AT-432 — Auction tab only for a property that is on auction. --}}
+    @if($tab['key'] === 'auction' && ($isNew || ! $property->isAuction()))
         @continue
     @endif
     @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))

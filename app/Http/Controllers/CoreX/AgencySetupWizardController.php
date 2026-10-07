@@ -670,6 +670,15 @@ class AgencySetupWizardController extends Controller
                         ->where('user_id', Auth::id())
                         ->first()?->{$key} ?? ($control['default'] ?? null)
                 ),
+                // AT-432 — Auctions settings live on agency_auction_settings; the
+                // accessors return the documented default when no row exists.
+                'auction'   => match ($key) {
+                    'auction_advertising_only'    => (int) \App\Models\AgencyAuctionSettings::advertisingOnlyFor($agency->id),
+                    'auction_auctioneer_mode'     => \App\Models\AgencyAuctionSettings::auctioneerModeFor($agency->id),
+                    'auction_reserve_visibility'  => \App\Models\AgencyAuctionSettings::reserveVisibilityFor($agency->id),
+                    'auction_guide_price_enabled' => (int) \App\Models\AgencyAuctionSettings::guidePriceEnabledFor($agency->id),
+                    default                       => $control['default'] ?? null,
+                },
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

@@ -291,7 +291,7 @@
                 <span class="text-xs" style="color:var(--text-muted);">🏠 Enquired on:</span>
                 @foreach($row['leadProperties']->take(4) as $prop)
                 <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                      title="{{ $prop->title }}{{ $prop->price ? ' — R' . number_format($prop->price) : '' }}">
+                      title="{{ $prop->title }}{{ $prop->price_on_application ? ' — Price on Application' : ($prop->price ? ' — R' . number_format($prop->price) : '') }}">
                     {{ $prop->suburb ?: $prop->title }}
                 </span>
                 @endforeach

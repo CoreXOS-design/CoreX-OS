@@ -162,6 +162,14 @@ Schedule::command('corex:matches:send-digests')->dailyAt('07:00')->onOneServer()
 
 // Agency Access Authorization — expire stale pending requests every minute.
 Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
+// AT-432 Phase 4 (.ai/specs/auctions.md §11.2) — pure-online auction lots
+// close themselves when their bidding window passes; a hybrid/in-room lot
+// always waits for the auctioneer's own hammer (see the command's own
+// closeExpiredOnlineLots() docblock for why only 'online' auctions qualify).
+Schedule::command('auctions:close-expired-lots')->everyMinute()->withoutOverlapping();
+
+// AT-432 addendum — .ai/specs/auctions-advertising-mode.md §7: reminders to people who enquired about a lot.
+Schedule::command('auctions:send-reminders')->hourly()->withoutOverlapping();
 
 // AT-118 — Communications Access Gate: midnight reset of all live grants
 // (closes the never-closed-session loophole) + expire stale pending requests.
