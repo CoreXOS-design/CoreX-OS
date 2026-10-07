@@ -8850,6 +8850,21 @@
                 activeSigningKey: null,
                 signaturePads: {},
 
+                // §45.6 (Build I-4 top-up) — true when everything Complete asks for from the PARTIES is already in: every
+                // party has a signing outcome (none still waiting for a paper scan), the agent has signed, and every
+                // expected party has an attendance outcome. Display only — the server re-checks all of it (and also
+                // enforces unrecorded items and required notes, which this deliberately does not claim).
+                readyToComplete(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp || insp.status !== 'awaiting_signature') return false;
+                    const live = (insp.signatures || []).filter(sg => !sg.superseded_at);
+                    if (live.some(sg => sg.disposition === 'awaiting_wet_ink')) return false;
+                    if (!live.some(sg => sg.party_role === 'agent')) return false;
+                    if (this.inspectionTenants(section).some(t => !this.tenantDisposition(section, t.contact_id))) return false;
+                    if (this.landlordContact && !this.landlordDisposition(section)) return false;
+                    const board = this.attendanceBoard(section);
+                    return !!board && board.complete;
+                },
                 inspectionTenants(section) {
                     return this.currentInspection(section)?.lease?.tenants || [];
                 },

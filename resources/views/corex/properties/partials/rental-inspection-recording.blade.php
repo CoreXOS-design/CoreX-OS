@@ -1689,7 +1689,9 @@
                     </template>
                 </div>
 
-                <div class="flex justify-end pt-1">
+                <div class="flex justify-end items-center gap-3 pt-1">
+                    <span x-show="readyToComplete({{ $sectionJs }})" x-cloak data-qa="ready-to-complete"
+                          class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #059669 14%, transparent); color:#059669;">Ready to complete</span>
                     <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="completeInspection({{ $sectionJs }})"
                             class="px-4 py-2 rounded-md text-sm font-semibold"
                             :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
