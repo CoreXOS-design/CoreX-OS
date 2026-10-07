@@ -53,8 +53,32 @@
         return batches;
     };
 
+    // AT-436 class fix, 2026-10-07 — a photo that is still uploading, or whose
+    // upload FAILED, exists only as a File in this tab's memory. Closing the tab,
+    // reloading or navigating away destroyed it with no warning (the property
+    // page's own beforeunload only watches its edit form). One guard for every
+    // uploader on the page: it prompts while any batch is uploading or failed.
+    // A browser cannot be stopped from discarding a backgrounded phone tab, but
+    // every deliberate way of leaving now says so first.
+    window.__corexPhotoUploaders = window.__corexPhotoUploaders || [];
+    window.corexUnsavedPhotoCount = window.corexUnsavedPhotoCount || function () {
+        let n = 0;
+        window.__corexPhotoUploaders.forEach(u => (u.uploadBatches || []).forEach(b => {
+            if (b.status === 'uploading' || b.status === 'failed') n += (b.files || []).length;
+        }));
+        return n;
+    };
+    if (!window.__corexPhotoLeaveGuard) {
+        window.__corexPhotoLeaveGuard = true;
+        window.addEventListener('beforeunload', function (e) {
+            if (!window.corexUnsavedPhotoCount()) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
+    }
+
     window.corexPhotoBatchUploader = function (config) {
-        return {
+        const uploader = {
             _cpu_csrf: config.csrf,
             _cpu_uploadUrl: config.uploadUrl,
             _cpu_tagUrl: config.tagUrl,
@@ -74,14 +98,23 @@
             // itself — keeps calling the same callback on every retry, not
             // just the first attempt. Existing 2-arg callers are unaffected.
             async uploadFiles(fileList, extraFields, onBatchDone) {
-                const files = Array.from(fileList || []);
-                if (!files.length) return;
+                const allFiles = Array.from(fileList || []);
+                if (!allFiles.length) return;
+                // AT-436 class fix, 2026-10-07 — an oversize file used to push ONE
+                // failed row for the first offender and `return`, so every other
+                // photo picked in the same selection was never uploaded and never
+                // reported: silently dropped. Each oversize file now gets its own
+                // visible failed row and the rest upload normally.
                 const MAX_FILE = 50 * 1024 * 1024;
-                const tooBig = files.find(f => f.size > MAX_FILE);
-                if (tooBig) {
-                    this.uploadBatches.push({ files: [tooBig], status: 'failed', error: `"${tooBig.name}" is over the 50MB per-photo limit.`, extraFields, onBatchDone });
-                    return;
+                const files = [];
+                for (const f of allFiles) {
+                    if (f.size > MAX_FILE) {
+                        this.uploadBatches.push({ files: [f], status: 'failed', error: `"${f.name}" is over the 50MB per-photo limit.`, extraFields, onBatchDone });
+                    } else {
+                        files.push(f);
+                    }
                 }
+                if (!files.length) return;
                 const batches = window.planUploadBatches(files, 10, 40 * 1024 * 1024);
                 this.uploadBusy = true;
                 for (const batchFiles of batches) {
@@ -137,7 +170,15 @@
                         if (xhr.status >= 200 && xhr.status < 300 && Array.isArray(body.photos)) {
                             entry.status = 'done';
                             this.photos.push(...body.photos);
-                            if (typeof entry.onBatchDone === 'function') entry.onBatchDone(body, entry);
+                            // The photos are already on the server here. A throwing callback
+                            // must never leave this promise unresolved: uploadFiles() awaits
+                            // it, so a hang means every LATER batch of the same selection is
+                            // never sent (silently dropped).
+                            try {
+                                if (typeof entry.onBatchDone === 'function') entry.onBatchDone(body, entry);
+                            } catch (e) {
+                                if (window.console) console.error('photo uploader: onBatchDone threw', e);
+                            }
                             return resolve();
                         }
                         entry.status = 'failed';
@@ -145,6 +186,9 @@
                         resolve();
                     };
                     xhr.onerror = () => { entry.status = 'failed'; entry.error = 'Network error during upload.'; resolve(); };
+                    // An aborted request fires neither onload nor onerror: without this the
+                    // row sat on "Uploading…" forever and the queue behind it never moved.
+                    xhr.onabort = () => { entry.status = 'failed'; entry.error = 'Upload was interrupted.'; resolve(); };
                     xhr.send(fd);
                 });
             },
@@ -328,5 +372,7 @@
                 await this.tagSelectedToRoom(roomId);
             },
         };
+        window.__corexPhotoUploaders.push(uploader);
+        return uploader;
     };
 })();

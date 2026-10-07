@@ -5453,9 +5453,9 @@
                         <template x-if="!chainTail">
                             <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
                                 <div x-show="startError['in']" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError['in']"></div>
-                                <button type="button" :disabled="startBusy['in']" @click="startInspection('in')"
+                                <button type="button" :disabled="isStartBusy('in')" @click="startInspection('in')"
                                         class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                                        x-text="startBusy['in'] ? 'Starting…' : 'Start In-Inspection'"></button>
+                                        x-text="isStartBusy('in') ? 'Starting…' : 'Start In-Inspection'"></button>
                             </div>
                         </template>
 
@@ -7576,6 +7576,10 @@
                 },
 
                 startBusy: {},
+                // AT-437 class guard, 2026-10-07 — coerced to a real boolean like isObsBusy()/
+                // isMarkGoodBusy(); no boolean-attribute binding on this screen reads a
+                // lazily-populated object directly any more (RentalInspectionDeadControlGuardTest).
+                isStartBusy(section) { return !!this.startBusy[section]; },
                 startError: {},
 
                 // FIX, 2026-09-22, Johan: "the screen does not refresh after

@@ -335,7 +335,7 @@ final class PropertyAddressReconciler
             return true;
         }
         return (bool) preg_match(
-            '/^' . preg_quote(trim($number), '/') . '(?![0-9A-Za-z])/u',
+            '/^' . preg_quote(trim($number), '/') . '(?![0-9A-Za-z])/iu', // "12A" opens "12a Beach Road" (a tracked street is stored lower-cased after the digit)
             trim($name)
         );
     }

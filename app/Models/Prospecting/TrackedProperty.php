@@ -326,10 +326,21 @@ final class TrackedProperty extends Model
         return $types->contains(fn ($t) => ! str_starts_with($t, 'manual'));
     }
 
+    /**
+     * The street line every display of this property uses: house number + street, never the number twice.
+     * The structured-address layer fills `street_number` from text that is still in the raw `street_name`
+     * ("12 Beach Road" → number 12, name unchanged — the raw name is never rewritten), so a plain
+     * number + ' ' + name concatenation reads "12 12 Beach Road". Same guarded composer a Property uses.
+     */
+    public function streetLine(): string
+    {
+        return \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece($this->street_number, $this->street_name, null, null);
+    }
+
     public function displayAddress(): string
     {
         $parts = array_filter([
-            trim(($this->street_number ?? '') . ' ' . ($this->street_name ?? '')),
+            $this->streetLine(),
             $this->suburb,
         ]);
         return implode(', ', $parts) ?: '(no address)';

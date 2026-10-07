@@ -129,10 +129,9 @@ final class TrackedPropertyAddress extends Model
         $parts = [];
         if (!empty($this->unit_number))   $parts[] = "Unit {$this->unit_number}";
         if (!empty($this->complex_name))  $parts[] = $this->complex_name;
-        if (!empty($this->street_number) && !empty($this->street_name)) {
-            $parts[] = "{$this->street_number} {$this->street_name}";
-        } elseif (!empty($this->street_name)) {
-            $parts[] = $this->street_name;
+        if (!empty($this->street_name)) {
+            // number + street without ever saying the number twice (see TrackedProperty::streetLine()).
+            $parts[] = \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece($this->street_number, $this->street_name, null, null);
         }
         if (!empty($this->suburb)) $parts[] = $this->suburb;
         return count($parts) > 0 ? implode(', ', $parts) : null;
