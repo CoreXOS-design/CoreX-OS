@@ -4058,6 +4058,15 @@ class SignatureController extends Controller
             ]
         );
 
+        // leases.md §15.15 (Build L3b) — tell a lease whose agreement this is that it did not get signed. A
+        // "revise" ends this envelope and clones the document into a new one with no envelope of its own; the lease
+        // follows the ended one (declined, "returned for revision") and the agent prepares it again from the lease.
+        $this->signatureService->announceEnvelope(
+            \App\Events\Docuperfect\SignatureEnvelopeDeclined::class,
+            $template,
+            ($request->action === 'revise' ? 'Returned for revision' : 'Rejected') . ' — ' . $request->rejection_reason,
+        );
+
         // 4. If "Create revised version" — clone the document
         if ($request->action === 'revise') {
             $newDocument = $this->cloneDocumentForRevision($document);

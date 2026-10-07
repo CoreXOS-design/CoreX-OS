@@ -283,35 +283,21 @@ final class LeaseFoundationTest extends TestCase
         );
     }
 
-    public function test_the_action_shells_refuse_loudly_rather_than_pretend(): void
+    public function test_the_harvest_is_real_and_says_nothing_when_it_has_no_map_to_read_with(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
         $lease = Lease::create($this->leaseAttributes($agency, $branch, $property));
-        $user = $this->makeUser($agency, $branch);
-        $template = Template::create(['name' => 'Own lease', 'render_type' => 'pdf', 'is_esign' => true, 'agency_id' => $agency->id]);
-        $row = RentalLeaseTemplate::create([
-            'agency_id' => $agency->id, 'name' => 'Residential', 'docuperfect_template_id' => $template->id,
-            'category' => RentalLeaseTemplate::CATEGORY_RESIDENTIAL,
-        ]);
 
-        // LeaseCaptureService::capture() is real since Build L2 (LeaseCaptureTest) and the launcher's missing()/launch()
-        // since Build L3a (LeaseSigningLauncherTest); the harvest stays a shell until Build L3b.
-        $calls = [
-            fn () => app(\App\Services\Rentals\LeaseAgreementHarvest::class)->fromDocument($lease, $this->makeEsignDocument($agency, $branch)),
-        ];
-        foreach ($calls as $i => $call) {
-            try {
-                $call();
-                $this->fail("shell #$i must refuse");
-            } catch (\LogicException $e) {
-                $this->assertStringContainsString('is built in Build', $e->getMessage());
-            }
-        }
+        // LeaseCaptureService::capture() is real since Build L2 (LeaseCaptureTest), the launcher's missing()/launch()
+        // since Build L3a (LeaseSigningLauncherTest) and the harvest since Build L3b (LeaseSigningReconcileTest). With no
+        // agreement map known for the document it returns nothing — it never guesses a field name.
+        $this->assertNull(app(\App\Services\Rentals\LeaseAgreementHarvest::class)->fromDocument($lease, $this->makeEsignDocument($agency, $branch)));
+        $this->assertSame(0, \App\Models\LeaseAgreementTerms::count());
     }
 
-    // ── Events and the inert listener ───────────────────────────────────────────────
+    // ── Events and the listener (live since Build L3b) ──────────────────────────────
 
-    public function test_the_engine_events_have_one_inert_listener_each_and_change_nothing(): void
+    public function test_the_engine_events_have_one_listener_each_and_an_envelope_still_signing_leaves_the_lease_alone(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
         $envelope = $this->makeEnvelope($agency, $this->makeEsignDocument($agency, $branch), SignatureTemplate::STATUS_SIGNING);

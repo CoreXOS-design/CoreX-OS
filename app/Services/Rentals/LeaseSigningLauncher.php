@@ -16,10 +16,10 @@ use App\Models\LeaseEvent;
 use App\Models\Property;
 use App\Models\RentalLeaseTemplate;
 use App\Models\User;
+use App\Services\Docuperfect\SignatureService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -257,16 +257,23 @@ class LeaseSigningLauncher
         $signedDoc = in_array($status, [Lease::SIGNING_SIGNED, Lease::SIGNING_SIGNED_ON_PAPER], true) ? $lease->signedDocument() : null;
         $esignDocumentId = $lease->agreement_document_id ?: $lease->source_document_id;
 
+        // leases.md §15.16 (Build L3b) — everyone has signed and the agent has approved, but the signed copy is
+        // still being filed: say so, rather than "Needs my approval" for something already approved.
+        $filing = $status === Lease::SIGNING_AWAITING_AGENT_REVIEW && $lease->signature_template_id
+            && SignatureTemplate::query()->whereKey($lease->signature_template_id)->where('status', SignatureTemplate::STATUS_COMPLETED)->exists();
+
         return [
             'status' => $status,
-            'label' => Lease::SIGNING_LABELS[$status] ?? ucfirst($status),
+            'filing' => $filing,
+            'label' => $filing ? 'Signed — filing the document' : (Lease::SIGNING_LABELS[$status] ?? ucfirst($status)),
             'agreement_name' => $lease->agreementTemplate?->name,
             'signers' => in_array($status, [Lease::SIGNING_SIGNED_ON_PAPER], true) ? [] : $this->signersSummary($lease),
             'owner_name' => $owner?->name,
             'continue_url' => $status === Lease::SIGNING_PREPARED && $mine ? $this->landingUrl($flow) : null,
             'open_url' => in_array($status, [Lease::SIGNING_OUT_FOR_SIGNING, Lease::SIGNING_AWAITING_AGENT_REVIEW], true) ? route('docuperfect.esign.myDocuments') : null,
-            'approve_url' => $status === Lease::SIGNING_AWAITING_AGENT_REVIEW && $esignDocumentId ? route('docuperfect.signatures.review', $esignDocumentId) : null,
+            'approve_url' => $status === Lease::SIGNING_AWAITING_AGENT_REVIEW && ! $filing && $esignDocumentId ? route('docuperfect.signatures.review', $esignDocumentId) : null,
             'signed_copy_url' => $signedDoc && $esignDocumentId && $status === Lease::SIGNING_SIGNED ? route('docuperfect.signatures.download', $esignDocumentId) : null,
+            'certificate_url' => $signedDoc && $esignDocumentId && $status === Lease::SIGNING_SIGNED ? route('docuperfect.signatures.certificate', $esignDocumentId) : null,
             'can_prepare_again' => $lease->status === Lease::STATUS_DRAFT
                 && in_array($status, [Lease::SIGNING_DECLINED, Lease::SIGNING_VOIDED, Lease::SIGNING_EXPIRED], true)
                 && ($user->hasPermission('leases.create') || $user->hasPermission('leases.renew'))
@@ -445,8 +452,9 @@ class LeaseSigningLauncher
      * exactly as e-sign's own "cancel document" does (waiting parties' links stop working and they are told),
      * and the lease's agreement shows as voided. Nothing happens for a lease with no open agreement.
      *
-     * Build L3b replaces the envelope half with SignatureService::cancelEnvelope() once that exists — the
-     * behaviour is the same.
+     * The envelope half is SignatureService::cancelEnvelope() — e-sign's own "cancel document". It announces the
+     * cancel, so the lease is normally already marked voided (with its event) by the time it returns; the lease is
+     * marked here only when there was no envelope to announce anything (an agreement prepared but never sent).
      */
     public function closeOpenAgreement(Lease $lease, User $user, string $reason): void
     {
@@ -456,11 +464,16 @@ class LeaseSigningLauncher
 
         $envelope = $lease->signature_template_id ? SignatureTemplate::query()->find($lease->signature_template_id) : null;
         if ($envelope && ! in_array($envelope->status, [SignatureTemplate::STATUS_COMPLETED, SignatureTemplate::STATUS_CANCELLED], true)) {
-            $this->cancelEnvelope($envelope, $user, $reason);
+            app(SignatureService::class)->cancelEnvelope($envelope, $user, $reason, null, null, ['via' => 'lease']);
         }
 
         if ($lease->signing_flow_id && ($flow = Flow::query()->find($lease->signing_flow_id))) {
             $flow->delete(); // soft delete — the wizard can no longer open it
+        }
+
+        $lease->refresh();
+        if ($lease->signing_status === Lease::SIGNING_VOIDED) {
+            return; // the cancel announcement already recorded it
         }
 
         $lease->update(['signing_status' => Lease::SIGNING_VOIDED, 'signing_failure_note' => mb_substr($reason, 0, 500)]);
@@ -613,41 +626,5 @@ class LeaseSigningLauncher
         }
 
         return $out;
-    }
-
-    /** The same changes e-sign's own "cancel document" makes, plus the same notice to waiting parties. */
-    private function cancelEnvelope(SignatureTemplate $envelope, User $user, string $reason): void
-    {
-        $waiting = $envelope->requests()->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])->get();
-
-        DB::transaction(function () use ($envelope, $user, $reason) {
-            $envelope->requests()->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])->update(['status' => 'cancelled']);
-            $envelope->update([
-                'status' => SignatureTemplate::STATUS_CANCELLED,
-                'cancellation_reason' => $reason,
-                'cancelled_by' => $user->id,
-                'cancelled_at' => now(),
-            ]);
-            SignatureAuditLog::log($envelope, SignatureAuditLog::ACTION_CANCELLED, SignatureAuditLog::ACTOR_USER, $user->name, $user->email, $user->id, null, null, null, ['reason' => $reason, 'via' => 'lease']);
-        });
-
-        $documentName = $envelope->document->name ?? 'Untitled';
-        foreach ($waiting as $request) {
-            if (empty($request->signer_email)) {
-                continue;
-            }
-            try {
-                Mail::to($request->signer_email)->send(
-                    (new \App\Mail\Signatures\DocumentCancelledMail(
-                        signerName: $request->signer_name ?? 'Signer',
-                        documentName: $documentName,
-                        agentName: $user->name,
-                        cancellationReason: $reason,
-                    ))->fromAgent($user)
-                );
-            } catch (\Throwable $e) {
-                Log::error('Failed to send cancellation email', ['request_id' => $request->id, 'error' => $e->getMessage()]);
-            }
-        }
     }
 }

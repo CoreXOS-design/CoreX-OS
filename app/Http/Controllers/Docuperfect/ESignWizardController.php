@@ -8363,63 +8363,19 @@ class ESignWizardController extends Controller
 
         $reason = $request->input('cancellation_reason');
 
-        // Collect pending requests BEFORE cancelling (for notification)
-        $pendingRequests = $signatureTemplate->requests()
-            ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
-            ->get();
+        // leases.md §15.15 (Build L3b) — the cancel itself (links stop working, status, audit entry, the announcement
+        // the Lease Hub listens to, the notice to waiting parties) lives in SignatureService::cancelEnvelope(), so a
+        // lease being cancelled with its agreement out makes exactly the same changes. Behaviour unchanged.
+        $notified = app(\App\Services\Docuperfect\SignatureService::class)->cancelEnvelope(
+            $signatureTemplate,
+            $user,
+            $reason,
+            $request->ip(),
+            $request->userAgent(),
+        );
 
-        DB::transaction(function () use ($signatureTemplate, $user, $request, $reason) {
-            // Cancel all pending/waiting signature requests
-            $signatureTemplate->requests()
-                ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
-                ->update(['status' => 'cancelled']);
-
-            // Set template status to cancelled with reason
-            $signatureTemplate->update([
-                'status' => SignatureTemplate::STATUS_CANCELLED,
-                'cancellation_reason' => $reason,
-                'cancelled_by' => $user->id,
-                'cancelled_at' => now(),
-            ]);
-
-            // Audit log
-            SignatureAuditLog::log(
-                $signatureTemplate,
-                SignatureAuditLog::ACTION_CANCELLED,
-                SignatureAuditLog::ACTOR_USER,
-                $user->name,
-                $user->email,
-                $user->id,
-                null,
-                $request->ip(),
-                $request->userAgent(),
-                ['reason' => $reason]
-            );
-        });
-
-        // Notify all pending/waiting parties of the cancellation
         $documentName = $signatureTemplate->document->name ?? 'Untitled';
-        foreach ($pendingRequests as $sigReq) {
-            if (!empty($sigReq->signer_email)) {
-                try {
-                    \Illuminate\Support\Facades\Mail::to($sigReq->signer_email)->send(
-                        (new \App\Mail\Signatures\DocumentCancelledMail(
-                            signerName: $sigReq->signer_name ?? 'Signer',
-                            documentName: $documentName,
-                            agentName: $user->name,
-                            cancellationReason: $reason,
-                        ))->fromAgent($user)
-                    );
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to send cancellation email', [
-                        'request_id' => $sigReq->id,
-                        'signer_email' => $sigReq->signer_email,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-        }
 
-        return back()->with('status', 'Document "' . $documentName . '" has been cancelled. ' . $pendingRequests->count() . ' waiting parties notified.');
+        return back()->with('status', 'Document "' . $documentName . '" has been cancelled. ' . $notified . ' waiting parties notified.');
     }
 }

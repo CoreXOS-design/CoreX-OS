@@ -335,6 +335,68 @@ class Lease extends Model
             self::SIGNING_AWAITING_AGENT_REVIEW,
         ], true);
     }
+
+    /** The signing states in which the agreement is still live — the only ones the e-sign engine may move. */
+    public const SIGNING_IN_FLIGHT = [
+        self::SIGNING_PREPARED,
+        self::SIGNING_OUT_FOR_SIGNING,
+        self::SIGNING_AWAITING_AGENT_REVIEW,
+    ];
+
+    /**
+     * §15.5 — what the e-sign engine's own status for an envelope means for the lease, in one place (the listener
+     * and the safety-net re-check both use it).
+     *
+     *   draft / ready / signing / awaiting_* / partial / deferred / revived → out_for_signing
+     *   pending_agent_approval and every returned / amendment state        → awaiting_agent_review
+     *   completed                                                           → signed ONLY once finalisation has
+     *                                                                         succeeded (the signed copy is filed);
+     *                                                                         until then the agent's approval is
+     *                                                                         still the last thing that happened
+     *   declined, rejected                                                  → declined
+     *   cancelled                                                           → voided
+     *   expired, lapsed, re_lapsed, extension_proposed                      → expired
+     */
+    public static function signingStatusFor(\App\Models\Docuperfect\SignatureTemplate $envelope): string
+    {
+        $status = (string) $envelope->status;
+        $envelopeModel = \App\Models\Docuperfect\SignatureTemplate::class;
+
+        return match (true) {
+            $status === $envelopeModel::STATUS_COMPLETED
+                => $envelope->finalization_status === $envelopeModel::FINALIZATION_SUCCEEDED
+                    ? self::SIGNING_SIGNED
+                    : self::SIGNING_AWAITING_AGENT_REVIEW,
+            in_array($status, [
+                $envelopeModel::STATUS_PENDING_AGENT_APPROVAL,
+                $envelopeModel::STATUS_RETURNED_TO_CANDIDATE,
+                $envelopeModel::STATUS_AMENDMENT_REVIEW,
+                $envelopeModel::STATUS_AMENDMENT_INITIALING,
+                $envelopeModel::STATUS_AMENDMENT_CHAIN_REVIEW,
+                $envelopeModel::STATUS_EDITOR_REACCEPTANCE,
+            ], true) => self::SIGNING_AWAITING_AGENT_REVIEW,
+            in_array($status, [$envelopeModel::STATUS_DECLINED, $envelopeModel::STATUS_REJECTED], true) => self::SIGNING_DECLINED,
+            $status === $envelopeModel::STATUS_CANCELLED => self::SIGNING_VOIDED,
+            in_array($status, [
+                $envelopeModel::STATUS_EXPIRED,
+                $envelopeModel::STATUS_LAPSED,
+                $envelopeModel::STATUS_RE_LAPSED,
+                $envelopeModel::STATUS_EXTENSION_PROPOSED,
+            ], true) => self::SIGNING_EXPIRED,
+            default => self::SIGNING_OUT_FOR_SIGNING,
+        };
+    }
+
+    /**
+     * §15.15 safety net — re-reads the envelope and brings this lease in step with it, whatever the engine did or
+     * failed to announce. Called when the Lease Hub, the Leases list or the Command Centre loads a lease whose
+     * agreement is in flight, and by the nightly `leases:reconcile-signing`. Never throws; returns whether anything
+     * changed.
+     */
+    public function reconcileSigning(): bool
+    {
+        return app(\App\Services\Rentals\LeaseSigningStateService::class)->reconcile($this);
+    }
     // LEASE-AGREEMENT END
 
     /**
