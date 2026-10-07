@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\DocumentType;
 use App\Models\Property;
@@ -42,6 +43,55 @@ use Illuminate\Validation\Rule;
 class RentalInspectionRecordingController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use AuthorizesPropertyAccess;
+
+    /**
+     * rental-inspections.md §45.8 H2 — the guard for every action reached through a PROPERTY
+     * rather than a bound inspection (the property tab's data, start, item/room edits, seeding,
+     * photo matching). Route binding on {property} only enforces the agency boundary; without
+     * this, any same-agency user holding rental_inspections.create could read or change the
+     * inspection checklist of a colleague's or another branch's listing by id.
+     *
+     * Two layers, both required: (1) the property's own own/branch/agency scope — exactly what
+     * the property page itself applies, so the tab is never reachable here when the page is not;
+     * (2) the rental_inspections scope ceiling — a user held to their BRANCH's inspections cannot
+     * act on another branch's property even if their properties scope is wider. `own` needs no
+     * property-level check beyond (1): "own" for inspections is creator/inspector, enforced per
+     * inspection wherever one is addressed (guardRentalRecordScope on every {rentalInspection}
+     * action). Reads use view breadth, writes use mutation breadth (assistants), as the property
+     * page does.
+     */
+    private function authorizePropertyForInspections(Property $property, bool $forEdit = true): void
+    {
+        $this->authorizeProperty($property, $forEdit);
+
+        /** @var User $user */
+        $user = auth()->user();
+        $inspectionScope = \App\Services\PermissionService::getDataScope($user, 'rental_inspections');
+
+        $allowed = match ($inspectionScope) {
+            'all', 'own' => true,
+            'branch' => (int) $property->branch_id === (int) $user->effectiveBranchId(),
+            default => false,
+        };
+
+        abort_unless($allowed, 403);
+    }
+
+    /**
+     * §45.8 H2 — photo matching writes to the property's CURRENT inspection (the chain tail —
+     * assertPhotoMatchingUnlocked() already locks against it), so the actor must be allowed to
+     * work on that inspection under the rental_inspections own/branch/agency scope. Only the
+     * tail is guarded, deliberately: the other side of a match is the PREDECESSOR, usually a
+     * colleague's finished inspection, and comparing against it is exactly what the chain is for.
+     */
+    private function guardPhotoMatchTail(Property $property): void
+    {
+        $tail = RentalInspection::chainTailFor($property);
+        if ($tail) {
+            $this->guardRentalRecordScope($tail, 'rental_inspections', $property->branch_id);
+        }
+    }
 
     /**
      * GET /corex/properties/{property}/rental-inspection-tab — the data
@@ -54,6 +104,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function tabData(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property, forEdit: false);
         return response()->json(RentalInspection::tabPayloadFor($property));
     }
 
@@ -89,6 +140,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspections/start — §0.5, the deliberate action that begins one. */
     public function start(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
         ]);
@@ -121,6 +173,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function next(Request $request, Property $property, RentalInspection $rentalInspection): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($rentalInspection->property_id !== $property->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
@@ -168,13 +221,14 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeItem(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'kind' => ['required', 'in:' . RentalInspectionItem::KIND_SPACE . ',' . RentalInspectionItem::KIND_METER . ',item'],
             'label' => ['required', 'string', 'max:191'],
             'space_type' => [
                 Rule::requiredIf($request->input('kind') === RentalInspectionItem::KIND_SPACE),
                 'nullable', 'string', 'max:60',
-                Rule::in(config('property-spaces.all_space_types', [])),
+                Rule::in(RentalInspectionSetting::selectableRoomTypeKeysFor($property->agency_id)),
             ],
             'property_room_id' => [
                 Rule::requiredIf($request->input('kind') === 'item'),
@@ -239,12 +293,13 @@ class RentalInspectionRecordingController extends Controller
      */
     public function assignType(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
         abort_if($item->kind !== RentalInspectionItem::KIND_SPACE, 422, 'Only a space can be given a room type.');
         abort_if($item->property_room_id !== null, 422, 'This space already has a room type.');
 
         $validated = $request->validate([
-            'space_type' => ['required', 'string', 'max:60', Rule::in(config('property-spaces.all_space_types', []))],
+            'space_type' => ['required', 'string', 'max:60', Rule::in(RentalInspectionSetting::selectableRoomTypeKeysFor($property->agency_id))],
         ]);
 
         $items = DB::transaction(function () use ($property, $item, $validated, $request) {
@@ -301,6 +356,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/retire — §3.3, never deleted, only retired. */
     public function retireItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
 
         $item->update(['is_retired' => true]);
@@ -311,6 +367,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/restore — the reverse of retire(), never a hard delete. */
     public function restoreItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
 
         $item->restoreItem();
@@ -321,6 +378,7 @@ class RentalInspectionRecordingController extends Controller
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/rename — label only, never touches observation history. */
     public function renameItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         abort_if($item->property_id !== $property->id, 404);
 
         $validated = $request->validate(['label' => ['required', 'string', 'max:191']]);
@@ -339,6 +397,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function reorderItems(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'property_room_id' => ['required', 'integer'],
             'item_ids' => ['required', 'array', 'min:1'],
@@ -374,6 +433,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function applyDefaultRoomOrder(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $rooms = PropertyRoom::where('property_id', $property->id)->get();
 
         foreach ($rooms as $room) {
@@ -408,6 +468,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function reorderRooms(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
             'room_ids' => ['required', 'array', 'min:1'],
             'room_ids.*' => ['integer', 'distinct'],
@@ -441,6 +502,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function seedFromAdvertising(Request $request, Property $property, \App\Services\Rentals\RentalInspectionFormSeeder $seeder): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
         try {
             $seeder->seedFromAdvertising($property, $request->user());
         } catch (\LogicException $e) {
@@ -765,6 +827,10 @@ class RentalInspectionRecordingController extends Controller
         $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'client_idempotency_key' => 'nullable|uuid',
+            // §45.3 — optional ISO-8601 capture time from the app. Deliberately NOT format-validated:
+            // a malformed value is absorbed (ignored) by RentalInspectionPhotoCaptureTime, never a 422
+            // on an evidence upload.
+            'captured_at' => 'nullable',
         ]);
 
         $clientKey = $request->input('client_idempotency_key');
@@ -774,6 +840,13 @@ class RentalInspectionRecordingController extends Controller
                 return response()->json($existing, 200);
             }
         }
+
+        // §45.3 — read the capture time from the ORIGINAL upload before the storer re-encodes it.
+        $capture = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class)->resolve(
+            $request->file('photo'),
+            $this->scalarOrNull($request->input('captured_at')),
+            ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
+        );
 
         $url = app(PropertyImageStorer::class)->store($request->file('photo'), $rentalInspection->property_id);
 
@@ -788,6 +861,8 @@ class RentalInspectionRecordingController extends Controller
             'tagged_by_user_id' => $request->user()->id,
             'client_idempotency_key' => $clientKey,
             'file_size_bytes' => $request->file('photo')->getSize(),
+            'taken_at' => $capture['taken_at'],
+            'taken_at_source' => $capture['taken_at_source'],
         ]);
 
         return response()->json($photo, 201);
@@ -835,6 +910,9 @@ class RentalInspectionRecordingController extends Controller
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],
             'client_idempotency_keys.*' => ['nullable', 'uuid'],
+            // §45.3 — one optional ISO-8601 capture time per file, parallel to photos[] (same index
+            // contract as client_idempotency_keys). Not format-validated — see storePhoto().
+            'captured_at' => ['nullable', 'array'],
         ]);
 
         $roomId = isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null;
@@ -869,6 +947,7 @@ class RentalInspectionRecordingController extends Controller
         }
 
         $storer = app(PropertyImageStorer::class);
+        $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
         $now = now();
         $created = [];
 
@@ -881,6 +960,13 @@ class RentalInspectionRecordingController extends Controller
                     continue;
                 }
             }
+
+            // §45.3 — before store(): the storer re-encodes the image and drops its metadata.
+            $capture = $captureTime->resolve(
+                $file,
+                $this->scalarOrNull($validated['captured_at'][$i] ?? null),
+                ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
+            );
 
             $url = $storer->store($file, $rentalInspection->property_id);
 
@@ -895,10 +981,18 @@ class RentalInspectionRecordingController extends Controller
                 'tagged_by_user_id' => ($roomId || $observationId) ? $request->user()->id : null,
                 'client_idempotency_key' => $clientKey,
                 'file_size_bytes' => $file->getSize(),
+                'taken_at' => $capture['taken_at'],
+                'taken_at_source' => $capture['taken_at_source'],
             ]);
         }
 
         return response()->json(['photos' => $created, 'observation' => $observation], 201);
+    }
+
+    /** §45.3 — a client-supplied capture time is only ever a string; anything else is "no claim". */
+    private function scalarOrNull(mixed $value): ?string
+    {
+        return is_string($value) ? substr($value, 0, 64) : null;
     }
 
     /** Audit H1 — 409 for any write against a completed / cancelled / archived inspection. */
@@ -1107,6 +1201,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhotoMatch(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
+        $this->guardPhotoMatchTail($property);
         $validated = $request->validate([
             'photo_id' => ['required', 'integer', 'different:anchor_photo_id'],
             'anchor_photo_id' => ['required', 'integer'],
@@ -1188,6 +1284,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function destroyPhotoMatch(Request $request, Property $property, \App\Models\RentalInspectionPhotoMatchGroupMember $member): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
+        $this->guardPhotoMatchTail($property);
         abort_if((int) $member->group?->property_id !== (int) $property->id, 404);
 
         // §41 — same lock as storePhotoMatch() above; unlinking after the
@@ -1229,6 +1327,8 @@ class RentalInspectionRecordingController extends Controller
      */
     public function autoPairPhotoMatches(Request $request, Property $property): JsonResponse
     {
+        $this->authorizePropertyForInspections($property);
+        $this->guardPhotoMatchTail($property);
         $tail = RentalInspection::chainTailFor($property);
         abort_if(! $tail, 422, 'No current inspection to auto-pair against.');
 
@@ -1496,6 +1596,8 @@ class RentalInspectionRecordingController extends Controller
 
         try {
             $rentalInspection->startAwaitingSignature();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
@@ -1529,6 +1631,8 @@ class RentalInspectionRecordingController extends Controller
 
         try {
             $rentalInspection->markCompleted();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
             return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {

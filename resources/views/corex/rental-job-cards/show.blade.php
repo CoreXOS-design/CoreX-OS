@@ -720,6 +720,9 @@
                     <textarea name="tenant_confirmation_note" rows="2" placeholder="Tenant confirmation note (optional)" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);"></textarea>
                     <button type="submit" class="corex-btn-outline text-xs w-full">Record tenant confirmation</button>
                 </form>
+                @elseif($jobCard->tenant_confirmed_fixed === false)
+                {{-- Reconciliation 7 Oct: the tenant's "not complete" (§17.10) is mirrored into tenant_confirmed_at with fixed = false; this line used to say "confirmed fixed" for ANY answer. --}}
+                <div class="text-xs" style="color: var(--ds-crimson);">Tenant — said the work is NOT complete ({{ $jobCard->tenant_confirmed_at->format('Y-m-d H:i') }})</div>
                 @else
                 <div class="text-xs" style="color: var(--text-muted);">Tenant — confirmed fixed: {{ $jobCard->tenantConfirmedByUser?->name }} ({{ $jobCard->tenant_confirmed_at->format('Y-m-d H:i') }})</div>
                 @endunless

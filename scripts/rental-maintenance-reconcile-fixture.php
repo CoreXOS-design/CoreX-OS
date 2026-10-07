@@ -16,9 +16,9 @@
  *   sudo -u www-data php8.2 scripts/rental-maintenance-reconcile-fixture.php --app-root=/corex-qa1 --cleanup='<json from --create>'
  */
 
-$opts = getopt('', ['app-root:', 'create', 'cleanup:']);
-if (empty($opts['app-root']) || (! isset($opts['create']) && empty($opts['cleanup']))) {
-    fwrite(STDERR, "Usage: --app-root=<path> (--create | --cleanup=<json>)\n");
+$opts = getopt('', ['app-root:', 'create', 'cleanup:', 'vat-incl:', 'catalogue-prices:']);
+if (empty($opts['app-root']) || (! isset($opts['create']) && empty($opts['cleanup']) && empty($opts['vat-incl']) && empty($opts['catalogue-prices']))) {
+    fwrite(STDERR, "Usage: --app-root=<path> (--create | --cleanup=<json> | --vat-incl=<agency id> | --catalogue-prices=<agency id>)\n");
     exit(2);
 }
 
@@ -34,6 +34,7 @@ use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\LeaseTenant;
 use App\Models\Property;
+use App\Models\RentalCatalogueItem;
 use App\Models\RentalCatalogueItemType;
 use App\Models\RentalCatalogueUnit;
 use App\Models\RentalCrew;
@@ -50,6 +51,24 @@ $makeUser = fn (array $a) => User::forceCreate($a + [
     'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(32)),
     'email_verified_at' => now(), 'first_login_at' => now(), 'is_active' => true, 'remember_token' => \Illuminate\Support\Str::random(10),
 ]);
+
+// --catalogue-prices: read-only — the stored default price / cost of the throwaway agency's catalogue items (what the edit screen did to them)
+if (! empty($opts['catalogue-prices'])) {
+    foreach (\App\Models\RentalCatalogueItem::withoutGlobalScopes()->where('agency_id', (int) $opts['catalogue-prices'])->get() as $i) {
+        echo $i->code, '=', $i->default_price, '|', $i->default_cost, '|', $i->id, "\n";
+    }
+    exit(0);
+}
+
+// --vat-incl: make the THROWAWAY agency VAT registered and capturing prices INCL VAT (the catalogue edit observation needs it)
+if (! empty($opts['vat-incl'])) {
+    $agency = Agency::withoutGlobalScopes()->findOrFail((int) $opts['vat-incl']);
+    abort_unless(str_starts_with((string) $agency->slug, 'zz-recon-'), 403, 'only a throwaway reconcile agency');
+    $agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_INCL]);
+    \App\Models\PerformanceSetting::set('vat_rate', '15', $agency->id);
+    echo json_encode(['vat_incl' => $agency->id]) . "\n";
+    exit(0);
+}
 
 if (isset($opts['create'])) {
     $stamp = 'zz-recon-' . date('YmdHis') . '-' . substr(uniqid(), -5);
@@ -125,6 +144,7 @@ if ($agencyId) {
     $soft('fault_reports', RentalFaultReport::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('leases', Lease::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('crews', RentalCrew::withoutGlobalScopes()->where('agency_id', $agencyId));
+    $soft('catalogue_items', RentalCatalogueItem::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('properties', Property::withoutGlobalScopes()->where('agency_id', $agencyId));
     $soft('contacts', Contact::withoutGlobalScopes()->where('agency_id', $agencyId));
     \App\Models\RentalSecureAccessToken::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('revoked_at')->update(['revoked_at' => now()]);

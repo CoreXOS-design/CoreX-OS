@@ -67,46 +67,129 @@ class RentalInspectionSetting extends Model
     ];
 
     /**
-     * Johan, 2026-09-20: "we should have a setting somewhere on rentals that
-     * defines room types and what gets added - ceiling, walls, floors,
-     * windows, doors - that should be a std." The generic fallback for any
-     * space type below that isn't in DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE — a
-     * type Retha's real vocabulary doesn't cover, or a future addition to
-     * config('property-spaces.all_space_types') this constant never has to
-     * be updated for.
+     * .ai/specs/rental-inspections.md §45.4 item 1 (Build I-2) — the neutral,
+     * floor-to-ceiling baseline every inspection checklist starts from.
+     * Johan, 2026-09-20: "ceiling, walls, floors, windows, doors — that should
+     * be a std"; approved 6 Oct 2026 (Q9a) as a floor-to-ceiling default list.
+     * Replaces the thin five-item list this constant used to hold (45 of the 50
+     * space types fell back to it: no skirting, no lights, no sockets).
+     *
+     * This is also the generic fallback for any room type no family below
+     * claims — a future addition to config('property-spaces.all_space_types'),
+     * or an agency's own custom room type — so nothing ever seeds an empty
+     * checklist.
      */
-    public const DEFAULT_ROOM_TYPE_ITEMS = ['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'];
+    public const DEFAULT_ROOM_TYPE_ITEMS = [
+        'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+        'Light fittings', 'Light switches', 'Plug sockets',
+    ];
 
     /**
-     * 2026-09-21, conductor (transcribed from Retha's real inspection form) —
-     * "we are seeding a skeleton and calling it a checklist" once actual
-     * agent numbers showed under 6 items/room against her real 18-line
-     * kitchen. These are the SYSTEM default for these five types — used
-     * only where an agency has not configured its own list for that type
-     * (roomTypeItemDefaultsFor()'s array_merge always lets an agency's own
-     * customRoomTypeOverridesFor() entry win outright, unchanged by this).
-     * Transcribed exactly as given, not assumed to be a superset of the
-     * generic baseline above — her Bedroom has no separate Floors/Windows/
-     * Doors lines at all, so it genuinely doesn't get them here either.
+     * §45.4 item 1 — the baseline per room FAMILY: the building elements every
+     * interior shares (DEFAULT_ROOM_TYPE_ITEMS) plus the family's own
+     * fittings. Which family a room type belongs to is ROOM_TYPE_FAMILY below;
+     * a type in neither map is the 'other' family. An agency's own saved list
+     * for a type (customRoomTypeOverridesFor()) always wins over all of this —
+     * defaults never overwrite an agency override.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const DEFAULT_ROOM_FAMILY_ITEMS = [
+        'living' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Curtain rails and blinds',
+        ],
+        'bedroom' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Built-in cupboards', 'Curtain rails and blinds',
+        ],
+        'kitchen' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+            'Sink and taps', 'Stove, hob and oven', 'Extractor', 'Cupboards and tops',
+        ],
+        'bathroom' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+            'Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Extractor fan', 'Mirror', 'Geyser access',
+        ],
+        'outbuilding' => [
+            'Ceiling', 'Walls', 'Floors', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+        ],
+        'covered_outdoor' => [
+            'Roof or ceiling', 'Floor or paving', 'Walls or pillars', 'Railings and gates', 'Doors',
+            'Light fittings', 'Plug sockets',
+        ],
+        'outdoor' => [
+            'Fences and gates', 'Boundary and retaining walls', 'Paving and floors', 'Garden and lawn',
+            'Roof, gutters and downspouts', 'Outside taps and irrigation', 'Light fittings', 'Plug sockets',
+        ],
+        'other' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+        ],
+    ];
+
+    /**
+     * §45.4 item 1 — which family each of the 50 standard space types
+     * (config('property-spaces.all_space_types')) belongs to. Every one of the
+     * 50 is listed explicitly (a test pins that), so a type is never in the
+     * 'other' family by an accident of being forgotten here.
+     *
+     * @var array<string, string>
+     */
+    public const ROOM_TYPE_FAMILY = [
+        'Lounge' => 'living', 'TV Room' => 'living', 'Dining Room' => 'living', 'Reception Room' => 'living',
+        'Bar' => 'living', 'Boardroom' => 'living', 'Braai Room' => 'living', 'Study' => 'living',
+        'Office' => 'living', 'Loft' => 'living', 'Flatlet' => 'living', 'Studio' => 'living',
+        'Gym' => 'living', 'Clubhouse' => 'living',
+        'Bedroom' => 'bedroom', 'Domestic Room' => 'bedroom',
+        'Kitchen' => 'kitchen', 'Scullery' => 'kitchen', 'Laundry Room' => 'kitchen',
+        'Bathroom' => 'bathroom', 'Domestic Bathroom' => 'bathroom', 'Outside Toilet' => 'bathroom',
+        'Garage' => 'outbuilding', 'Parking' => 'outbuilding', 'Storeroom' => 'outbuilding', 'Shed' => 'outbuilding',
+        'Workshop' => 'outbuilding', 'Cellar' => 'outbuilding', 'Stable' => 'outbuilding', 'Pool Shed' => 'outbuilding',
+        'Wendy House' => 'outbuilding', 'Boathouse' => 'outbuilding', 'Greenhouse' => 'outbuilding',
+        'Sauna' => 'outbuilding', 'Changing Room' => 'outbuilding',
+        'Patio' => 'covered_outdoor', 'Veranda' => 'covered_outdoor', 'Courtyard' => 'covered_outdoor',
+        'Gazebo' => 'covered_outdoor', 'Lapa' => 'covered_outdoor',
+        'Garden' => 'outdoor', 'Pool' => 'outdoor', 'Jacuzzi' => 'outdoor', 'Squash Court' => 'outdoor',
+        'Tennis Court' => 'outdoor', 'Boat Launch' => 'outdoor', 'Jetty' => 'outdoor', 'Yard' => 'outdoor',
+        'Entrance Hall' => 'other', 'Linen Room' => 'other',
+    ];
+
+    /**
+     * §45.4 item 1 — the few types whose own fittings differ from their
+     * family's. Everything not named here takes its family's list. (This
+     * constant used to hold the transcribed lists for Kitchen/Bathroom/
+     * Bedroom/Garage/Yard as the system default; those are now covered by
+     * the families above, and any agency that saved its own list for a type —
+     * Home Finders Coastal did, for 33 types — keeps it untouched.)
+     *
+     * @var array<string, array<int, string>>
      */
     public const DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE = [
-        'Kitchen' => [
-            'Walls', 'Ceiling', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
-            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Stoves',
-            'Stove Plates', 'Oven', 'Tops', 'Hinges', 'Cupboard Doors', 'Door Frames',
+        'Garage' => [
+            'Ceiling', 'Walls', 'Floors', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Garage door and motor',
         ],
-        'Bathroom' => [
-            'Ceiling', 'Extractor Fan', 'Walls', 'Tiles', 'Light Fittings', 'Light Switches',
-            'Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Towel Rails', 'Blinds',
-            'Curtain Rails', 'Door',
+        'Parking' => ['Floors', 'Roof or shade structure', 'Boundary walls and gates', 'Light fittings'],
+        'Pool' => [
+            'Pool surface and tiles', 'Pump and motor', 'Pipes and fittings', 'Pool cleaner',
+            'Pool cover or net', 'Pool fence and gate', 'Pool lights',
         ],
-        'Bedroom' => [
-            'Walls', 'Ceilings', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
-            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Cupboard Doors',
-            'Hinges', 'Mirror',
+        'Scullery' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Sink and taps', 'Cupboards and tops',
         ],
-        'Garage' => ['Ceiling', 'Doors', 'Floors', 'Lights', 'Light Fittings', 'Walls', 'Windows'],
-        'Yard' => ['Fences and Gates', 'Retaining Wall', 'Garden', 'Gutters', 'Downspouts', 'Roof'],
+        'Laundry Room' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Sink and taps', 'Cupboards and tops',
+        ],
+        'Outside Toilet' => [
+            'Ceiling', 'Walls', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Toilet', 'Basin', 'Taps',
+        ],
     ];
 
     /**
@@ -293,10 +376,12 @@ class RentalInspectionSetting extends Model
         'inspection_feature_labels',
         'room_type_item_defaults',
         'room_type_walking_order',
+        'custom_room_types',
         'condition_states',
         'photo_note_classifications',
         'baseline_condition_key',
         'require_notes_blocks_progression',
+        'all_items_required_to_complete',
         'omr_mark_threshold',
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
@@ -318,9 +403,11 @@ class RentalInspectionSetting extends Model
         'inspection_feature_labels' => 'array',
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
+        'custom_room_types' => 'array',
         'condition_states' => 'array',
         'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
+        'all_items_required_to_complete' => 'boolean',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
@@ -352,6 +439,23 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('require_notes_blocks_progression');
 
         return $value !== null ? (bool) $value : self::DEFAULT_REQUIRE_NOTES_BLOCKS_PROGRESSION;
+    }
+
+    /**
+     * §45.3 (Build I-1) — whether an in/out inspection can complete (or go out for signature) while a
+     * checklist item is still ungraded. N/A counts as graded. Default ON; an agency that wants to
+     * complete with gaps turns it off and the same list is still shown, as a warning.
+     */
+    public const DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE = true;
+
+    public static function allItemsRequiredToCompleteFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('all_items_required_to_complete');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
     }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
@@ -508,11 +612,261 @@ class RentalInspectionSetting extends Model
         $overrides = self::customRoomTypeOverridesFor($agencyId);
 
         $defaults = [];
-        foreach (config('property-spaces.all_space_types', []) as $type) {
-            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+        foreach (self::knownRoomTypeKeysFor($agencyId) as $type) {
+            $defaults[$type] = self::defaultItemsForType($type);
         }
 
         return array_merge($defaults, $overrides);
+    }
+
+    /**
+     * §45.4 item 1 — the SYSTEM default checklist for one room type, before
+     * any agency override: the type's own list if it has one, else its
+     * family's, else the generic baseline. An agency's own custom room type
+     * is in no family, so it lands on the generic baseline.
+     *
+     * @return array<int, string>
+     */
+    public static function defaultItemsForType(string $type): array
+    {
+        if (isset(self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type])) {
+            return self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type];
+        }
+
+        $family = self::ROOM_TYPE_FAMILY[$type] ?? 'other';
+
+        return self::DEFAULT_ROOM_FAMILY_ITEMS[$family] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+    }
+
+    /** How many custom room types an agency may hold (active + archived) — absorbs a runaway list, never errors. */
+    public const MAX_CUSTOM_ROOM_TYPES = 200;
+
+    /** Longest custom room-type label; property_rooms.type is varchar(60) and the key is derived from it. */
+    public const CUSTOM_ROOM_TYPE_LABEL_MAX = 60;
+
+    /** Every custom key starts with this, so one can never equal a standard type's name (none starts with it). */
+    public const CUSTOM_ROOM_TYPE_KEY_PREFIX = 'custom_';
+
+    /**
+     * §45.4 item 3 — the agency's OWN room types: every one it has ever added,
+     * archived ones included (an archived type is kept so rooms already filed
+     * under it keep resolving). Read-time default: nothing saved = none.
+     *
+     * @return array<int, array{key: string, label: string, archived: bool}>
+     */
+    public static function customRoomTypesFor(?int $agencyId): array
+    {
+        $raw = null;
+        if ($agencyId) {
+            $raw = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('custom_room_types');
+            $raw = is_string($raw) ? json_decode($raw, true) : $raw;
+        }
+
+        $types = [];
+        $seen = [];
+        foreach (is_array($raw) ? $raw : [] as $row) {
+            $key = trim((string) ($row['key'] ?? ''));
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($key === '' || $label === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $types[] = ['key' => $key, 'label' => $label, 'archived' => (bool) ($row['archived'] ?? false)];
+        }
+
+        return $types;
+    }
+
+    /**
+     * §45.4 item 3 — what an agent may PICK for a new room: the 50 standard
+     * types (key = label, as they have always been stored) then the agency's
+     * own active custom types. Archived custom types are not offered.
+     *
+     * @return array<int, array{key: string, label: string, custom: bool}>
+     */
+    public static function roomTypeOptionsFor(?int $agencyId): array
+    {
+        $options = [];
+        foreach (config('property-spaces.all_space_types', []) as $type) {
+            $options[] = ['key' => $type, 'label' => $type, 'custom' => false];
+        }
+        foreach (self::customRoomTypesFor($agencyId) as $custom) {
+            if (! $custom['archived']) {
+                $options[] = ['key' => $custom['key'], 'label' => $custom['label'], 'custom' => true];
+            }
+        }
+
+        return $options;
+    }
+
+    /** @return array<int, string> the keys a NEW room may be created with (validation list). */
+    public static function selectableRoomTypeKeysFor(?int $agencyId): array
+    {
+        return array_column(self::roomTypeOptionsFor($agencyId), 'key');
+    }
+
+    /**
+     * Every key a room can already carry — the standard 50 plus ALL the
+     * agency's custom types, archived included. Used wherever existing rooms
+     * must still resolve (walking order, item defaults, sort position).
+     *
+     * @return array<int, string>
+     */
+    public static function knownRoomTypeKeysFor(?int $agencyId): array
+    {
+        return array_merge(
+            config('property-spaces.all_space_types', []),
+            array_column(self::customRoomTypesFor($agencyId), 'key'),
+        );
+    }
+
+    /** A room type's display label: a custom type's label, else the key itself (standard types ARE their label). */
+    public static function roomTypeLabelFor(?int $agencyId, string $key): string
+    {
+        foreach (self::customRoomTypesFor($agencyId) as $custom) {
+            if ($custom['key'] === $key) {
+                return $custom['label'];
+            }
+        }
+
+        return $key;
+    }
+
+    /**
+     * §45.4 item 3 — fold a submitted custom-room-type list into the saved
+     * one. Pure (no DB), so the settings page and the Setup Wizard run the
+     * exact same rules and a test can drive it directly. Rules:
+     *  - a submitted row whose key matches a saved type keeps that key
+     *    (a rename never re-keys, so rooms already filed under it never
+     *    orphan); a row with no known key is NEW and gets a generated key —
+     *    a posted key is never trusted;
+     *  - a saved ACTIVE type missing from the submission is ARCHIVED (the
+     *    UI's "Remove" is an archive; a saved ARCHIVED one that is not
+     *    submitted stays archived — the wizard never renders those);
+     *  - a label that is empty is ignored; a label that duplicates a standard
+     *    type or another of the agency's own (case/space-insensitive, archived
+     *    included) is skipped and reported, never saved twice;
+     *  - the list is capped at MAX_CUSTOM_ROOM_TYPES.
+     *
+     * @param  array<int, array{key: string, label: string, archived: bool}>  $existing
+     * @param  array<int, mixed>  $submitted
+     * @return array{types: array<int, array{key: string, label: string, archived: bool}>, skipped: array<int, array{label: string, reason: string}>}
+     */
+    public static function mergeCustomRoomTypes(array $existing, array $submitted): array
+    {
+        $norm = fn (string $s) => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+
+        $byKey = [];
+        foreach ($existing as $row) {
+            $byKey[$row['key']] = $row;
+        }
+
+        $taken = [];
+        foreach (config('property-spaces.all_space_types', []) as $standard) {
+            $taken[$norm($standard)] = 'standard';
+        }
+
+        $result = [];
+        $seenKeys = [];
+        $skipped = [];
+
+        $submittedKeys = [];
+        foreach ($submitted as $row) {
+            $k = is_array($row) ? trim((string) ($row['key'] ?? '')) : '';
+            if ($k !== '') {
+                $submittedKeys[$k] = true;
+            }
+        }
+
+        foreach ($submitted as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $label = trim(preg_replace('/\s+/u', ' ', (string) ($row['label'] ?? '')));
+            $label = mb_substr($label, 0, self::CUSTOM_ROOM_TYPE_LABEL_MAX);
+            $postedKey = trim((string) ($row['key'] ?? ''));
+            $archived = filter_var($row['archived'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if ($postedKey !== '' && isset($byKey[$postedKey])) {
+                // An existing type: keep its key. A blank label leaves the saved one alone.
+                $current = $byKey[$postedKey];
+                $seenKeys[$postedKey] = true;
+                $newLabel = $label !== '' ? $label : $current['label'];
+
+                $clash = $taken[$norm($newLabel)] ?? null;
+                foreach ($result as $kept) {
+                    if ($norm($kept['label']) === $norm($newLabel)) {
+                        $clash = 'custom';
+                    }
+                }
+                if ($clash !== null && $norm($newLabel) !== $norm($current['label'])) {
+                    $skipped[] = ['label' => $newLabel, 'reason' => $clash === 'standard'
+                        ? 'that is already a standard room type'
+                        : 'you already have a room type with that name'];
+                    $newLabel = $current['label'];
+                }
+
+                $result[] = ['key' => $postedKey, 'label' => $newLabel, 'archived' => $archived];
+
+                continue;
+            }
+
+            if ($label === '') {
+                continue;
+            }
+
+            $normLabel = $norm($label);
+            if (isset($taken[$normLabel])) {
+                $skipped[] = ['label' => $label, 'reason' => 'that is already a standard room type'];
+
+                continue;
+            }
+            $duplicate = false;
+            foreach (array_merge($result, $existing) as $other) {
+                if ($norm($other['label']) === $normLabel) {
+                    // Removed and re-added in one save: the same type, not a duplicate — keep its key, un-archive it.
+                    if (isset($byKey[$other['key']]) && ! isset($submittedKeys[$other['key']]) && ! isset($seenKeys[$other['key']]) && ! ($other['archived'] ?? false)) {
+                        $seenKeys[$other['key']] = true;
+                        $result[] = ['key' => $other['key'], 'label' => $label, 'archived' => false];
+                        $duplicate = true;
+                        break;
+                    }
+                    $skipped[] = ['label' => $label, 'reason' => $other['archived'] ?? false
+                        ? 'you already have that room type, archived — restore it instead'
+                        : 'you already have a room type with that name'];
+                    $duplicate = true;
+                    break;
+                }
+            }
+            if ($duplicate) {
+                continue;
+            }
+
+            if (count($result) + count(array_diff_key($byKey, $seenKeys)) >= self::MAX_CUSTOM_ROOM_TYPES) {
+                $skipped[] = ['label' => $label, 'reason' => 'the limit of ' . self::MAX_CUSTOM_ROOM_TYPES . ' room types has been reached'];
+
+                continue;
+            }
+
+            $usedKeys = array_merge(array_keys($byKey), array_column($result, 'key'));
+            $slug = trim(\Illuminate\Support\Str::slug(mb_substr($label, 0, 40), '_'), '_');
+            $base = self::CUSTOM_ROOM_TYPE_KEY_PREFIX . ($slug !== '' ? $slug : 'type');
+            $key = $base;
+            for ($n = 2; in_array($key, $usedKeys, true); $n++) {
+                $key = $base . '_' . $n;
+            }
+
+            $result[] = ['key' => $key, 'label' => $label, 'archived' => false];
+        }
+
+        // Saved types the submission left out: active -> archived, archived -> stays archived.
+        foreach ($existing as $row) {
+            if (! isset($seenKeys[$row['key']])) {
+                $result[] = ['key' => $row['key'], 'label' => $row['label'], 'archived' => true];
+            }
+        }
+
+        return ['types' => array_values($result), 'skipped' => $skipped];
     }
 
     /**
@@ -557,13 +911,14 @@ class RentalInspectionSetting extends Model
         }
         $order = is_array($order) && $order !== [] ? $order : self::DEFAULT_ROOM_TYPE_WALKING_ORDER;
 
-        $catalog = config('property-spaces.all_space_types', []);
+        $catalog = self::knownRoomTypeKeysFor($agencyId);
         $order = array_values(array_intersect($order, $catalog));
 
         $missing = array_values(array_diff($catalog, $order));
         if ($missing !== []) {
             $defaultMissing = array_values(array_intersect(self::DEFAULT_ROOM_TYPE_WALKING_ORDER, $missing));
-            $order = array_merge($order, $defaultMissing);
+            // Then anything with no default position — an agency's own custom type.
+            $order = array_merge($order, $defaultMissing, array_values(array_diff($missing, $defaultMissing)));
         }
 
         return $order;

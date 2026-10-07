@@ -908,6 +908,41 @@ class FicaController extends Controller
     }
 
     /**
+     * The client's online submission as a "Questions & answers" form for the agent's file — questions WITH the
+     * client's answers AND signature — as a PDF download. Same access as the screens that show it (access_compliance +
+     * own/branch/company scope via authorizeAgency); a paper intake or an uncompleted form has no Q&A and gets a 404.
+     * Every download is written to the append-only FICA audit trail.
+     */
+    public function questionsAnswersPdf(FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        $doc = app(\App\Services\Compliance\FicaQuestionsAnswersDocument::class);
+        abort_unless($doc->available($submission), 404, 'There is no online questions & answers form for this record.');
+
+        $bytes = $doc->pdf($submission);
+        abort_if($bytes === null, 500, 'Could not generate the questions & answers form. Try again or contact support.');
+
+        FicaStatusHistory::record($submission, 'questions_answers_downloaded', $submission->status, $submission->status, Auth::user(), null, ['format' => 'pdf']);
+
+        return response($bytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $doc->fileName($submission) . '"',
+        ]);
+    }
+
+    /** The same form as a print page (opens the browser's print dialog). Same access, same 404s, audited too. */
+    public function questionsAnswersPrint(FicaSubmission $submission)
+    {
+        $this->authorizeAgency($submission);
+        $doc = app(\App\Services\Compliance\FicaQuestionsAnswersDocument::class);
+        abort_unless($doc->available($submission), 404, 'There is no online questions & answers form for this record.');
+
+        FicaStatusHistory::record($submission, 'questions_answers_printed', $submission->status, $submission->status, Auth::user(), null, ['format' => 'print']);
+
+        return response($doc->html($submission, true));
+    }
+
+    /**
      * Save compliance officers (from settings).
      */
     public function saveComplianceOfficers(Request $request)

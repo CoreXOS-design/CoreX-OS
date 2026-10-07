@@ -177,28 +177,57 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
     // ── Job Two: room type default items ────────────────────────────────
 
-    public function test_every_known_space_type_defaults_to_the_standard_baseline_except_the_five_with_a_real_vocabulary(): void
+    /** Build I-2 (§45.4 item 1): every one of the 50 types resolves to its own list, else its family's, else the baseline. */
+    public function test_every_known_space_type_defaults_to_its_own_list_or_its_familys(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $defaults = RentalInspectionSetting::roomTypeItemDefaultsFor($agency->id);
-        $specialCased = array_keys(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE);
 
         foreach (config('property-spaces.all_space_types', []) as $type) {
             $this->assertArrayHasKey($type, $defaults);
-            if (in_array($type, $specialCased, true)) {
-                continue;
-            }
-            $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, $defaults[$type], "space type '{$type}' must default to the standard baseline");
+            $expected = RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type]
+                ?? RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS[RentalInspectionSetting::ROOM_TYPE_FAMILY[$type]];
+            $this->assertSame($expected, $defaults[$type], "space type '{$type}' must default to its own list, else its family's");
         }
     }
 
-    /** 2026-09-21 — Retha's real vocabulary, transcribed exactly, is the system default for these five. */
-    public function test_the_five_named_types_default_to_rethas_real_vocabulary(): void
+    /** No type is in the 'other' family by accident of being forgotten: all 50 are mapped, and to a real family. */
+    public function test_all_fifty_space_types_are_explicitly_mapped_to_a_real_family(): void
     {
-        $agency = $this->newAgency('Coastal Realty');
+        $types = config('property-spaces.all_space_types', []);
+        $this->assertCount(50, $types);
 
-        foreach (RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE as $type => $items) {
-            $this->assertSame($items, RentalInspectionSetting::roomTypeItemsFor($agency->id, $type), "space type '{$type}' must default to Retha's transcribed list");
+        foreach ($types as $type) {
+            $this->assertArrayHasKey($type, RentalInspectionSetting::ROOM_TYPE_FAMILY, "'{$type}' must be mapped to a family");
+            $this->assertArrayHasKey(RentalInspectionSetting::ROOM_TYPE_FAMILY[$type], RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS);
+        }
+        $this->assertEqualsCanonicalizing($types, array_keys(RentalInspectionSetting::ROOM_TYPE_FAMILY));
+        foreach (array_keys(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE) as $type) {
+            $this->assertContains($type, $types, "type-specific list for '{$type}' must be a real space type");
+        }
+    }
+
+    /** §45.4 item 1 — the floor-to-ceiling floor: every interior family carries the nine shared building elements. */
+    public function test_every_interior_family_covers_the_floor_to_ceiling_building_elements(): void
+    {
+        $core = ['Ceiling', 'Walls', 'Floor covering', 'Windows', 'Doors', 'Light fittings', 'Light switches', 'Plug sockets'];
+        foreach (['living', 'bedroom', 'kitchen', 'bathroom', 'other'] as $family) {
+            foreach ($core as $item) {
+                $this->assertContains($item, RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS[$family], "{$family} must include {$item}");
+            }
+            $this->assertContains('Skirting', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS[$family]);
+        }
+        $this->assertContains('Sink and taps', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        $this->assertContains('Stove, hob and oven', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        $this->assertContains('Extractor', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        $this->assertContains('Cupboards and tops', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        foreach (['Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Extractor fan', 'Mirror', 'Geyser access'] as $fitting) {
+            $this->assertContains($fitting, RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bathroom']);
+        }
+        // No checklist ever carries the same label twice (case-insensitively).
+        foreach (config('property-spaces.all_space_types', []) as $type) {
+            $items = RentalInspectionSetting::defaultItemsForType($type);
+            $this->assertSame(count($items), count(array_unique(array_map('mb_strtolower', $items))), "'{$type}' has a duplicate default item");
         }
     }
 
@@ -206,7 +235,7 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
     {
         $agency = $this->newAgency('Coastal Realty');
 
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['living'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
         // A type that doesn't even exist in the catalog — must still seed something, never nothing.
         $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Some Future Room Type'));
     }
@@ -228,9 +257,9 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertSame(['Floors', 'Railing'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Patio'));
         // Every OTHER type is untouched by customizing one — still the standard baseline.
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
-        // ...including a type with its OWN real-vocabulary system default, also untouched.
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['living'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
+        // ...including a type with its own family baseline, also untouched.
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bedroom'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
     }
 
     /** An agency explicitly setting a type to zero items is a real, preserved state, distinguishable from "never customized." */

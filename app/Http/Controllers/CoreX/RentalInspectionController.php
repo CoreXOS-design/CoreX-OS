@@ -16,6 +16,7 @@ use App\Services\Rentals\RentalInspectionFormPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -47,7 +48,10 @@ class RentalInspectionController extends Controller
     {
         $user = $request->user();
 
+        // §45.8 H3 — only properties inside the user's own/branch/agency properties scope are
+        // offered (Property::visibleTo, on top of AgencyScope), the same ceiling store() enforces.
         $properties = Property::where('listing_type', 'rental')
+            ->visibleTo($user)
             ->whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
             ->orderBy('title')
             ->limit(500)
@@ -102,7 +106,18 @@ class RentalInspectionController extends Controller
             'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
         ]);
 
-        $property = Property::findOrFail($validated['property_id']);
+        // §45.8 H3 — resolved through the same scopes the picker offers from (AgencyScope +
+        // Property::visibleTo), never a bare findOrFail(): `exists:properties,id` above only says
+        // the id exists somewhere. A property outside the user's own/branch scope is refused with
+        // the same 403 whether it is a colleague's listing or doesn't exist for them at all.
+        $property = Property::query()->visibleTo($request->user())->find($validated['property_id']);
+        if (! $property) {
+            \Illuminate\Support\Facades\Log::warning('§45.8 H3: rental inspection store() refused — property outside the acting user\'s scope', [
+                'acting_user_id' => $request->user()->id,
+                'property_id' => $validated['property_id'],
+            ]);
+            abort(403);
+        }
 
         if ($request->input('intent') === 'schedule') {
             return $this->storeScheduled($request, $property, $validated['type']);
@@ -124,13 +139,25 @@ class RentalInspectionController extends Controller
             ->with('success', ucfirst($validated['type']) . '-inspection started.');
     }
 
+    /**
+     * §45.8 H3 — an inspector must belong to the SAME agency as the inspection. A bare
+     * `exists:users,id` runs against the raw table (no AgencyScope), so another agency's user id
+     * was accepted and that user was then e-mailed the schedule and given a calendar event
+     * (RentalInspectionNotificationService). Used by both places an inspector can be set —
+     * scheduling and rescheduling (same defect, same line).
+     */
+    private function inspectorExistsRule(?int $agencyId): \Illuminate\Validation\Rules\Exists
+    {
+        return Rule::exists('users', 'id')->where('agency_id', $agencyId);
+    }
+
     private function storeScheduled(Request $request, Property $property, string $type): RedirectResponse
     {
         $validated = $request->validate([
             'scheduled_for' => ['required', 'date'],
             'scheduled_time' => ['nullable', 'date_format:H:i'],
             'scheduled_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
-            'inspector_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'inspector_user_id' => ['nullable', 'integer', $this->inspectorExistsRule($property->agency_id)],
             'schedule_note' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -168,7 +195,7 @@ class RentalInspectionController extends Controller
             'scheduled_for' => ['required', 'date'],
             'scheduled_time' => ['nullable', 'date_format:H:i'],
             'scheduled_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
-            'inspector_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'inspector_user_id' => ['nullable', 'integer', $this->inspectorExistsRule($rentalInspection->agency_id)],
             'schedule_note' => ['nullable', 'string', 'max:1000'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);

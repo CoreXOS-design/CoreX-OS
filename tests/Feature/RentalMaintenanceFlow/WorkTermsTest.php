@@ -135,7 +135,8 @@ final class WorkTermsTest extends TestCase
         $this->assertStringContainsString('Agency default: 5 %', $html);
         $this->assertStringContainsString('In force: <strong>R1,500.00</strong> (set on this property)', $html);
         $this->assertStringContainsString('In force: <strong>5 %</strong> (agency default)', $html);
-        $this->assertStringContainsString('Last changed by ' . $this->admin->name, $html);
+        // the page HTML-escapes the name, and the factory's random names can carry an apostrophe ("O'Keefe") — compare the escaped form
+        $this->assertStringContainsString('Last changed by ' . e($this->admin->name), $html);
         $this->assertStringContainsString('History (1)', $html);
         $this->assertStringContainsString('By phone', $html);
     }

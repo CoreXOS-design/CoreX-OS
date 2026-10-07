@@ -199,6 +199,8 @@ class AgencySetupWizardController extends Controller
                 'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
+                // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
+                'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
                 // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
                 'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
                 // LEASE-AGREEMENT END
@@ -686,6 +688,7 @@ class AgencySetupWizardController extends Controller
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
+                    'all_items_required_to_complete' => \App\Models\RentalInspectionSetting::allItemsRequiredToCompleteFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
                     // §43 (2026-10-05) — inspection scheduling notifications; declared in the config, never named here.
                     'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),

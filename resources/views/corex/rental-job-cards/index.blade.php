@@ -201,7 +201,8 @@
                 @forelse($jobCards as $jc)
                     @php
                         $quote = \App\Services\Rentals\RentalJobCardListQuery::currentQuoteOf($jc);
-                        $changed = $quote ? $jc->quoteChangedSinceSent($quote) : false;
+                        // §17.7.1 — after the owner approves an amount a change is a variation, never a re-send, so "Changed since sent" only applies before that.
+                        $changed = $quote ? ($jc->quoteChangedSinceSent($quote) && ! $jc->workOrder?->hasApprovedBaseline()) : false;
                     @endphp
                     <tr style="border-top: 1px solid var(--border);" data-job-card-row="{{ $jc->id }}">
                         <td class="px-4 py-2 tabular-nums whitespace-nowrap">#{{ $jc->id }}</td>

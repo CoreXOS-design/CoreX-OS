@@ -26,7 +26,7 @@
               vatTypes: {{ \Illuminate\Support\Js::from($vatTypesForJs) }},
               vatTypeId: '{{ old('default_rental_vat_type_id', $item->default_rental_vat_type_id ?? '') }}',
               customRate: {{ (float) old('default_custom_vat_rate', $item->default_custom_vat_rate ?? 0) }},
-              price: {{ (float) old('default_price', $item->default_price ?? 0) }},
+              price: {{ (float) old('default_price', $itemPrice ?? 0) }},
               selectedType() { return this.vatTypes.find(t => String(t.id) === String(this.vatTypeId)) || null; },
               rate() {
                   if (!this.vatRegistered) return 0;
