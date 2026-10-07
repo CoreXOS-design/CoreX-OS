@@ -152,7 +152,7 @@
                  onto the page as visible text. This exact file shipped
                  that exact bug this way. --}}
             @php
-                $room = $roomRows->first()->room;
+                $room = $roomRows->isNotEmpty() ? $roomRows->first()->room : ($extraRooms->get($roomId) ?? null);
             @endphp
             <div id="room-{{ $roomId }}" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                 <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">{{ $room?->label ?? 'General' }}</h2>
@@ -175,17 +175,26 @@
                                 {{-- storage_path is already a full URL (same as every other
                                      inspection photo consumer — the recording partial's own
                                      <img :src="photo.storage_path"> reads it unwrapped). --}}
-                                <div class="flex flex-wrap gap-2 mt-2">
+                                <div class="flex flex-wrap gap-3 mt-2">
                                     @foreach($row->photos as $photo)
-                                        <a href="{{ $photo->storage_path }}" target="_blank" rel="noopener">
-                                            <img src="{{ $photo->storage_path }}" alt="" class="w-20 h-20 object-cover rounded-md border border-slate-200">
-                                        </a>
+                                        @include('rental-inspections.public.partials.photo', ['photo' => $photo])
                                     @endforeach
                                 </div>
                             @endif
                         </div>
                     @endforeach
                 </div>
+                {{-- §45.3 — the room's general condition photos (not tied to one item). --}}
+                @if(($roomPhotos->get($roomId) ?? collect())->isNotEmpty())
+                    <div class="mt-4 pt-3 border-t border-slate-100">
+                        <p class="font-semibold text-slate-500 uppercase text-xs tracking-wide mb-2">Room photos</p>
+                        <div class="flex flex-wrap gap-3">
+                            @foreach($roomPhotos->get($roomId) as $photo)
+                                @include('rental-inspections.public.partials.photo', ['photo' => $photo])
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
                 @if($roomNotes->get($roomId))
                     <p class="text-sm mt-4 pt-3 border-t border-slate-100 py-1 pl-2 border-l-2 rounded-r" style="background-color: color-mix(in srgb, {{ $severityColors['blue'] }} 12%, white); border-left-color: {{ $severityColors['blue'] }};">
                         <span class="font-semibold text-slate-500 uppercase text-xs tracking-wide">Room note: </span>{{ $roomNotes->get($roomId)->note }}

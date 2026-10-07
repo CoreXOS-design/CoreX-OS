@@ -688,6 +688,7 @@ class AgencySetupWizardController extends Controller
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
+                    'all_items_required_to_complete' => \App\Models\RentalInspectionSetting::allItemsRequiredToCompleteFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
                     // §43 (2026-10-05) — inspection scheduling notifications; declared in the config, never named here.
                     'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),

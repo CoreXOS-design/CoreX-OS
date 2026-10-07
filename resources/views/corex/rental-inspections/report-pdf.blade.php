@@ -86,6 +86,12 @@
         @endif
     </div>
 
+    @if($inspection->overall_notes)
+        <div class="notes-callout notes-callout-blue" style="margin: 6pt 0 8pt 0;">
+            <strong>Overall notes:</strong> {{ $inspection->overall_notes }}
+        </div>
+    @endif
+
     @forelse($rows as $roomId => $roomRows)
         {{-- Multi-line block form deliberately, not the inline shorthand —
              see the agency-level show.blade.php's own comment on this
@@ -137,6 +143,9 @@
                     @endforeach
                 </tbody>
             </table>
+            @if($roomNotes->get($roomId))
+                <div class="notes-callout notes-callout-blue" style="margin-top: 3pt;"><strong>Room note:</strong> {{ $roomNotes->get($roomId)->note }}</div>
+            @endif
         </div>
     @empty
         <p class="muted">No observations recorded.</p>

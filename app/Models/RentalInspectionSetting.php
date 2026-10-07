@@ -381,6 +381,7 @@ class RentalInspectionSetting extends Model
         'photo_note_classifications',
         'baseline_condition_key',
         'require_notes_blocks_progression',
+        'all_items_required_to_complete',
         'omr_mark_threshold',
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
@@ -410,6 +411,7 @@ class RentalInspectionSetting extends Model
         'condition_states' => 'array',
         'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
+        'all_items_required_to_complete' => 'boolean',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
@@ -486,6 +488,23 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('require_notes_blocks_progression');
 
         return $value !== null ? (bool) $value : self::DEFAULT_REQUIRE_NOTES_BLOCKS_PROGRESSION;
+    }
+
+    /**
+     * §45.3 (Build I-1) — whether an in/out inspection can complete (or go out for signature) while a
+     * checklist item is still ungraded. N/A counts as graded. Default ON; an agency that wants to
+     * complete with gaps turns it off and the same list is still shown, as a warning.
+     */
+    public const DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE = true;
+
+    public static function allItemsRequiredToCompleteFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('all_items_required_to_complete');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
     }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int

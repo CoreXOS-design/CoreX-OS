@@ -27,7 +27,6 @@ use App\Models\User;
 use App\Services\Property\ContactPropertyLinker;
 use App\Services\Rentals\LeaseAgreementCheck;
 use App\Services\Rentals\LeaseAgreementTemplateGuard;
-use App\Services\Rentals\LeaseCaptureService;
 use App\Services\Rentals\LeaseSigningLauncher;
 use App\Services\Rentals\PreviousTermValuesReader;
 use App\Services\Rentals\RenewalDraftService;
@@ -296,8 +295,9 @@ final class LeaseFoundationTest extends TestCase
             'category' => RentalLeaseTemplate::CATEGORY_RESIDENTIAL,
         ]);
 
+        // LeaseCaptureService::capture() is real since Build L2 (LeaseCaptureTest); the launcher's missing()/launch()
+        // and the harvest stay shells until L3a/L3b.
         $calls = [
-            fn () => app(LeaseCaptureService::class)->capture([], LeaseCaptureService::INTENT_LEASE_ONLY, $user),
             fn () => app(LeaseSigningLauncher::class)->missing($lease, $row, [], $user),
             fn () => app(LeaseSigningLauncher::class)->launch($lease, $row, $user),
             fn () => app(\App\Services\Rentals\LeaseAgreementHarvest::class)->fromDocument($lease, $this->makeEsignDocument($agency, $branch)),

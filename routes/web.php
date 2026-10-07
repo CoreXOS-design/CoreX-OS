@@ -3521,6 +3521,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // All gated by the existing leases.renew key — no new permission needed.
         Route::middleware('permission:leases.renew')->prefix('{lease}/renewal')->group(function () {
             Route::get('/', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'create'])->name('corex.leases.renewal.create');
+            // LEASE-CAPTURE BEGIN (leases.md §15.2 — Build L2): the renewal capture screen's POST. The GET above
+            // ('/') is the same screen a new lease uses, opened on this lease.
+            Route::post('/capture', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'store'])->name('corex.leases.renewal.store');
+            // LEASE-CAPTURE END
             Route::post('/draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'draftCopyForward'])->name('corex.leases.renewal.draft');
             Route::post('/draft-from-template', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'draftFromTemplate'])->name('corex.leases.renewal.draft-from-template');
             Route::post('/upload', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'uploadRenewal'])->name('corex.leases.renewal.upload');

@@ -92,6 +92,19 @@
                     </p>
                 </div>
                 <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="all_items_required_to_complete" value="0">
+                        <input type="checkbox" name="all_items_required_to_complete" value="1" @checked(old('all_items_required_to_complete', $allItemsRequiredToComplete))>
+                        Require every checklist item to be recorded before an inspection can be signed or completed
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        On (the default): an incoming or outgoing inspection cannot be sent for signature or
+                        completed while any item in any room has not been recorded — the agent is shown exactly
+                        which rooms and items are left. "Not applicable" counts as recorded. Off: an inspection
+                        can be completed with items left unrecorded.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned-form tick-box sensitivity</label>
                     <input type="number" name="omr_mark_threshold" value="{{ old('omr_mark_threshold', $omrMarkThreshold) }}"
                            min="0.05" max="0.95" step="0.05"
