@@ -302,6 +302,18 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
         Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
+        // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1) — INERT: nothing emits these engine events until
+        // Build L3b, and the listener does nothing until then. One block, so L3b edits one place.
+        foreach ([
+            \App\Events\Docuperfect\SignatureEnvelopeSent::class,
+            \App\Events\Docuperfect\SignatureEnvelopeFinalized::class,
+            \App\Events\Docuperfect\SignatureEnvelopeDeclined::class,
+            \App\Events\Docuperfect\SignatureEnvelopeCancelled::class,
+            \App\Events\Docuperfect\SignatureEnvelopeExpired::class,
+        ] as $leaseAgreementEngineEvent) {
+            Event::listen($leaseAgreementEngineEvent, \App\Listeners\Rentals\UpdateLeaseSigningState::class);
+        }
+        // LEASE-AGREEMENT END
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 

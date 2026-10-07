@@ -23,6 +23,25 @@ class LeaseEvent extends Model
     public const TYPE_RENEWAL_ACTIVATED = 'renewal_activated';
     public const TYPE_RENEWAL_DRAFT_CANCELLED = 'renewal_draft_cancelled';
 
+    // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1). All <= 40 characters (event_type is string(40)).
+    // They reach the tenancy log with no change to LeaseTimelineService (it lists every LeaseEvent row).
+    public const TYPE_LEASE_CREATED = 'lease_created';
+    public const TYPE_AGREEMENT_PREPARED = 'agreement_prepared';
+    public const TYPE_AGREEMENT_OUT_FOR_SIGNING = 'agreement_out_for_signing';
+    public const TYPE_AGREEMENT_EDITED = 'agreement_edited';
+    public const TYPE_AGREEMENT_DIFFERENCES_CONFIRMED = 'agreement_differences_confirmed';
+    public const TYPE_AGREEMENT_NEEDS_CONFIRMATION = 'agreement_needs_confirmation';
+    public const TYPE_AGREEMENT_SIGNED = 'agreement_signed';
+    public const TYPE_AGREEMENT_ACCEPTED = 'agreement_accepted';
+    public const TYPE_LEASE_ACTIVATED_BY_SIGNING = 'lease_activated_by_signing';
+    public const TYPE_AGREEMENT_DECLINED = 'agreement_declined';
+    public const TYPE_AGREEMENT_VOIDED = 'agreement_voided';
+    public const TYPE_AGREEMENT_EXPIRED = 'agreement_expired';
+    public const TYPE_SIGNED_NOT_ACTIVATED = 'signed_not_activated';
+    public const TYPE_LEASE_SIGNED_ON_PAPER = 'lease_signed_on_paper';
+    public const TYPE_LEASE_EDITED = 'lease_edited';
+    // LEASE-AGREEMENT END
+
     protected $fillable = [
         'lease_id',
         'event_type',
