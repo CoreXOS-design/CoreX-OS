@@ -195,6 +195,106 @@ class OtherAgencyStockFieldMapper
     }
 
     /**
+     * 2026-10-07 (P24 import 117621889): a count the portal shows as a plain
+     * number (beds, garages, parking) as a whole number for CoreX's integer
+     * columns. Rounds rather than truncates, so a stray "1.9" is 2 and an
+     * absent value stays null (never 0 — the caller decides what absent means).
+     */
+    public static function toWholeNumber(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return null;
+        }
+
+        return max(0, (int) round((float) $value));
+    }
+
+    /**
+     * 2026-10-07 (P24 import 117621889): P24 shows 2.5 bathrooms; CoreX keeps
+     * whole baths in `baths` and a half bath as `half_baths` (the property
+     * page reads "2 + ½", the P24 syndication mapper sends baths + 0.5 per
+     * half bath, the spaces editor stores a 2.5 Bathroom count). So 2.5 is
+     * baths 2 + half_baths 1 — never baths 25, never 2 with the half thrown away.
+     * P24 only ever steps in halves; anything from .5 up counts as the half.
+     *
+     * @return array{0: int, 1: int}  [whole baths, half baths (0|1)]
+     */
+    public static function splitBathrooms(mixed $total): array
+    {
+        if ($total === null || $total === '' || ! is_numeric($total)) {
+            return [0, 0];
+        }
+        $t = max(0.0, (float) $total);
+        $whole = (int) floor($t + 1e-9);
+        $half = ($t - $whole) >= 0.5 - 1e-9 ? 1 : 0;
+
+        return [$whole, $half];
+    }
+
+    /**
+     * 2026-10-07 (P24 import 117621889): the portal's street line ("42
+     * Springwood", "1750 Argus Drive", "Unit 5, 12 Marine Drive") into the
+     * structured columns. Same conventions the rest of CoreX already uses for
+     * a free-text address ("[complex/unit], [street]", the street is the LAST
+     * segment — ProspectingListing::parseStreetNumber, EntryPointController::
+     * parseStreet): a leading "12", "12A", "1/3" or "12-14" is the street
+     * number, the rest is the street name; any segment that is just the
+     * suburb/city/province ($knownPlaces — P24's "42 Springwood, Umhlali Golf
+     * Estate" repeats the suburb) is dropped; a leading "Unit 5"/"Flat 3" is
+     * the unit number; any other segment before the street is the complex.
+     * A line with no leading number is a street name only (never a guessed
+     * number). Nothing readable -> every part null; nothing is invented.
+     *
+     * @param  string[]  $knownPlaces  suburb / city / province texts to ignore
+     * @return array{street_number: ?string, street_name: ?string, complex_name: ?string, unit_number: ?string}
+     */
+    public static function parseStreetAddress(?string $raw, array $knownPlaces = []): array
+    {
+        $empty = ['street_number' => null, 'street_name' => null, 'complex_name' => null, 'unit_number' => null];
+        $raw = trim((string) preg_replace('/\s+/u', ' ', (string) $raw));
+        if ($raw === '') {
+            return $empty;
+        }
+
+        $known = array_values(array_filter(array_map(
+            fn ($p) => mb_strtolower(trim((string) $p)),
+            $knownPlaces
+        )));
+        $segments = array_values(array_filter(
+            array_map('trim', explode(',', $raw)),
+            fn ($seg) => $seg !== '' && ! in_array(mb_strtolower($seg), $known, true)
+        ));
+        if (empty($segments)) {
+            return $empty;
+        }
+
+        $streetLine = array_pop($segments);
+        $unit = null;
+        $complexParts = [];
+        foreach ($segments as $seg) {
+            if ($unit === null && preg_match('/^(?:unit|flat|apartment|apt|door)\s*#?\s*([\w\/-]+)$/iu', $seg, $m)) {
+                $unit = $m[1];
+            } else {
+                $complexParts[] = $seg;
+            }
+        }
+
+        $number = null;
+        $name = $streetLine;
+        if (preg_match('/^\s*(\d+[A-Za-z]?(?:\s*[\/-]\s*\d+[A-Za-z]?)?)\s+(.+)$/u', $streetLine, $m)) {
+            $number = trim($m[1]);
+            $name = trim($m[2]);
+        }
+
+        return [
+            'street_number' => $number,
+            'street_name'   => $name !== '' ? $name : null,
+            'complex_name'  => $complexParts ? implode(', ', $complexParts) : null,
+            'unit_number'   => $unit,
+        ];
+    }
+
+    /**
      * P24's free-text "Zoning" value -> one of CoreX's fixed zone_type
      * dropdown options (resources/views/corex/properties/show.blade.php:
      * Residential/Commercial/Industrial/Agricultural/Mixed Use). Storing
@@ -270,7 +370,7 @@ class OtherAgencyStockFieldMapper
      * still imports fine with an empty Kitchen space, never a partial
      * failure over one missing overview row.
      *
-     * @param  array{beds?: ?int, baths?: ?int, garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, kitchen_features?: string[], garden_features?: string[], security_features?: string[]}  $signals
+     * @param  array{beds?: ?int, baths?: int|float|null (total, 2.5 = 2 + half), garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, garden?: bool, kitchen_features?: string[], garden_features?: string[], security_features?: string[]}  $signals
      */
     public static function buildSpacesJson(array $signals, ?array $existingSpacesJson = null): array
     {
@@ -281,19 +381,21 @@ class OtherAgencyStockFieldMapper
             }
         }
 
-        $setSpace = function (string $type, int $count, array $features) use (&$byType) {
+        // $count may be fractional (Bathroom 2.5 = 2 baths + a half bath — the
+        // spaces editor's own shape: count 2.5, one unit per started space).
+        $setSpace = function (string $type, int|float $count, array $features) use (&$byType) {
             if ($count <= 0) {
                 unset($byType[$type]);
 
                 return;
             }
             $units = [];
-            for ($i = 1; $i <= $count; $i++) {
+            for ($i = 1; $i <= (int) ceil($count); $i++) {
                 $units[] = ['label' => "{$type} {$i}", 'features' => $features];
             }
             $byType[$type] = [
                 'type'           => $type,
-                'count'          => $count,
+                'count'          => floor($count) == $count ? (int) $count : (float) $count,
                 'units'          => $units,
                 'featuresAll'    => $features,
                 'descriptionAll' => '',
@@ -304,7 +406,7 @@ class OtherAgencyStockFieldMapper
             $setSpace('Bedroom', (int) $signals['beds'], []);
         }
         if (array_key_exists('baths', $signals) && $signals['baths'] !== null) {
-            $setSpace('Bathroom', (int) $signals['baths'], array_values(array_filter($signals['bathroom_features'] ?? [])));
+            $setSpace('Bathroom', (float) $signals['baths'], array_values(array_filter($signals['bathroom_features'] ?? [])));
         }
         if (array_key_exists('garages', $signals) && $signals['garages'] !== null) {
             $setSpace('Garage', (int) $signals['garages'], []);
@@ -325,7 +427,8 @@ class OtherAgencyStockFieldMapper
         }
 
         $gardenFeatures = array_values(array_filter($signals['garden_features'] ?? []));
-        if (! empty($gardenFeatures)) {
+        // "Garden | Yes" is a flag, not a feature called "Yes" — the space exists, the list stays empty.
+        if (! empty($gardenFeatures) || ! empty($signals['garden'])) {
             $setSpace('Garden', 1, $gardenFeatures);
         }
 

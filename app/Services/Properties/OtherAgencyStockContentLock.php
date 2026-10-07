@@ -26,8 +26,8 @@ class OtherAgencyStockContentLock
     public const LOCKED_FIELDS = [
         // The advert's own content.
         'description', 'title', 'headline',
-        'price', 'price_on_application',
-        'beds', 'baths', 'garages', 'size_m2', 'erf_size_m2',
+        'price', 'price_on_application', 'rental_amount',
+        'beds', 'baths', 'half_baths', 'garages', 'size_m2', 'erf_size_m2',
         'property_type', 'listing_type',
         'features_json', 'spaces_json',
         // Photos.

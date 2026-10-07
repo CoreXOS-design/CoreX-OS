@@ -26,11 +26,19 @@ class DownloadPortalPropertyImages implements ShouldQueue
      * @param int    $propertyId     CoreX property ID
      * @param int    $firstImageId   First P24 image ID (sequential)
      * @param int    $imageCount     Total number of images
+     * @param int[]  $imageIds       The gallery's real image ids in the portal's own order.
+     *                               When given they are downloaded as-is and firstImageId /
+     *                               imageCount are not used to guess ids: P24 ids are NOT
+     *                               consecutive (checked against six saved pages — gaps, a
+     *                               later image with a LOWER id, a second batch weeks later),
+     *                               so first+1, first+2 … fetched other listings' photos.
+     *                               Empty = the old sequential guess (Pull, older extension).
      */
     public function __construct(
         public int $propertyId,
         public int $firstImageId,
         public int $imageCount,
+        public array $imageIds = [],
     ) {
         // 2026-09-30 demo-reliability fix: this job had NO queue assignment
         // at all (defaulted to `default`), so a live import's photos could
@@ -50,7 +58,7 @@ class DownloadPortalPropertyImages implements ShouldQueue
             return;
         }
 
-        $total = $this->imageCount;
+        $total = ! empty($this->imageIds) ? count($this->imageIds) : $this->imageCount;
         $cacheKey = "property_pull_images:{$this->propertyId}";
         $dir = "properties/{$this->propertyId}";
 
@@ -61,7 +69,7 @@ class DownloadPortalPropertyImages implements ShouldQueue
         // Build all image URLs: sequential IDs from firstImageId
         $imageUrls = [];
         for ($i = 0; $i < $total; $i++) {
-            $imageId = $this->firstImageId + $i;
+            $imageId = ! empty($this->imageIds) ? (int) $this->imageIds[$i] : $this->firstImageId + $i;
             $imageUrls[] = "https://images.prop24.com/{$imageId}/Ensure1280x720";
         }
 
