@@ -71,10 +71,10 @@ final class BuyerSignalNotesViewTest extends TestCase
         $html = $this->actingAs($this->admin)->get(route('corex.properties.show', $property))->assertOk()->getContent();
 
         $this->assertStringContainsString('Notes (2)', $html);
-        $this->assertStringContainsString(route('corex.contacts.notes.quick-view', $buyer->id), $html);
+        $this->assertStringContainsString(route('corex.buyer-notes.show', $buyer->id), $html);
         $this->assertStringContainsString('data-buyer-notes', $html);
 
-        $frag = $this->actingAs($this->admin)->get(route('corex.contacts.notes.quick-view', $buyer))->assertOk()->getContent();
+        $frag = $this->actingAs($this->admin)->get(route('corex.buyer-notes.show', $buyer))->assertOk()->getContent();
         $this->assertStringContainsString('Went cold, not responding.', $frag);
         $this->assertStringContainsString('Viewed twice, keen.', $frag);
         $this->assertStringContainsString('Ada Admin', $frag, 'author shown');
@@ -92,7 +92,7 @@ final class BuyerSignalNotesViewTest extends TestCase
         [, $buyer] = $this->propertyWithMatchingBuyer($this->admin);
         $this->note($buyer, $this->admin, 'A note.', now());
 
-        $frag = $this->actingAs($this->admin)->get(route('corex.contacts.notes.quick-view', $buyer))->assertOk()->getContent();
+        $frag = $this->actingAs($this->admin)->get(route('corex.buyer-notes.show', $buyer))->assertOk()->getContent();
 
         $this->assertStringNotContainsString('<form', $frag);
         $this->assertStringNotContainsString('Delete', $frag);
@@ -125,31 +125,31 @@ final class BuyerSignalNotesViewTest extends TestCase
 
     // ── visibility: only what the contact's own rules allow ──────────────
 
-    public function test_own_scope_agent_who_did_not_capture_the_buyer_gets_no_control_and_no_notes(): void
+    public function test_own_level_agent_who_is_not_the_buyers_primary_agent_gets_no_control_and_no_notes(): void
     {
         $this->ownScopeForAgents();
-        // Buyer captured by the buyer's agent; the listing agent is a different person.
-        [$property, $buyer] = $this->propertyWithMatchingBuyer($this->buyerAgent);
+        // The buyer's primary agent is someone else (even though the listing agent captured them).
+        [$property, $buyer] = $this->propertyWithMatchingBuyer($this->listingAgent, $this->buyerAgent);
         $this->note($buyer, $this->buyerAgent, 'Private to the buyer agent: went cold.', now());
 
         $html = $this->actingAs($this->listingAgent)->get(route('corex.properties.show', $property))->assertOk()->getContent();
 
         $this->assertStringNotContainsString('data-buyer-notes', $html);
         $this->assertStringNotContainsString('went cold', $html);
-        $this->actingAs($this->listingAgent)->get(route('corex.contacts.notes.quick-view', $buyer))->assertNotFound();
+        $this->actingAs($this->listingAgent)->get(route('corex.buyer-notes.show', $buyer))->assertNotFound();
     }
 
-    public function test_own_scope_agent_who_captured_the_buyer_sees_the_notes_even_if_another_agent_is_primary(): void
+    public function test_own_level_agent_who_is_the_primary_agent_sees_the_notes_even_if_someone_else_captured_the_buyer(): void
     {
         $this->ownScopeForAgents();
-        // Captured by the listing agent; primary agent is someone else — the rule is the contact's own scope.
-        [$property, $buyer] = $this->propertyWithMatchingBuyer($this->listingAgent, $this->buyerAgent);
+        // Captured by the admin; the listing agent is the primary agent — the rule is the Role Manager scope.
+        [$property, $buyer] = $this->propertyWithMatchingBuyer($this->admin, $this->listingAgent);
         $this->note($buyer, $this->buyerAgent, 'Not responding.', now());
 
         $html = $this->actingAs($this->listingAgent)->get(route('corex.properties.show', $property))->assertOk()->getContent();
 
         $this->assertStringContainsString('Notes (1)', $html);
-        $this->actingAs($this->listingAgent)->get(route('corex.contacts.notes.quick-view', $buyer))
+        $this->actingAs($this->listingAgent)->get(route('corex.buyer-notes.show', $buyer))
             ->assertOk()->assertSee('Not responding.');
     }
 
@@ -178,14 +178,15 @@ final class BuyerSignalNotesViewTest extends TestCase
         $this->assertStringNotContainsString('Secret buyer note XYZ.', $html);
         $this->assertStringNotContainsString('Notes (', $html);
         $this->assertStringNotContainsString('data-buyer-notes', $html);
-        $this->assertStringNotContainsString('notes/quick-view', $html);
+        $this->assertStringNotContainsString('buyer-notes', $html);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
+    /** Agents may open properties and read buyer notes at the "own" level (primary agent = the viewer). */
     private function ownScopeForAgents(): void
     {
-        foreach (['access_properties' => null, 'properties.view' => 'own', 'access_contacts' => null, 'contacts.view' => 'own'] as $key => $scope) {
+        foreach (['access_properties' => null, 'properties.view' => 'own', 'buyer_notes.view' => 'own'] as $key => $scope) {
             RolePermission::create(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id, 'scope' => $scope]);
         }
     }

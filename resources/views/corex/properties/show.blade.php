@@ -10190,11 +10190,9 @@
                     $recommendations = $intel->getAgentRecommendations($property->id);
                     $comparables = $intel->getComparableListings($property->id);
                     $buyerSignals = $intel->getBuyerInterestSignals($property->id);
-                    // View-only "Notes (n)" per signal buyer — only for buyers whose contact this user may
-                    // see (ContactScope) and only if they may open contacts at all (route needs access_contacts).
-                    $buyerNoteCounts = auth()->user()?->hasPermission('access_contacts')
-                        ? $intel->getBuyerNoteCounts($buyerSignals)
-                        : [];
+                    // View-only "Notes (n)" per signal buyer — only for buyers whose notes this user may read
+                    // under the Role Manager scope buyer_notes.view (own / branch / agency); none without it.
+                    $buyerNoteCounts = $intel->getBuyerNoteCounts($buyerSignals);
                 @endphp
 
                 {{-- Controls row: Preview toggle + Log Marketing Action + Mark as Sold --}}
@@ -10690,13 +10688,13 @@
                                 </div>
                                 <div class="flex items-center gap-2">
                                     {{-- Notes recorded on this buyer's contact — VIEW ONLY (newest first, author + date).
-                                         Same read-only fragment the Core Matches board uses; it is bound through
-                                         ContactScope, so a buyer this user cannot see has no control here and a hand-typed
+                                         Same read-only fragment the Core Matches board uses; it is gated by the
+                                         buyer_notes.view scope, so a buyer outside it has no control here and a hand-typed
                                          address 404s. Agent-facing only — never on the seller live link. --}}
                                     @if(array_key_exists($buyer['id'], $buyerNoteCounts))
                                         @if($buyerNoteCounts[$buyer['id']] > 0)
                                             <button type="button" data-buyer-notes
-                                                    @click="$dispatch('open-signal-notes', { url: '{{ route('corex.contacts.notes.quick-view', $buyer['id']) }}' })"
+                                                    @click="$dispatch('open-signal-notes', { url: '{{ route('corex.buyer-notes.show', $buyer['id']) }}' })"
                                                     class="text-[10px] font-medium" style="color: var(--brand-icon, #0ea5e9);">Notes ({{ $buyerNoteCounts[$buyer['id']] }})</button>
                                         @else
                                             <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-notes>Notes (0)</span>

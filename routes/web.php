@@ -5598,6 +5598,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.reassign')
         ->name('corex.core-matches.reassign-buyer');
 
+    // Johan, 2026-10-07 — read-only notes on a buyer, for the Core Matches popup AND the Intelligence tab's
+    // Buyer Interest Signals. Gated by the Role Manager data scope buyer_notes.view (own / branch / agency);
+    // BuyerNotesAccess re-checks the scope per buyer (outside it = 404). View only; never on a public link.
+    Route::get('/core-matches/buyers/{contactId}/notes', [\App\Http\Controllers\CoreX\BuyerNotesController::class, 'show'])
+        ->whereNumber('contactId')
+        ->middleware(['permission:buyer_notes.view', 'agency.required'])
+        ->name('corex.buyer-notes.show');
+
     // AT-Core-Matches, Johan's dated-link ruling — confirms a share that was
     // already MINTED server-side when the composer rendered (see
     // ContactMatch::mintShareLink()); this is the actual send click, and is
@@ -5736,7 +5744,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/communications/{communication}/mark-sent',     [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationSent'])->name('communications.mark-sent');
 
         // Notes
-        Route::get('/{contact}/notes/quick-view', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'quickView'])->name('notes.quick-view');
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::put('/{contact}/notes/{note}',    [\App\Http\Controllers\CoreX\ContactNoteController::class, 'update'])->name('notes.update');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');

@@ -273,6 +273,7 @@ by oversight — do not reinstate them without asking:
   save). Stays on `Admin\AgencyApiKeyController@toggleWebsite`, reachable from the
   agency's website-settings page. `agencies.website_enabled` and
   `config/corex-features.php`'s `public-website` registry row both still default `false`.
+- **Buyer-notes visibility (`buyer_notes.view`, 2026-10-07).** A per-role Role Manager data scope (Own / Branch / Agency), not an agency setting — the wizard does not configure the role matrix. Recorded as a decision, not an oversight.
 
 - **MIC tile-count cache window** (`suggested_action_thresholds.mic_counts_cache_fresh_seconds` /
   `.mic_counts_cache_stale_seconds`, added 2026-08-27). An internal cache-tuning knob, not a

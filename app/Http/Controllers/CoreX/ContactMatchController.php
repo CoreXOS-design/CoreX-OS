@@ -479,6 +479,10 @@ class ContactMatchController extends Controller
             }
         }
 
+        // Whose notes the viewer may READ from the "N notes" pill: the Role Manager scope buyer_notes.view
+        // (own / branch / agency) — BuyerNotesAccess, one rule shared with the Intelligence tab.
+        $buyerNotesViewableIds = app(\App\Services\Buyers\BuyerNotesAccess::class)->visibleContactIds($user, $pageContactIds);
+
         // Who the viewer may write a note for from this board — the contact-notes store route's
         // own rules, evaluated up front so no "+ Note" button is shown that would only 404/403:
         // contacts access permission, the contact bound under its normal ContactScope (own/branch/
@@ -532,7 +536,7 @@ class ContactMatchController extends Controller
         $totalMatches = $allMatches->count();
 
         return view('corex.core-matches.index', compact(
-            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'pipelineMovableContactIds',
+            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'buyerNotesViewableIds', 'pipelineMovableContactIds',
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
             'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',
