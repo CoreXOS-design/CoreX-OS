@@ -97,6 +97,15 @@
                 @endforeach
             </select>
         </div>
+        <div>
+            <label class="text-xs" style="color: var(--text-muted);">Agreement</label><br>
+            <select name="agreement" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <option value="">All</option>
+                @foreach(\App\Models\Lease::SIGNING_LABELS as $signingKey => $signingLabel)
+                    <option value="{{ $signingKey }}" @selected(($filters['agreement'] ?? '') === $signingKey)>{{ $signingLabel }}</option>
+                @endforeach
+            </select>
+        </div>
         <div class="relative">
             <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
             {{-- Only properties with a lease visible to this user — never
@@ -123,7 +132,7 @@
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'property_id', 'date_from', 'date_to']))
+        @if(request()->hasAny(['q', 'status', 'agreement', 'property_id', 'date_from', 'date_to']))
             <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -184,6 +193,9 @@
                             <span class="ds-badge ds-badge-muted">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
                         @else
                             <span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ ucfirst($lease->status) }}</span>
+                            @if($lease->signingStatusLabel())
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $lease->signingStatusLabel() }}</div>
+                            @endif
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $lease->start_date?->format('Y-m-d') }}</td>

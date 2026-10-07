@@ -3,17 +3,17 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\HandlesLeaseCapture;
 use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Http\Controllers\Controller;
-use App\Models\Document;
+use App\Http\Requests\CoreX\LeaseCaptureRequest;
 use App\Models\Lease;
 use App\Models\RentalLeaseTemplate;
+use App\Services\Rentals\LeaseCaptureService;
 use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RenewalDraftService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -30,35 +30,45 @@ use Illuminate\Validation\ValidationException;
 class LeaseRenewalController extends Controller
 {
     use AuthorizesRentalRecordScope;
+    use HandlesLeaseCapture;
     use ValidatesDocumentUploads;
 
     /**
-     * .ai/specs/rental-renewals.md §4-§9 — the "one small screen" the agent
-     * uses to enter the new term and either send a renewal draft, upload a
-     * signed renewal, or record a one-click outcome. §5(b)'s eligibility
-     * preview (missing fields against the lease's OWN current data, before
-     * the agent has typed new terms) lets the agent see which templates are
-     * ready without yet submitting — the real check re-runs against the
-     * actually-submitted terms in draftFromTemplate() below.
+     * .ai/specs/leases.md §15.2 / §15.3 / §15.6 (Build L2) — the renewal is the SAME capture screen as a new
+     * lease, opened on the lease being renewed: tenants shown read-only (R7), everything else pre-filled from
+     * the previous term. The old "Renew or end tenancy" page is retired; its one-click outcomes (month-to-
+     * month, notices, reversals) already live in the Lease Hub's own action dialogs and are unchanged.
      */
-    public function create(Request $request, Lease $lease): \Illuminate\View\View
+    public function create(Request $request, Lease $lease): \Illuminate\View\View|RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
-        $draftService = app(RenewalDraftService::class);
-        $leaseTemplates = RentalLeaseTemplate::active()->with('template')->orderBy('name')->get()
-            ->map(fn (RentalLeaseTemplate $t) => [
-                'template' => $t,
-                'missing' => $draftService->missingRequiredFields($lease, $t, [], $request->user()),
-            ]);
+        // A clean answer, never a 500 from the service: only an active lease can be renewed.
+        if ($lease->status !== Lease::STATUS_ACTIVE) {
+            return redirect()->route('corex.leases.show', $lease)->withErrors(['lease' => 'Only an active lease can be renewed.']);
+        }
 
-        return view('corex.leases.renewal', [
+        $lease->load(['property', 'tenants.contact']);
+        $screen = $this->leaseCaptureScreen($request->user(), $lease);
+
+        return view('corex.leases.capture', array_merge($screen, [
+            'mode' => 'renew',
             'lease' => $lease,
-            'canCopyForward' => $lease->source === 'esign_document' && (bool) $lease->source_document_id,
-            'leaseTemplates' => $leaseTemplates,
-            'tenantNoticePeriodDays' => \App\Models\LeaseSetting::tenantNoticePeriodDaysFor($lease->agency_id),
-            'showAvailableFromOnPortals' => (bool) ($lease->property?->show_available_from_on_portals ?? true),
-        ]);
+            'property' => $lease->property,
+            'oldProperty' => null,
+            'oldTenants' => [],
+            'rentalApplication' => null,
+        ]));
+    }
+
+    /**
+     * The renewal capture screen's POST — "Renew lease only", "Renew lease & prepare for signing" and the
+     * signed paper copy (leases.md §15.4, §15.6). The tenants are rebuilt from the lease being renewed by
+     * the service; a tenant field posted here is never read (R7).
+     */
+    public function store(LeaseCaptureRequest $request, Lease $lease): RedirectResponse
+    {
+        return $this->runLeaseCapture($request, $lease);
     }
 
     /**
@@ -106,10 +116,10 @@ class LeaseRenewalController extends Controller
     }
 
     /**
-     * §5(c) — manual-upload path: agent uploads the signed renewal directly
-     * and captures dates/rent/escalation by hand. Activates immediately —
-     * there is no e-sign cycle to wait for (§6 only applies to the e-sign
-     * paths).
+     * §5(c) — manual-upload path: agent uploads the signed renewal directly and captures dates/rent by
+     * hand. Activates immediately — there is no e-sign cycle to wait for. Since Build L2 this is the capture
+     * service's signed-paper-copy path (leases.md §15.6.5) — the same code the capture screen uses; the
+     * route stays for the API mirror and older callers.
      */
     public function uploadRenewal(Request $request, Lease $lease): RedirectResponse
     {
@@ -118,39 +128,12 @@ class LeaseRenewalController extends Controller
         $terms = $this->validateTerms($request);
         $request->validate(['signed_document' => $this->documentUploadRule(20480)]);
 
-        $user = $request->user();
+        // Older callers never sent a deposit: keep carrying the previous term's forward, as this route always did.
+        $terms['deposit_amount'] = $terms['deposit_amount'] ?? $lease->deposit_amount;
+        $terms['signed_document'] = $request->file('signed_document');
 
         try {
-            $result = DB::transaction(function () use ($lease, $terms, $request, $user) {
-                $newTerm = app(LeaseRenewalService::class)->createRenewalTerm($lease, $terms, $user);
-
-                $file = $request->file('signed_document');
-                $ext = $file->getClientOriginalExtension();
-                $path = $file->storeAs(
-                    'lease-renewals/' . $newTerm->id,
-                    Str::uuid() . ($ext ? ".{$ext}" : ''),
-                    'local'
-                );
-
-                $document = Document::create([
-                    'original_name' => $file->getClientOriginalName(),
-                    'storage_path' => $path,
-                    'disk' => 'local',
-                    'mime_type' => $file->getMimeType(),
-                    'size' => $file->getSize(),
-                    'document_type_id' => \App\Models\DocumentType::where('slug', 'lease_agreement')->value('id'),
-                    'source_type' => 'lease',
-                    'source_id' => $newTerm->id,
-                    'uploaded_by' => $user->id,
-                ]);
-                if ($newTerm->property_id) {
-                    $document->properties()->attach($newTerm->property_id);
-                }
-
-                event(new \App\Events\Document\DocumentUploaded(document: $document, owner: $newTerm, actorUserId: $user->id));
-
-                return app(LeaseRenewalService::class)->activateRenewalTerm($newTerm, $user);
-            });
+            $result = app(LeaseCaptureService::class)->capture($terms, LeaseCaptureService::INTENT_PAPER_COPY, $request->user(), $lease);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
         }

@@ -156,6 +156,9 @@
        compute and nothing for it to land on top of. */
     .rir-strip-row { position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; display:flex; flex-wrap:nowrap; align-items:flex-start; gap:6px; }
     .rir-strip-tile { flex:none; width:86px; height:64px; overflow:hidden; background:var(--surface-3); box-sizing:border-box; }
+    /* §45.3 (Build I-1) — when the photo was taken (or, honestly, only uploaded), laid over the bottom of a
+       tile. Informational only: pointer-events none so it never steals the tile's own click/drag. */
+    .rir-photo-time { position:absolute; left:0; right:0; bottom:0; padding:1px 3px; background:rgba(0,0,0,0.6); color:#fff; font-size:8.5px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; z-index:1; pointer-events:none; }
     .rir-strip-badge { position:absolute; top:2px; left:2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:rgba(0,0,0,0.65); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; z-index:1; pointer-events:none; }
     /* §41, 2026-09-29 — a small, clickable indicator on a tile whose photo
        already belongs to an active match group (manual OR auto-paired —
@@ -562,7 +565,8 @@
                                  class="rounded-md cursor-pointer rir-tray-tile"
                                  :class="trayTileSize === 'large' ? 'rir-tray-tile-lg' : ''"
                                  :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
-                                <img :src="photo.storage_path" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
+                                <img :src="photo.storage_path" :title="photo.taken_caption" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
+                                <span class="rir-photo-time" x-show="trayTileSize === 'large'" x-text="photo.taken_caption_short"></span>
                                 {{-- Standards — a removed photo is archived
                                      (RentalInspectionPhoto::archive(), a real
                                      deleted_at, §20.13.1) never hard-deleted.
@@ -1172,8 +1176,9 @@
                                          side only; there is no predecessor-side room
                                          gallery in this file), so chainTail is the correct
                                          inspection object, same as the tail item cell. --}}
-                                    <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
+                                    <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" :title="photo.taken_caption"
                                          @click="openCompareViewer(photo, chainTail)" alt="">
+                                    <span class="rir-photo-time" data-qa="insp-photo-time" x-text="photo.taken_caption_short"></span>
 @unless($tailReadOnly)
                                     {{-- Multi-select toggle — one tap/click, no modifier
                                          key, so it works identically at phone width. Feeds
@@ -1391,6 +1396,22 @@
         </div>
 
         <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
+
+        {{-- §45.3 (Build I-1) — the checklist of items still to record, shown when Complete (or Send for
+             signature) was refused because items are ungraded. Each room name jumps to that room. --}}
+        <div x-show="ungradedItems.length" x-cloak data-qa="ungraded-items-panel" class="text-xs space-y-1 rounded-md p-2"
+             style="border:1px solid #ef4444; background:color-mix(in srgb, #ef4444 8%, transparent); color:var(--text-primary);">
+            <div class="flex items-center justify-between gap-2">
+                <span class="font-semibold" style="color:#ef4444;" x-text="'Still to record: ' + ungradedItems.length + (ungradedItems.length === 1 ? ' item' : ' items') + ' (Not applicable counts as recorded)'"></span>
+                <button type="button" class="underline font-semibold" @click="setFilterMode('unrecorded')">Show only what is left</button>
+            </div>
+            <template x-for="g in ungradedRoomGroups()" :key="g.key">
+                <div>
+                    <button type="button" class="font-semibold underline" @click="jumpToUngradedRoom({{ $sectionJs }}, g.roomId)" x-text="g.label + ' (' + g.items.length + ')'"></button>
+                    <span x-text="': ' + g.items.join(', ')"></span>
+                </div>
+            </template>
+        </div>
 
         {{-- Conductor brief 2026-09-29 — "print for signature": the same
              report, plus blank signature blocks for every outstanding

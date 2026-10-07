@@ -16,7 +16,7 @@
     @include('corex.rentals.partials._print-list-filters')
     <table>
         <thead>
-            <tr><th>Property</th><th>Tenant(s)</th><th>Status</th><th>Start</th><th>End</th><th>Rent</th></tr>
+            <tr><th>Property</th><th>Tenant(s)</th><th>Status</th><th>Start</th><th>End</th><th>Rent</th><th>Agreement</th></tr>
         </thead>
         <tbody>
             @foreach($leases as $lease)
@@ -27,6 +27,7 @@
                     <td>{{ $lease->start_date?->format('Y-m-d') }}</td>
                     <td>{{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td>
                     <td>R{{ number_format((float) $lease->rental_amount, 2) }}</td>
+                    <td>{{ $lease->signingStatusLabel() ?? '—' }}</td>
                 </tr>
             @endforeach
         </tbody>

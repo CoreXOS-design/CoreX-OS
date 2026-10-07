@@ -174,7 +174,7 @@
                             @endif
                         </div>
                     @else
-                        <p class="text-sm" style="color: var(--text-muted);">Enter the new term, draft from a template, or upload a signed renewal on the renewal screen.</p>
+                        <p class="text-sm" style="color: var(--text-muted);">Enter the new term on the renewal screen, or attach the signed renewal if you already have it.</p>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
                             <a href="{{ route('corex.leases.renewal.create', $lease) }}" class="corex-btn-primary text-xs">Continue to renewal</a>
@@ -513,6 +513,13 @@
                 <form id="lease-edit-form" method="POST" action="{{ route('corex.leases.update', $lease) }}" class="space-y-3">
                     @csrf
                     @method('PUT')
+                    {{-- LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L2): while the agreement is out for
+                         signing these fields change in the agreement, not here. Read-only, with the reason. --}}
+                    @php $leaseLocked = $lease->isLockedForSigning(); @endphp
+                    @if($leaseLocked)
+                        <p class="text-xs" style="color: var(--text-muted);">{{ \App\Models\Lease::LOCKED_FOR_SIGNING_MESSAGE }}</p>
+                    @endif
+                    {{-- LEASE-AGREEMENT END --}}
                     {{-- Johan, 2026-09-22 — "the rental amount shows on the lease screen, but not on the edit screen... displaying the
                          rent amount makes it easy to type again [the deposit]." Read-only display only — rent is never editable here,
                          it only ever changes through a recorded escalation / renewal. (Dropped by the Lease Hub rebuild, restored.) --}}
@@ -522,20 +529,20 @@
                     </div>
                     <div>
                         <label class="prop-label">Deposit (R)</label>
-                        <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" class="prop-input">
+                        <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" @disabled($leaseLocked) class="prop-input">
                     </div>
                     <div>
                         <label class="prop-label">End date</label>
-                        <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" class="prop-input" style="color-scheme: light dark;">
+                        <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" @disabled($leaseLocked) class="prop-input" style="color-scheme: light dark;">
                     </div>
                     <label class="flex items-center gap-2 text-sm">
-                        <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month))>
+                        <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month)) @disabled($leaseLocked)>
                         Month-to-month (no fixed end date)
                     </label>
                     @if($showLeaseType ?? false)
                         <div>
                             <label class="prop-label">Lease type</label>
-                            <select name="lease_type" class="prop-select">
+                            <select name="lease_type" @disabled($leaseLocked) class="prop-select">
                                 <option value="" @selected(!$lease->lease_type)>—</option>
                                 @foreach($leaseTypes ?? [] as $lt)
                                     <option value="{{ $lt->name }}" @selected($lease->lease_type === $lt->name)>{{ $lt->name }}</option>
@@ -544,7 +551,7 @@
                         </div>
                     @endif
                     <div class="flex items-center gap-2">
-                        <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                        <button type="submit" @disabled($leaseLocked) class="corex-btn-primary text-xs">Save changes</button>
                         <button type="button" onclick="document.getElementById('lease-edit-panel').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>
                         @if($lease->status === 'draft')
                             @php
