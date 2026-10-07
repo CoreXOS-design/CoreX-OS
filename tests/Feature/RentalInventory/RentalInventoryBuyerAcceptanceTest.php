@@ -21,6 +21,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -37,6 +38,7 @@ use Tests\TestCase;
  */
 final class RentalInventoryBuyerAcceptanceTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -53,9 +55,12 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         $this->actingAs($this->agent);
 
-        DocumentType::create(['slug' => 'inventory_list', 'label' => 'Inventory List', 'is_active' => true]);
+        $this->documentTypeId('inventory_list', 'Inventory List');
         Storage::fake('public');
         Mail::fake();
+        // Outside production the distribution service suppresses every send unless a redirect address
+        // is configured (see SignedDocumentDistributionService) — set one so the agent "send" path runs.
+        config(['mail.non_production_redirect' => 'test-redirect@example.test']);
     }
 
     /** A completed sale inventory, no committed deal yet. */

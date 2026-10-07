@@ -97,6 +97,9 @@ class MobilePropertyPortalAndImagesTest extends TestCase
         $property = $this->makeProperty([
             'p24_ref'                => '115847291',
             'p24_syndication_status' => 'active',
+            // The agency's "enabled" switch is authoritative (a stale 'active' status on a switched-off
+            // portal must never read as live) — a live listing has it ON as well as the portal's confirmation.
+            'p24_syndication_enabled' => true,
             'p24_suburb_id'          => $suburbId,
         ]);
 
@@ -131,6 +134,9 @@ class MobilePropertyPortalAndImagesTest extends TestCase
         $property = $this->makeProperty([
             'p24_ref'                => '115847291',
             'p24_syndication_status' => 'active',
+            // The agency's "enabled" switch is authoritative (a stale 'active' status on a switched-off
+            // portal must never read as live) — a live listing has it ON as well as the portal's confirmation.
+            'p24_syndication_enabled' => true,
             'p24_suburb_id'          => $suburbId,
         ]);
 
