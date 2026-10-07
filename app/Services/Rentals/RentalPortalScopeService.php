@@ -37,9 +37,33 @@ class RentalPortalScopeService
      * can see, so every tenant lookup below that keys off these ids (lease,
      * faults, work orders, inspections, inventories, job cards) drops with it.
      */
+    /**
+     * Every contact record of THIS person in this agency. One login (ClientUser) can carry more than one contact —
+     * a person who is tenant on one lease and landlord of another property under two contact records, or a duplicate
+     * record — and the portal must show all of it under the one login, not just whichever record sorts first.
+     * A contact with no login is only itself. rental-portal-access.md §16.
+     *
+     * @return array<int,int>
+     */
+    public function personContactIds(Contact $contact): array
+    {
+        if (! $contact->client_user_id) {
+            return [$contact->id];
+        }
+
+        $ids = Contact::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('agency_id', $contact->agency_id)
+            ->where('client_user_id', $contact->client_user_id)
+            ->pluck('id')
+            ->all();
+
+        return $ids === [] ? [$contact->id] : $ids;
+    }
+
     public function tenantLeaseIds(Contact $contact): array
     {
-        $ids = LeaseTenant::query()->where('contact_id', $contact->id)->pluck('lease_id')->all();
+        $ids = LeaseTenant::query()->whereIn('contact_id', $this->personContactIds($contact))->pluck('lease_id')->all();
         if (!$ids) {
             return [];
         }
@@ -54,20 +78,33 @@ class RentalPortalScopeService
 
     public function isTenant(Contact $contact): bool
     {
-        return LeaseTenant::query()->where('contact_id', $contact->id)->exists();
+        return LeaseTenant::query()->whereIn('contact_id', $this->personContactIds($contact))->exists();
     }
 
     public function landlordPropertyIds(Contact $contact): array
     {
-        return $contact->properties()
-            ->wherePivotIn('role', ['landlord', 'lessor'])
-            ->pluck('properties.id')
+        return $this->personContacts($contact)
+            ->flatMap(fn (Contact $c) => $c->properties()->wherePivotIn('role', ['landlord', 'lessor'])->pluck('properties.id'))
+            ->unique()
+            ->values()
             ->all();
     }
 
     public function isLandlord(Contact $contact): bool
     {
-        return $contact->properties()->wherePivotIn('role', ['landlord', 'lessor'])->exists();
+        return $this->personContacts($contact)
+            ->contains(fn (Contact $c) => $c->properties()->wherePivotIn('role', ['landlord', 'lessor'])->exists());
+    }
+
+    /** @return \Illuminate\Support\Collection<int,Contact> */
+    private function personContacts(Contact $contact): \Illuminate\Support\Collection
+    {
+        $ids = $this->personContactIds($contact);
+        if ($ids === [$contact->id]) {
+            return collect([$contact]);
+        }
+
+        return Contact::withoutGlobalScopes()->whereIn('id', $ids)->get();
     }
 
     /** The one lease this tenant is asking about, or null if it isn't theirs. */
@@ -196,7 +233,7 @@ class RentalPortalScopeService
             ->where('agency_id', $contact->agency_id)
             ->whereNull('documents.deleted_at')
             ->where('tenant_portal_visible', true)
-            ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
+            ->whereHas('contacts', fn ($q) => $q->whereIn('contacts.id', $this->personContactIds($contact)))
             ->orderByDesc('id')
             ->get();
     }
@@ -361,7 +398,7 @@ class RentalPortalScopeService
             ->where('agency_id', $contact->agency_id)
             ->whereNull('documents.deleted_at')
             ->where('landlord_portal_visible', true)
-            ->whereHas('contacts', fn ($q) => $q->where('contacts.id', $contact->id))
+            ->whereHas('contacts', fn ($q) => $q->whereIn('contacts.id', $this->personContactIds($contact)))
             ->orderByDesc('id')
             ->get();
     }

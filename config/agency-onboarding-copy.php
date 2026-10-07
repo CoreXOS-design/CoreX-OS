@@ -532,6 +532,7 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateContractorLinksEnabled'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnDecisionNeeded'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyTenantOnStatusChange'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateAutoPortalAccessOnSigning'],
             // .ai/specs/rental-work-orders.md §14.27.3 / §14.28 — crew links (Build 1's five). Each saver is
             // has()-guarded (onboarding §6.1) — an absent field leaves the saved value alone.
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinksEnabled'],
@@ -683,6 +684,10 @@ return [
              'label' => 'Landlord portal access',
              'explain' => 'Lets a landlord log in and see their properties, approve/decline repair decisions, and view inspection reports.',
              'affects' => 'Whether a landlord can reach the rentals portal at all. On by default.'],
+            ['key' => 'auto_portal_access_on_signing', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Give tenant and landlord portal access automatically when a lease is signed',
+             'explain' => 'When a lease is signed, CoreX sets up the portal login for its tenant(s) and landlord(s) using the email on their contact, and the signed-lease email they receive carries their personal portal link. The first time they open it they confirm their email with a code and choose a password.',
+             'affects' => 'Whether your agents have to set up portal access by hand for every lease, or it is simply there when the lease is signed. Has no effect if tenant or landlord portal access above is switched off. On by default.'],
             ['key' => 'contractor_links_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
              'label' => 'Contractor secure links',
              'explain' => 'Lets an agent send a contractor a per-job link (no login) to upload a quote, upload after photos, and mark a job done.',

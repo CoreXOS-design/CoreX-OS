@@ -3196,6 +3196,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/contractor-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateContractorLinksEnabled'])->name('corex.settings.rental-portal.contractor-links-enabled');
         Route::post('/notify-landlord-on-decision-needed', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnDecisionNeeded'])->name('corex.settings.rental-portal.notify-landlord-on-decision-needed');
         Route::post('/notify-tenant-on-status-change', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyTenantOnStatusChange'])->name('corex.settings.rental-portal.notify-tenant-on-status-change');
+        Route::post('/auto-portal-access-on-signing', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateAutoPortalAccessOnSigning'])->name('corex.settings.rental-portal.auto-portal-access-on-signing');
         // §14.27.3 — crew links (rental-work-orders.md): Build 1's five settings.
         Route::post('/crew-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinksEnabled'])->name('corex.settings.rental-portal.crew-links-enabled');
         Route::post('/crew-job-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewJobLinkExpiryDays'])->name('corex.settings.rental-portal.crew-job-link-expiry-days');
@@ -3559,6 +3560,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{lease}/agreement/confirm', [\App\Http\Controllers\CoreX\LeaseAgreementConfirmController::class, 'store'])
             ->middleware('permission:leases.view')->name('corex.leases.agreement.confirm.store');
         // LEASE-CAPTURE END
+        // .ai/specs/rental-portal-access.md §16 — the lease screen's tenant / landlord portal access cards.
+        Route::post('/{lease}/portal-access/{contact}/setup', [\App\Http\Controllers\CoreX\LeasePortalAccessController::class, 'setup'])
+            ->whereNumber('contact')->name('corex.leases.portal-access.setup');
+        Route::post('/{lease}/portal-access/{contact}/invite', [\App\Http\Controllers\CoreX\LeasePortalAccessController::class, 'invite'])
+            ->whereNumber('contact')->name('corex.leases.portal-access.invite');
+        Route::post('/{lease}/portal-access/{contact}/switch', [\App\Http\Controllers\CoreX\LeasePortalAccessController::class, 'switchEmail'])
+            ->whereNumber('contact')->name('corex.leases.portal-access.switch');
         Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
             ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
         Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])

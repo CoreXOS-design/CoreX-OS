@@ -501,6 +501,10 @@ function rentalsPortal() {
         landlordFaultTypesByProperty: {},
 
         async init() {
+            // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
+            // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
+            const linked = new URLSearchParams(window.location.search).get('email');
+            if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) this.login.email = linked.trim();
             const me = await portalFetch('/api/v1/client/me');
             if (me.ok) {
                 this.session.authenticated = true;

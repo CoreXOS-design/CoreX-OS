@@ -57,6 +57,14 @@
                     Landlord portal access
                 </label>
             </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.auto-portal-access-on-signing') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="auto_portal_access_on_signing" value="0">
+                    <input type="checkbox" name="auto_portal_access_on_signing" value="1" onchange="this.form.submit()" @checked($autoPortalAccessOnSigning)>
+                    Give tenant and landlord portal access automatically when a lease is signed
+                </label>
+            </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.contractor-links-enabled') }}">
                 @csrf
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">

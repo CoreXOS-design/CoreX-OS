@@ -32,6 +32,7 @@ class RentalPortalSettingsController extends Controller
             'contractorSecureLinkExpiryDays' => RentalPortalSetting::contractorSecureLinkExpiryDaysFor($agencyId),
             'notifyLandlordOnDecisionNeeded' => RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agencyId),
             'notifyTenantOnStatusChange' => RentalPortalSetting::notifyTenantOnStatusChangeFor($agencyId),
+            'autoPortalAccessOnSigning' => RentalPortalSetting::autoPortalAccessOnSigningFor($agencyId),
             'defaultContractorSecureLinkExpiryDays' => RentalPortalSetting::DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS,
             // §14.27.3 — crew links.
             'crewLinksEnabled' => RentalPortalSetting::crewLinksEnabledFor($agencyId),
@@ -90,6 +91,12 @@ class RentalPortalSettingsController extends Controller
     public function updateNotifyTenantOnStatusChange(Request $request): RedirectResponse
     {
         return $this->updateToggle($request, 'notify_tenant_on_status_change', 'Tenant status-change notification');
+    }
+
+    /** rental-portal-access.md §16 — has()-guarded like every other toggle (onboarding §6.1). */
+    public function updateAutoPortalAccessOnSigning(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'auto_portal_access_on_signing', 'Automatic portal access when a lease is signed');
     }
 
     // ── §14.27.3 — crew links (rental-work-orders.md §14.28). Each one is its own narrow, has()-guarded saver (onboarding §6.1). ──

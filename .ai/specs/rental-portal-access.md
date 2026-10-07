@@ -320,3 +320,109 @@ not a new way to commission work.
 `app/Http/Controllers/Api/V1/ClientLandlordRentalsController.php` (new `faultReportStore()`) ·
 `routes/api.php` (one new route) ·
 `tests/Feature/RentalPortalAccess/{RentalPortalWorkflowTest.php,PartyIsolationTest.php}` (new tests).
+
+---
+
+## 16. Agent-side portal access — one person is one login; link and invite on the lease screen (7 Oct 2026, QA1)
+**Trigger.** Johan, QA1 rentals test, 2026-10-07: on the new lease for a tenant (HFC contact 8966), under
+"Tenant portal access", **Create Client Login** answered "email already in use" — for a tenant who had no
+login at all. He asked how the logic works, wanted the dead end fixed, the link on the lease screen, and the
+link in the signed-lease email.
+
+**Root cause (not the login — the contact itself).** `ClientAuthService::isClientEmailTaken()` also counted any
+`Contact` carrying the email, and the create form pre-fills the contact's own email, so every contact with a real
+email collided with itself; with no `ClientUser` to attach to the controller fell through to a bare error and the
+card still said "Not configured". Fixed at the root by one service (below), not by loosening the check.
+
+### 16.1 How access works (the logic, written down)
+- A `ClientUser` is **one account per email address, system-wide** (unique active email). Any number of that
+  person's `contacts` rows point at it (`contacts.client_user_id`) — across agencies too (one Contact per agency).
+- The portal acts for the login through its contact(s) **in the agency it has selected**. Before this stage it
+  took only the first such contact; `RentalPortalScopeService::personContactIds()` now unions every contact of
+  that login in the agency (tenant leases, landlord properties, documents), so one login carries both roles even
+  when the person exists as two contact records. `ClientAuthService::contactForAgency()` is ordered, so the one
+  contact used for attribution (`reported_by_contact_id`) is stable.
+- **First-time access needs no agent action at all.** A person whose contact has a real email opens `/portal`,
+  enters the email, gets a code, chooses a password; `findOrCreateClientUser()` creates the login and links the
+  contacts carrying that email. The agent-side button only pre-creates it (so the card shows a status) and
+  sends the link.
+
+### 16.2 `RentalPortalAccessService` — the one agent-side path
+`attach($contact, ?email, ?actor, ?request, ?tempPassword)`: idempotent; the email defaults to the contact's own.
+- No login for the email → create it (origin agency = the contact's), attach. Login exists → **attach this
+  contact to it** (outcome `created | attached | already | switched`).
+- **Same-person rule** (so a stranger's login can never be opened onto this contact's data): the email must be on
+  this contact, or on another contact in this agency (mirror column or any saved email), or the login must already
+  be tied to a contact in this agency, or be an agent-managed placeholder address. Otherwise it is refused **in
+  plain words** ("…belongs to someone who is not on your contact list…" / "…managed by another agency…" / "That
+  email is not saved on <name>'s contact…") — never a bare "already in use".
+- No email → "<name> has no email address saved yet. Add one to the contact first". The lease card links to the
+  contact; nothing is typed on the lease screen, so the login always belongs to the person on file.
+- **Email changed on the contact** (or the login is a `@corexclient.co.za` placeholder that cannot receive mail):
+  the card shows "Contact email changed" with **Move the login to <new email>** (`switchToContactEmail`) — the
+  contact moves to the login for the new email; the old login is soft-deleted only when nobody else is on it and it
+  is the agency's to remove (a login managed by another agency is never touched).
+- Two tenants on one lease: each contact is attached on its own; a shared email is one login. A person who is
+  tenant on one lease and landlord on another is one login, both roles (16.1).
+- `enabledFor($agencyId, 'tenant'|'landlord')` = the agency's tenant / landlord portal toggle **and** the Rentals
+  features switch. Off → the card says so, no link is offered, nothing can be sent, no link in any email.
+
+### 16.3 Lease screen (the two cards only — `corex.leases._portal-access-person`)
+Per person: name, status (**Not set up · Pending OTP · Active · Must change password · Contact email changed ·
+No email on the contact · Portal access is switched off**), the login email, then:
+- not set up → one primary action **"Set up portal access & email the link"** (sets up, then sends) and a quiet
+  "Set up only";
+- set up → the personal link (`/portal?email=…` — the portal pre-fills the email and waits for **Continue**;
+  nothing is looked up or sent by opening the link) with **Copy**, **Email link / Resend invite** and **Share on
+  WhatsApp** (`WhatsAppNumberFormatter`, the contact's own dial code);
+- the old reset-password / sign-out-devices / remove actions stay on the contact page (a link points there).
+Routes `corex.leases.portal-access.{setup,invite,switch}` (`POST /corex/leases/{lease}/portal-access/{contact}/…`),
+`LeasePortalAccessController`: lease scope first (own / branch / agency via `guardRentalRecordScope`), permission
+`client_app.create_login`, and the contact must be one of THIS lease's tenants/landlords (anything else is a 404).
+The contact page's "Create Client Login" (`ClientLoginController::create`) now goes through the same service.
+Invites go through `RentalMailDispatcher` as the pressing agent (`RentalPortalInviteMail`, agency-branded,
+neutral wording) and are logged to `client_access_logs` (`portal_invite_sent`).
+
+### 16.4 Automatic access when a lease is signed + the link in the signed copy
+- **Agency setting `auto_portal_access_on_signing`** (`rental_portal_settings`, read-time default **ON**), a
+  has()-guarded saver `updateAutoPortalAccessOnSigning`, a toggle on Settings → Rental portal **and** a control on
+  the Setup Wizard Rentals step (§10a): *"Give tenant and landlord portal access automatically when a lease is
+  signed."* When ON, at signing every tenant and landlord with a real email gets their login
+  (`provisionForSignedLease`, best effort, after the commit — a fault never undoes the signing; a person without an
+  email, or whose email cannot be attached, is skipped and logged). OFF = fully manual and **no link in the mail**.
+  Fires from `LeaseSigningStateService::announceSigned()` (e-signed lease) and from
+  `LeaseCaptureService` after a signed paper copy is attached.
+- **The completion copy** (`SignatureService::sendCompletionEmails` → `SignedDocumentMail`) of a lease agreement
+  gains a **"Your CoreX portal"** block for each signer who is a tenant / landlord of that lease: what that role
+  can really do today, a button and the plain link, and the first-time note (code, then choose a password). Tenant:
+  *view your lease and the property, report a fault and follow it through to a fix, and see your documents.*
+  Landlord: *approve or decline repair decisions, see your properties and tenancy, and follow faults and jobs.*
+  (Copy lists only what the web portal's tabs offer — no statements, and inspections are API/mobile only, so neither
+  is promised.) A person who is both gets one link listing both. No block for any other document, for a signer who
+  is not a party to the lease, for a placeholder address, when that audience's portal is off, or when automatic
+  access is off.
+- **Paper copies.** There is **no** email today when a signed paper copy is attached (nothing in
+  `LeaseCaptureService`), so there is no mail to add the link to: access is still created automatically, and the
+  agent shares the link from the card. Sending a copy + link on attach is an open product question (see the lane
+  report), not built.
+
+### 16.5 Acceptance
+- [x] Create on a contact whose email is its own, with no login: creates and attaches (no "already in use").
+- [x] Existing login for the email: attached; stranger's login: plain refusal, nothing linked.
+- [x] No email, changed email, placeholder login, two tenants, one person in two roles: each handled (tests).
+- [x] Link with Copy / Email / WhatsApp / Resend on both cards; invite mail lists only what the role gets.
+- [x] Signing creates access (setting, default ON, also in the wizard); the signed copy carries the block; nothing
+      when the portal is off for the agency.
+- [x] Multi-agency (CLAUDE.md #9): no HFC wording; defaults neutral; the second agency sees its own branding and
+      its own toggles.
+- Tests: `tests/Feature/RentalPortalAccess/{LeasePortalAccessTest,LeasePortalSigningTest}.php`.
+
+**Files:** `app/Services/Rentals/RentalPortalAccessService.php` · `app/Exceptions/Rentals/PortalAccessException.php` ·
+`app/Http/Controllers/CoreX/LeasePortalAccessController.php` · `app/Http/Controllers/Contacts/ClientLoginController.php` ·
+`app/Mail/Rentals/RentalPortalInviteMail.php` + `resources/views/emails/rentals/{portal-invite,partials/portal-link-button}.blade.php` ·
+`resources/views/corex/leases/{_portal-access-person,show}.blade.php` · `resources/views/rentals/portal/shell.blade.php` (email pre-fill) ·
+`app/Services/Rentals/RentalPortalScopeService.php` · `app/Services/ClientAuthService.php` (ordered `contactForAgency`) ·
+`app/Mail/Signatures/SignedDocumentMail.php` + `emails/signatures/signed-document.blade.php` · `app/Services/Docuperfect/SignatureService.php` ·
+`app/Services/Rentals/{LeaseSigningStateService,LeaseCaptureService}.php` · `app/Models/RentalPortalSetting.php` +
+migration `2026_10_15_000300_…` · `RentalPortalSettingsController` · `AgencySetupWizardController` · `config/agency-onboarding-copy.php` ·
+`resources/views/corex/settings/rental-portal.blade.php` · `routes/web.php`.

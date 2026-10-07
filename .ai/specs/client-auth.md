@@ -445,3 +445,10 @@ Legacy rows with NULL origin are treated as unrestricted (any agency may manage)
 ## Mobile prompt
 
 A standalone mobile-app prompt (`.ai/specs/client-auth-MOBILE-PROMPT.md`) will be written **after** this API ships and the endpoints have been smoke-tested, so it can reference real request/response shapes rather than guesses.
+
+## Addendum 7 Oct 2026 — agent-side "Create client login" attaches, it never dead-ends
+`ClientLoginController::create` (contact page) and the lease screen's portal cards both go through
+`App\Services\Rentals\RentalPortalAccessService::attach()`: a person is one login (one `client_users` row per
+email); create = create-or-attach, after a same-person check, with plain-words refusals. The old
+`isClientEmailTaken()` also counted the contact's own email and so blocked every contact that had one — it is now
+used only to generate unique placeholder addresses. Full logic: `.ai/specs/rental-portal-access.md` §16.

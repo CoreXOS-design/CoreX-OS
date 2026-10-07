@@ -19,6 +19,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -281,7 +282,7 @@ class LeaseCaptureService
         $storedPath = null;
 
         try {
-            return DB::transaction(function () use ($input, $intent, $user, $previous, $property, $agreement, $agreementValues, $captureKey, $file, &$storedPath) {
+            $captured = DB::transaction(function () use ($input, $intent, $user, $previous, $property, $agreement, $agreementValues, $captureKey, $file, &$storedPath) {
                 $lease = $previous
                     ? $this->createRenewalTerm($previous, $input, $user)
                     : $this->createNewLease($property, $input, $user);
@@ -327,6 +328,18 @@ class LeaseCaptureService
 
                 return $lease->fresh();
             });
+
+            // rental-portal-access.md §16 — a lease signed on paper is a signed lease: its tenant(s) and landlord(s) get
+            // portal access now (agency setting, default ON). After the commit and best effort — never undoes the capture.
+            if ($intent === self::INTENT_PAPER_COPY) {
+                try {
+                    app(RentalPortalAccessService::class)->provisionForSignedLease($captured);
+                } catch (\Throwable $e) {
+                    Log::warning('Portal access on a signed paper copy failed', ['lease_id' => $captured->id, 'error' => $e->getMessage()]);
+                }
+            }
+
+            return $captured;
         } catch (UniqueConstraintViolationException $e) {
             // Two submits of the same screen raced past the lookup above — the other one won; return its lease.
             $this->discardStored($storedPath);
