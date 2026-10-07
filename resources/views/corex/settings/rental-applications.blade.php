@@ -414,6 +414,32 @@
         </form>
     </div>
 
+    {{-- Johan, QA1, 2026-10-07 — lease rent above the amount the tenant was approved for. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Lease Rent Above Approved Amount</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            What happens when a lease is created from an approved application at a rent higher than
+            the amount the tenant was approved for.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.rent-above-approved-mode') }}">
+            @csrf
+            <div class="space-y-2 mb-3">
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="rent_above_approved_mode" value="warn" class="mt-0.5"
+                           @checked(old('rent_above_approved_mode', $rentAboveApprovedMode) === 'warn')>
+                    <span><strong>Warn and confirm</strong> — the agent sees both figures and confirms with a reason, which is logged.</span>
+                </label>
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="rent_above_approved_mode" value="block" class="mt-0.5"
+                           @checked(old('rent_above_approved_mode', $rentAboveApprovedMode) === 'block')>
+                    <span><strong>Block</strong> — the lease cannot be created above the approved amount.</span>
+                </label>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- AT-430 §3.6 — Johan: "the checklist does not block approval by
          default." Off by default: Sherry's checklist is a working aid, not
          a gate, until an agency deliberately turns it into one. See

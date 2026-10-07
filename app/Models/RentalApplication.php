@@ -1439,4 +1439,34 @@ class RentalApplication extends Model
 
         return array_search($effRank, ['own' => 1, 'branch' => 2, 'all' => 3], true) ?: 'own';
     }
+
+    /**
+     * Johan, QA1, 2026-10-07 — the gap between a lease rent and the amount this
+     * tenant was approved for. Null when no approved amount is on record or the
+     * rent is at/below it; otherwise both figures, the difference, and the
+     * agency's policy (warn | block). ONE definition, used by the lease capture
+     * request (to refuse/require a reason), the service (to log it) and the
+     * screen (to warn).
+     *
+     * @return array{approved:float, rent:float, over:float, mode:string}|null
+     */
+    public function rentAboveApproved(float|int|string|null $leaseRent): ?array
+    {
+        if ($this->approved_rental_amount === null || $leaseRent === null || $leaseRent === '' || ! is_numeric($leaseRent)) {
+            return null;
+        }
+
+        $approved = round((float) $this->approved_rental_amount, 2);
+        $rent = round((float) $leaseRent, 2);
+        if ($rent <= $approved) {
+            return null;
+        }
+
+        return [
+            'approved' => $approved,
+            'rent' => $rent,
+            'over' => round($rent - $approved, 2),
+            'mode' => RentalApplicationQualifyingSetting::rentAboveApprovedModeFor((int) $this->agency_id),
+        ];
+    }
 }

@@ -884,6 +884,9 @@ class Property extends Model
         'street_name',
         'street_name_normalised',
         'street_number',
+        // Structured address layer (.ai/specs/structured-address-matching.md §3) — derived, written by the one parser.
+        'street_core', 'street_type', 'scheme_number', 'township', 'lpi_code',
+        'address_raw', 'address_parse_status', 'address_parse_note',
         'province',
         'town',
         'latitude',
@@ -1119,6 +1122,10 @@ class Property extends Model
             if ($property->isDirty('street_name') || $property->street_name_normalised === null) {
                 $property->street_name_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseStreet($property->street_name);
             }
+            // Structured address layer (.ai/specs/structured-address-matching.md §5): the one parser
+            // writes street_core/street_type/status and fills only EMPTY street_number/unit/complex/P24 suburb.
+            // Absorbs its own failures — a save never fails because of it.
+            app(\App\Services\Address\AddressStructurer::class)->apply($property);
         });
     }
 

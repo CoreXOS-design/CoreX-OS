@@ -91,19 +91,10 @@ class PropertyDuplicateMatchEvidence
     public function candidates(TrackedProperty $tp, string $strategy, int $agencyId): \Illuminate\Support\Collection
     {
         return match ($strategy) {
-            'sectional' => Property::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)->whereNull('deleted_at')
-                ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower(trim((string) ($tp->complex_name ?: $tp->scheme_name)))])
-                ->get()
-                ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->unit_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->section_number))
-                ->values(),
-            'freehold_erf' => Property::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)->whereNull('deleted_at')
-                ->whereNotNull('erf_number')
-                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($tp->suburb))
-                ->get()
-                ->filter(fn ($p) => TrackedPropertyAddress::normaliseNumericIdentifier($p->erf_number) === TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number))
-                ->values(),
+            // 2026-10-07 — the same scored comparison resolvePropertyMatch() links on (structured address
+            // matching, spec §6): the panel can never list something Promote would not act on, or miss something it would.
+            'sectional' => $this->exactByRules($tp, $agencyId, ['scheme']),
+            'freehold_erf' => $this->exactByRules($tp, $agencyId, ['lpi', 'erf']),
             'gps_proximity' => ($tp->latitude === null || $tp->longitude === null)
                 ? collect()
                 : Property::queryWithoutAgencyScope()
@@ -116,6 +107,26 @@ class PropertyDuplicateMatchEvidence
                     ->values(),
             default => app(TrackedPropertyMatchOrCreateService::class)->addressFallbackCandidates($tp),
         };
+    }
+
+    /**
+     * Properties the scorer calls an EXACT match for $tp under the given rule(s) — one comparison for the link, the panel and the verdict.
+     *
+     * @param  array<int, string>  $rules
+     * @return \Illuminate\Support\Collection<int, Property>
+     */
+    private function exactByRules(TrackedProperty $tp, int $agencyId, array $rules): \Illuminate\Support\Collection
+    {
+        $hits = app(\App\Services\Address\AddressMatcher::class)->properties($agencyId, \App\Services\Address\AddressFacts::fromModel($tp));
+        $grouped = \App\Services\Address\AddressMatcher::exactByRule($hits);
+        $out = collect();
+        foreach ($rules as $rule) {
+            foreach ($grouped[$rule] ?? [] as $h) {
+                $out->push($h['model']);
+            }
+        }
+
+        return $out->unique('id')->values();
     }
 
     /**

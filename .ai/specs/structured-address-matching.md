@@ -161,13 +161,22 @@ Merging duplicate property records (decision 3); the Pull-as-my-own-listing flow
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Spec | this document |
-| 2 | Migrations + `suburb_aliases` + `address_match_settings` + `deploy:sync-reference-data` + schema snapshot | — |
-| 3 | `AddressParser` + `StreetTypes` + `SuburbResolver` + `LpiCode`, unit-tested | — |
-| 4 | Writers wired | — |
-| 5 | Scorer + tiers + settings; `resolveMatch` / stock / promote / evidence onto it; promote asks the agent | — |
-| 6 | Other consumers, one per test file | — |
-| 7 | Backfill command + QA1 dry run + run | — |
+| 1 | Spec | landed |
+| 2 | Migrations + `suburb_aliases` + `address_match_settings` + `deploy:sync-reference-data` (SuburbAliasSeeder) + schema snapshot | landed (QA1) |
+| 3 | `AddressParser` + `StreetTypes` + `SuburbResolver` + `LpiCode` + `AddressStructurer`, unit-tested | landed (QA1) |
+| 4 | Writers wired: `Property::saving`, `TrackedProperty::creating/updating`, `TrackedPropertyAddress::creating`, `canonicalFactsForWrite` (+ `lpi_code`, `erf_portion`), CMA report parsers' `makeAddress`, the capture endpoints (LPI from the property block or `source_ref`) | landed (QA1) |
+| 5 | Scorer (`AddressFacts`, `AddressMatchScorer`, `AddressMatcher`); `resolveMatch` strategies 3 / 3b / 4, `findExistingStock`, `findSameStreetOthers`, `resolvePropertyMatch`, the Deeds evidence panel, the pre-check response (additive `tier` / `matched_on` / `columns`, possible tracked matches); promote asks on a possible match (Deeds screen and MIC) | landed (QA1) |
+| 6 | Other consumers: `DeedsCaptureLinkService`, `ContactAddressPropertyGuard`, `MapPinService` fold, `MicPropertyReconciliationService`, `PropertyCmaPropagationService`, `ProspectingStockMatchService` pass 2 | — |
+| 7 | Backfill command `address:backfill-structured` + QA1 dry run and run | — |
 | 8 | Review list + settings page (navigation, permission, CRUD standard) | — |
 | 9 | Extension 3.9.0 | — |
 | 10 | QA1 walkthrough for Johan + final report | — |
+
+### 14.1 What the build found and decided on the way (steps 2–5)
+
+- **`properties.erf_portion` defaults to `'0'`** (the whole stand). "No portion given" and `'0'` are therefore compatible for the exact erf rule; `'1'` against `'0'` is a veto; a portion given on one side only is *possible* ("portion not known").
+- **Strategies 3 / 3b / 4 of the tracked matcher are now one scored pass** (labels `3_erf_suburb`, `3b_scheme_section`, `4_normalised_address` kept — the Deeds screen and the decision log read them). Strategies 0 (address history), 1 (source ref), 2 (GPS) and 5 (loose token overlap, still vetoed by `numbersConflict`, which gained the portion and LPI vetoes) are unchanged: an ingest path with no human in the loop keeps linking only what it linked before.
+- **A unit on both sides that differs is a veto everywhere**, including the freehold-erf link. An older test fixture that relied on two different artificial unit numbers merging was rewritten (the rule is Johan's: a different number, unit or erf always blocks "same").
+- **Promote (decision 2)** is enforced inside `promoteToStock()` (`$askOnPossible`) so every agent-facing promote — Deeds screen and MIC — asks; programmatic callers (the rental take-on import) behave as before. `$linkToPropertyId` carries the agent's "same — this one".
+- **The structured layer sits beside the raw columns** — `street_core` / `street_type` are new, `street_name` is never rewritten; only EMPTY existing columns are filled (`street_number`, `unit_number`, `complex_name`, `scheme_number`, `erf_portion`, `erf_number`, `properties.p24_suburb_id`).
+- `SuburbResolver` memoisation is off by default (a stale memo could hand back an id from a row that no longer exists; `properties.p24_suburb_id` has a foreign key) and on only inside the backfill.
