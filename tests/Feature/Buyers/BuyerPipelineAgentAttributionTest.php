@@ -123,6 +123,8 @@ final class BuyerPipelineAgentAttributionTest extends TestCase
         $this->actingAs($viewer);
         $request = \Illuminate\Http\Request::create('/corex/command-center/buyers/pipeline', 'GET', $query);
         $request->setUserResolver(fn () => $viewer);
+        // index() reads the route NAME (AT-401: Buyers and Rentals pipelines are one action behind two routes).
+        $request->setRouteResolver(fn () => (new \Illuminate\Routing\Route('GET', '/corex/command-center/buyers/pipeline', []))->name('command-center.buyers.pipeline'));
 
         $view = app(\App\Http\Controllers\CommandCenter\BuyerPipelineController::class)->index($request);
 

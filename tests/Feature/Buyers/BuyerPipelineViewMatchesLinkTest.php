@@ -103,7 +103,8 @@ final class BuyerPipelineViewMatchesLinkTest extends TestCase
         );
 
         $resp->assertStatus(200);
-        $resp->assertDontSee('View Matches');
+        // The page's guided-tour JSON mentions "View Matches" in prose, so assert there is no LINK, not no text.
+        $this->assertDoesNotMatchRegularExpression('/<a\b[^>]*>\s*View Matches\s*<\/a>/', $resp->getContent());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

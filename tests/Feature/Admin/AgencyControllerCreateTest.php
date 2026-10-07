@@ -66,6 +66,8 @@ class AgencyControllerCreateTest extends TestCase
             'is_active'    => true,
             'admin_name'   => 'Demo Admin',
             'admin_email'  => 'demo-admin@example.test',
+            'branch_name'  => 'Head Office',   // AT-378: a first branch is required on agency creation
+            'branch_code'  => 'HQ',
         ]);
 
         $response->assertRedirect();

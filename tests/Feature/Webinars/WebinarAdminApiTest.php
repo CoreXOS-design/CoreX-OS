@@ -226,9 +226,9 @@ class WebinarAdminApiTest extends TestCase
             'company_name'  => 'Acme Properties',
             'contact_email' => 'jane@acme.co.za',
             'contact_name'  => 'Jane Smith',
-            'code_hash'     => bcrypt('irrelevant'),
+            'credential_hash' => bcrypt('irrelevant'),
             'expires_at'    => $this->webinar->demoAccessEndsAt(),
-            'created_by'    => $this->owner->id,
+            'issued_by_user_id' => $this->owner->id,
         ]);
 
         $registration = $this->registrant('Jane Smith', 'jane@acme.co.za');
@@ -343,10 +343,11 @@ class WebinarAdminApiTest extends TestCase
         $response = $this->api()->get('/api/v1/webinars/corex-walkthrough/registrations.csv?format=zoom')
             ->assertOk();
 
-        $lines = preg_split('/\R/', trim($response->streamedContent()));
+        // Compare PARSED rows — which fields fputcsv chooses to quote is a formatting detail, not the contract.
+        $rows = array_map('str_getcsv', preg_split('/\R/', trim($response->streamedContent())));
 
-        $this->assertSame('Email Address,First Name,Last Name,Company', $lines[0]);
-        $this->assertSame('jan@acme.co.za,Jan,"van der Merwe","Acme Properties"', $lines[1]);
+        $this->assertSame(['Email Address', 'First Name', 'Last Name', 'Company'], $rows[0]);
+        $this->assertSame(['jan@acme.co.za', 'Jan', 'van der Merwe', 'Acme Properties'], $rows[1]);
     }
 
     public function test_the_full_csv_carries_the_sales_follow_up_columns(): void
@@ -359,8 +360,8 @@ class WebinarAdminApiTest extends TestCase
         $lines = preg_split('/\R/', trim($response->streamedContent()));
 
         $this->assertSame(
-            'First Name,Last Name,Email,Company,Phone,"Registered at","Demo access","Access ends","Reminder sent"',
-            $lines[0],
+            ['First Name', 'Last Name', 'Email', 'Company', 'Phone', 'Registered at', 'Demo access', 'Access ends', 'Reminder sent'],
+            str_getcsv($lines[0]),
         );
         $this->assertStringContainsString('jane@acme.co.za', $lines[1]);
         $this->assertStringContainsString('No access issued', $lines[1]);
@@ -373,7 +374,8 @@ class WebinarAdminApiTest extends TestCase
         $response = $this->api()->get('/api/v1/webinars/corex-walkthrough/registrations.csv?format=nonsense')
             ->assertOk();
 
-        $this->assertStringStartsWith('First Name,Last Name,Email', trim($response->streamedContent()));
+        $header = str_getcsv(preg_split('/\R/', trim($response->streamedContent()))[0]);
+        $this->assertSame(['First Name', 'Last Name', 'Email'], array_slice($header, 0, 3));
     }
 
     // ---- Regression guard on the public read -------------------------------
