@@ -335,19 +335,29 @@
                     </span>
                     @endif
 
-                    {{-- Who received it first — only shown when it DIFFERS
-                         from who it's assigned to now (a reassignment
-                         happened). When they're the same person, showing
-                         both is the same fact twice. Time is visible, not
-                         hover-only: the first-to-receive rule is decided to
-                         the minute, and two agents can get the same portal
-                         lead minutes apart. --}}
-                    @if($hasFirstReceivedColumn && $row['firstReceived'] && $hasAgentColumn
-                        && $row['firstReceived']->received_by_user_id !== $match->agent_id)
+                    {{-- "Reassigned from X to Y" — ONLY when a real reassignment
+                         record exists for this search (a manager moved the
+                         buyer). Never inferred from the portal lead or from the
+                         search owner (Johan, 2026-10-07: a search simply created
+                         by another agent was being flagged as "moved").
+                         Without a record, a search created by someone other than
+                         the contact's primary agent says so instead. --}}
+                    @php
+                        $reassignment = $reassignmentByMatch->get($match->id);
+                        $primaryAgentId = $row['contact']->agent_id;
+                    @endphp
+                    @if($reassignment)
                     <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
                           style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 22%, transparent);">
-                        Reassigned — first to {{ $firstReceivedNames->get($row['firstReceived']->received_by_user_id, 'Unknown') }}
-                        ({{ optional($row['firstReceived']->received_at)->format('d M Y, H:i') }})
+                        Reassigned
+                        @if($reassignment->from_agent_id) from {{ $flagAgentNames->get($reassignment->from_agent_id, 'Unknown') }}@endif
+                        to {{ $flagAgentNames->get($reassignment->to_agent_id, 'Unknown') }}
+                        ({{ optional($reassignment->created_at)->format('d M Y') }})
+                    </span>
+                    @elseif($match->created_by_user_id && $primaryAgentId && (int) $match->created_by_user_id !== (int) $primaryAgentId)
+                    <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
+                          style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                        Search created by {{ $flagAgentNames->get($match->created_by_user_id, 'Unknown') }}
                     </span>
                     @endif
 

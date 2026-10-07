@@ -392,23 +392,25 @@ class ContactMatchController extends Controller
             $assignedAgentNames = User::whereIn('id', $agentIds)->pluck('name', 'id');
         }
 
-        // Deliberately does NOT depend on a relation name on PortalLead —
-        // only the column's existence, batch-resolving the user name
-        // separately below. Avoids guessing a method name cc4 hasn't
-        // published yet.
-        $hasFirstReceivedColumn = \Schema::hasTable('portal_leads') && \Schema::hasColumn('portal_leads', 'received_by_user_id');
-        $firstReceivedByContact = collect();
-        $firstReceivedNames = collect();
-        if ($hasFirstReceivedColumn) {
-            $firstReceivedByContact = \App\Models\PortalLead::whereIn('contact_id', $pageContactIds)
-                ->whereNotNull('received_by_user_id')
-                ->orderBy('received_at')
-                ->get(['contact_id', 'received_by_user_id', 'received_at'])
-                ->unique('contact_id')
-                ->keyBy('contact_id');
-            $firstReceivedNames = User::whereIn('id', $firstReceivedByContact->pluck('received_by_user_id')->filter()->unique())
-                ->pluck('name', 'id');
-        }
+        // Johan, 2026-10-07 — "Reassigned from X to Y" is shown ONLY when a real
+        // reassignment record exists for the search (contact_match_reassignments,
+        // written by ContactMatch::reassignTo()). It is never inferred from the
+        // portal lead's first receiver or from the search owner differing from
+        // anyone: those differ for ordinary reasons (a different agent created
+        // the search) and produced a false "moved to Barbara" flag. Latest record
+        // per search wins. Where there is no record and the search was created by
+        // someone other than the contact's primary agent, the row says
+        // "Search created by <name>" instead.
+        $reassignmentByMatch = \App\Models\ContactMatchReassignment::whereIn('contact_match_id', $allMatches->pluck('id'))
+            ->orderByDesc('id')
+            ->get(['id', 'contact_match_id', 'from_agent_id', 'to_agent_id', 'created_at'])
+            ->unique('contact_match_id')
+            ->keyBy('contact_match_id');
+        $flagAgentNames = User::whereIn('id', $reassignmentByMatch->pluck('from_agent_id')
+                ->merge($reassignmentByMatch->pluck('to_agent_id'))
+                ->merge($allMatches->pluck('created_by_user_id'))
+                ->filter()->unique())
+            ->pluck('name', 'id');
 
         // Johan's own addition, not gated on cc4 at all — the properties a
         // portal lead arrived on, via PortalLead::listing() (the actual
@@ -482,7 +484,6 @@ class ContactMatchController extends Controller
         $rows = collect($contacts->items())->map(fn ($c) => [
             'contact' => $c,
             'matches' => $matchesByContact->get($c->id, collect()),
-            'firstReceived' => $firstReceivedByContact->get($c->id),
             'leadProperties' => $leadPropertiesByContact->get($c->id, collect()),
         ]);
 
@@ -493,7 +494,7 @@ class ContactMatchController extends Controller
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
             'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',
-            'hasAgentColumn', 'assignedAgentNames', 'hasFirstReceivedColumn', 'firstReceivedNames',
+            'hasAgentColumn', 'assignedAgentNames', 'reassignmentByMatch', 'flagAgentNames',
             'hasWorkingWindowSetting', 'workingWindowDays',
         ));
     }
