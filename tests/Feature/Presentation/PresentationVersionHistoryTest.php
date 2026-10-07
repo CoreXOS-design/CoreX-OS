@@ -36,6 +36,7 @@ class PresentationVersionHistoryTest extends TestCase
         $this->agent = User::factory()->create(['role' => 'agent',          'branch_id' => $this->branch->id]);
 
         $this->presentation = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $this->branch->id,
             'created_by_user_id' => $this->agent->id,
             'title'              => 'Pres A',
@@ -47,6 +48,7 @@ class PresentationVersionHistoryTest extends TestCase
         ]);
 
         $this->otherPresentation = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $this->otherBranch->id,
             'created_by_user_id' => $this->admin->id,
             'title'              => 'Pres B',

@@ -62,6 +62,14 @@ final class RentalApplicationIdentityGateTest extends TestCase
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin',
             'name' => 'Test Agent', 'email' => 'agent@example.co.za',
         ]);
+        // Compulsory fields are an agency tick-list (AT-392 round 5) and the shipped default
+        // demands far more than these gate tests post. This file is about the identity gate, so
+        // the agency's compulsory set is just what submitPayload() supplies — which also
+        // lets the "neither email nor ID number" case exist (an agency that does not demand an ID).
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['required_field_keys' => ['full_name', 'declaration_signature', 'tpn_consent_signature']],
+        );
     }
 
     private function application(array $attrs = []): RentalApplication
@@ -111,7 +119,7 @@ final class RentalApplicationIdentityGateTest extends TestCase
 
         // Johan: "the gate is worthless after the agency already has it" —
         // the agent notification is one of the things that must wait.
-        Mail::assertNotSent(\App\Mail\RentalApplicationReturnedMail::class);
+        Mail::assertNotQueued(\App\Mail\RentalApplicationReturnedMail::class);
         $this->assertDatabaseMissing('fica_submissions', ['contact_id' => $this->contact->id]);
     }
 
@@ -136,7 +144,7 @@ final class RentalApplicationIdentityGateTest extends TestCase
 
         $application->refresh();
         $this->assertNotNull($application->identity_verified_at);
-        Mail::assertSent(\App\Mail\RentalApplicationReturnedMail::class);
+        Mail::assertQueued(\App\Mail\RentalApplicationReturnedMail::class);
         $this->assertDatabaseHas('fica_submissions', ['contact_id' => $this->contact->id]);
         $response->assertRedirect();
         $this->assertStringContainsString('fica', (string) $response->headers->get('Location'));
@@ -212,7 +220,7 @@ final class RentalApplicationIdentityGateTest extends TestCase
         $this->assertNull($application->identity_verified_at);
         // Unreachable is let straight through — the agent IS notified,
         // since there is nothing further to wait for.
-        Mail::assertSent(\App\Mail\RentalApplicationReturnedMail::class);
+        Mail::assertQueued(\App\Mail\RentalApplicationReturnedMail::class);
     }
 
     public function test_unreachable_flag_surfaces_a_distinct_badge_on_the_agent_review_screen(): void
@@ -303,7 +311,7 @@ final class RentalApplicationIdentityGateTest extends TestCase
         // Straight through to FICA, no identity-gate redirect.
         $response->assertRedirect();
         $this->assertStringContainsString('fica', (string) $response->headers->get('Location'));
-        Mail::assertSent(\App\Mail\RentalApplicationReturnedMail::class);
+        Mail::assertQueued(\App\Mail\RentalApplicationReturnedMail::class);
     }
 
     // ── (f) agency-configurable, sensible defaults ────────────────────────
@@ -336,7 +344,7 @@ final class RentalApplicationIdentityGateTest extends TestCase
 
         $response->assertRedirect();
         $this->assertStringContainsString('fica', (string) $response->headers->get('Location'));
-        Mail::assertSent(\App\Mail\RentalApplicationReturnedMail::class);
+        Mail::assertQueued(\App\Mail\RentalApplicationReturnedMail::class);
     }
 
     // ── (c) non-receipt / expiry — human sentences, never "Too many attempts" ──

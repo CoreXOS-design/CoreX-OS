@@ -36,6 +36,7 @@ class PowerPanelTest extends TestCase
         ]);
 
         $this->presentation = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $this->branch->id,
             'created_by_user_id' => $this->user->id,
             'title'              => 'UI1 Feature Test',

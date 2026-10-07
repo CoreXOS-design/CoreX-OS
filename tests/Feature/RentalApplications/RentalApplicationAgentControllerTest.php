@@ -243,7 +243,8 @@ final class RentalApplicationAgentControllerTest extends TestCase
 
         $response = $this->actingAs($this->agent)->delete(route('corex.rental-applications.destroy', $app));
 
-        $response->assertRedirect(route('corex.rental-applications.index'));
+        // AT-402 — archive lands on the tile the application belonged to (a draft → "Not yet submitted").
+        $response->assertRedirect(route('corex.rental-applications.index', ['tile' => 'not_yet_submitted']));
         $this->assertSoftDeleted('rental_applications', ['id' => $app->id]);
         $this->assertDatabaseHas('rental_applications', ['id' => $app->id]);
     }
@@ -314,7 +315,8 @@ final class RentalApplicationAgentControllerTest extends TestCase
         $this->actingAs($this->agent)->post(route('corex.rental-applications.send', $app))
             ->assertSessionHas('success', fn ($msg) => str_contains($msg, 'Sent to corrected@example.com'));
 
-        Mail::assertSent(RentalApplicationInviteMail::class, function ($mail) {
+        // The invite mailable is ShouldQueue — it is queued, not sent inline.
+        Mail::assertQueued(RentalApplicationInviteMail::class, function ($mail) {
             return $mail->hasTo('corrected@example.com');
         });
     }
@@ -415,8 +417,9 @@ final class RentalApplicationAgentControllerTest extends TestCase
         $this->assertNotNull($app->token, 'The token/link must exist from creation so it can be shared manually even before an email is added.');
 
         $show = $this->actingAs($this->agent)->get(route('corex.rental-applications.show', $app));
-        $show->assertSee('draft');
-        $show->assertDontSee('>sent<', false);
+        // The badge is the status label, capitalised (displayStatusLabel()).
+        $show->assertSee('Draft');
+        $show->assertDontSee('>Sent<', false);
     }
 
     // ── Defect 2 — "before clicking send - no email in mailbox arrived?"
@@ -478,7 +481,7 @@ final class RentalApplicationAgentControllerTest extends TestCase
         $this->actingAs($this->agent)->post(route('corex.rental-applications.send', $app))
             ->assertSessionHas('success', fn ($msg) => str_contains($msg, 'now-has-email@example.com'));
 
-        Mail::assertSent(RentalApplicationInviteMail::class, fn ($mail) => $mail->hasTo('now-has-email@example.com'));
+        Mail::assertQueued(RentalApplicationInviteMail::class, fn ($mail) => $mail->hasTo('now-has-email@example.com'));
         $this->assertSame('sent', $app->fresh()->status);
     }
 
@@ -566,7 +569,7 @@ final class RentalApplicationAgentControllerTest extends TestCase
         $app = $this->application($this->contact());
 
         $this->actingAs($this->agent)->delete(route('corex.rental-applications.destroy', $app))
-            ->assertRedirect(route('corex.rental-applications.index'));
+            ->assertRedirect(route('corex.rental-applications.index', ['tile' => 'not_yet_submitted']));
 
         $this->assertNotNull($app->fresh()->deleted_at, 'Archive must be a soft delete.');
         // assertDatabaseHas()'s 3rd arg is a connection name, not a message
@@ -741,7 +744,8 @@ final class RentalApplicationAgentControllerTest extends TestCase
     {
         $app = $this->application($this->contact(), ['status' => 'under_assessment']);
 
-        $response = $this->actingAs($this->agent)->get(route('corex.rental-applications.returned'));
+        // AT-402 — the Returned screen is now the index's tiles; an under_assessment row is on the "all" list.
+        $response = $this->actingAs($this->agent)->get(route('corex.rental-applications.index', ['tile' => 'all']));
 
         $response->assertOk();
         $response->assertSee('name="status"', false);
@@ -754,7 +758,8 @@ final class RentalApplicationAgentControllerTest extends TestCase
 
         $this->actingAs($this->agent)->post(
             route('corex.rental-applications.update-status', $app),
-            ['status' => 'withdrawn']
+            // A withdrawal records what the applicant told the agent — a note is required.
+            ['status' => 'withdrawn', 'note' => 'Applicant phoned to say they found another place.']
         );
 
         $app->refresh();

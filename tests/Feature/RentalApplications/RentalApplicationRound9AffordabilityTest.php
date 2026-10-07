@@ -182,58 +182,13 @@ final class RentalApplicationRound9AffordabilityTest extends TestCase
 
     // ── The authorisation screen: worked example on a real HTTP response ──
 
-    public function test_authorisation_screen_shows_the_worked_example_arithmetic(): void
-    {
-        $ro = $this->authoriser();
-        $property = $this->propertyWithRent(5400);
-        $app = $this->application(['current_rental_amount' => 5400, 'property_id' => $property->id, 'submitted_for_approval_at' => now()]);
-        $this->assessmentWithAmounts($app, income: 18000, expenses: 4000);
-
-        $response = $this->actingAs($ro)->get(route('corex.rental-applications.authorisation.show', $app));
-
-        $response->assertOk();
-        $response->assertSee('18,000', false);
-        $response->assertSee('5,400', false);
-        $response->assertSee('Within the affordability guideline', false);
-    }
-
-    /**
-     * Johan, live on application 12, 2026-09-09: the authoriser screen read
-     * "rent must not exceed 3% of this" — the arithmetic itself (30% throughout)
-     * was correct, only this label was wrong. Root cause: trimPercent()'s regex
-     * had an OPTIONAL leading dot (`\.?0+$`), so it stripped trailing zeros even
-     * with no decimal point present, turning whole multiples of ten into
-     * nonsense (30→3, 40→4, 100→1) while non-round values (28.5, 25) were
-     * untouched — a PHPUnit HTTP test can't execute the JS to prove the
-     * runtime output, so this asserts the fixed source is present and the
-     * exact buggy regex is gone, which is the only thing that changed.
-     */
-    public function test_authorisation_screen_percent_trim_regex_no_longer_corrupts_round_tens(): void
-    {
-        $ro = $this->authoriser();
-        $app = $this->application(['submitted_for_approval_at' => now()]);
-        $this->assessmentWithAmounts($app, income: 18000, expenses: 4000);
-
-        $response = $this->actingAs($ro)->get(route('corex.rental-applications.authorisation.show', $app));
-
-        $response->assertOk();
-        $response->assertDontSee('/\\.?0+$/', false);
-        $response->assertSee(".toFixed(2).replace(/0+\$/, '').replace(/\\.\$/, '')", false);
-
-        // Prove the fix numerically too, in plain PHP, since the app's own
-        // 30.00 default is exactly the value the old regex corrupted.
-        $trimPercent = fn ($v) => rtrim(rtrim(number_format($v, 2), '0'), '.');
-        $this->assertSame('30', $trimPercent(30.00));
-        $this->assertSame('40', $trimPercent(40.00));
-        $this->assertSame('28.5', $trimPercent(28.50));
-    }
-
     // ── Every income field says plainly what's wanted ──
 
     public function test_agent_detail_page_labels_income_as_gross(): void
     {
         $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
-        $app = $this->application();
+        // The editable agent form (an application not yet submitted) — a submitted one opens read-only.
+        $app = $this->application(['status' => 'sent', 'submitted_at' => null]);
 
         $response = $this->actingAs($agent)->get(route('corex.rental-applications.show', $app));
 
@@ -257,4 +212,10 @@ final class RentalApplicationRound9AffordabilityTest extends TestCase
         $response->assertOk();
         $response->assertSee('Gross monthly income, before deductions', false);
     }
+
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // the affordability verdict box and its JS percent-trim were removed from the authorisation screen (qualifyingResult() retired); the 18,000/5,400 worked example is preserved in the spec.
+    // Removed, not skipped: test_authorisation_screen_shows_the_worked_example_arithmetic, test_authorisation_screen_percent_trim_regex_no_longer_corrupts_round_tens
+    // See .ai/specs/rental-applications.md ("Pre-existing, unrelated test debt" under the
+    // qualifyingResult() removal) — the subject of these tests no longer exists.
 }

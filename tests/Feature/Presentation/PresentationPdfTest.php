@@ -42,6 +42,7 @@ class PresentationPdfTest extends TestCase
         ]);
 
         $this->presentation = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $this->branch->id,
             'created_by_user_id' => $this->user->id,
             'title'              => 'PDF Test Presentation',
@@ -218,6 +219,7 @@ class PresentationPdfTest extends TestCase
         $this->actingAs($this->user);
 
         $other = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $this->branch->id,
             'created_by_user_id' => $this->user->id,
             'title'              => 'Other Presentation',

@@ -91,18 +91,47 @@ class OtherAgencyStockImportService
             // columns get below), and $property->spaces_json (BEFORE this
             // write) is passed through so any space type this method
             // doesn't know about survives untouched.
+            // 2026-10-07 (P24 import 117621889): whole-number columns get whole numbers;
+            // 2.5 bathrooms = 2 baths + 1 half bath (see splitBathrooms()), while the
+            // Bathroom space keeps the 2.5 total the spaces editor itself would write.
+            $beds    = OtherAgencyStockFieldMapper::toWholeNumber($data['beds'] ?? null) ?? 0;
+            $garages = OtherAgencyStockFieldMapper::toWholeNumber($data['garages'] ?? null) ?? 0;
+            [$bathsWhole, $halfBaths] = OtherAgencyStockFieldMapper::splitBathrooms($data['baths'] ?? null);
+            $bathsTotal = $bathsWhole + 0.5 * $halfBaths;
+            $parkingCount = OtherAgencyStockFieldMapper::toWholeNumber($data['parking_count'] ?? null);
+
             $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
-                'beds'              => $data['beds'] ?? 0,
-                'baths'             => $data['baths'] ?? 0,
-                'garages'           => $data['garages'] ?? 0,
+                'beds'              => $beds,
+                'baths'             => $bathsTotal,
+                'garages'           => $garages,
                 'bathroom_features' => $data['bathroom_features'] ?? [],
-                'parking_count'     => $data['parking_count'] ?? null,
+                'parking_count'     => $parkingCount,
                 'parking_features'  => $data['parking_features'] ?? [],
                 'pool'              => $data['pool'] ?? false,
+                'garden'            => $data['garden'] ?? false,
                 'kitchen_features'  => $data['kitchen_features'] ?? [],
                 'garden_features'   => $data['garden_features'] ?? [],
                 'security_features' => $data['security_features'] ?? [],
             ], $property->spaces_json);
+
+            $suburbText = $p24Suburb['suburb'] ?? $data['suburb'] ?? null;
+            $cityText = $p24Suburb['city'] ?? $data['city'] ?? null;
+            $provinceText = $p24Suburb['province'] ?? $data['province'] ?? null;
+
+            // 2026-10-07 (P24 import 117621889): the portal's street line -> structured
+            // columns. street_number/street_name/complex_name/unit_number are INTERNAL
+            // fields an agent may have corrected (spec §8) — an existing non-empty value
+            // is never overwritten by a re-import, only an empty one is filled. `address`
+            // is derived from these parts by PropertyObserver::saving().
+            $street = OtherAgencyStockFieldMapper::parseStreetAddress(
+                $data['street_address'] ?? null,
+                [$suburbText, $cityText, $provinceText, $data['region'] ?? null]
+            );
+
+            // A rental's rent lives in `rental_amount` (the sale `price` is 0 on a rental —
+            // Property::displayRentalPrice()/effectivePriceSql()); putting the monthly
+            // figure in `price` showed R 0 and priced it out of every rental match.
+            $isRental = ($data['listing_type'] ?? $property->listing_type ?? 'sale') === 'rental';
 
             $property->fill([
                 'agency_id'     => $agencyId,
@@ -115,21 +144,26 @@ class OtherAgencyStockImportService
                 // NOT NULL, same reasoning as beds/baths/garages below — a
                 // POA/"price on application" listing has no numeric price
                 // to send and must not 500 the import over it.
-                'price'         => $data['price'] ?? 0,
+                'price'         => $isRental ? 0 : ($data['price'] ?? 0),
+                'rental_amount' => $isRental ? ($data['price'] ?? $property->rental_amount ?? null) : $property->rental_amount,
                 // beds/baths/garages are NOT NULL (DB default 0, but an explicit
                 // NULL in the INSERT still violates it — Eloquent always sends the
                 // key when it's in $fillable and was set, default or not).
-                'beds'          => $data['beds'] ?? 0,
-                'baths'         => $data['baths'] ?? 0,
-                'garages'       => $data['garages'] ?? 0,
-                'size_m2'       => $data['size_m2'] ?? null,
-                'erf_size_m2'   => $data['erf_size_m2'] ?? null,
+                'beds'          => $beds,
+                'baths'         => $bathsWhole,
+                'half_baths'    => $halfBaths,
+                'garages'       => $garages,
+                // size columns are whole square metres ("664.5" -> 665)
+                'size_m2'       => OtherAgencyStockFieldMapper::toWholeNumber($data['size_m2'] ?? null),
+                'erf_size_m2'   => OtherAgencyStockFieldMapper::toWholeNumber($data['erf_size_m2'] ?? null),
                 'description'   => $data['description'] ?? null,
-                'street_number' => $data['street_number'] ?? null,
-                'street_name'   => $data['street_name'] ?? null,
-                'suburb'        => $p24Suburb['suburb'] ?? $data['suburb'] ?? null,
-                'city'          => $p24Suburb['city'] ?? $data['city'] ?? null,
-                'province'      => $p24Suburb['province'] ?? $data['province'] ?? null,
+                'street_number' => $this->keepOrFill($property->street_number, $data['street_number'] ?? $street['street_number']),
+                'street_name'   => $this->keepOrFill($property->street_name, $data['street_name'] ?? $street['street_name']),
+                'complex_name'  => $this->keepOrFill($property->complex_name, $street['complex_name']),
+                'unit_number'   => $this->keepOrFill($property->unit_number, $street['unit_number']),
+                'suburb'        => $suburbText,
+                'city'          => $cityText,
+                'province'      => $provinceText,
                 'town'          => $p24Suburb['town'] ?? $property->town ?? null,
                 'p24_suburb_id'   => $p24Suburb['p24_suburb_id'] ?? $property->p24_suburb_id ?? null,
                 'p24_city_id'     => $p24Suburb['p24_city_id'] ?? $property->p24_city_id ?? null,
@@ -221,7 +255,15 @@ class OtherAgencyStockImportService
             // id scheme, so it keeps sending a real photos[] URL array —
             // DownloadOtherAgencyStockGalleryJob (+ the agent/logo filter
             // below) stays, PP-only.
-            if (! empty($data['first_image_id']) && ! empty($data['image_count'])) {
+            // 2026-10-07 (P24 import 117621889): the extension now sends the gallery's real
+            // image ids in the portal's own order (image_ids). P24 ids are not
+            // consecutive — first_image_id + 1, +2 … pulled other listings' photos and
+            // missed real ones — so when the ids are there they are what gets downloaded;
+            // first_image_id/image_count remain the fallback for an older extension build.
+            $imageIds = array_values(array_filter(array_map('intval', $data['image_ids'] ?? [])));
+            if (! empty($imageIds)) {
+                DownloadPortalPropertyImages::dispatch($property->id, $imageIds[0], count($imageIds), $imageIds);
+            } elseif (! empty($data['first_image_id']) && ! empty($data['image_count'])) {
                 DownloadPortalPropertyImages::dispatch($property->id, (int) $data['first_image_id'], (int) $data['image_count']);
             } else {
                 $photos = $this->filterKnownNonGalleryPhotos($data['photos'] ?? [], $data, $property->id);
@@ -291,6 +333,12 @@ class OtherAgencyStockImportService
         }
 
         return null;
+    }
+
+    /** An existing non-empty internal value stays; an empty one is filled from the portal. */
+    private function keepOrFill(mixed $existing, mixed $fromPortal): mixed
+    {
+        return ($existing !== null && trim((string) $existing) !== '') ? $existing : ($fromPortal !== null && trim((string) $fromPortal) !== '' ? $fromPortal : null);
     }
 
     private function deriveTitle(array $data): ?string

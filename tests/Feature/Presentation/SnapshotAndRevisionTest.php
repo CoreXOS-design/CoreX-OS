@@ -230,8 +230,11 @@ final class SnapshotAndRevisionTest extends TestCase
         $this->get(route('presentation.public.show', $link->token))
             ->assertOk()->assertDontSee('id="btn-request-revision"', false);
 
-        // Agency tightens window to 30 days.
+        // Agency tightens window to 30 days. A builder-level update fires no model event, and
+        // Agency::find() is memoised per process (production: one process per request) — drop
+        // the memo so this "next view" re-reads the agency exactly as a fresh request would.
         \App\Models\Agency::where('id', $agencyId)->update(['presentations_freshness_days' => 30]);
+        \App\Models\Agency::forgetFindMemo();
 
         // Next view: 60 > 30 → CTA appears.
         $this->get(route('presentation.public.show', $link->token))
