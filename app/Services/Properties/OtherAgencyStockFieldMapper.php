@@ -370,7 +370,12 @@ class OtherAgencyStockFieldMapper
      * still imports fine with an empty Kitchen space, never a partial
      * failure over one missing overview row.
      *
-     * @param  array{beds?: ?int, baths?: int|float|null (total, 2.5 = 2 + half), garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, garden?: bool, kitchen_features?: string[], garden_features?: string[], security_features?: string[]}  $signals
+     * 2026-10-07 (P24 import 117580701): two more optional signals from OtherAgencyStockFeatureMapper —
+     * `global_features` (the four property-wide tick groups; when present it REPLACES the stored groups,
+     * the way a re-import replaces every other imported advert field) and `extra_spaces` (rooms P24 counts
+     * that CoreX also has as a space type: Reception Room, Office, Study …).
+     *
+     * @param  array{beds?: ?int, baths?: int|float|null (total, 2.5 = 2 + half), garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, garden?: bool, kitchen_features?: string[], garden_features?: string[], security_features?: string[], global_features?: ?array<string, string[]>, extra_spaces?: array<int, array{type: string, count: int}>}  $signals
      */
     public static function buildSpacesJson(array $signals, ?array $existingSpacesJson = null): array
     {
@@ -432,8 +437,30 @@ class OtherAgencyStockFieldMapper
             $setSpace('Garden', 1, $gardenFeatures);
         }
 
+        foreach (($signals['extra_spaces'] ?? []) as $extra) {
+            if (! empty($extra['type']) && (int) ($extra['count'] ?? 0) > 0) {
+                $setSpace((string) $extra['type'], (int) $extra['count'], []);
+            }
+        }
+
         $securityFeatures = array_values(array_filter($signals['security_features'] ?? []));
         $existingFeatures = $existingSpacesJson['features'] ?? [];
+
+        // Mapped P24 features (catalog labels the property page can tick) are authoritative when
+        // the extension sent the page's rows; otherwise (Pull flow, PP, an older extension) the
+        // groups stay as they were, with the raw security list as before.
+        $mapped = $signals['global_features'] ?? null;
+        if (is_array($mapped)) {
+            return [
+                'spaces'   => array_values($byType),
+                'features' => [
+                    'security'       => array_values($mapped['security'] ?? []),
+                    'theProperty'    => array_values($mapped['theProperty'] ?? []),
+                    'connectivity'   => array_values($mapped['connectivity'] ?? []),
+                    'sustainability' => array_values($mapped['sustainability'] ?? []),
+                ],
+            ];
+        }
 
         return [
             'spaces'   => array_values($byType),

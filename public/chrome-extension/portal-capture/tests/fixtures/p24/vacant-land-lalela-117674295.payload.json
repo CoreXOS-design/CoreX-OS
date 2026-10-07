@@ -4,7 +4,7 @@
   "listing_url": "https://www.property24.com/for-sale/lalela-estate/ballito/kwazulu-natal/33617/117674295",
   "price": 895000,
   "description": "Your home begins long before the first brick - it begins with the right land.\n            SG 1750 gives you the opportunity to secure 593m² of vacant land and approach your future home from a blank canvas. At R895 000, this Phase 10 stand combines a defined purchase price with the freedom to plan the home that follows.\n            Vacant land ownership offers a different kind of opportunity: the ability to work from your own brief, subject to the estate's applicable building and architectural requirements, rather than compromise around an existing layout.\n            The current monthly HOA levy is R1 750 and the levy stabilisation fee is R15 000. Availability, pricing and transfer timing should be reconfirmed before commitment.\n            Property Information: SG 1750 | 593m² | R895 000 | Phase 10 | Transfer Q4 2026 | Monthly HOA levy R1 750 | Levy stabilisation fee R15 000.\n            Contact Una, Your Property Matchmaker, to confirm current availability, compare Lalela stands and discuss which option best matches your plans.\n            Residents at Lalela Estate enjoy a wide range of family-friendly and active lifestyle amenities.\n            Experience the perfect blend of modern living and natural beauty in this exceptional estate. Lalela Estate offers a vibrant, family-centric community designed for an active outdoor lifestyle, nested amidst lush greenbelts and protected wetlands.\n            Premium Estate Amenities Include:\n            •\tLeisure & Social: Central community clubhouse, resort-style family pools with waterslides, and dedicated braai areas.\n            •\tSports & Fitness: Padel, pickleball, and tennis courts, soccer field, cricket nets, skate park, and a mini-golf putt-putt lawn.\n            •\tNature & Pets: Kilometres of scenic walking and cycling trails, a dedicated dog park (100% pet-friendly estate), and serene wetlands.\n            •\tCommunity Culture: The historic Manor House venue, hosting local markets, dinner clubs, and exclusive estate events.\n            Embrace security, tranquillity, and unparalleled recreation in one of Ballito’s most sought-after developments. Perfect for families, professionals, and investors alike.",
-  "listing_title": "Vacant land / plot for sale in Lalela Estate",
+  "listing_title": "Make Your Move to Lalela",
   "listing_type": "sale",
   "property_type_raw": "Place",
   "property_type_label_hint": "Vacant Land / Plot",
@@ -53,8 +53,108 @@
   "garden": false,
   "kitchen_features": [],
   "garden_features": [],
-  "security_features": [],
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117674295"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Vacant Land / Plot"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Street Address",
+      "v": [
+        "1750 Argus Drive, Lalela Estate"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "01 October 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Erf Size",
+      "v": [
+        "593 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Levies",
+      "v": [
+        "R 1 750"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "No Transfer Duty",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 1 010"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Pets Allowed",
+      "v": [
+        "Yes"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Standalone Building",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Internet Access",
+      "v": [
+        "Fibre"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Wheelchair Accessible",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Generator",
+      "v": [
+        "No"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Backup Water",
+      "v": [
+        "No"
+      ]
+    }
+  ],
+  "strip_tags": [],
   "bathroom_features": [],
-  "_title": "Vacant land / plot for sale in Lalela Estate",
+  "_title": "Make Your Move to Lalela",
   "_expected_photo_count": 14
 }

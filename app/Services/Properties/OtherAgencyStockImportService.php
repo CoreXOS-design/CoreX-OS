@@ -100,6 +100,13 @@ class OtherAgencyStockImportService
             $bathsTotal = $bathsWhole + 0.5 * $halfBaths;
             $parkingCount = OtherAgencyStockFieldMapper::toWholeNumber($data['parking_count'] ?? null);
 
+            // 2026-10-07 (P24 import 117580701): the page's Property Overview / Rooms / External
+            // Features / Building / Other Features rows and icon-strip tags -> the CoreX features
+            // to tick. Only when the extension sent them; an older extension keeps the old shape.
+            $featureMap = (array_key_exists('feature_rows', $data) || array_key_exists('strip_tags', $data))
+                ? OtherAgencyStockFeatureMapper::map((array) ($data['feature_rows'] ?? []), (array) ($data['strip_tags'] ?? []))
+                : null;
+
             $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
                 'beds'              => $beds,
                 'baths'             => $bathsTotal,
@@ -112,6 +119,8 @@ class OtherAgencyStockImportService
                 'kitchen_features'  => $data['kitchen_features'] ?? [],
                 'garden_features'   => $data['garden_features'] ?? [],
                 'security_features' => $data['security_features'] ?? [],
+                'global_features'   => $featureMap['global'] ?? null,
+                'extra_spaces'      => $featureMap['spaces'] ?? [],
             ], $property->spaces_json);
 
             $suburbText = $p24Suburb['suburb'] ?? $data['suburb'] ?? null;
@@ -188,7 +197,11 @@ class OtherAgencyStockImportService
                 // then only on the FIRST import (a reimport must not keep
                 // resetting "days on market").
                 'listed_date'   => $data['date_posted'] ?? $property->listed_date ?? now()->toDateString(),
-                'features_json' => ! empty($data['features']) ? array_values($data['features']) : ($property->features_json ?? null),
+                // The flat mirror of spaces_json (same recipe the property page uses on save), so a later
+                // save recomputes an identical list instead of looking like an edit to this locked column.
+                'features_json' => ! empty($data['features'])
+                    ? array_values($data['features'])
+                    : (OtherAgencyStockFeatureMapper::flatFeatures($spacesJson) ?: ($property->features_json ?? null)),
                 'levy'          => OtherAgencyStockFieldMapper::parseCurrency($data['levy'] ?? null) ?? $property->levy ?? null,
                 'rates_taxes'   => OtherAgencyStockFieldMapper::parseCurrency($data['rates_taxes'] ?? null) ?? $property->rates_taxes ?? null,
                 'zone_type'     => $zoneType ?? $property->zone_type ?? null,

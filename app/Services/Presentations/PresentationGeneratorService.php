@@ -62,6 +62,10 @@ class PresentationGeneratorService
         return DB::transaction(function () use ($propertyId, $agentUserId, $agencyId, $options) {
             $property = Property::findOrFail($propertyId);
 
+            // Other Agency Stock can never be presented (spec other-agency-stock.md §5c) —
+            // belt-and-braces for any non-controller caller (job, CLI, future route).
+            \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('generate_presentation', $property);
+
             // Keystone — belt-and-braces. The controller gate at
             // PresentationGeneratorController::generate rejects blank
             // property_type with a user-facing message. This assertion

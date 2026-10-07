@@ -54,6 +54,11 @@ class AdManagerController extends Controller
      */
     private function canAdvertise(User $user, Property $p, string $scope): bool
     {
+        // Other Agency Stock can never be advertised (spec other-agency-stock.md §5c):
+        // the picker already hides it, this refuses a hand-built request for its id.
+        if (\App\Services\Properties\OtherAgencyStockActionRules::isBlocked('ad_builder', $p)) {
+            return false;
+        }
         if ((int) $p->agent_id === (int) $user->id) {
             return true;
         }
